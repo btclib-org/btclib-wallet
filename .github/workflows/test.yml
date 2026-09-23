@@ -1,0 +1,305 @@
+---
+name: test
+
+# the suite under coverage, and the distribution files built, checked and
+# installed: the two questions a pull request is gated on besides the
+# hooks and the documentation build, which lint.yml and docs.yml ask.
+# release.yml calls this workflow, so the `dist` job below is also the one
+# build a release publishes
+
+on:
+  push:
+    # main only: a push to a branch with an open pull request would run
+    # this workflow twice, once per event, in two concurrency groups that
+    # do not cancel each other. main keeps a trigger of its own because a
+    # merge creates a commit the pull request never tested. Tag pushes are
+    # the release workflow's
+    branches: [main]
+    # a documentation-only commit would otherwise run every job below.
+    # Only on push: "test: every job passed" is a required check, and on
+    # pull_request a filter would produce no run at all, which blocks the
+    # merge instead of passing it. The changes job below is the
+    # pull_request side of the same question
+    paths-ignore:
+      - "*.md"
+  pull_request:
+    # ready_for_review, so a pull request marked ready gets the run the
+    # draft condition below withheld; closed, so that the landing falls in
+    # this pull request's own concurrency group and cancels the run it
+    # supersedes, every job declining the real work on it
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+  # the release workflow reuses the whole pipeline
+  workflow_call:
+    inputs:
+      concurrency-suffix:
+        description: >
+          Appended to the concurrency group, and the release workflow is
+          the only caller that passes one. See the group below.
+        type: string
+        default: ""
+      version-suffix:
+        description: >
+          Appended to the version in pyproject.toml before the `dist`
+          job builds anything, by the dev-version composite action. A
+          release passes nothing and ships the version the tree declares;
+          a rehearsal passes a .dev suffix, which is how it reaches
+          TestPyPI with a version that index has not already consumed.
+        type: string
+        default: ""
+      disable-dist-cache:
+        description: >
+          Whether the `dist` job's own `Setup uv` step fetches its
+          dependencies afresh instead of from cache. Only release.yml's
+          call sets this: a cache entry written by one run is read by
+          another, and the build whose output reaches an index is the one
+          that must not risk a poisoned cache reaching the wheel it ships.
+        type: boolean
+        default: false
+  # the gate on demand, for a branch whose pull request is not open yet
+  workflow_dispatch:
+
+# least privilege for the GITHUB_TOKEN: everything running in a job
+# (actions, dependencies, build scripts) can read the token, so it must
+# not be able to write to the repository
+permissions:
+  contents: read
+
+# cancel superseded runs on the same branch or pull request. Named
+# literally rather than with github.workflow, which in a called workflow
+# is the caller's name. A pull_request run groups by the pull request's
+# own number, which no push's github.ref can equal, so a closed run never
+# lands in main's push group. The suffix keeps a release run out of the
+# branch groups: inside a called workflow github.ref is the caller's, so a
+# rehearsal dispatched on a branch would otherwise compute the group a
+# push to that branch computes, and one would cancel the other
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}${{ inputs.concurrency-suffix }}
+  cancel-in-progress: true
+
+jobs:
+  # the cheapest job in the workflow, and the one that decides whether the
+  # rest of it runs: a pull request that edits only prose changes nothing
+  # the jobs below read. The event handling and the decision are
+  # btclib-org/.github's, called at @main (section 10 of its README.md);
+  # what stays here is which files are this tree's own prose
+  changes:
+    name: Decide whether the jobs below have anything to check
+    uses: btclib-org/.github/.github/workflows/reusable-changes.yml@main
+    # a job's permissions replace the workflow's rather than adding to
+    # them, so contents: read is named beside the scope the callee's job
+    # adds: a block leaving it off would bound the call to contents: none
+    permissions:
+      contents: read
+      pull-requests: read # the callee's own job needs it to list a pull request's files
+    with:
+      # every root prose file but README.md, .github's own markdown, the
+      # mutation configuration and the detect-secrets baseline -- nothing
+      # these jobs read. README.md stays off the list, being the long
+      # description the dist job's twine and pyroma steps check. No
+      # workflow is on it either: leaving every workflow edit to run
+      # everything is the cheap direction to be wrong in. A literal block
+      # scalar, the pattern having no space in it, which keeps yamllint's
+      # width rule off the line
+      prose-pattern: |-
+        ^(AUTHORS|CHANGELOG|CLAUDE|CONTRIBUTING|RELEASE_NOTES|RELEASING|REPOSITORY|REVIEWING|SECURITY)\.md$|^\.github/[^/]*\.md$|^\.github/mutation/[^/]*\.toml$|^\.secrets\..*baseline$
+
+  coverage:
+    name: Measure coverage, gated at 100%
+    if: >-
+      ${{ !github.event.pull_request.draft
+      && github.event.action != 'closed'
+      && needs.changes.outputs.code == 'true' }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # every action is pinned to a commit SHA, the tag in the comment: a
+      # tag is a name its owner can move, and these run in a job that can
+      # read the workflow token
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # checkout leaves the token in .git/config by default, where
+          # anything running afterwards can read it. No job in these
+          # workflows performs an authenticated git operation, so nothing
+          # needs it to stay
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # the cache holds the wheels uv.lock resolves, which every run
+          # otherwise fetches again
+          enable-cache: true
+          # what .python-version pins and what a bare `uv run` gives a
+          # maintainer locally: the number this job gates on is a ratio of
+          # statements, and the statement count moves between interpreters.
+          # Pinned here even so, because the coupling belongs where the gate
+          # runs
+          python-version: "3.14"
+      # neither --cov nor its report format is repeated here: addopts
+      # carries --cov, and [tool.coverage.report] the report, so the bare
+      # pytest below is what a contributor runs
+      - name: Run pytest under coverage
+        run: uv run --locked --no-default-groups --group test pytest
+
+  # the packaging metadata is checked on every pull request, not only on
+  # the tag that ships it: a release is the one place where finding a
+  # problem is too late, a version being consumed by the upload that
+  # carries it. This job pins the timestamp, applies a rehearsal's version
+  # suffix, builds once, and uploads what it built before installing
+  # anything; release.yml's publish jobs download that artifact and its
+  # attest job signs the digests this upload fixed
+  dist:
+    name: Build the distribution files, check them, install one
+    if: >-
+      ${{ !github.event.pull_request.draft
+      && github.event.action != 'closed'
+      && needs.changes.outputs.code == 'true' }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # caching off only when release.yml calls this workflow, for the
+      # reason the input's own description gives
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: ${{ !inputs.disable-dist-cache }}
+      # what the sdist normalizer below reads, and what it writes into
+      # every member of the archive: uv_build stamps `0` there and ignores
+      # this variable, so the export is what puts the commit's own second
+      # into the bytes `attest` signs. The bill of materials reads it too,
+      # as the document's own timestamp
+      - name: Pin the build timestamp to the commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      # empty on every trigger but a release rehearsal: `inputs` is unset
+      # outside a workflow_call, so a pull request or a push to main ships
+      # the version the tree declares, as a release does
+      - name: Make the version unique for TestPyPI (rehearsal only)
+        if: inputs.version-suffix != ''
+        uses: ./.github/actions/dev-version # zizmor: ignore[self-repository]
+        with:
+          suffix: ${{ inputs.version-suffix }}
+      # uv build builds the sdist first and then the wheel from it, so what
+      # is checked below is what a user installing from source would get.
+      # That the sdist is complete is check-sdist's job, a pre-commit hook
+      - name: Build the distribution files
+        run: uv build
+      # the member metadata of the sdist, rewritten to the epoch above so
+      # that a rebuild of this commit answers with these bytes. It rewrites
+      # rather than checks, so this step decides the digest `attest` signs.
+      # --no-project, so this runs on the interpreter uv already fetched
+      # and installs nothing into the tree it is about to publish
+      - name: Rewrite the sdist's member metadata
+        run: |
+          uv run --no-project --python 3.14 \
+            .github/scripts/normalize_sdist.py dist/
+          sha256sum dist/*
+      # what the files contain, as a document: reproducible for the reason
+      # the step above is, and signed by release.yml's attest job beside
+      # the distribution files. Into a directory of its own, dist/ being
+      # the artifact the publish jobs hand to an index
+      - name: Write the bill of materials
+        run: |
+          uv run --no-project --python 3.14 \
+            .github/scripts/generate_sbom.py dist/ sbom/
+      # before anything is installed: a step below runs third-party code,
+      # and uploading first freezes what release.yml's publish jobs will
+      # download, so the worst a compromised dependency can do here is fail
+      # this job
+      - name: Upload the distribution files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Upload the bill of materials
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: sbom/
+      # the same validation PyPI applies on upload: broken metadata, or a
+      # README that does not render, cannot be fixed by reuploading
+      - name: Check the metadata and the long description
+        run: uv run --locked --only-group check twine check --strict dist/*
+      # where the files land once installed, diffed against the package
+      # tree [tool.check-wheel-contents] names, in both directions
+      - name: Check the wheel contents
+        run: uv run --locked --only-group check check-wheel-contents dist/*.whl
+      # metadata that is valid but poor, which twine cannot see; the pyroma
+      # hook rates the source tree, this the sdist that would ship
+      - name: Rate the packaging metadata
+        run: uv run --locked --only-group check pyroma --min 10 dist/*.tar.gz
+      # install the wheel from an empty directory, so the import finds the
+      # wheel and not the source tree, and use it: the address is BIP84's
+      # first for its mnemonic, and deriving it opens the english word list,
+      # a data file the wheel has to carry. The dependencies resolve from
+      # the index, which is what a user installing this wheel gets
+      - name: Smoke-test the wheel, installed on its own
+        run: |
+          cd "$RUNNER_TEMP"
+          uv venv
+          uv pip install "$GITHUB_WORKSPACE"/dist/*.whl
+          .venv/bin/python -c "
+          from importlib.metadata import requires, version
+          from btclib_wallet import bip44
+          from btclib_wallet.mnemonic import bip39
+
+          print(version('btclib-wallet'), requires('btclib-wallet'))
+          xprv = bip39.mxprv_from_mnemonic('abandon ' * 11 + 'about')
+          address = bip44.address_from_der_path(xprv, 'm/84h/0h/0h/0/0')
+          assert address == 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', address
+          "
+
+  # the single check main's branch protection requires from this workflow.
+  # The rule names its checks as literal strings stored outside the
+  # repository, so it names this job, which never changes, and this job
+  # depends on the others: adding a job here is enough to gate on it
+  test-passed:
+    # the name is what branch protection matches, and it carries the
+    # workflow because a check context is keyed by name alone
+    name: "test: every job passed"
+    needs: [changes, coverage, dist]
+    # not success(): a job whose dependencies failed is skipped, and a
+    # skipped check satisfies the rule, so the gate has to run to be able
+    # to fail. Not always(): a cancellation of this run by its concurrency
+    # group would then fail it. The draft and closed conditions every job
+    # above carries, so a draft skips uniformly
+    if: ${{ !cancelled() && !github.event.pull_request.draft && github.event.action != 'closed' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # the whole needs context rather than each job by name, so a job
+      # added to needs is covered without touching this. "skipped" passes:
+      # a prose-only pull request skips coverage and dist by design.
+      # In the shell rather than in a boolean `contains(needs.*.result,
+      # ...)` expression, which is skipped when false and leaves the job
+      # green over a failed matrix (btclib-org/btclib#1001). The `case`
+      # refuses an empty field and an empty join, which the loop's word
+      # splitting would drop (btclib-org/btclib#1454), and the allowlist
+      # fails a result this file does not anticipate. The interpolated
+      # join is a closed set GitHub writes, so no fork-controlled string
+      # reaches this shell
+      - name: Fail unless every job above succeeded or was legitimately skipped
+        run: | # zizmor: ignore[template-injection]
+          results='${{ join(needs.*.result, ',') }}'
+          echo "results: $results"
+          case ",$results," in
+            *,,*)
+              echo "::error::a job this gate depends on reported no result"
+              exit 1
+              ;;
+          esac
+          IFS=,
+          for result in $results; do
+            case "$result" in
+              success | skipped) ;;
+              *)
+                echo "::error::a job this gate depends on reported $result"
+                exit 1
+                ;;
+            esac
+          done
