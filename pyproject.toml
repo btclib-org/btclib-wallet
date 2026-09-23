@@ -1,0 +1,588 @@
+[build-system]
+# btclib's backend, for btclib's reasons: what goes into a distribution is
+# declared by the glob patterns of [tool.uv.build-backend] below, beside
+# the rest of the configuration. The floor is where the sdist's own
+# pyproject.toml becomes a normalized copy of this file with the verbatim
+# one kept beside it as pyproject.toml.orig; the ceiling is the next
+# minor, which is where uv's versioning policy puts a breaking change,
+# this backend releasing with uv and versioned by it
+requires = ["uv_build>=0.12.0,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "btclib-wallet"
+# the one place the version is declared: btclib_wallet.__version__ reads
+# it back from the installed metadata. A cycle in progress is the month
+# alone, and the day is added by hand on the day a release is cut. The
+# month is btclib's own open cycle: what this package imports from btclib
+# is on btclib's `main` and in no btclib release yet, so no release of
+# this package can precede the btclib release that carries those names
+version = "2026.10"
+description = "Bitcoin wallet functionality built on btclib"
+readme = "README.md"
+# PEP 639: a SPDX expression and the files it refers to. COPYRIGHT is not
+# among them: it is the notice every source file opens with, CPY001 below
+# being what keeps it there, and a file of the repository rather than of
+# the distribution
+license = "MIT"
+license-files = ["LICENSE", "AUTHORS.md"]
+authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
+requires-python = ">=3.10"
+dependencies = [
+    # the protocol package every module here is written against, and the
+    # floor is the btclib release that will carry what this tree imports:
+    # the names this code takes from btclib's `main` are in no release
+    # yet, so a floor naming one would describe an install that fails on
+    # its first import. [tool.uv.sources] below is what resolves it
+    # meanwhile, and is uv's alone: pip reads this line
+    "btclib>=2026.10",
+    # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
+    # imports it at module level rather than behind a guard, so anything
+    # resolving older fails on the import itself
+    "bitcoin-core-rpc>=2026.9.3",
+    # `typing.override` is 3.12's and `typing.TypeIs` 3.13's, and the floor
+    # is below both, so both come from the backport; the release that adds
+    # `TypeIs` is the later of the two and the floor
+    "typing-extensions>=4.10",
+]
+keywords = [
+    # by relevance rather than alphabetical: PyPI shows keywords as they
+    # are given, and the first few are read as what the package is
+    "bitcoin",
+    "wallet",
+    "bip32",
+    "bip39",
+    "slip39",
+    "electrum",
+    "psbt",
+    "output-descriptors",
+    "miniscript",
+    "hardware-wallet",
+    "message-signing",
+    "silent-payments",
+    "coin-selection",
+    "bip44",
+    "bip85",
+    "bip21",
+    "bolt11",
+    "mnemonic",
+]
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+# the libsecp256k1 bindings, through btclib's own extra rather than named
+# again here: btclib is what delegates to them, and its extra is what
+# states the floor its delegation needs. An extra rather than a
+# dependency for btclib's reason: every delegation declines where the
+# bindings are absent, and the Python arithmetic answers instead
+secp256k1 = ["btclib[secp256k1]>=2026.10"]
+
+[project.urls]
+homepage = "https://btclib-wallet.readthedocs.io/"
+documentation = "https://btclib-wallet.readthedocs.io/"
+download = "https://github.com/btclib-org/btclib-wallet/releases"
+changelog = "https://github.com/btclib-org/btclib-wallet/blob/main/RELEASE_NOTES.md"
+repository = "https://github.com/btclib-org/btclib-wallet"
+issues = "https://github.com/btclib-org/btclib-wallet/issues"
+pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
+
+# Every entry below declares a lower bound, the release uv.lock resolved
+# when the entry was written: a bound no run has installed would claim a
+# compatibility nothing tested. A bound that has fallen below the lock is
+# by design, `uv lock --upgrade` moving the resolution past it and leaving
+# this file's text alone
+[dependency-groups]
+# the extra of `project.optional-dependencies` again, as a group: uv has
+# no default extra, so an extra alone would leave `uv sync` resolving a
+# btclib without the bindings, which is half a suite -- the tests marked
+# `bindings` compare the two implementations against each other
+bindings = ["btclib[secp256k1]>=2026.10"]
+# what runs the suite, without what the suite delegates to: `test` is the
+# two together, while `harness` alone is the environment a run without
+# the bindings builds. uv's `--no-group` suppresses a group that was
+# selected, not one another group includes
+harness = [
+    "coverage>=7.16.0",
+    "hypothesis>=6.168.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-randomly>=5.0.0",
+    "pytest-xdist>=3.8.0",
+]
+test = [{ include-group = "harness" }, { include-group = "bindings" }]
+lint = [
+    { include-group = "bindings" },
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
+    "ruff>=0.16.7",
+]
+# what inspects the distribution files uv builds, before an upload
+# consumes the version. Named `check`, not `build`: the tools that build a
+# distribution are not the ones that inspect one
+check = [
+    "check-sdist>=1.6.0",
+    "check-wheel-contents>=0.6.3",
+    "pyroma>=5.0.1",
+    "twine>=7.0.0",
+    # pyroma builds this project non-isolated to read its metadata, so the
+    # environment carries [build-system]'s own specifier and the isolated
+    # fallback, which needs an index, is never asked for
+    "uv_build>=0.12.0,<0.13",
+]
+mutation = ["cosmic-ray>=8.7.0"]
+# the marker because the `sphinx` release the lock resolves declares a
+# Requires-Python above requires-python's floor, and an unmarked bound
+# leaves the older interpreters no release to resolve
+docs = [
+    { include-group = "bindings" },
+    "furo>=2025.12.19; python_full_version >= '3.12'",
+    "myst-parser>=5.1.0; python_full_version >= '3.12'",
+    "sphinx>=9.1.0; python_full_version >= '3.12'",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+    { include-group = "check" },
+    { include-group = "docs" },
+    { include-group = "mutation" },
+]
+
+[tool.uv]
+# the oldest uv that may read uv.lock, at the ceiling rather than below
+# it: section 1 of the organization standard argues why, and section 15
+# carries the command that re-derives the ceiling
+required-version = ">=0.12.17"
+
+[tool.uv.sources]
+# btclib's `main`, and not its last release, because what this tree
+# imports from btclib is there and in no release yet: the modules here
+# were cut out of btclib's own tree, and the names they call arrived
+# after btclib's last release. The floor in [project.dependencies] stays
+# beside this and is not made redundant by it: this table is uv's and is
+# dropped from the metadata anything else reads, so the floor is what pip
+# resolves. `uv run --locked` runs the commit uv.lock pins, so a change on
+# btclib's `main` reaches this tree at the re-lock that takes it
+btclib = { git = "https://github.com/btclib-org/btclib", branch = "main" }
+
+[tool.uv.build-backend]
+# `module-name` is not written: it defaults to `project.name` normalized,
+# which is `btclib_wallet` already.
+#
+# What the sdist carries beyond what the backend puts there by itself --
+# pyproject.toml, the module under `module-root`, and the files
+# `project.readme` and `project.license-files` name. Patterns are
+# anchored, so `*.md` is the root's own markdown and does not reach the
+# module's, and `/**` is what recurses
+source-include = [
+    "*.jsonc",
+    "*.md",
+    "*.toml",
+    "*.yaml",
+    ".python-version",
+    ".secrets.baseline",
+    "uv.lock",
+    "docs/**",
+    "tests/**",
+]
+# exclusions win over the inclusions above, and are unanchored unless a
+# pattern starts with "/"
+source-exclude = [
+    # where `make html` writes
+    "/docs/build",
+    # a cache a tool writes beside what it has just read, taken out by the
+    # property such caches share -- a dot-prefixed basename under a tree
+    # the archive carries whole -- rather than by the name of the tool.
+    # Anchored, so that the root's own dotted files stay in the archive
+    "/docs/**/.*",
+    "/src/btclib_wallet/**/.*",
+    "/tests/**/.*",
+    # a leftover of the same kind whose name carries no leading dot
+    "*.egg-info",
+    ".gitignore",
+]
+
+[tool.check-wheel-contents]
+# the wheel's `btclib_wallet/` diffed against this checkout's
+# `src/btclib_wallet/`, file for file and in both directions (W101
+# missing, W102 extra): with no `package` given, check-wheel-contents
+# reads the wheel's own RECORD and asks nothing about the tree the wheel
+# was supposed to carry, so a dropped `py.typed` or `_data/*.txt` is
+# reported clean
+package = ["src/btclib_wallet"]
+
+[tool.check-sdist]
+# tracked files the sdist is meant not to carry, beyond what
+# [tool.uv.build-backend] source-exclude takes out, which check-sdist
+# reads for the uv backend: the workspaces of an editor and of an agent,
+# the file git reads, and COPYRIGHT, which `project.license-files` does
+# not name
+git-only = [".claude/", ".gitattributes", ".vscode/", "COPYRIGHT"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# -ra summarizes everything that was not a plain pass; --strict-config
+# makes a typo in this table an error, and --strict-markers does the same
+# for a marker nobody registered. --dist worksteal because the cost is
+# lopsided: a worker that draws several of the slow vector files takes
+# back nothing from an idle one under xdist's default `load`.
+# pytest-randomly is in the test group and needs no flag: installed, it
+# shuffles the order and prints the seed, and `-p no:randomly` puts the
+# file order back when a failure has to be reproduced against it.
+#
+# --cov is here so that the ratchet below is what a bare `uv run pytest`
+# measures, and tests/conftest.py's `coverage_fail_under` is what gates a
+# partial run at zero instead. Its position is load-bearing: --cov takes
+# an optional value, so as the last token here it would swallow the first
+# path the command line gives, and --durations=8 after it keeps it safe
+addopts = "-ra --cov --durations=8 -n auto --dist worksteal --strict-config --strict-markers"
+# a test that was expected to fail and passed is a fixed bug still marked
+# as broken: strict turns it red instead of reporting xpass
+xfail_strict = true
+markers = [
+    "integration: needs an external program, opt-in via BTCLIB_INTEGRATION",
+    "bindings: compares against btclib_secp256k1, so it needs it installed",
+]
+# a deprecation warning is the early form of a break, and there is time to
+# act on it only if it is not silent. An ignore added here names the
+# warning, not a module, and says what would let it be dropped
+filterwarnings = ["error"]
+
+[tool.codespell]
+# the vendored data is skipped rather than corrected: the BIP39 wordlists
+# are normative, and a test vector stays byte for byte what upstream
+# published. _generated_files holds committed output, and
+# .secrets.baseline and uv.lock are hashes
+skip = "*/_data/*.json,*/_data/*.csv,*/_data/*.txt,*/_data/*.bin,*/_generated_files/*,.secrets.baseline,uv.lock"
+# identifiers, not misspellings: "nd" is the Neutered Derivation of the
+# bip32 docstrings, and "te" is what electrum's own NFD spelling of
+# "término" tokenizes into at the combining accent, a passphrase
+# tests/mnemonic/electrum_test.py needs in exactly that spelling
+ignore-words-list = "nd,te"
+# a misspelling written on purpose goes in backticks, which hides it from
+# this hook: what is inside backticks is an identifier, typos' half of the
+# work and not this hook's
+ignore-regex = '`[^`]*`'
+
+# the second spell checker, blind in different places from the first:
+# typos splits hyphens, snake_case and camelCase itself, where codespell
+# keeps a hyphenated token whole
+[tool.typos.files]
+# the vendored data [tool.codespell] skips above, written again because the
+# glob syntax differs: "*/_data/*.json" matches at any depth for codespell
+# and one directory deep for typos
+extend-exclude = [
+    "**/_data/*.json",
+    "**/_data/*.csv",
+    "**/_data/*.txt",
+    "**/_data/*.bin",
+    "**/_generated_files/*",
+    ".secrets.baseline",
+    "uv.lock",
+]
+
+[tool.typos.default]
+# addresses, keys and signatures written inline in the test sources: an
+# unbroken run of 26 characters or more is a literal, not a word, 26 being
+# the length of the shortest possible base58 address, and the trailing =
+# covering base64 padding
+extend-ignore-re = ['[0-9A-Za-z+/]{26,}={0,2}']
+
+[tool.typos.default.extend-identifiers]
+# HWI's own former spelling of error code -4: upstream renamed it to
+# UNKNOWN_DEVICE_TYPE and kept this as a compat alias, and the entry of
+# tests/_data/README.md that pins HWI's error codes quotes it
+UNKNWON_DEVICE_TYPE = "UNKNWON_DEVICE_TYPE"
+# BOLT9's own name for the feature at bits 8/9, `optin` for opt-in
+# (09-features.md), which src/btclib_wallet/bolt9.py transcribes
+var_onion_optin = "var_onion_optin"
+
+[tool.typos.default.extend-words]
+# "nd" is the Neutered Derivation of the bip32 docstrings, as for
+# codespell above
+nd = "nd"
+# BIP322's prefix for the full variant of a signature, three characters as
+# the other two are: `full` in its place is a signature every other
+# implementation refuses
+ful = "ful"
+
+[tool.typos.type.verbatim]
+# the files that quote a word rather than use it: a changelog entry quotes
+# the misspelling it is about, and .pre-commit-config.yaml the ones the
+# two spell checkers found
+extend-glob = ["CHANGELOG.md", "RELEASE_NOTES.md", ".pre-commit-config.yaml"]
+extend-ignore-re = ['`[^`]*`']
+
+[tool.typos.type.mixed-case-vectors]
+# electrum's seed-type table quotes several of its mnemonics a second time
+# in mIxEd CaSe, that being the normalization under test, and a checker
+# that splits camelCase reads the halves as words
+extend-glob = ["electrum_test.py"]
+extend-ignore-re = ['\w*[a-z][A-Z]\w*']
+
+[tool.coverage.run]
+# what the ratchet measures, named here rather than on the command line:
+# unnamed, `--cov` measures every file the run imports, btclib included
+source = ["btclib_wallet", "tests"]
+# tests/integration is omitted because those tests skip themselves without
+# BTCLIB_INTEGRATION: their bodies would be uncovered lines of tests/ at
+# every ordinary run, which is the ratchet reporting the switch rather
+# than a defect
+omit = ["*/site-packages/*", "tests/integration/*"]
+# statement coverage alone calls a half-tested `if` fully covered
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+precision = 2
+# 100 is special-cased by coverage, so nothing short of an exact 100.00%
+# passes, and a line no ordinary run reaches is covered by patching what
+# stands in the way or carries a `pragma: no cover --` whose reason names
+# the case on that same line
+fail_under = 100.0
+
+[tool.mypy]
+strict = true
+show_column_numbers = true
+# the organization's list, the same in every repository that runs mypy
+# (section 6 of the standard)
+enable_error_code = [
+    "deprecated",
+    "exhaustive-match",
+    "explicit-override",
+    "ignore-without-code",
+    "mutable-override",
+    "possibly-undefined",
+    "redundant-expr",
+    "redundant-self",
+    "truthy-bool",
+    "truthy-iterable",
+    "unimported-reveal",
+    "unused-awaitable",
+]
+warn_unreachable = true
+# the oldest interpreter requires-python admits: without the key mypy
+# targets whatever runs it, and a typing construct missing from the floor
+# is then invisible
+python_version = "3.10"
+# a regular expression `re.search`'d against each discovered path, so it is
+# anchored: unanchored, "build" also matches tests/tx_builder_test.py
+exclude = ["^build/"]
+
+[tool.ruff]
+# target-version is inferred from project.requires-python.
+#
+# what makes an exclude hold for a path named explicitly on the command
+# line, and not only for the bare, path-less command
+force-exclude = true
+
+[tool.ruff.format]
+# the formatter reads the fenced ```python blocks of a .md file, and these
+# two are append-only
+exclude = ["CHANGELOG.md", "RELEASE_NOTES.md"]
+
+[tool.ruff.lint]
+# preview and explicit-preview-rules only make sense as a pair: naming a
+# rule in `ignore` below is itself a preview feature, and the second key
+# keeps every other preview rule off unless this file names it
+preview = true
+explicit-preview-rules = true
+# every rule family ruff ships, so a new family arrives with the bump of
+# ruff's own pin rather than never. Section 5 of the organization standard
+# states the rule; `ignore` below is where every declined rule's reason
+# lives
+select = ["ALL"]
+# pylint's unspecified-encoding, a preview rule: a call that omits the
+# encoding takes the locale's, which is cp1252 on Windows
+extend-select = ["unspecified-encoding"]
+ignore = [
+    # ruff's own docs/formatter.md, "Conflicting lint rules": each of these
+    # is undone by the formatter's own rewriting
+    "tab-indentation",
+    "indentation-with-invalid-multiple",
+    "indentation-with-invalid-multiple-comment",
+    "over-indented",
+    "docstring-tab-indentation",
+    "triple-single-quotes",
+    "bad-quotes-inline-string",
+    "bad-quotes-multiline-string",
+    "bad-quotes-docstring",
+    "avoidable-escaped-quote",
+    "unnecessary-escaped-quote",
+    "missing-trailing-comma",
+    "prohibited-trailing-comma",
+    # a magic method is documented by the data model it implements, and a
+    # presence check on `__init__`'s docstring is satisfied by a line that
+    # restates the annotations (btclib-org/.github#178)
+    "undocumented-magic-method",
+    "undocumented-public-init",
+    # code length is the formatter's: what it leaves over 88 columns is a
+    # string literal or a comment, neither shorter for being reported
+    "line-too-long",
+    # complexity metrics this codebase does not bound globally
+    "too-many-arguments",
+    "too-many-statements",
+    "too-many-positional-arguments",
+    # what is compared is almost always the size of a cryptographic object
+    # or a protocol constant: the size *is* the domain
+    "magic-value-comparison",
+    # the message is built where the exception is raised, the only place
+    # holding the value refused
+    "raise-vanilla-args",
+    "raw-string-in-exception",
+    "f-string-in-exception",
+    "dot-format-in-exception",
+    # `check_validity`, `compressed` and their like are ordinary
+    # positional/default parameters of the public surface
+    "boolean-type-hint-positional-argument",
+    "boolean-default-value-positional-argument",
+    "boolean-positional-value-in-call",
+    # a dispatch table's members share one signature so that a caller does
+    # not need to know which one it is calling, as the descriptor parsers
+    # do: the rule cannot tell a uniform interface from an unread parameter
+    "unused-function-argument",
+    "unused-method-argument",
+    "unused-class-method-argument",
+    "unused-static-method-argument",
+    "unused-lambda-argument",
+    # an import moved behind `if TYPE_CHECKING:` turns autodoc's resolution
+    # of a deferred annotation into a fallback on its text, which the docs
+    # build's `-n` then fails on
+    "typing-only-first-party-import",
+    "typing-only-third-party-import",
+    "typing-only-standard-library-import",
+    "runtime-cast-value",
+    # an identifier here spells what it names: a point `Q`, a protocol
+    # field as its wire format spells it, an alias stating what an import
+    # means in the importing module
+    "invalid-function-name",
+    "invalid-argument-name",
+    "non-lowercase-variable-in-function",
+    "constant-imported-as-non-constant",
+    "mixed-case-variable-in-global-scope",
+    # a retry loop whose exception is its own control flow
+    "try-except-in-loop",
+    # a vector file parsed into whatever JSON gives back, narrowed by the
+    # caller
+    "any-type",
+    # a test verifying an implementation detail on purpose, or a sibling
+    # module of this package reaching into another's private state
+    "private-member-access",
+    # zero-finding for a construct this codebase does not contain, so
+    # selecting it would read as an enforced invariant while enforcing
+    # nothing
+    "DTZ",
+    "G",
+    "LOG",
+    "ASYNC",
+    "NPY",
+    "EXE",
+    "AIR",
+    "DJ",
+    "FAST",
+    "ICN",
+    "INT",
+    "PD",
+    "YTT",
+    # flake8-todos disciplines the format of a marker FIX already refuses
+    "invalid-todo-tag",
+    "missing-todo-author",
+    "missing-todo-link",
+    "missing-todo-colon",
+    "missing-todo-description",
+    "invalid-todo-capitalization",
+    "missing-space-after-todo-colon",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# flake8-no-pep420: entry points a workflow step or sphinx invokes by
+# path, never an import
+".github/scripts/*.py" = ["INP001"]
+"docs/source/conf.py" = ["INP001"]
+"**/__init__.py" = ["F401"]         # re-exported imports
+# preview mode's undefined-export does not special-case a module-level
+# __getattr__ (astral-sh/ruff#18504, open), which is how the root
+# publishes its submodules; tests/all_test.py walks `__all__` with getattr
+# and fails on the same drift
+"src/btclib_wallet/__init__.py" = ["F822"]
+# collecting entropy from dice is a conversation: the module prompts with
+# input() and prints which rolls count, so its prints are the interface
+"src/btclib_wallet/mnemonic/entropy.py" = ["T201"]
+# a script whose caller is a workflow step: the vendored-vector checker,
+# whose BEHIND, SKIPPED and all-clear lines are what a weekly run's log
+# says happened
+".github/scripts/check_vendored_vectors.py" = ["T201"]
+# and the device wait, whose whole output is one line for the log of the
+# job that started an emulator
+".github/scripts/wait_for_hwi_device.py" = ["T201"]
+# the D rules are not here: a public test function states what it
+# verifies under the same docstring gate as the library
+"tests/**" = [
+    "S101",   # assert
+    "S311",   # non-cryptographic random: fine in tests
+    "B017",   # assert-raises-exception
+    "PT011",  # pytest-raises-too-broad
+    "PT012",  # pytest-raises-with-multiple-statements
+    "PT018",  # pytest-composite-assertion
+    "RUF043", # pytest-raises-ambiguous-pattern
+]
+
+[tool.ruff.lint.mccabe]
+# ruff's default, and a function over it carries a noqa whose reason is
+# the comment above the def; RUF100 fails the noqa the day a refactor
+# brings the function under the line
+max-complexity = 10
+
+[tool.ruff.lint.pycodestyle]
+# 80 columns on the prose, where the code keeps the formatter's 88:
+# ruff-format reflows code and never a comment or a docstring
+max-doc-length = 80
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.flake8-pytest-style]
+# the names of a parametrize are a signature, and the comma-separated
+# string is how pytest's own documentation writes one
+parametrize-names-type = "csv"
+
+[tool.ruff.lint.flake8-copyright]
+# all three lines of the notice COPYRIGHT holds, anchored at the start of
+# the file, so that a file keeping the first line and dropping the others,
+# or opening with anything above the notice, does not pass
+notice-rgx = "^# Copyright \\(c\\) The btclib developers\\n# Distributed under the MIT software license, see the accompanying\\n# LICENSE file or https://opensource\\.org/license/mit for the full text\\."
+
+# what keeps the docstrings of the public surface complete, ruff having no
+# rule for a missing argument
+[tool.pydoclint]
+# napoleon renders it
+style = "google"
+# the types are in the signature, and mypy is strict
+arg-type-hints-in-docstring = false
+check-return-types = false
+# a docstring's contract is prose here, and `false` would ask for each
+# fact a second time in a shape pydoclint can parse
+skip-checking-short-docstrings = true
+allow-init-docstring = true
+# a call here refuses mostly through what it delegates to, so what a caller
+# catches is not what this body raises
+skip-checking-raises = true

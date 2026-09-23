@@ -1,0 +1,11 @@
+# The interpreter uv picks by default: the newest the test matrix covers,
+# not the oldest the package supports. requires-python names the floor, and
+# both linters are aimed at that end deliberately -- ruff infers its target
+# from requires-python, and pyproject.toml's [tool.mypy] pins
+# python_version to match it. So a bare "uv run" here means "the newest",
+# and checking the oldest is the matrix's job and the two linters'.
+#
+# A whole-line comment only: uv skips one of these, but a trailing comment
+# on the version line makes it ignore the file and fall back to a default
+# interpreter.
+3.14
