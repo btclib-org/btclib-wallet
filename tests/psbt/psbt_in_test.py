@@ -9,7 +9,6 @@ from io import BytesIO
 from typing import Any, get_args
 
 import pytest
-from btclib.alias import ValidSigHashType
 from btclib.exceptions import BTClibValueError
 from btclib.script import Witness
 from btclib.script.sig_hash import SIG_HASH_TYPES
@@ -22,6 +21,7 @@ from btclib_wallet.psbt.psbt_in import (
     _KEY_DATA_FIELDS,
     _SERIALIZED_FIELDS,
     _WHOLE_VALUE_FIELDS,
+    ValidSigHashType,
 )
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR
 from tests.conftest import JsonGolden

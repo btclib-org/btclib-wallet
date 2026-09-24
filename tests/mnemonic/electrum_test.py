@@ -761,18 +761,19 @@ def test_a_wordlist_the_encoding_does_not_round_trip(
     """The search checks its own arithmetic, and says so when it fails.
 
     Electrum makes the same check inside make_seed, and it is not
-    reachable with the two wordlists btclib ships: `en` and `it` are
-    2048 distinct ASCII words each, so encoding an integer and decoding
-    the sentence hands the integer back for every candidate --
-    measured over the first three thousand and three thousand more
-    above 2**131. Patching the decode reaches it on the wordlists there
+    reachable with the word-lists ELECTRUM_WORDLISTS holds, every BIP39
+    language and electrum's Portuguese: each word of each list decodes
+    back to its own index, no two entries being one string after the
+    NFKD and the lower-casing the decode applies, so encoding an integer
+    and decoding the sentence hands the integer back for every
+    candidate. Patching the decode reaches it on the word-lists there
     are, which is what the ripemd160 fallback test does with its flag
     and what a `pragma: no cover` here would not do.
 
-    What would run it for real is a list added later: a CJK one, where
-    normalization can map two entries onto one string, or any list
-    carrying a repetition. Either writes a seed that reads back as
-    another, so the search refuses rather than returns it.
+    What would run it for real is a list with two entries that decode to
+    one string: a repetition, or two spellings normalization maps
+    together. Either writes a seed that reads back as another, so the
+    search refuses rather than returns it.
     """
     # a decode that answers 1 whatever it is given: the first candidate
     # is int_entropy + 1, so 1 here is a mismatch and nothing else is

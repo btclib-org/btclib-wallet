@@ -74,8 +74,9 @@ from __future__ import annotations
 import hashlib
 import secrets
 import unicodedata
+from collections.abc import Callable
 
-from btclib.alias import BlockCipherF, Integer, Octets, String
+from btclib.alias import Integer, Octets, String
 from btclib.b58 import address_from_h160
 from btclib.base58 import decode as base58_decode
 from btclib.base58 import encode as base58_encode
@@ -93,11 +94,20 @@ from btclib.key import PrvKeyData
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 __all__ = [
+    "BlockCipherF",
     "decrypt",
     "encrypt",
     "intermediate_code",
     "new_key_pair",
 ]
+
+# A single block under a key, with no mode and no padding: (key, block) to
+# the transformed block, both fixed-size. This module takes one of these
+# in each direction for the reason btclib.alias.CipherF exists -- it ships
+# no cipher of its own -- but BIP38 calls AES-256 directly on one or two
+# 16-byte blocks rather than chaining them, so there is no iv and nothing
+# for a mode parameter to name
+BlockCipherF = Callable[[bytes, bytes], bytes]
 
 _BLOCK_SIZE = 16
 

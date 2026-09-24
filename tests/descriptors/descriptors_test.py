@@ -37,7 +37,7 @@ from typing import get_args
 
 import pytest
 from btclib import b58
-from btclib.alias import BIP44ScriptType, Octets
+from btclib.alias import Octets
 from btclib.ecc import dsa, ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, tagged_hash
@@ -59,7 +59,7 @@ from btclib_wallet.bip32.bip32 import (
     xpub_from_xprv,
 )
 from btclib_wallet.bip32.der_path import _HARDENING
-from btclib_wallet.bip44 import SCRIPT_TYPE_FROM_PURPOSE
+from btclib_wallet.bip44 import SCRIPT_TYPE_FROM_PURPOSE, BIP44ScriptType
 from btclib_wallet.descriptors import (
     AddrDescriptor,
     ComboDescriptor,

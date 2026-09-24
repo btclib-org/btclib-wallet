@@ -45,7 +45,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from btclib import b58
-from btclib.alias import BIP44ScriptType, Octets, String
+from btclib.alias import Octets, String
 from btclib.ecc import bms
 from btclib.exceptions import BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
@@ -69,7 +69,11 @@ from btclib_wallet.bip32.der_path import (
     indexes_from_der_path,
     str_from_der_path,
 )
-from btclib_wallet.bip44 import _ADDRESS_FROM_SCRIPT_TYPE, _script_type_from_purpose
+from btclib_wallet.bip44 import (
+    _ADDRESS_FROM_SCRIPT_TYPE,
+    BIP44ScriptType,
+    _script_type_from_purpose,
+)
 from btclib_wallet.wallet.wallet import AddressInfo, RangedWallet, Wallet
 
 __all__ = [

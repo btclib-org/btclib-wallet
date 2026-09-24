@@ -339,10 +339,10 @@ JAPANESE_VECTORS = [
 def test_nfkd_japanese_vectors(words: list[str], seed: str, xprv: str) -> None:
     """BIP39 stretches the NFKD of the sentence and of the passphrase.
 
-    The checksum goes unverified because there is no japanese word-list
-    to verify it against -- btclib ships english and italian -- which is
-    why these are a seed test and not a round trip. The seed is what the
-    normalization decides, so nothing is lost.
+    The checksum goes unverified and these are a seed test, not a round
+    trip: both vectors are also in test_JP_BIP39.json, which
+    test_japanese_vectors runs with the checksum verified. The seed is
+    what the normalization decides, so nothing is lost.
     """
     mnemonic = "　".join(words)
     assert bip39.seed_from_mnemonic(mnemonic, JAPANESE_PASSPHRASE, False).hex() == seed

@@ -104,10 +104,10 @@ _PURPOSE = 83696968
 _MIN_INDEXES = 3
 
 # BIP85's Language Table, as the codes `mnemonic.mnemonic` keys its
-# word-lists with. Ten of the twelve lists btclib ships: russian and
-# turkish are trezor's rather than the BIP's, so BIP85 numbers neither,
-# and a path derived for one would be a path no other implementation
-# reads the same way
+# word-lists with: every BIP39 list this package ships but russian and
+# turkish, which are trezor's rather than the BIP's, so BIP85 numbers
+# neither, and a path derived for one would be a path no other
+# implementation reads the same way
 _LANGUAGE_INDEXES = {
     "en": 0,
     "ja": 1,
