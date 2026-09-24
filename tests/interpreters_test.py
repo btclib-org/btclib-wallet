@@ -20,10 +20,9 @@ and a test that hard-coded a date would be one more thing to move. What
 it holds is the weaker and checkable claim: whatever the three say, they
 say the same thing.
 
-Read with a regex rather than parsed: the workflows are yaml and no group
-here carries a parser for that, and reading `pyproject.toml` the same way
-keeps this module independent of whether `tomllib` is on the floor
-interpreter.
+Read with a regex rather than parsed: the workflows are yaml and no
+group here carries a parser for that, so pyproject.toml is read the
+same way, for one style throughout.
 """
 
 import re
