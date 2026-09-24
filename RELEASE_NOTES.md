@@ -17,6 +17,11 @@ read it as the digits it spells; pass the `str` instead. A mnemonic that
 is not a `str` is refused with a `BTClibTypeError` rather than a bare
 `TypeError` or `AttributeError`.
 
+`mnemonic.slip39.master_secret_from_mnemonics` and `mxprv_from_mnemonics`
+refuse shares passed as an iterable that is not a sequence -- a set, a
+generator, an iterator, `dict.keys()` -- with a `BTClibTypeError`, where
+they read it; pass a `list` or a `tuple` instead.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

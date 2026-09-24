@@ -110,6 +110,8 @@ _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
     "Octets": (None, 1.5, tuple(range(4))),
     "Point": (None, 1.5, "not a point"),
     "PubKey": (None, 1.5),
+    # a lone mnemonic, which is a Sequence[str] as far as mypy goes
+    "Sequence[Mnemonic]": (None, 1.5, "abandon"),
     "Sequence[Octets]": (
         None,
         1.5,
@@ -144,6 +146,7 @@ _WRONG_VALUE: dict[str, tuple[Any, ...]] = {
     "Mnemonic": ("not a mnemonic",),
     "Point": ((1,), (1, 2)),
     "PubKey": ("not a key",),
+    "Sequence[Mnemonic]": (["not a mnemonic"],),
     "Sequence[Octets]": (["not hex at all"],),
     "String": ("not an address",),
 }
