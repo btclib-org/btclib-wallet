@@ -70,6 +70,12 @@ bytes included, and `input_validation_test.py` drives `BinStr` and
 but a sequence of mnemonics, a lone mnemonic included, with a
 `BTClibTypeError` (closes #17).
 
+### `codeql-passed` and `test-passed` no longer skip while draft
+
+A skipped required check reads as passing, so both aggregates now fail
+a first step on the draft flag instead of skipping on it (issue
+btclib-org/.github#1327).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

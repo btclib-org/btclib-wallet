@@ -99,10 +99,15 @@ jobs:
     # not success(): a job whose dependencies failed is skipped, and a
     # skipped check reports "skipped", which reads as satisfied wherever a
     # check is read at all. The gate has to run to be able to fail. The
-    # draft and closed halves are the condition the analysis job carries,
-    # so a draft does not report a failure for work it declined
+    # draft flag is not part of this condition: a skipped required check
+    # reads as passing, and this job's own check run does not exist until
+    # analyze has settled, so declining it here while draft would leave
+    # the draft's skip as the only check of this name on the sha until a
+    # later run's own aggregate exists. The closed condition stays: a
+    # closed pull request has nothing left to become ready
+    # (btclib-org/.github#1327)
     if: >-
-      ${{ !cancelled() && !github.event.pull_request.draft
+      ${{ !cancelled()
       && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -131,18 +136,28 @@ jobs:
       # whatever this workflow's own jobs can report today: section 10 of
       # the organization standard fixes the two names rather than letting
       # them follow the jobs (btclib-org/.github#990). What the jobs can
-      # report is a condition and not a property -- analyze carries no
-      # condition narrower than this job's own draft/closed one above,
-      # and no job here is conditional on the diff, there being no
-      # `changes` job, so nothing produces a "skipped" row while both
-      # hold, and either one added later produces one. A narrowed
-      # allowlist is sound while they hold and expires with nothing
-      # watching: what would say it had stopped matching the run is this
-      # check failing on the first run that legitimately skips, and here
-      # that is a red "codeql: every job passed" rather than a blocked
-      # merge, that context not being one main's rule requires --
-      # REPOSITORY.md's *Required checks on main* is where the rule is
-      # read back from the endpoint
+      # report is a condition and not a property -- analyze still declines
+      # while draft, and the step below fails outright on the same flag
+      # before this listing ever runs, so a draft's "skipped" analyze row
+      # never reaches the allowlist. No job here is conditional on the
+      # diff otherwise, there being no `changes` job, so nothing else
+      # produces a "skipped" row while that holds, and a job added later
+      # does. A narrowed allowlist is sound while it holds and expires
+      # with nothing watching: what would say it had stopped matching the
+      # run is this check failing on the first run that legitimately
+      # skips, and here that is a red "codeql: every job passed" rather
+      # than a blocked merge, that context not being one main's rule
+      # requires -- REPOSITORY.md's *Required checks on main* is where the
+      # rule is read back from the endpoint
+      # a skipped required check reads as passing, so the draft flag
+      # moves from the job's own `if:` above into this first step: the
+      # job still runs while draft, and reports a failure instead of a
+      # skip (btclib-org/.github#1327)
+      - name: Fail while this pull request is a draft
+        if: github.event.pull_request.draft
+        run: |
+          echo "::error::this pull request is a draft"
+          exit 1
       - name: Fail unless every other job of this run succeeded
         env:
           GH_TOKEN: ${{ github.token }}

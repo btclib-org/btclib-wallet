@@ -280,9 +280,15 @@ jobs:
     # not success(): a job whose dependencies failed is skipped, and a
     # skipped check satisfies the rule, so the gate has to run to be able
     # to fail. Not always(): a cancellation of this run by its concurrency
-    # group would then fail it. The draft and closed conditions every job
-    # above carries, so a draft skips uniformly
-    if: ${{ !cancelled() && !github.event.pull_request.draft && github.event.action != 'closed' }}
+    # group would then fail it.
+    # The draft flag is not part of this condition: a skipped required
+    # check reads as passing, and this job's own check run does not exist
+    # until every job above has settled, so declining it here while draft
+    # would leave the draft's skip as the only check of this name on the
+    # sha until a later run's own aggregate exists. The closed condition
+    # stays, carried by every job above too: a closed pull request has
+    # nothing left to become ready (btclib-org/.github#1327)
+    if: ${{ !cancelled() && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -297,6 +303,16 @@ jobs:
       # fails a result this file does not anticipate. The interpolated
       # join is a closed set GitHub writes, so no fork-controlled string
       # reaches this shell
+      #
+      # a skipped required check reads as passing, so the draft flag
+      # moves from the job's own `if:` above into this first step: the
+      # job still runs while draft, and reports a failure instead of a
+      # skip (btclib-org/.github#1327)
+      - name: Fail while this pull request is a draft
+        if: github.event.pull_request.draft
+        run: |
+          echo "::error::this pull request is a draft"
+          exit 1
       - name: Fail unless every job above succeeded or was legitimately skipped
         run: | # zizmor: ignore[template-injection]
           results='${{ join(needs.*.result, ',') }}'
