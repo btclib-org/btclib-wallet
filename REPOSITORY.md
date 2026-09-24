@@ -24,8 +24,7 @@ that reads it back, and the `#` lines under a read-back are what it
 printed on 2026-09-24 — section 16's last step. Section 11 makes such
 an answer documentation, with a reader as its check: nothing re-runs
 these commands, so an answer that differs today is a change made since
-that date, to the setting or, for *Topics*, to the `keywords` it is
-compared with.
+that date.
 
 ## Creating the repository
 
