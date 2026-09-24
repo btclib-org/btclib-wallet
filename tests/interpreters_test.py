@@ -32,11 +32,24 @@ from pathlib import Path
 
 import pytest
 
-from tests import workflow_files
+
+def _workflow_files(directory: Path) -> tuple[Path, ...]:
+    """Return the workflow files in `directory`, `.yml` and `.yaml` alike.
+
+    GitHub reads both extensions, so a glob matching one spelling drops a
+    workflow written with the other and leaves it out of whatever the
+    caller holds the set to.
+
+    The two are named rather than globbed as `*.y*ml`, which is `y`,
+    anything, `ml`: that matches `test.yXml` and `test.ymml` as well,
+    which GitHub does not run.
+    """
+    return tuple(sorted((*directory.glob("*.yml"), *directory.glob("*.yaml"))))
+
 
 _ROOT = Path(__file__).parents[1]
 _PYPROJECT = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-_WORKFLOWS = workflow_files(_ROOT / ".github/workflows")
+_WORKFLOWS = _workflow_files(_ROOT / ".github/workflows")
 
 # "3.11" out of `requires-python = ">=3.11"`, the floor and nothing else:
 # an upper bound is not declared here and would be a different claim
@@ -604,7 +617,7 @@ def test_workflow_files_reads_the_names_github_runs(tmp_path: Path) -> None:
     text = (_ROOT / ".github/workflows/os-macos.yml").read_text(encoding="utf-8")
     for name in ("os-extra.yml", "os-extra.yaml", "os-extra.yXml"):
         (tmp_path / name).write_text(text, encoding="utf-8")
-    found = sorted(path.name for path in workflow_files(tmp_path))
+    found = sorted(path.name for path in _workflow_files(tmp_path))
     assert found == ["os-extra.yaml", "os-extra.yml"]
 
 
