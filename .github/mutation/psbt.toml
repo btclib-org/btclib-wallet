@@ -5,7 +5,8 @@
 # in the sense issue btclib-org/btclib#327 means -- an unknown field kept or
 # dropped, a required one missing, a duplicate key, a map ending where the
 # next one begins -- and the vectors that judge it are BIP174's, BIP370's,
-# BIP371's and BIP373's own, with BIP445's group for the FROST fields. This asks whether the suite would notice a wrong line.
+# BIP371's and BIP373's own, with BIP445's group for the FROST fields.
+# This asks whether the suite would notice a wrong line.
 
 [cosmic-ray]
 # `musig2.py` and `frost.py` are here too: the schemes they carry sessions
