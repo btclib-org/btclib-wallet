@@ -9,11 +9,11 @@
 # This asks whether the suite would notice a wrong line.
 
 [cosmic-ray]
-# `musig2.py` and `frost.py` are here too: the schemes they carry sessions
-# of, `ecc/musig2.py` and `ecc/frost.py`, are btclib's, whose musig2.toml
-# and frost.toml mutate both halves together, and this tree holds only the
-# psbt half. tests/psbt/musig2_test.py and tests/psbt/frost_test.py run
-# under the command below
+# `musig2.py` and `frost.py` are here too: btclib's musig2.toml and
+# frost.toml mutate `ecc/musig2.py` and `ecc/frost.py`, the schemes these
+# carry sessions of, and this tree holds only the psbt half.
+# tests/psbt/musig2_test.py and tests/psbt/frost_test.py run under the
+# command below
 module-path = [
     "src/btclib_wallet/psbt/frost.py",
     "src/btclib_wallet/psbt/musig2.py",
