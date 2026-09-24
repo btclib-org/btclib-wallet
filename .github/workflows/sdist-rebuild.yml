@@ -45,8 +45,3 @@ jobs:
       contents: read
       attestations: read # gh attestation verify reads the attestations API with it
     uses: btclib-org/.github/.github/workflows/reusable-sdist-rebuild.yml@main
-    with:
-      # release.yml's attest job calls btclib-org/.github's
-      # reusable-attest.yml, so that workflow is the signer every release of
-      # this tree names
-      attest-signer: reusable-attest

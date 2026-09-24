@@ -41,6 +41,11 @@ placeholder's month with the day added (closes #5).
 `test.yml`'s `dist` job unpacks the sdist it built and runs the suite
 there, gated at 100% coverage (closes #3).
 
+### `sdist-rebuild.yml` stops passing `attest-signer`
+
+The called workflow verifies against `reusable-attest.yml` alone, so the
+input decides nothing (issue btclib-org/.github#1315).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
