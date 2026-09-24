@@ -36,10 +36,11 @@ Telling these apart is most of what can go wrong when cutting a release.
   never two at once: `2026.9`, month only, between releases — the
   placeholder "Open the next cycle" sets, so a checkout of `main` reports
   itself as work in progress rather than as a release it is not;
-  `2026.8.6`, with the day added on release day — calendar versioning,
-  `YYYY.M.D` — which is what gets published; and `2026.8.6.1`, a fourth
-  number added only if `2026.8.6` shipped broken and cannot be reuploaded
-  (see "If something goes wrong"). All three are typed by hand. Three
+  `2026.8.6`, the date of release day — calendar versioning, `YYYY.M.D`
+  — which is what gets published, its month that date's own and not
+  necessarily the placeholder's; and `2026.8.6.1`, a fourth number added
+  only if `2026.8.6` shipped broken and cannot be reuploaded (see "If
+  something goes wrong"). All three are typed by hand. Three
   components is always the release day; four is always a patch on it. The
   day is never dropped in favour of a fourth digit standing in for it,
   which is what would make the two indistinguishable — and `version-check`
@@ -317,11 +318,21 @@ result.
    whose heading is the tag's own.
 
 1. Set the version in `pyproject.toml`, which is the one place it is
-   declared, and re-lock so `uv.lock` agrees:
+   declared, to the date the release is cut, `YYYY.M.D`, and re-lock so
+   `uv.lock` agrees:
 
    ```shell
    uv lock
    ```
+
+   The date replaces the placeholder rather than extending it. *Open the
+   next cycle* below sets the month after the release's, so a second
+   release in the same month, built by appending the day to the
+   placeholder, names a day of the next month — a date in the future,
+   which sorts above every release that next month cuts before that day.
+   `version-check` compares the tag with the declared version and reads
+   the shape, never the calendar, so nothing downstream refuses it, and
+   a version an index has accepted cannot be unpublished.
 
    **If `main` moves while the gates run, throw the branch away and redo
    these edits on top of it — never rebase it, and never merge `main` into
