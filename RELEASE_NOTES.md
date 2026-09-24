@@ -11,9 +11,13 @@ before upgrading, rather than a digit.
 
 ## v2026.10 (work in progress, not released yet)
 
+## v2026.9.24
+
 The first release of `btclib-wallet`, whose modules leave `btclib`
 (issue btclib-org/btclib#2129). A caller importing one of them from
 `btclib` installs this package and imports it from `btclib_wallet`
 instead, the path below the package unchanged: `btclib.bip32` becomes
 `btclib_wallet.bip32`, `btclib.mnemonic.bip39` becomes
 `btclib_wallet.mnemonic.bip39`.
+
+`CHANGELOG.md`'s own `v2026.9.24` section has the rest.

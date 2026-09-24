@@ -14,7 +14,7 @@ name = "btclib-wallet"
 # the one place the version is declared: btclib_wallet.__version__ reads
 # it back from the installed metadata. A cycle in progress is the month
 # alone, and the day is added by hand on the day a release is cut
-version = "2026.10"
+version = "2026.9.24"
 description = "Bitcoin wallet functionality built on btclib"
 readme = "README.md"
 # PEP 639: a SPDX expression and the files it refers to. COPYRIGHT is not

@@ -25,6 +25,8 @@ driver that would keep both sides' numbers.
 
 ## v2026.10 (work in progress, not released yet)
 
+## v2026.9.24
+
 ### The wallet layer is a package of its own, `btclib-wallet`
 
 The modules above btclib's primitives leave `btclib` for this package,
