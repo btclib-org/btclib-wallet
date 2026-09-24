@@ -39,3 +39,13 @@ this package imports directly (issue btclib-org/btclib#2242).
 ### Python 3.11 and up
 
 `requires-python` is `>=3.11`, and the classifiers start at 3.11.
+
+### The interpreters this package claims are the ones it runs on
+
+`tests/interpreters_test.py` refuses a floor, a classifier list and a
+platform sweep that disagree on which Pythons this package supports.
+
+### The PSBT, descriptor, BIP32 and BIP322 parsers are fuzzed weekly
+
+`fuzz.yml` runs a ClusterFuzzLite target for each parser that reads a
+stranger's octets or text, seeded from the vectors the suite already holds.
