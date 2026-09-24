@@ -566,10 +566,16 @@ convention = "pep257"
 parametrize-names-type = "csv"
 
 [tool.ruff.lint.flake8-copyright]
-# all three lines of the notice COPYRIGHT holds, anchored at the start of
-# the file, so that a file keeping the first line and dropping the others,
-# or opening with anything above the notice, does not pass
-notice-rgx = "^# Copyright \\(c\\) The btclib developers\\n# Distributed under the MIT software license, see the accompanying\\n# LICENSE file or https://opensource\\.org/license/mit for the full text\\."
+# all three lines of the notice COPYRIGHT holds, so that a file keeping
+# the first line and dropping the others does not pass. Anchored with ^:
+# unanchored, CPY001 is a search over the first 4096 bytes and not a check
+# that the notice opens the file or follows its `#!` line, so an import or
+# a docstring placed above it would still pass.
+# `(#![^\n]*\n)?` after the anchor: only a `#!` line may precede
+# the notice, for the shebang a script run by path opens with, and
+# nothing else -- `notice-rgx` is `COPYRIGHT` transcribed this way
+# (btclib-org/.github#1294)
+notice-rgx = "^(#![^\\n]*\\n)?# Copyright \\(c\\) The btclib developers\\n# Distributed under the MIT software license, see the accompanying\\n# LICENSE file or https://opensource\\.org/license/mit for the full text\\."
 
 # what keeps the docstrings of the public surface complete, ruff having no
 # rule for a missing argument
