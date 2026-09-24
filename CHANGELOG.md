@@ -25,6 +25,12 @@ driver that would keep both sides' numbers.
 
 ## v2026.10 (work in progress, not released yet)
 
+### `README.md` carries the OpenSSF Best Practices badge
+
+It follows the Scorecard badge, where section 2 of the organization
+standard places it for a tree section 10's `scorecard` entry names; the
+project is bestpractices.dev's 14813 (issue btclib-org/.github#350).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
