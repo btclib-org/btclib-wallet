@@ -49,3 +49,9 @@ platform sweep that disagree on which Pythons this package supports.
 
 `fuzz.yml` runs a ClusterFuzzLite target for each parser that reads a
 stranger's octets or text, seeded from the vectors the suite already holds.
+
+### The sdist leaves out the tests that read `.github` or `fuzz/`
+
+Those tests fail when run from an unpacked sdist, which carries neither
+directory, and `tests/source_exclude_test.py` refuses one not in
+`source-exclude` (closes #1).
