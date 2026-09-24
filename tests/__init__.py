@@ -117,24 +117,6 @@ def load_bin(*relative_path: str) -> bytes:
         return file_.read()
 
 
-def workflow_files(directory: Path) -> tuple[Path, ...]:
-    """Return the workflow files in `directory`, `.yml` and `.yaml` alike.
-
-    GitHub reads both extensions, so a glob matching one spelling drops a
-    workflow written with the other and leaves it out of whatever the
-    caller holds the set to.
-
-    The two are named rather than globbed as `*.y*ml`, which is `y`,
-    anything, `ml`: that matches `test.yXml` and `test.ymml` as well,
-    which GitHub does not run.
-
-    Here rather than in each caller: `interpreters_test.py` is the one
-    caller today, and a rule stated at both sites is a rule that gets
-    corrected at one.
-    """
-    return tuple(sorted((*directory.glob("*.yml"), *directory.glob("*.yaml"))))
-
-
 # what makes an id unreadable in a report and unusable in a -k expression:
 # anything that is not a letter, a digit or a dash. Bitcoin Core comments
 # hold spaces, quotes, parentheses and slashes; a descriptor holds a '#'
