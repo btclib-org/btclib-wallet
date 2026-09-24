@@ -55,6 +55,7 @@ stranger's octets or text, seeded from the vectors the suite already holds.
 Those tests fail when run from an unpacked sdist, which carries neither
 directory, and `tests/source_exclude_test.py` refuses one not in
 `source-exclude` (closes #1).
+
 ### `REPOSITORY.md` records what each read-back answers
 
 Each read-back carries what it answered on 2026-09-24, and the one for the
