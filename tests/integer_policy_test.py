@@ -15,7 +15,7 @@ that caused it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Any
 
 import pytest
@@ -202,13 +202,15 @@ def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
     """`IntEnum` stays a number, which is why the predicate names bool.
 
     The path step is the case that has to be *answered* with a number and
-    not merely accepted as one: `str()` of an `IntEnum` is its name up to
-    Python 3.10, so a derivation path of one would read "Index.ONE" there
-    and "1" on every later interpreter.
+    not merely accepted as one: an `IntEnum` whose `str()` is its name, as
+    `Enum.__str__` writes it, would make a derivation path read
+    "Index.ONE" rather than "1".
     """
 
     class Index(IntEnum):
         ONE = 1
+
+        __str__ = Enum.__str__
 
     assert indexes_from_der_path(Index.ONE) == [1]
     assert indexes_from_der_path([Index.ONE]) == [1]

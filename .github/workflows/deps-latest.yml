@@ -36,7 +36,7 @@ jobs:
       # that range, and the platform sweeps already hold the middle at the
       # lock
       runners: '["ubuntu-latest", "macos-latest", "windows-latest"]'
-      python-versions: '["3.10", "3.14"]'
+      python-versions: '["3.11", "3.14"]'
 
   dist-latest:
     name: Build the distribution and inspect it, dependencies at latest

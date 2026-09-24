@@ -35,3 +35,7 @@ each at the same path under `btclib_wallet` (issue btclib-org/btclib#2129).
 The floor is `btclib>=2026.9.24`, the first btclib release publishing
 every name imported here, and the `secp256k1` extra names the bindings
 this package imports directly (issue btclib-org/btclib#2242).
+
+### Python 3.11 and up
+
+`requires-python` is `>=3.11`, and the classifiers start at 3.11.

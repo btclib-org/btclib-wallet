@@ -131,9 +131,9 @@ def str_from_index_int(i: int, hardening: str = _HARDENING) -> str:
     if hardening not in _BIP380_HARDENINGS:
         raise BTClibValueError(f"invalid hardening symbol: {hardening}")
     _assert_valid_index(i)
-    # int() of an int, because an IntEnum is one and str() of an IntEnum is
-    # its *name* up to Python 3.10 -- "Sighash.ALL" where a path step wants
-    # "1". Accepting a deliberate integer subclass, which is what
+    # int() of an int, because a subclass of int may define a str() that
+    # is not the number -- its *name*, "Sighash.ALL" where a path step
+    # wants "1". Accepting a deliberate integer subclass, which is what
     # `is_integer` is for, means answering with the number it is
     index = int(i)
     if index < _HARDENED_OFFSET:

@@ -109,7 +109,7 @@ repos:
       - id: fix-byte-order-marker
       # this one *adds* "# -*- coding: utf-8 -*-" to every Python file.
       # UTF-8 has been the default source encoding since Python 3 and the
-      # floor here is 3.10, so it is a dead line per file
+      # floor here is 3.11, so it is a dead line per file
       # - id: fix-encoding-pragma
       - id: check-yaml
       - id: check-json

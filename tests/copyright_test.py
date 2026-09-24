@@ -16,12 +16,10 @@ off `COPYRIGHT`, where section 14 of the organization standard keeps its
 text: `COPYRIGHT` is not in the sdist, and the suite runs from one. That
 the two agree is section 14's own comparison, made from
 `btclib-org/.github`.
-
-Regex rather than `tomllib` for the one line wanted out of
-`pyproject.toml`: the floor here is 3.10, and `tomllib` is 3.11.
 """
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -32,7 +30,6 @@ _ROOT = Path(__file__).parents[1]
 _HEADER = "".join(Path(__file__).read_text(encoding="utf-8").splitlines(True)[:3])
 _HEADER_RE = r"^# Copyright \(c\) (.+)$"
 _LICENSE_RE = r"(?m)^Copyright \([Cc]\) (.+)$"
-_AUTHOR_RE = r'authors\s*=\s*\[\{\s*name\s*=\s*"([^"]+)"'
 _CONF_AUTHOR_RE = r"(?m)^author = (.+)$"
 _CONF_AUTHOR_EXPECTED = 'PYPROJECT["project"]["authors"][0]["name"]'
 # the trees whose Python files carry the header, each present in a
@@ -59,7 +56,7 @@ def test_license_names_the_header_holder() -> None:
 def test_the_declared_author_is_the_header_holder() -> None:
     """The wheel's `Author` metadata is the holder the header names."""
     text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert _match(_AUTHOR_RE, text, "pyproject.toml") == _header_holder()
+    assert tomllib.loads(text)["project"]["authors"][0]["name"] == _header_holder()
 
 
 @pytest.mark.parametrize(
@@ -87,7 +84,7 @@ def test_no_dunder_repeats_the_metadata() -> None:
 def test_conf_py_author_reads_pyproject_rather_than_repeating_it() -> None:
     """Sphinx's `author` is `pyproject.toml`'s, read back and not retyped.
 
-    Read as source text rather than executed: `conf.py` imports `tomllib`
+    Read as source text rather than executed: `conf.py` imports docutils
     and sphinx at its top, which the suite's own environment need not
     carry.
     """

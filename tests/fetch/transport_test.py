@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import json
 import ssl
-from typing import Any
+from typing import Any, Self
 
 import pytest
 from bitcoin_core_rpc import FetchError as RpcFetchError
 from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
-from typing_extensions import Self, override
+from typing_extensions import override
 
 from btclib_wallet.fetch import transport as transport_module
 from btclib_wallet.fetch.electrum import ElectrumFetcher

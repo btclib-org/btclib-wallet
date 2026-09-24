@@ -32,7 +32,7 @@ sbom/
 # each naming it. Nothing here creates a virtualenv under a name venv*/
 # would catch and venv/ would not. The dotted side is where a wildcard
 # earns its place: CONTRIBUTING.md's other-interpreter run gives
-# UV_PROJECT_ENVIRONMENT=.venv-3.10, and a suffix makes a name .venv
+# UV_PROJECT_ENVIRONMENT=.venv-3.11, and a suffix makes a name .venv
 # alone does not match.
 .env
 .venv*

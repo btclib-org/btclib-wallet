@@ -34,4 +34,4 @@ jobs:
       # the requires-python floor: the version is a claim this tree makes,
       # so it is passed rather than read off .python-version, which names
       # the ceiling
-      python-version: "3.10"
+      python-version: "3.11"

@@ -27,7 +27,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "AUTHORS.md"]
 authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     # the protocol package every module here is written against. The
     # floor is the first btclib release carrying `ecc.frost` and the
@@ -69,7 +69,6 @@ keywords = [
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -383,7 +382,7 @@ warn_unreachable = true
 # the oldest interpreter requires-python admits: without the key mypy
 # targets whatever runs it, and a typing construct missing from the floor
 # is then invisible
-python_version = "3.10"
+python_version = "3.11"
 # a regular expression `re.search`'d against each discovered path, so it is
 # anchored: unanchored, "build" also matches tests/tx_builder_test.py
 exclude = ["^build/"]

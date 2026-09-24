@@ -60,4 +60,4 @@ jobs:
       # every interpreter the classifiers name, the free-threaded build of
       # the newest, and PyPy: section 1 of the organization's standard has a
       # library cover every interpreter still in support
-      python-versions: '["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "pypy3.11"]'
+      python-versions: '["3.11", "3.12", "3.13", "3.14", "3.14t", "pypy3.11"]'

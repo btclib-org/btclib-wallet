@@ -88,11 +88,7 @@ jobs:
           - macos-latest
           - windows-latest
           - windows-11-arm
-        python-version: ["3.10", "3.14", "3.14t"]
-        # actions/setup-python publishes no 3.10 for Windows on arm64
-        exclude:
-          - os: windows-11-arm
-            python-version: "3.10"
+        python-version: ["3.11", "3.14", "3.14t"]
         # and one cell that builds the sdist rather than taking the wheel,
         # which is the other half of what the index serves
         include:
