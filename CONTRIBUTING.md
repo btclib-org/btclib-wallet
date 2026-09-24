@@ -480,6 +480,16 @@ assert address == 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', address
 "
 ```
 
+Last, it unpacks the sdist outside the checkout and runs the suite
+there, under the coverage job's floor; from the checkout's root:
+
+```shell
+tmp=$(mktemp -d)
+tar -xzf dist/*.tar.gz -C "$tmp" --strip-components=1
+cd "$tmp"
+uv run --locked --python 3.14 --no-default-groups --group test pytest
+```
+
 `lint.yml`, the `lint` job — this file *is* the lint gate, so there is no
 second list of tools anywhere:
 

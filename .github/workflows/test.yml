@@ -2,8 +2,9 @@
 name: test
 
 # the suite under coverage, and the distribution files built, checked and
-# installed: the two questions a pull request is gated on besides the
-# hooks and the documentation build, which lint.yml and docs.yml ask.
+# installed, the sdist running its own suite: the two questions a pull
+# request is gated on besides the hooks and the documentation build,
+# which lint.yml and docs.yml ask.
 # release.yml calls this workflow, so the `dist` job below is also the one
 # build a release publishes
 
@@ -253,6 +254,19 @@ jobs:
           address = bip44.address_from_der_path(xprv, 'm/84h/0h/0h/0/0')
           assert address == 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', address
           "
+      # the suite as the sdist ships it, unpacked outside the checkout and
+      # gated at 100% on the interpreter the coverage job pins. A shipped
+      # test reading a file the archive leaves out fails here, and so does
+      # a helper whose only caller source-exclude takes out, its lines left
+      # unreached. tests/source_exclude_test.py sees only a test that names
+      # .github or fuzz/. --locked holds the run to the uv.lock the sdist
+      # carries
+      - name: Run the suite from the unpacked sdist
+        run: |
+          mkdir "$RUNNER_TEMP/sdist"
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/sdist" --strip-components=1
+          cd "$RUNNER_TEMP/sdist"
+          uv run --locked --python 3.14 --no-default-groups --group test pytest
 
   # the single check main's branch protection requires from this workflow.
   # The rule names its checks as literal strings stored outside the

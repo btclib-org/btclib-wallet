@@ -36,6 +36,11 @@ project is bestpractices.dev's 14813 (issue btclib-org/.github#350).
 `RELEASING.md` dates a release `YYYY.M.D` of the day it is cut, not the
 placeholder's month with the day added (closes #5).
 
+### The suite the sdist ships is run from the unpacked sdist
+
+`test.yml`'s `dist` job unpacks the sdist it built and runs the suite
+there, gated at 100% coverage (closes #3).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
