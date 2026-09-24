@@ -11,6 +11,12 @@ before upgrading, rather than a digit.
 
 ## v2026.10 (work in progress, not released yet)
 
+A binary-string entropy passed as `bytes` is refused with a
+`BTClibTypeError` by `mnemonic.entropy`'s functions taking one, which
+read it as the digits it spells; pass the `str` instead. A mnemonic that
+is not a `str` is refused with a `BTClibTypeError` rather than a bare
+`TypeError` or `AttributeError`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

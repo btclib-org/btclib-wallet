@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 from btclib.exceptions import BTClibValueError
+from btclib.utils import assert_type
 
 __all__ = [
     "BIP39_LANGUAGE_FILES",
@@ -304,6 +305,7 @@ def normalize_mnemonic(mnemonic: Mnemonic) -> Mnemonic:
     combining characters undoes the very decomposition BIP39 requires, so
     the two schemes need two functions, and electrum keeps its own.
     """
+    assert_type(mnemonic, str, "mnemonic")
     return " ".join(unicodedata.normalize("NFKD", mnemonic).split())
 
 
@@ -332,5 +334,6 @@ def indexes_from_mnemonic(
     given mnemonic. The sentence is split on any whitespace, the
     ideographic space of a japanese mnemonic included.
     """
+    assert_type(mnemonic, str, "mnemonic")
     words = mnemonic.split()
     return [wordlists.index(word, lang) for word in words]
