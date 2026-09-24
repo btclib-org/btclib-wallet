@@ -7,7 +7,7 @@
 from collections.abc import Callable
 
 import pytest
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 
 from btclib_wallet.mnemonic import slip39
 from btclib_wallet.mnemonic.mnemonic import WORDLISTS
@@ -319,3 +319,25 @@ def test_invalid_threshold(groups: list[tuple[int, int]], group_threshold: int) 
         slip39.mnemonics_from_master_secret(
             bytes(16), groups=groups, group_threshold=group_threshold
         )
+
+
+def test_shares_that_are_no_sequence() -> None:
+    """An iterable of shares that is not a sequence is refused, not read.
+
+    A set and a generator hold valid shares here, so what refuses them is
+    the type and not their content; a tuple of the same shares still
+    recovers the secret.
+    """
+    secret = bytes(range(16))
+    shares = slip39.mnemonics_from_master_secret(secret, groups=[(2, 3)])[0][:2]
+
+    assert slip39.master_secret_from_mnemonics(tuple(shares)) == secret
+    xprv = slip39.mxprv_from_mnemonics(shares)
+    assert slip39.mxprv_from_mnemonics(tuple(shares)) == xprv
+
+    for function in (slip39.master_secret_from_mnemonics, slip39.mxprv_from_mnemonics):
+        with pytest.raises(BTClibTypeError, match="invalid mnemonics type: set"):
+            function(set(shares))  # type: ignore[arg-type]
+        generator = (share for share in shares)
+        with pytest.raises(BTClibTypeError, match="invalid mnemonics type: gen"):
+            function(generator)  # type: ignore[arg-type]

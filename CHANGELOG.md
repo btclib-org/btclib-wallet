@@ -64,6 +64,12 @@ The functions taking one refuse any other type with a `BTClibTypeError`,
 bytes included, and `input_validation_test.py` drives `BinStr` and
 `Mnemonic` (closes #15).
 
+### SLIP-0039's list of shares is refused when it is not one
+
+`master_secret_from_mnemonics` and `mxprv_from_mnemonics` refuse anything
+but a sequence of mnemonics, a lone mnemonic included, with a
+`BTClibTypeError` (closes #17).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

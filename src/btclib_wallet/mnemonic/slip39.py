@@ -56,7 +56,7 @@ from dataclasses import dataclass
 from hashlib import pbkdf2_hmac, sha256
 
 from btclib.alias import Octets
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import network_from_name
 from btclib.utils import assert_type, bytes_from_octets
 
@@ -538,6 +538,27 @@ def _common_field(shares: Sequence[Share]) -> Share:
     return first
 
 
+def _assert_mnemonic_sequence(mnemonics: object) -> None:
+    """Refuse anything but a sequence of mnemonics, a lone one included.
+
+    A mnemonic is a str, and a str is itself a sequence of str, so one
+    passed where the list of shares was meant would be read one character
+    at a time, each character a one-letter share: btclib's
+    `musig2._assert_octets_sequence` and `frost._assert_octets_sequence`
+    refuse a lone `Octets` where a `Sequence[Octets]` belongs for the same
+    reason (issue btclib-org/btclib#1405).
+
+    `not isinstance(mnemonics, Sequence)` refuses every other type the
+    signature does not declare: None, which `not mnemonics` would call a
+    missing mnemonic, a number, which the comprehension would answer with
+    a bare TypeError, and an iterable that is no sequence, such as a set
+    or a generator, which the comprehension would read.
+    """
+    if isinstance(mnemonics, str) or not isinstance(mnemonics, Sequence):
+        err_msg = f"invalid mnemonics type: {type(mnemonics).__name__}"
+        raise BTClibTypeError(err_msg)
+
+
 def master_secret_from_mnemonics(
     mnemonics: Sequence[Mnemonic], passphrase: str = ""
 ) -> bytes:
@@ -549,6 +570,7 @@ def master_secret_from_mnemonics(
     right one, which is what lets a decoy wallet exist.
     """
     _assert_valid_passphrase(passphrase)
+    _assert_mnemonic_sequence(mnemonics)
     if not mnemonics:
         raise BTClibValueError("no mnemonic")
 
