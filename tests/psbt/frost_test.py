@@ -5,12 +5,12 @@
 """Tests for the `btclib_wallet.psbt.frost` module.
 
 The key material is BIP445's own 2-of-3 group, read out of the vectors
-vendored under `tests/ecc/_data/bip445/` rather than copied here: it is
-what `tests/ecc/frost_test.py` signs with, so a re-pinned vector file
-moves both at once. What is built here instead is the transaction --
-BIP445 publishes no psbt, having nothing to say about one -- so every
-spend below pays the group and is spent by it, and what says the session
-was right is btclib's own script engine over the extracted transaction.
+vendored under `tests/ecc/_data/bip445/`, the file btclib's own
+`tests/ecc/frost_test.py` signs with. What is built here instead is the
+transaction -- BIP445 publishes no psbt, having nothing to say about one
+-- so every spend below pays the group and is spent by it, and what says
+the session was right is btclib's own script engine over the extracted
+transaction.
 """
 
 from copy import deepcopy

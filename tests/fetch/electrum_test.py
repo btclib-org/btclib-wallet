@@ -7,10 +7,10 @@
 No socket anywhere here, `LineRecorded` below being the whole of what
 answers: `tests/fetch/transport_test.py` is where `TlsLineTransport`
 is tested, over a fake connection of its own.
-`tests/electrum_test.py` is the codec these calls are built on; the
-literals below are that module's own, repeated rather than imported, so
-that the two suites agree on what a real server would answer without one
-importing the other.
+btclib's own `tests/electrum_test.py` tests the codec these calls are
+built on; the literals below are that module's own, repeated rather than
+imported, so that the two suites agree on what a real server would answer
+without one importing the other.
 """
 
 from __future__ import annotations
@@ -28,9 +28,9 @@ from btclib.tx import OutPoint
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT, TIP_ID, TX_ID
 
-# block 481824's transaction at index 1 -- see tests/electrum_test.py for
-# how the branch below was derived and its own positive control against
-# the real header
+# block 481824's transaction at index 1 -- btclib's own
+# tests/electrum_test.py says how the branch below was derived, with its
+# own positive control against the real header
 MERKLE_TX_ID = "c2bfb6f1bf791308c6b8f73f5d4181be9aa490da6e73c188f9ebd0723e8531b6"
 MERKLE_TX_RAW = (
     "0200000001d40c5407d03e50fdfbdaa1ec97b3ce0cc29d72e7ca360c18221cf903d8b5f51b"
@@ -57,9 +57,9 @@ MERKLE_BRANCH = [
 ]
 
 # the eighty bytes `blockchain.block.header` answers for height 0 on each
-# chain: the first eighty of the genesis block serializations this tree
-# already carries, mainnet's in tests/block/_data/checkblock_valid.json and
-# testnet's in tests/block/_data/blockfilters.json. What makes them vectors
+# chain: the first eighty of the genesis block serializations btclib
+# vendors, mainnet's in its tests/block/_data/checkblock_valid.json and
+# testnet's in its tests/block/_data/blockfilters.json. What makes them vectors
 # rather than literals to trust is that their hashes are the ones
 # `NETWORKS[network].genesis_block` holds, which is what the first test of
 # the network check asserts before any of the others rests on it

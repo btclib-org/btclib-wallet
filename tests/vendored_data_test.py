@@ -390,10 +390,9 @@ _SECTION_HEADING = re.compile(r"^#{2,3} .+$", re.MULTILINE)
 # vendored as a file: ..." heading has prose of its own and never matches,
 # which is the point: such an entry has no name to compare the Summary
 # against. The same shape also excludes a heading with trailing prose after
-# the path -- "### `tests/tx/_data/*.bin` — segwit transactions" and "###
-# `tests/fetch/_data/*` — response bodies" among them -- and neither is
-# transcribed today, so nothing is missed; a transcribed entry written with a
-# trailing dash would drop out of both sets with nothing red to say so
+# the path -- "### `tests/fetch/_data/*` — response bodies" -- which is not
+# transcribed today, so nothing is missed; a transcribed entry written with
+# a trailing dash would drop out of both sets with nothing red to say so
 _VENDORED_FILE_HEADING = re.compile(r"^### `([^`]+)`$")
 
 _TRANSCRIBED_VERDICT = "Verdict: **transcribed**"
