@@ -143,7 +143,7 @@ from copy import deepcopy
 from dataclasses import dataclass, fields, replace
 from typing import Any, cast
 
-from btclib.alias import BIP44ScriptType, Octets, ScriptList, TaprootScriptTree
+from btclib.alias import Octets, ScriptList, TaprootScriptTree
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.key import PubKeyData
@@ -183,6 +183,7 @@ from btclib_wallet.bip32.der_path import (
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.bip44 import (
+    BIP44ScriptType,
     _assert_valid_account_path,
     _assert_valid_coin_type,
     _indexes_left_to_derive,

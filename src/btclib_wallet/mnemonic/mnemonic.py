@@ -10,6 +10,7 @@ import threading
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 from btclib.exceptions import BTClibValueError
 
@@ -18,6 +19,7 @@ __all__ = [
     "DEFAULT_LANGUAGE_FILES",
     "WORDLISTS",
     "Mnemonic",
+    "MnemonicLang",
     "WordList",
     "WordLists",
     "data_file",
@@ -30,7 +32,7 @@ WordList = Sequence[str]
 
 
 def data_file(filename: str) -> str:
-    """Return the path of a word-list shipped with btclib."""
+    """Return the path of a word-list this package ships."""
     return str(Path(__file__).parent / "_data" / filename)
 
 
@@ -60,20 +62,45 @@ BIP39_LANGUAGE_FILES = {
     "zh_tw": data_file("chinese_traditional.txt"),
 }
 
-# every word-list btclib ships: BIP39's and slip39's, which is a
-# scheme and not a language code, as its key says. SLIP-0039 supports no
-# localization at all, so there is no "en" of it to collide with BIP39's
-# -- which is a different list of a different length, 1024 words of ten
-# bits against 2048 of eleven. It is registered here rather than on a
-# private WordLists built by slip39.py so that every word-list btclib
-# ships is reachable from the one place that holds them. Sharing the
-# registry is what lets a caller ask bip39 for lang="slip39", so bip39
-# refuses any list that is not 2048 words long rather than answer with a
-# base-1024 sentence no BIP39 wallet reads
+# every BIP39 and SLIP-0039 word-list this package ships: BIP39's and
+# slip39's, which is a scheme and not a language code, as its key says.
+# SLIP-0039 supports no localization at all, so there is no "en" of it to
+# collide with BIP39's -- which is a different list of a different length,
+# 1024 words of ten bits against 2048 of eleven. It is registered here
+# rather than on a private WordLists built by slip39.py so that the lists
+# of both schemes are reachable from the one place that holds them;
+# electrum's own Portuguese and pre-2.0 English lists are electrum.py's,
+# outside this registry. Sharing the registry is what lets a caller ask
+# bip39 for lang="slip39", so bip39 refuses any list that is not 2048
+# words long rather than answer with a base-1024 sentence no BIP39 wallet
+# reads
 DEFAULT_LANGUAGE_FILES = {
     **BIP39_LANGUAGE_FILES,
     "slip39": data_file("wordlist.txt"),
 }
+
+# The keys of DEFAULT_LANGUAGE_FILES, which are those of a fresh
+# WORDLISTS: tests/mnemonic/mnemonic_test.py checks the two stay equal.
+#
+# Open, as btclib.alias.NetworkName is: WordLists.load_lang adds a
+# language, so the `lang: str` parameters of this module, bip39 and
+# electrum stay str -- a Literal there would reject the file a caller has
+# just loaded
+MnemonicLang = Literal[
+    "cs",
+    "en",
+    "es",
+    "fr",
+    "it",
+    "ja",
+    "ko",
+    "pt",
+    "ru",
+    "tr",
+    "zh",
+    "zh_tw",
+    "slip39",
+]
 
 
 class WordLists:
@@ -86,7 +113,7 @@ class WordLists:
     electrum.py does, electrum's Portuguese not being BIP39's -- passes
     language_files to the constructor.
 
-    The keys above are what alias.MnemonicLang names, and
+    The keys above are what MnemonicLang names, and
     load_lang is why no lang parameter here or in bip39 and electrum is
     typed with it: the set is open, so a Literal would reject the
     language a caller has just loaded (issue btclib-org/btclib#216).

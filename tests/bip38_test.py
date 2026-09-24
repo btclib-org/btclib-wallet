@@ -26,7 +26,6 @@ from __future__ import annotations
 import secrets
 
 import pytest
-from btclib.alias import BlockCipherF
 from btclib.b58 import address_from_h160, prv_key_data_from_wif
 from btclib.base58 import decode as base58_decode
 from btclib.curves import bytes_from_point, mult, secp256k1
@@ -40,6 +39,7 @@ from btclib.exceptions import (
 from btclib.hashes import hash160
 
 from btclib_wallet import bip38
+from btclib_wallet.bip38 import BlockCipherF
 from tests import aes_decrypt_block, aes_encrypt_block, aes_expand_key
 
 

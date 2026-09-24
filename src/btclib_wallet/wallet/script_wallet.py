@@ -126,9 +126,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import replace
-from typing import Any
+from typing import Any, Literal
 
-from btclib.alias import Command, EmbeddedScriptType, KeyOrder, ScriptList
+from btclib.alias import Command, ScriptList
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -163,9 +163,34 @@ from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.wallet.wallet import RangedWallet
 
 __all__ = [
+    "EmbeddedScriptType",
     "KeyGroup",
+    "KeyOrder",
     "ScriptWallet",
 ]
+
+# The three ways a script becomes an output, which is what a ScriptWallet
+# takes: the script is hashed into a p2sh, into a p2wsh, or into a p2wsh
+# that a p2sh wraps. Not btclib.alias.ScriptType either, and for
+# bip44.BIP44ScriptType's reason -- `p2sh-p2wsh` is a nesting of one
+# script in another and not something type_and_payload answers -- while
+# the overlap with those four is only apparent: these three say what
+# happens to a *script*, where those four say what happens to a key.
+#
+# A parameter type: the vocabulary is closed by what a hash of a script
+# can be paid to, so a fourth entry would need a new output type rather
+# than a new line here
+EmbeddedScriptType = Literal["p2sh", "p2wsh", "p2sh-p2wsh"]
+
+# When a ScriptWallet orders the keys of a quorum, which is the one thing
+# about a pre-descriptor multisig wallet that cannot be read off its
+# script: "derived" sorts them at every index, which is BIP67 on the
+# derived keys and what sortedmulti() follows; "account" sorts the account
+# keys once and derives afterwards, which multi() states; "none" keeps them
+# as declared. The three are a strategy and not a constant because
+# deployed wallets disagree, and the sort_key beside them is what a wallet
+# ordering by something that is not a byte order needs
+KeyOrder = Literal["none", "account", "derived"]
 
 # what OP_CHECKMULTISIG can be written for: `op_int` spells 0 to 16, so a
 # seventeenth key would need the threshold and the count as data pushes,

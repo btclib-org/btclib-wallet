@@ -17,7 +17,6 @@ from typing import get_args
 
 import pytest
 from btclib import b32
-from btclib.alias import BIP44ScriptType
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 
@@ -25,6 +24,7 @@ from btclib_wallet.bip32 import bip32, fingerprint
 from btclib_wallet.bip44 import (
     _ADDRESS_FROM_SCRIPT_TYPE,
     SCRIPT_TYPE_FROM_PURPOSE,
+    BIP44ScriptType,
     address_from_der_path,
 )
 from btclib_wallet.descriptors import account_descriptors

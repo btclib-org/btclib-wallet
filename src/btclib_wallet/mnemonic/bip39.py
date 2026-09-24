@@ -93,9 +93,9 @@ _SEPARATORS = {"ja": "\u3000"}
 
 # BIP39 is eleven bits to a word, and so 2048 words to a list: "the
 # wordlist contains 2048 words" is the specification, not a property of
-# the english list. WORDLISTS holds every list btclib ships, slip39's
-# 1024 words among them, so the length has to be asked for rather than
-# assumed
+# the english list. WORDLISTS holds every BIP39 and SLIP-0039 list this
+# package ships, slip39's 1024 words among them, so the length has to be
+# asked for rather than assumed
 _BIP39_WORDLIST_LENGTH = 1 << 11
 
 
@@ -192,10 +192,10 @@ def lang_from_mnemonic(mnemonic: Mnemonic) -> str:
     `detect_language`: btclib has no `expand`, so a four-letter prefix is
     not a word anywhere else in this module either.
     """
-    # the registry is shared with every other scheme btclib ships, so the
-    # candidates are filtered by _BIP39_WORDLIST_LENGTH: slip39's list is
-    # 1024 words, and a sentence written from it is not a BIP39 mnemonic
-    # in a language nobody named -- it is not a BIP39 mnemonic at all
+    # the registry is shared with slip39, so the candidates are filtered by
+    # _BIP39_WORDLIST_LENGTH: slip39's list is 1024 words, and a sentence
+    # written from it is not a BIP39 mnemonic in a language nobody named --
+    # it is not a BIP39 mnemonic at all
     candidates = [
         lang
         for lang in WORDLISTS.langs_of_words(mnemonic.split())

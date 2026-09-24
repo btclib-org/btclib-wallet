@@ -53,7 +53,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from btclib.alias import BIP44ScriptType, Octets
+from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
@@ -61,6 +61,7 @@ from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import BIP32Key
 from btclib_wallet.bip32.der_path import DerPath
+from btclib_wallet.bip44 import BIP44ScriptType
 from btclib_wallet.descriptors.descriptors import (
     ComboDescriptor,
     Descriptor,

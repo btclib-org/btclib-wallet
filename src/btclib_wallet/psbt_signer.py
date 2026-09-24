@@ -60,7 +60,7 @@ from base64 import b64encode
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from btclib.alias import BIP44ScriptType, Octets, String
+from btclib.alias import Octets, String
 from btclib.ecc import bms, dsa, ssa
 from btclib.exceptions import BTClibValueError, SignerError
 from btclib.key import PrvKeyData
@@ -82,6 +82,7 @@ from btclib_wallet.bip32.der_path import (
     str_from_der_path,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
+from btclib_wallet.bip44 import BIP44ScriptType
 from btclib_wallet.descriptors import (
     Descriptor,
     KeyExpression,

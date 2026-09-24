@@ -10,7 +10,6 @@ from typing import Any, get_args
 from unicodedata import normalize
 
 import pytest
-from btclib.alias import MnemonicLang
 from btclib.exceptions import BTClibValueError
 from typing_extensions import override
 
@@ -22,7 +21,7 @@ from btclib_wallet.mnemonic import (
     mnemonic_from_indexes,
     normalize_mnemonic,
 )
-from btclib_wallet.mnemonic.mnemonic import WordLists, data_file
+from btclib_wallet.mnemonic.mnemonic import MnemonicLang, WordLists, data_file
 
 
 def test_mnemonic() -> None:
@@ -217,8 +216,9 @@ def test_every_wordlist() -> None:
     it would depend on which tests had already run.
 
     One entry more than the BIP39 languages, because the registry holds
-    every word-list btclib ships: "slip39" is a scheme keyed beside them,
-    1024 words rather than 2048, and it is what bip39._base refuses.
+    every BIP39 and SLIP-0039 word-list this package ships: "slip39" is a
+    scheme keyed beside them, 1024 words rather than 2048, and it is what
+    bip39._base refuses.
     """
     bip39_languages = [
         "cs",

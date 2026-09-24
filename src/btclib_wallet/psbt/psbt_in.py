@@ -13,9 +13,9 @@ from collections.abc import Callable, Mapping, Sequence
 
 # Standard library imports
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
-from btclib.alias import BinaryData, Octets, ValidSigHashType
+from btclib.alias import BinaryData, Octets
 from btclib.curves import sec_point
 from btclib.ecc import dsa
 from btclib.exceptions import BTClibValueError
@@ -113,7 +113,25 @@ __all__ = [
     "PSBT_IN_WITNESS_SCRIPT",
     "PSBT_IN_WITNESS_UTXO",
     "PsbtIn",
+    "ValidSigHashType",
 ]
+
+# The seven hash types btclib.script.sig_hash.SIG_HASH_TYPES allows: the
+# low five bits' four values -- DEFAULT, ALL, NONE, SINGLE -- alone and
+# each ORed with ANYONECANPAY. Not an IntFlag over the whole byte: SINGLE
+# == ALL | NONE, both being 3, so a flag decomposition would make SINGLE
+# an alias of ALL | NONE, a bit structure the protocol does not have
+# (issue btclib-org/btclib#273). Not an IntEnum either: the wire is wider
+# than these seven -- `legacy` and `segwit_v0` mask rather than validate,
+# and a byte such as 0x05 must still hash, being a value a mined signature
+# can carry -- so btclib's assert_valid_hash_type keeps `hash_type: int`
+# and checks a plain int against all 256 possible bytes (btclib's
+# sig_hash_taproot_test.py's test_valid_sighash_type), which a
+# Literal-typed parameter could not be called with. Narrowed only where
+# the wire is already closed: PsbtIn.sig_hash_type below, checked against
+# this same set once truthy, and tests/psbt/psbt_in_test.py checks the two
+# stay equal
+ValidSigHashType = Literal[0, 1, 2, 3, 129, 130, 131]
 
 PSBT_IN_NON_WITNESS_UTXO = b"\x00"
 PSBT_IN_WITNESS_UTXO = b"\x01"

@@ -46,6 +46,12 @@ there, gated at 100% coverage (closes #3).
 The called workflow verifies against `reusable-attest.yml` alone, so the
 input decides nothing (issue btclib-org/.github#1315).
 
+### The type aliases only the wallet uses are defined in the wallet
+
+`BIP44ScriptType`, `BlockCipherF`, `EmbeddedScriptType`, `KeyOrder`,
+`MnemonicLang` and `ValidSigHashType` are published by this package's own
+modules, not imported from `btclib.alias` (issue btclib-org/btclib#2244).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

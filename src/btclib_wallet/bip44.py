@@ -34,9 +34,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from btclib import b32, b58
-from btclib.alias import BIP44ScriptType, NetworkType
+from btclib.alias import NetworkType
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 from btclib.network import network_from_xkeyversion, network_type_from_xkeyversion
@@ -58,8 +59,29 @@ from btclib_wallet.bip32.der_path import (
 
 __all__ = [
     "SCRIPT_TYPE_FROM_PURPOSE",
+    "BIP44ScriptType",
     "address_from_der_path",
 ]
+
+# The four address encodings a purpose level can name: 44 is p2pkh, 49
+# p2wpkh-p2sh, 84 p2wpkh and 86 p2tr. It types both sides of this module
+# -- the mapping read out of its _data/bip44_purposes.json and the
+# script_type argument that overrides it -- so the two cannot drift apart
+# in silence.
+#
+# Qualified BIP44, and not named ScriptType, because it is not btclib's
+# notion of one: script.type_and_payload answers p2pk, p2ms, nulldata,
+# p2sh and p2wsh besides these, b58.address_from_h160 takes p2pkh or
+# p2sh, and p2wpkh-p2sh belongs to neither list -- it is a nesting of one
+# script in another, not an output script type. The field is called
+# script_type because that is what electrum's bip39_wallet_formats.json,
+# the source of the mapping, calls it; the name is kept and qualified
+# rather than corrected, so that the data and the code read the same.
+#
+# A Literal for the reasons btclib.alias.NetworkType is one, and with the
+# same limit: it is a mypy fact and not a runtime one, so the json is
+# still checked where it is used
+BIP44ScriptType = Literal["p2pkh", "p2wpkh-p2sh", "p2wpkh", "p2tr"]
 
 # purpose, coin type, account, change, address index: BIP44 fixes the
 # meaning of each level, so a path of any other length is not one
