@@ -115,10 +115,6 @@ one, and TestPyPI's rehearsal does the same there.
    second pair of eyes; it becomes one as soon as there is a second
    reviewer to add.
 
-Until the first release, `pypi-install.yml` and `sdist-rebuild.yml` have
-nothing to install or rebuild, and each is red on its schedule for that
-reason alone; the header of each says so.
-
 ## Rehearse on TestPyPI
 
 A rehearsal runs the identical pipeline — lint gate, test matrix, the

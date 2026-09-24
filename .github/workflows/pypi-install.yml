@@ -11,10 +11,7 @@ name: pypi-install
 #
 # The check derives an address from a mnemonic, which opens a word list
 # the wheel carries: an import runs `__init__.py` alone, where a data file
-# missing from the wheel is opened only at the first call that needs it.
-# Before the first release the index serves nothing and every cell fails at
-# its install: the red is the absence of a release, and the first tag ends
-# it
+# missing from the wheel is opened only at the first call that needs it
 
 on:
   # called by release.yml once PyPI has accepted the upload, with the tag,

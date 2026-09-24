@@ -15,7 +15,7 @@ name = "btclib-wallet"
 # it back from the installed metadata. A cycle in progress is the month
 # alone; the release's own pull request replaces it by hand with the date
 # the release is cut, YYYY.M.D, whose month need not be the cycle's
-version = "2026.9.24"
+version = "2026.10"
 description = "Bitcoin wallet functionality built on btclib"
 readme = "README.md"
 # PEP 639: a SPDX expression and the files it refers to. COPYRIGHT is not

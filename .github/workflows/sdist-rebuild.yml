@@ -12,9 +12,7 @@ name: sdist-rebuild
 #
 # The checkout at the tag, the rebuild and the verification are
 # btclib-org/.github's reusable-sdist-rebuild.yml, called at @main
-# (section 10 of its README.md). Until the first release the called job's
-# `gh release view` finds none and the run fails at that step: the red is
-# the absence of a release, and the first tag ends it
+# (section 10 of its README.md)
 
 on:
   schedule:
