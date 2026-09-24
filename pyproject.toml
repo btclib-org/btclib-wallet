@@ -13,10 +13,7 @@ build-backend = "uv_build"
 name = "btclib-wallet"
 # the one place the version is declared: btclib_wallet.__version__ reads
 # it back from the installed metadata. A cycle in progress is the month
-# alone, and the day is added by hand on the day a release is cut. The
-# month is btclib's own open cycle: what this package imports from btclib
-# is on btclib's `main` and in no btclib release yet, so no release of
-# this package can precede the btclib release that carries those names
+# alone, and the day is added by hand on the day a release is cut
 version = "2026.10"
 description = "Bitcoin wallet functionality built on btclib"
 readme = "README.md"
@@ -32,8 +29,8 @@ dependencies = [
     # the protocol package every module here is written against. The
     # floor is the first btclib release carrying `ecc.frost` and the
     # public names this tree imports in place of private ones
-    # (btclib-org/btclib#2242): an older one fails on the first import.
-    # [tool.uv.sources] below is uv's alone, and pip reads this line
+    # (btclib-org/btclib#2242): an older one fails on the first import,
+    # and it is what an index resolves: nothing here overrides it
     "btclib>=2026.9.24",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
@@ -171,16 +168,6 @@ dev = [
 # it: section 1 of the organization standard argues why, and section 15
 # carries the command that re-derives the ceiling
 required-version = ">=0.12.17"
-
-[tool.uv.sources]
-# btclib's `main`, and not a release, until the release the floor in
-# [project.dependencies] names is on PyPI: what this tree imports from
-# btclib is on `main` before it is in a release. That floor stays
-# beside this and is not made redundant by it: this table is uv's and is
-# dropped from the metadata anything else reads, so the floor is what pip
-# resolves. `uv run --locked` runs the commit uv.lock pins, so a change on
-# btclib's `main` reaches this tree at the re-lock that takes it
-btclib = { git = "https://github.com/btclib-org/btclib", branch = "main" }
 
 [tool.uv.build-backend]
 # `module-name` is not written: it defaults to `project.name` normalized,
