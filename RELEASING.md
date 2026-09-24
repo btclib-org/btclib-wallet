@@ -299,7 +299,8 @@ result.
    [RELEASE_NOTES.md](./RELEASE_NOTES.md) and [CHANGELOG.md](./CHANGELOG.md) to
    `## v<version>` — the heading must be the version alone, and the section
    must not be empty. `release.yml` checks both before anything is built,
-   because a version cannot be unpublished once an index has accepted it.
+   because PyPI never accepts a version's file names twice, even once the
+   release is deleted.
 
    In the same pull request, open the next cycle's section in both files,
    above the one just retitled — `## v<next YYYY.M> (work in progress, not
@@ -332,7 +333,8 @@ result.
    which sorts above every release that next month cuts before that day.
    `version-check` compares the tag with the declared version and reads
    the shape, never the calendar, so nothing downstream refuses it, and
-   a version an index has accepted cannot be unpublished.
+   PyPI never accepts that version's file names again, even once the
+   release is deleted.
 
    **If `main` moves while the gates run, throw the branch away and redo
    these edits on top of it — never rebase it, and never merge `main` into
