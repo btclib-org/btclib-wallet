@@ -10,7 +10,7 @@ from typing import Any, get_args
 from unicodedata import normalize
 
 import pytest
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from typing_extensions import override
 
 from btclib_wallet.mnemonic import (
@@ -391,3 +391,17 @@ def test_mnemonic_lang_names_the_shipped_word_lists() -> None:
     here rather than one from mypy.
     """
     assert set(get_args(MnemonicLang)) == set(WordLists().languages)
+
+
+def test_a_mnemonic_that_is_no_str() -> None:
+    """A mnemonic of another type is refused, where the walk does not reach.
+
+    Each of these takes a str beside the mnemonic, which
+    `input_validation_test.py`'s vocabulary does not build.
+    """
+    wrongs: tuple[Any, ...] = (None, 1.5, b"abandon")
+    for wrong in wrongs:
+        with pytest.raises(BTClibTypeError, match="invalid mnemonic type: "):
+            indexes_from_mnemonic(wrong, "en")
+        with pytest.raises(BTClibTypeError, match="invalid mnemonic type: "):
+            bip39.seed_from_mnemonic(wrong, "")

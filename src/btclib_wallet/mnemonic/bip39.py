@@ -58,6 +58,7 @@ from hashlib import pbkdf2_hmac, sha256
 
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name
+from btclib.utils import assert_type
 
 from btclib_wallet.bip32 import rootxprv_from_seed
 from btclib_wallet.mnemonic.entropy import (
@@ -192,6 +193,7 @@ def lang_from_mnemonic(mnemonic: Mnemonic) -> str:
     `detect_language`: btclib has no `expand`, so a four-letter prefix is
     not a word anywhere else in this module either.
     """
+    assert_type(mnemonic, str, "mnemonic")
     # the registry is shared with slip39, so the candidates are filtered by
     # _BIP39_WORDLIST_LENGTH: slip39's list is 1024 words, and a sentence
     # written from it is not a BIP39 mnemonic in a language nobody named --

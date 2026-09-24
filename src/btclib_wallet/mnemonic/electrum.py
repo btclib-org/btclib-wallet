@@ -66,6 +66,7 @@ from btclib.curves.curve import mult, secp256k1
 from btclib.curves.sec_point import bytes_from_point, scalar_from_prv_key
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name
+from btclib.utils import assert_type
 
 from btclib_wallet.bip32 import derive, rootxprv_from_seed
 from btclib_wallet.bip32.der_path import _HARDENED_OFFSET
@@ -363,6 +364,7 @@ def version_from_mnemonic(mnemonic: Mnemonic) -> tuple[str, str]:
     The normalized mnemonic is the one electrum hashes and stretches:
     NFKD, lower-case, accents dropped, whitespace collapsed.
     """
+    assert_type(mnemonic, str, "mnemonic")
     mnemonic_type = _mnemonic_type(mnemonic)
     if not mnemonic_type:
         seed_version = _seed_version(mnemonic)
@@ -514,6 +516,7 @@ def lang_from_mnemonic(mnemonic: Mnemonic) -> str:
     caller knows which one was meant. It is Chinese that reaches this,
     Simplified and Traditional sharing 1275 of their 2048 words.
     """
+    assert_type(mnemonic, str, "mnemonic")
     candidates = ELECTRUM_WORDLISTS.langs_of_words(_decodable(mnemonic).split())
     if not candidates:
         raise BTClibValueError(f"unknown language for mnemonic: '{mnemonic}'")
@@ -639,6 +642,7 @@ def hex_seed_from_old_mnemonic(mnemonic: Mnemonic) -> str:
     it fails at all -- 34 characters are still octets, and one of
     Electrum's own published seeds is exactly that.
     """
+    assert_type(mnemonic, str, "mnemonic")
     if not _is_old_mnemonic(mnemonic):
         raise BTClibValueError("not a pre-2.0 electrum mnemonic")
 

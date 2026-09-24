@@ -58,6 +58,12 @@ An alias a public parameter takes, from btclib's `alias.py` or this package,
 is driven or exempted with a reason, and the walk drives `Entropy`; `BinStr`
 and `Mnemonic` wait on their functions' validation (closes #12, issue #15).
 
+### A mnemonic or a binary-string entropy of another type is refused
+
+The functions taking one refuse any other type with a `BTClibTypeError`,
+bytes included, and `input_validation_test.py` drives `BinStr` and
+`Mnemonic` (closes #15).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

@@ -7,6 +7,7 @@
 import math
 import secrets
 from io import StringIO
+from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -505,3 +506,23 @@ def test_what_is_no_binary_string_is_refused_without_being_echoed() -> None:
             bin_str_entropy_from_str(not_binary)
         with pytest.raises(BTClibValueError, match="not a binary 0/1 string"):
             wordlist_indexes_from_bin_str_entropy(not_binary, 2048)
+
+
+def test_a_bin_str_that_is_no_str() -> None:
+    """A binary string of another type is refused before anything reads it.
+
+    `input_validation_test.py`'s walk does not reach these, each taking an
+    int beside the entropy, the entropy behind a default, or a `str` the
+    vocabulary does not name. Bytes are refused too, `int(x, 2)` reading
+    them as the digits they spell.
+    """
+    wrongs: tuple[Any, ...] = (None, 1.5, 1, b"0" * 128)
+    for wrong in wrongs:
+        with pytest.raises(BTClibTypeError, match="invalid entropy type: "):
+            wordlist_indexes_from_bin_str_entropy(wrong, 2048)
+        with pytest.raises(BTClibTypeError, match="invalid entropy type: "):
+            bin_str_entropy_from_str(wrong)
+        # None is this one's default, asking for CSPRNG entropy alone
+        if wrong is not None:
+            with pytest.raises(BTClibTypeError, match="invalid entropy type: "):
+                bin_str_entropy_from_random(128, wrong)

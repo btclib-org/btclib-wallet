@@ -53,6 +53,11 @@ quietly running over less.
 
 A function answering a `bool` about a wrong value would answer `False`
 rather than refuse it; no function the walk reaches here answers one.
+
+A function whose answer is a reading of any value of its type, rather
+than a check of it, answers a wrong value too: `_ANSWERS_A_WRONG_VALUE`
+names each the walk reaches, with its reason, and the second rule is
+asserted of them the other way round.
 """
 
 from __future__ import annotations
@@ -81,6 +86,8 @@ _ALIAS_PY = Path(btclib.__file__).parent / "alias.py"
 # about the tree
 _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
     "BIP32Key": (None, 1.5),
+    # bytes, which int(x, 2) reads as the digits they spell
+    "BinStr": (None, 1.5, 1, b"0101"),
     "BinaryData": (None, 1.5),
     "DerPath": (None, 1.5),
     # an int is an Entropy
@@ -99,6 +106,7 @@ _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
         bytearray(b"\xaa\xbb\xcc\xdd"),
         memoryview(b"\xaa\xbb\xcc\xdd"),
     ),
+    "Mnemonic": (None, 1.5, b"abandon"),
     "Octets": (None, 1.5, tuple(range(4))),
     "Point": (None, 1.5, "not a point"),
     "PubKey": (None, 1.5),
@@ -119,6 +127,7 @@ _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
 # call, which is the same line drawn twice
 _WRONG_VALUE: dict[str, tuple[Any, ...]] = {
     "BIP32Key": ("not an xkey",),
+    "BinStr": ("not binary",),
     "BinaryData": ("not hex at all",),
     # a string no path spelling reads, an index below zero, and one above
     # the four bytes a BIP32 index has
@@ -132,6 +141,7 @@ _WRONG_VALUE: dict[str, tuple[Any, ...]] = {
     # run time cannot tell tuple[int] from tuple[int, int], so the arity
     # is a value here and not a type
     "Iterable[Octets]": (["not hex at all"],),
+    "Mnemonic": ("not a mnemonic",),
     "Point": ((1,), (1, 2)),
     "PubKey": ("not a key",),
     "Sequence[Octets]": (["not hex at all"],),
@@ -195,6 +205,18 @@ def _calls(
 
 _DRIVEN = sorted(_DRIVABLE)
 
+# what answers every wrong value of _WRONG_VALUE instead of refusing it,
+# by dotted name, with the reason that is its contract
+_ANSWERS_A_WRONG_VALUE = {
+    # a sentence no scheme claims: the empty list, and "", are the answers
+    # the two docstrings give for it
+    "btclib_wallet.mnemonic.dispatch.all_seed_types_from_mnemonic",
+    "btclib_wallet.mnemonic.dispatch.seed_type_from_mnemonic",
+    # a reading of the sentence that checks nothing of its value, so any
+    # str is normalized whether or not it is a mnemonic
+    "btclib_wallet.mnemonic.mnemonic.normalize_mnemonic",
+}
+
 
 @pytest.mark.parametrize("dotted", _DRIVEN)
 def test_a_wrong_type_leaves_as_a_btclib_type_error(dotted: str) -> None:
@@ -210,9 +232,11 @@ def test_a_wrong_type_leaves_as_a_btclib_type_error(dotted: str) -> None:
             call()
 
 
-@pytest.mark.parametrize("dotted", _DRIVEN)
+@pytest.mark.parametrize(
+    "dotted", [d for d in _DRIVEN if d not in _ANSWERS_A_WRONG_VALUE]
+)
 def test_a_wrong_value_leaves_as_a_btclib_exception(dotted: str) -> None:
-    """The second rule, over every function the walk can drive.
+    """The second rule, over what the walk drives and does not answer.
 
     `BTClibException` and not one of the three: which of them a malformed
     value deserves is the function's to decide -- a size is a
@@ -222,6 +246,18 @@ def test_a_wrong_value_leaves_as_a_btclib_exception(dotted: str) -> None:
     for call in _calls(dotted, _WRONG_VALUE):
         with pytest.raises(BTClibException):
             call()
+
+
+@pytest.mark.parametrize("dotted", sorted(_ANSWERS_A_WRONG_VALUE))
+def test_what_answers_a_wrong_value_answers_it(dotted: str) -> None:
+    """An exemption from the second rule holds, or it is one left behind.
+
+    A function in `_ANSWERS_A_WRONG_VALUE` that starts refusing, or that
+    the walk stops reaching, fails here.
+    """
+    assert dotted in _DRIVABLE
+    for call in _calls(dotted, _WRONG_VALUE):
+        call()
 
 
 def test_the_vocabulary_is_the_libraries_input_types() -> None:
@@ -291,18 +327,12 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
         "OneOrMoreInt",
         "PrvKeys",
     }
-    # a function taking one lets a bare TypeError or AttributeError out
-    # for a wrong type rather than a BTClibTypeError, and for Mnemonic
-    # normalize_mnemonic and the two seed-type functions answer a str no
-    # mnemonic carries rather than refusing it (issue #15)
-    not_yet_refused = {"BinStr", "Mnemonic"}
-    exempt = without_a_wrong_value | not_yet_refused
     covered = (in_alias_py | own) & annotated
-    assert covered <= set(_WRONG_TYPE) | exempt
+    assert covered <= set(_WRONG_TYPE) | without_a_wrong_value
     # an exemption that matches nothing, or names a type the walk drives,
     # is one left behind
-    assert exempt <= covered
-    assert not exempt & set(_WRONG_TYPE)
+    assert without_a_wrong_value <= covered
+    assert not without_a_wrong_value & set(_WRONG_TYPE)
 
 
 def test_the_walk_reaches_what_it_claims() -> None:

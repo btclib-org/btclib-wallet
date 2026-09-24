@@ -92,6 +92,7 @@ scheme, and asks slip39 for the rest.
 from __future__ import annotations
 
 from btclib.exceptions import BTClibValueError
+from btclib.utils import assert_type
 
 from btclib_wallet.mnemonic import bip39, electrum, slip39
 from btclib_wallet.mnemonic.mnemonic import Mnemonic, indexes_from_mnemonic
@@ -171,6 +172,7 @@ def all_seed_types_from_mnemonic(mnemonic: Mnemonic, lang: str = "en") -> list[s
 
     The module docstring has the order and the measurements behind it.
     """
+    assert_type(mnemonic, str, "mnemonic")
     seed_types = []
 
     if slip39_seed_type := _slip39_seed_type(mnemonic):

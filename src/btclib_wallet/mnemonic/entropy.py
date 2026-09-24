@@ -74,17 +74,16 @@ def _int_from_bin_str(entropy: BinStr) -> int:
     `int(x, 2)` answers what is no binary string with the bare
     ValueError "invalid literal for int() with base 2", which names
     neither the parameter nor this library, and what is no string at all
-    with a bare TypeError.
+    with a bare TypeError, bytes and bytearray excepted: those it reads as
+    the digits they spell.
 
     Neither message carries the value, and neither does this one: raw
     entropy is seed material, and every error in this module says a
     length or a count and never the digits (issue btclib-org/btclib#137).
     """
+    assert_type(entropy, str, "entropy")
     try:
         return int(entropy, 2)
-    except TypeError as e:
-        err_msg = f"invalid entropy type: {type(entropy).__name__}"
-        raise BTClibTypeError(err_msg) from e
     except ValueError as e:
         raise BTClibValueError("invalid entropy: not a binary 0/1 string") from e
 
@@ -96,8 +95,8 @@ def wordlist_indexes_from_bin_str_entropy(entropy: BinStr, base: int) -> list[in
     language word-list, for the provided raw (i.e. binary 0/1 string)
     entropy; leading zeros are not considered redundant padding.
     """
-    bits = len(entropy)
     int_entropy = _int_from_bin_str(entropy)
+    bits = len(entropy)
     indexes = []
     while int_entropy:
         int_entropy, index = divmod(int_entropy, base)
@@ -210,12 +209,12 @@ def bin_str_entropy_from_bytes(
 
 def bytes_entropy_from_str(bin_str_entropy: BinStr) -> bytes:
     """Return the binary-string entropy as bytes, left-padded to whole ones."""
+    int_entropy = _int_from_bin_str(bin_str_entropy)
     n_bits = len(bin_str_entropy)
     if n_bits not in _bits:
         err_msg = f"invalid number of bits: {n_bits} instead of {_bits}"
         raise BTClibValueError(err_msg)
     nbytes = (n_bits + 7) // 8
-    int_entropy = _int_from_bin_str(bin_str_entropy)
     return int_entropy.to_bytes(nbytes, byteorder="big", signed=False)
 
 
@@ -434,8 +433,10 @@ def bin_str_entropy_from_random(
     - possibly hashed (if requested)
     """
     assert_type(to_be_hashed, bool, "to_be_hashed")
+    if entropy is not None:
+        assert_type(entropy, str, "entropy")
 
-    if entropy is None or not entropy:
+    if not entropy:
         i = secrets.randbits(bits)
     else:
         if len(entropy) > bits:

@@ -310,6 +310,7 @@ def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
     The checksum is verified; the share value is not, a single share
     carrying nothing that could verify it.
     """
+    assert_type(mnemonic, str, "mnemonic")
     mnemonic = " ".join(mnemonic.split())
     indexes = _indexes_from_mnemonic(mnemonic)
     n_words = len(indexes)
