@@ -563,9 +563,10 @@ result.
    the tag's version, and it waits for the index to serve that version
    before installing anything — so it cannot pass by testing the release
    before this one. It installs from PyPI on every image `os-ubuntu.yml`,
-   `os-macos.yml` and `os-windows.yml` run between them, at both ends of
-   the supported interpreter range and on the free-threaded build, and
-   derives an address with it. From then on it runs weekly on
+   `os-macos.yml` and `os-windows.yml` run between them, at the floor of
+   the supported interpreter range and at its two newest interpreters,
+   each of those beside its free-threaded build, and derives an address
+   with it. From then on it runs weekly on
    its own, and a failure means the outside world moved, not this
    repository — a new
    runner image, an interpreter release, PyPI serving a file that does not
@@ -690,9 +691,9 @@ environment and refuse to run without it.
 git checkout "v${version:?}" &&
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) &&
 uv build &&
-uv run --no-project --python 3.14 \
+uv run --no-project --python 3.15 \
   .github/scripts/normalize_sdist.py dist/ &&
-uv run --no-project --python 3.14 \
+uv run --no-project --python 3.15 \
   .github/scripts/generate_sbom.py dist/ sbom/ &&
 repo=btclib-org/btclib-wallet &&
 signer=btclib-org/.github/.github/workflows/reusable-attest.yml &&

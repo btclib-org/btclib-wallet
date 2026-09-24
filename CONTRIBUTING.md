@@ -452,9 +452,9 @@ which `release.yml`'s `attest` job signs beside the two files:
 ```shell
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 uv build
-uv run --no-project --python 3.14 .github/scripts/normalize_sdist.py dist/
+uv run --no-project --python 3.15 .github/scripts/normalize_sdist.py dist/
 sha256sum dist/*
-uv run --no-project --python 3.14 .github/scripts/generate_sbom.py dist/ sbom/
+uv run --no-project --python 3.15 .github/scripts/generate_sbom.py dist/ sbom/
 uv run --locked --only-group check twine check --strict dist/*
 uv run --locked --only-group check check-wheel-contents dist/*.whl
 uv run --locked --only-group check pyroma --min 10 dist/*.tar.gz
@@ -487,7 +487,7 @@ there, under the coverage job's floor; from the checkout's root:
 tmp=$(mktemp -d)
 tar -xzf dist/*.tar.gz -C "$tmp" --strip-components=1
 cd "$tmp"
-uv run --locked --python 3.14 --no-default-groups --group test pytest
+uv run --locked --python 3.15 --no-default-groups --group test pytest
 ```
 
 `lint.yml`, the `lint` job — this file *is* the lint gate, so there is no
