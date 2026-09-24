@@ -31,6 +31,11 @@ It follows the Scorecard badge, where section 2 of the organization
 standard places it for a tree section 10's `scorecard` entry names; the
 project is bestpractices.dev's 14813 (issue btclib-org/.github#350).
 
+### A release's version is the date it is cut
+
+`RELEASING.md` dates a release `YYYY.M.D` of the day it is cut, not the
+placeholder's month with the day added (closes #5).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
