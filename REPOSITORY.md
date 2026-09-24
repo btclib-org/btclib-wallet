@@ -21,10 +21,11 @@ them.
 
 Each section carries the command that sets its setting and the command
 that reads it back, and the `#` lines under a read-back are what it
-printed on 2026-09-24 — section 16's last step. A recorded answer is
-documentation, and a reader is its check: nothing re-runs these
-commands, so an answer that differs today is a change made outside the
-tree since that date.
+printed on 2026-09-24 — section 16's last step. Section 11 makes such
+an answer documentation, with a reader as its check: nothing re-runs
+these commands, so an answer that differs today is a change made since
+that date, to the setting or, for *Topics*, to the `keywords` it is
+compared with.
 
 ## Creating the repository
 
@@ -397,9 +398,9 @@ curl -s "$p/versions/?active=true" \
 # ["latest","branch",null]
 ```
 
-`stable` is missing from the second answer because no `v*` tag exists
-yet: Read the Docs takes that version from the highest semantic-version
-tag.
+`stable` is missing from the second answer because no `v*` tag existed
+on that date: Read the Docs takes that version from the highest
+semantic-version tag.
 
 **Neither call fails on a slug nothing holds.** The first reads the
 `404` body, `{"detail":"No Project matches the given query."}`, through
