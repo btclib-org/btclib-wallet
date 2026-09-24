@@ -220,8 +220,21 @@ package = ["src/btclib_wallet"]
 # [tool.uv.build-backend] source-exclude takes out, which check-sdist
 # reads for the uv backend: the workspaces of an editor and of an agent,
 # the file git reads, and COPYRIGHT, which `project.license-files` does
-# not name
-git-only = [".claude/", ".gitattributes", ".vscode/", "COPYRIGHT"]
+# not name.
+#
+# .clusterfuzzlite/ and fuzz/ join that reasoning rather than being read
+# as the .github check-sdist's own default ignore list already covers:
+# ClusterFuzzLite's own build configuration and the atheris harnesses it
+# builds are CI-only, read by fuzz.yml and by nothing a package installed
+# from the sdist runs
+git-only = [
+    ".claude/",
+    ".clusterfuzzlite/",
+    ".gitattributes",
+    ".vscode/",
+    "COPYRIGHT",
+    "fuzz/",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -256,8 +269,14 @@ filterwarnings = ["error"]
 # the vendored data is skipped rather than corrected: the BIP39 wordlists
 # are normative, and a test vector stays byte for byte what upstream
 # published. _generated_files holds committed output, and
-# .secrets.baseline and uv.lock are hashes
-skip = "*/_data/*.json,*/_data/*.csv,*/_data/*.txt,*/_data/*.bin,*/_generated_files/*,.secrets.baseline,uv.lock"
+# .secrets.baseline and uv.lock are hashes.
+#
+# fuzz/corpus/'s own seed files are wire-format bytes, not prose: a
+# fuzzing seed is one exact serialization of the object its harness
+# parses, and codespell rewrites text in place. Root-anchored, matching
+# the reasoning of the entries above, rather than "*fuzz/corpus/*",
+# which would also reach a hypothetical vendor/fuzz/corpus/
+skip = "*/_data/*.json,*/_data/*.csv,*/_data/*.txt,*/_data/*.bin,*/_generated_files/*,.secrets.baseline,uv.lock,fuzz/corpus/*"
 # identifiers, not misspellings: "nd" is the Neutered Derivation of the
 # bip32 docstrings, and "te" is what electrum's own NFD spelling of
 # "término" tokenizes into at the combining accent, a passphrase
@@ -283,6 +302,9 @@ extend-exclude = [
     "**/_generated_files/*",
     ".secrets.baseline",
     "uv.lock",
+    # fuzz/corpus/'s own seed files, for the same reason [tool.codespell]
+    # skip excludes them above
+    "fuzz/corpus/**",
 ]
 
 [tool.typos.default]
@@ -504,7 +526,12 @@ ignore = [
 # path, never an import
 ".github/scripts/*.py" = ["INP001"]
 "docs/source/conf.py" = ["INP001"]
-"**/__init__.py" = ["F401"]         # re-exported imports
+# ClusterFuzzLite's build.sh hands this straight to PyInstaller, never to
+# an import -- the same reason .github/scripts/*.py is exempt above, and
+# the same answer: no __init__.py, so as not to misrepresent fuzz/ as a
+# package
+"fuzz/*.py" = ["INP001"]
+"**/__init__.py" = ["F401"] # re-exported imports
 # preview mode's undefined-export does not special-case a module-level
 # __getattr__ (astral-sh/ruff#18504, open), which is how the root
 # publishes its submodules; tests/all_test.py walks `__all__` with getattr

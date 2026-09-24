@@ -68,21 +68,34 @@ repos:
         # lines, the same convention every repository of the organization
         # uses, which keeps the block's own comment true of what renders,
         # so a trailing space anywhere in this tree is an accident -- but
-        # for one vendored file. electrum's Portuguese word-list is
+        # for two exclusions. electrum's Portuguese word-list is
         # Monero's, and the blank lines of the licence header it opens
         # with end in a space upstream. Vendored data is not ours to
         # reformat: our copy being byte for byte upstream's is a property
         # that can be checked, and a stripped space voids it for nothing.
         # The loader reads the words and treats the header as the comment
-        # it is
-        exclude: ^src/btclib_wallet/mnemonic/_data/electrum_portuguese\.txt$
+        # it is.
+        #
+        # `fuzz/corpus/` is the second exclusion and a different reason: a
+        # fuzzing seed is one exact serialization of the object its
+        # harness parses, so an octet added to it or taken off it makes it
+        # a different input. `end-of-file-fixer` and `mixed-line-ending`
+        # below carry the same exclusion for the same reason; `codespell`
+        # and `typos` take theirs from pyproject.toml instead, where the
+        # corpus is named for both
+        exclude: ^(src/btclib_wallet/mnemonic/_data/electrum_portuguese\.txt$|fuzz/corpus/)
       - id: end-of-file-fixer
+        # the corpus, for the reason given on trailing-whitespace above:
+        # this is the hook that rewrote a seed
+        exclude: ^fuzz/corpus/
       - id: mixed-line-ending
         # not the default --fix=auto, which normalizes a file to its own
         # most frequent ending: a file entirely in CRLF is consistent by
         # that measure, so it stays, and the LF lines added to it are
         # converted the wrong way. This repository is LF throughout
         args: [--fix=lf]
+        # the corpus, for the reason given on trailing-whitespace above
+        exclude: ^fuzz/corpus/
       - id: check-case-conflict
       # no check-executables-have-shebangs, by check-hooks-apply's own
       # verdict: it selects on types [executable], nothing tracked here
@@ -107,6 +120,8 @@ repos:
       # it buys is that an editor on another platform cannot quietly add
       # three bytes in front of a Python file
       - id: fix-byte-order-marker
+        # the corpus, for the reason given on trailing-whitespace above
+        exclude: ^fuzz/corpus/
       # this one *adds* "# -*- coding: utf-8 -*-" to every Python file.
       # UTF-8 has been the default source encoding since Python 3 and the
       # floor here is 3.11, so it is a dead line per file

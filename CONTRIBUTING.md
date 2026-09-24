@@ -559,6 +559,7 @@ reliance `REVIEWING.md` provides for.
 | `integration-bitcoind` | pull request, push to main, weekly | — |
 | `claude-review` | pull request, and `@claude` in a comment | — |
 | `codeql` | pull request, push, and weekly | the languages |
+| `fuzz` | weekly, and by hand before a release | — |
 | `os-ubuntu` | weekly, a release | images × interpreters |
 | `os-macos` | weekly, a release | images × interpreters |
 | `os-windows` | weekly, a release | images × interpreters |
