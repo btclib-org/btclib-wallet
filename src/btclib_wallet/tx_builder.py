@@ -75,7 +75,7 @@ from btclib.consensus import WITNESS_SCALE_FACTOR
 from btclib.exceptions import BTClibValueError
 from btclib.fee import DUST_RELAY_FEE_RATE, FeeRate, dust_threshold, fee_from_vsize
 from btclib.tx import TxOut
-from btclib.tx.tx import _SEGWIT_MARKER
+from btclib.tx.tx import SEGWIT_MARKER
 from btclib.utils import assert_type, bytes_from_octets
 
 from btclib_wallet.psbt.psbt import Psbt, prevouts
@@ -162,10 +162,12 @@ def _target_overhead_vsize(outputs: Sequence[TxOut], candidate_count: int) -> in
     placeholder = Psbt(
         2, [], psbt_outputs, PSBT_V0, {}, fallback_lock_time=0, check_validity=False
     )
-    marker_pad = ceil(len(_SEGWIT_MARKER) / WITNESS_SCALE_FACTOR)
+    marker_pad = ceil(len(SEGWIT_MARKER) / WITNESS_SCALE_FACTOR)
     # the placeholder above already prices a zero-input var_int, one byte;
     # this is only the extra width a pool of 253 or more candidates can add
-    input_count_pad = var_int._size(candidate_count) - var_int._size(0)
+    input_count_pad = len(var_int.serialize(candidate_count)) - len(
+        var_int.serialize(0)
+    )
     return placeholder.vsize_estimate() + marker_pad + input_count_pad
 
 

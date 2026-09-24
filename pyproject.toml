@@ -29,13 +29,12 @@ license-files = ["LICENSE", "AUTHORS.md"]
 authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
 requires-python = ">=3.10"
 dependencies = [
-    # the protocol package every module here is written against, and the
-    # floor is the btclib release that will carry what this tree imports:
-    # the names this code takes from btclib's `main` are in no release
-    # yet, so a floor naming one would describe an install that fails on
-    # its first import. [tool.uv.sources] below is what resolves it
-    # meanwhile, and is uv's alone: pip reads this line
-    "btclib>=2026.10",
+    # the protocol package every module here is written against. The
+    # floor is the first btclib release carrying `ecc.frost` and the
+    # public names this tree imports in place of private ones
+    # (btclib-org/btclib#2242): an older one fails on the first import.
+    # [tool.uv.sources] below is uv's alone, and pip reads this line
+    "btclib>=2026.9.24",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
@@ -89,12 +88,14 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# the libsecp256k1 bindings, through btclib's own extra rather than named
-# again here: btclib is what delegates to them, and its extra is what
-# states the floor its delegation needs. An extra rather than a
-# dependency for btclib's reason: every delegation declines where the
-# bindings are absent, and the Python arithmetic answers instead
-secp256k1 = ["btclib[secp256k1]>=2026.10"]
+# the libsecp256k1 bindings, named twice. btclib's own extra states the
+# floor btclib's delegation needs; `btclib-secp256k1` is named directly
+# as well because `bip32.bip32` and `silent_payments` import it
+# themselves, and its floor is the one btclib's extra carries. An extra
+# rather than a dependency for btclib's reason: every delegation declines
+# where the bindings are absent, and the Python arithmetic answers
+# instead
+secp256k1 = ["btclib[secp256k1]>=2026.9.24", "btclib-secp256k1>=0.8.0.6"]
 
 [project.urls]
 homepage = "https://btclib-wallet.readthedocs.io/"
@@ -115,7 +116,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.10"]
+bindings = ["btclib[secp256k1]>=2026.9.24", "btclib-secp256k1>=0.8.0.6"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was
@@ -173,10 +174,9 @@ dev = [
 required-version = ">=0.12.17"
 
 [tool.uv.sources]
-# btclib's `main`, and not its last release, because what this tree
-# imports from btclib is there and in no release yet: the modules here
-# were cut out of btclib's own tree, and the names they call arrived
-# after btclib's last release. The floor in [project.dependencies] stays
+# btclib's `main`, and not a release, until the release the floor in
+# [project.dependencies] names is on PyPI: what this tree imports from
+# btclib is on `main` before it is in a release. That floor stays
 # beside this and is not made redundant by it: this table is uv's and is
 # dropped from the metadata anything else reads, so the floor is what pip
 # resolves. `uv run --locked` runs the commit uv.lock pins, so a change on

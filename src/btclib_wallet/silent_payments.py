@@ -68,26 +68,23 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from btclib._libsecp256k1 import silentpayments as libsecp256k1_silentpayments
 from btclib.alias import Integer, NetworkType, Octets, Point, String
 from btclib.b32 import power_of_2_base_conversion
-from btclib.bech32 import _BECH32_M_CONST, decode, encode
+from btclib.bech32 import BECH32_M_CONST, decode, encode
 from btclib.curves import (
     PubKey,
+    TweakChain,
     bytes_from_point,
+    is_libsecp256k1_serving,
     mult,
+    mult_pub_key,
     point_from_octets,
     point_from_pub_key,
     scalar_from_prv_key,
     secp256k1,
+    sum_var,
+    tweak_add_var,
 )
-from btclib.curves.curve import (
-    _libsecp256k1_serves,
-    _sum_var,
-    _tweak_add_var,
-    _TweakChain,
-)
-from btclib.curves.sec_point import _mult_sec_var, _sec_from_pub_key
 from btclib.ecc.ssa import point_from_bip340pub_key
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, tagged_hash
@@ -96,6 +93,15 @@ from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
 from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_string
+
+# the bindings, imported from their own package rather than through
+# btclib's private re-export of it; None where they are not installed,
+# which nothing calls: every call is behind `is_libsecp256k1_serving`,
+# False in that configuration
+try:
+    from btclib_secp256k1 import silentpayments as libsecp256k1_silentpayments
+except ImportError:  # pragma: no cover -- only an install without them
+    libsecp256k1_silentpayments = None  # type: ignore[assignment]
 
 __all__ = [
     "K_MAX",
@@ -251,7 +257,7 @@ def address_from_keys(B_scan: PubKey, B_m: PubKey, network: str = "mainnet") -> 
     # between bech32 and bech32m, and here data[0] is a silent payment
     # version -- 0, which would pick the bech32 constant and produce a
     # string no BIP352 implementation accepts
-    return encode(_hrp_from_network(network), data, _BECH32_M_CONST).decode("ascii")
+    return encode(_hrp_from_network(network), data, BECH32_M_CONST).decode("ascii")
 
 
 def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
@@ -274,7 +280,7 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
         err_msg = f"invalid address length: {len(addr)} > {_MAX_ADDRESS_SIZE}"
         raise BTClibValueError(err_msg)
 
-    hrp, data = decode(addr, _BECH32_M_CONST)
+    hrp, data = decode(addr, BECH32_M_CONST)
     if hrp == _MAINNET_HRP:
         network_type: NetworkType = "main"
     elif hrp == _TESTNET_HRP:
@@ -330,7 +336,7 @@ def labeled_address_from_keys(
     recovering a wallet from a seed alone.
     """
     B_scan = mult(scalar_from_prv_key(b_scan))
-    B_m = _tweak_add_var(point_from_pub_key(B_spend), label_tweak(b_scan, m), secp256k1)
+    B_m = tweak_add_var(point_from_pub_key(B_spend), label_tweak(b_scan, m), secp256k1)
     return address_from_keys(B_scan, B_m, network)
 
 
@@ -497,11 +503,11 @@ def pub_key_sum(pub_keys: Sequence[PubKey]) -> Point:
     One `keys.pubkey_sum` of all the terms rather than a running total
     added one at a time: what kept it here was that an intermediate sum
     at infinity is a BIP352 vector and infinity is what libsecp256k1 has
-    no public key for, and `_sum_var` is where that stopped being a
+    no public key for, and `sum_var` is where that stopped being a
     reason -- a sum at infinity comes back as a value now, and this
     function still refuses it.
     """
-    total = _sum_var([point_from_pub_key(pub_key) for pub_key in pub_keys], secp256k1)
+    total = sum_var([point_from_pub_key(pub_key) for pub_key in pub_keys], secp256k1)
     if total[1] == 0:
         raise BTClibValueError("input public keys sum to infinity")
     return total
@@ -559,7 +565,7 @@ def shared_secret(scalar: Integer, point: PubKey) -> Point:
     commutativity is the protocol.
 
     The public key stays octets rather than becoming a point: nothing here
-    reads a coordinate of it, and `_mult_sec_var` is that multiplication
+    reads a coordinate of it, and `mult_pub_key` is that multiplication
     without the round trip through one. The point itself is the answer,
     which is why `ecdh.shared_secret` of the bindings is no substitute --
     it hashes, and BIP352 tags this point with a counter of its own;
@@ -567,12 +573,11 @@ def shared_secret(scalar: Integer, point: PubKey) -> Point:
     ECDH-shaped computations.
 
     The octets arrive unproven, as `ecc.ecies.derive_keys` takes them:
-    `_mult_sec_var`'s own call is the proof, refusing what is not a point
-    of the curve, so proving them here would lift one x twice (issue
-    887).
+    `mult_pub_key`'s own multiplication is the proof, refusing what is not
+    a point of the curve, so proving them here would lift one x twice
+    (issue btclib-org/btclib#887).
     """
-    sec = _sec_from_pub_key(point, secp256k1)
-    return _mult_sec_var(sec, scalar_from_prv_key(scalar), secp256k1)
+    return mult_pub_key(scalar_from_prv_key(scalar), point, secp256k1)
 
 
 def _output_tweak(secret: Point, k: int) -> int:
@@ -597,7 +602,7 @@ def output_key(secret: PubKey, B_m: PubKey, k: int) -> bytes:
     payments to one scan key landing on one output.
     """
     t_k = _output_tweak(point_from_pub_key(secret), k)
-    return _x_only(_tweak_add_var(point_from_pub_key(B_m), t_k, secp256k1))
+    return _x_only(tweak_add_var(point_from_pub_key(B_m), t_k, secp256k1))
 
 
 def _delegated_output_keys(
@@ -689,7 +694,7 @@ def output_keys(
     ask them for -- this is `silentpayments.create_outputs`'s own
     derivation rather than the Python arithmetic below: one keypair build
     per taproot input and one shared-secret multiplication per recipient
-    group inside libsecp256k1, in place of `mult` and `_mult_sec_var`
+    group inside libsecp256k1, in place of `mult` and `mult_pub_key`
     here. `a` and `h` are computed either way, for the refusal a zero
     private-key sum or an empty outpoint sequence already has a specific
     message for -- see `_delegated_output_keys`.
@@ -713,7 +718,7 @@ def output_keys(
     if not groups:
         return []
 
-    if _libsecp256k1_serves(secp256k1, None):
+    if is_libsecp256k1_serving():
         return _delegated_output_keys(prv_keys, outpoints, groups)
 
     keys: list[bytes] = []
@@ -749,7 +754,7 @@ def _labelled(
 
     This is the inner loop of a scan -- once per output that did not
     match directly, and again at every k -- so the additions are
-    `_sum_var`'s rather than the Python arithmetic under it, the latter
+    `sum_var`'s rather than the Python arithmetic under it, the latter
     being the dearer of the two over a hundred outputs. The negation of
     P_k is the same point for both parities and is taken once.
     """
@@ -764,12 +769,12 @@ def _labelled(
 
     minus_P_k = secp256k1.negate(P_k)
     for point in (candidate, secp256k1.negate(candidate)):
-        label_point = _sum_var([point, minus_P_k], secp256k1)
+        label_point = sum_var([point, minus_P_k], secp256k1)
         # infinity cannot happen here: it would mean the output equals
         # P_k up to parity, which the x-only comparison already caught
         tweak = labels.get(bytes_from_point(label_point, secp256k1))
         if tweak is not None:
-            return _sum_var([P_k, label_point], secp256k1), scalar_from_prv_key(tweak)
+            return sum_var([P_k, label_point], secp256k1), scalar_from_prv_key(tweak)
     return None
 
 
@@ -809,10 +814,10 @@ def scan_outputs(
             f"invalid outputs_to_check type: {type(outputs_to_check).__name__}"
         )
     secret = shared_secret(b_scan, tweak)
-    # every k tweaks the one spend key, and `_tweak_add_var` would cross
+    # every k tweaks the one spend key, and `tweak_add_var` would cross
     # the boundary with it at each of them: the chain crosses with it once
     label_map = {} if labels is None else labels
-    chain = _TweakChain(point_from_pub_key(B_spend), secp256k1)
+    chain = TweakChain(point_from_pub_key(B_spend), secp256k1)
     remaining = [
         bytes_from_octets(output, secp256k1.p_size) for output in outputs_to_check
     ]
@@ -962,7 +967,7 @@ def scan_transaction_outputs(
     A_sum = pub_key_sum([pub_key for pub_key, _script_pub_key in pub_keys])
     h = input_hash(outpoints, A_sum)
 
-    if _libsecp256k1_serves(secp256k1, None):
+    if is_libsecp256k1_serving():
         return _delegated_scan_outputs(
             b_scan, outpoints, pub_keys, B_spend, outputs_to_check, labels
         )

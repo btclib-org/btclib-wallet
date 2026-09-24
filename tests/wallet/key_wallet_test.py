@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from btclib import b58
 from btclib.alias import BIP44ScriptType
-from btclib.curves import curve, sec_point
+from btclib.curves import sec_point, set_libsecp256k1_serving
 from btclib.ecc import bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
@@ -233,7 +233,7 @@ def test_an_unknown_script_type_is_refused() -> None:
 def test_a_network_name_is_taken_as_the_rest_of_the_library_takes_one() -> None:
     """`Wallet` normalizes the name it is given, and refuses the rest.
 
-    `__init__` puts the name through `network._validated_network_name`,
+    `__init__` puts the name through `network.validated_network_name`,
     so the spellings issue btclib-org/btclib#216 decided to keep reach a wallet,
     and `Wallet.network` is the name `network_from_name` answers to.
     """
@@ -552,7 +552,7 @@ def test_add_derives_the_public_key_once(
     does not.
     """
     if not bindings:
-        monkeypatch.setattr(curve, "_libsecp256k1_available", False)
+        set_libsecp256k1_serving(serving=False)
 
     calls = 0
     for name in ("libsecp256k1_pubkey_from_prvkey", "mult"):

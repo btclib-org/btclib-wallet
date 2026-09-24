@@ -30,20 +30,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from btclib import base58
-from btclib._libsecp256k1 import keys as libsecp256k1_keys
 from btclib.alias import BinaryData, Octets, Point, String
 from btclib.curves import (
     Curve,
     bytes_from_point,
     bytes_from_prv_key_int,
+    is_libsecp256k1_serving,
+    is_x_coordinate_var,
     mult,
     point_from_octets,
     secp256k1,
-)
-from btclib.curves.curve import (
-    _assert_valid_ec,
-    _is_x_coordinate_var,
-    _libsecp256k1_serves,
 )
 from btclib.exceptions import BTClibTypeError, BTClibValueError, InvalidPrvKeyError
 from btclib.hashes import hash160
@@ -73,6 +69,15 @@ from btclib_wallet.bip32.der_path import (
     DerPath,
     indexes_from_der_path,
 )
+
+# the bindings, imported from their own package rather than through
+# btclib's private re-export of it; None where they are not installed,
+# which nothing calls: every call is behind `is_libsecp256k1_serving`,
+# False in that configuration
+try:
+    from btclib_secp256k1 import keys as libsecp256k1_keys
+except ImportError:  # pragma: no cover -- only an install without them
+    libsecp256k1_keys = None  # type: ignore[assignment]
 
 __all__ = [
     "BIP328_CHAIN_CODE",
@@ -189,14 +194,14 @@ def _assert_valid_key(version: bytes, key: bytes) -> None:
             err_msg += f"0x{key[:1].hex()}"
             raise BTClibValueError(err_msg)
         # existence and nothing else, the y having been computed and
-        # dropped: this is the caller _is_x_coordinate_var's docstring
+        # dropped: this is the caller is_x_coordinate_var's docstring
         # describes, and the square root it exists not to pay was paid
         # once per extended key, so by every level of every derivation
         # path (issue btclib-org/btclib#615). A predicate has no exception to
         # chain, so the message below states the error on its own, independent
         # of curve_group's own "invalid x-coordinate" wording
         x = int.from_bytes(key[1:], byteorder="big", signed=False)
-        if not _is_x_coordinate_var(x, secp256k1):
+        if not is_x_coordinate_var(x, secp256k1):
             raise BTClibValueError(f"invalid public key: 0x{key.hex()}")
     else:
         raise BTClibValueError(f"unknown extended key version: 0x{version.hex()}")
@@ -714,7 +719,7 @@ def point_from_xpub(xpub: BIP32Key, ec: Curve = secp256k1) -> Point:
     name rather than used to parse with, so a caller asking about a curve
     the key is not of is told which of the two disagrees.
     """
-    _assert_valid_ec(ec)
+    assert_type(ec, Curve, "ec")
     xpub_data = _key_data_from_bip32_key(xpub)
 
     if xpub_data.is_private:
@@ -821,11 +826,11 @@ def __prv_key_derivation(xkey: _BIP32KeyData, index: int, pub_key: bytes) -> Non
     #
     # The dispatch is not on the curve, BIP32 being defined for secp256k1
     # alone: it is on whether the bindings are there to serve it, which is
-    # the one question `_libsecp256k1_serves` answers that another curve
+    # the one question `is_libsecp256k1_serving` answers that another curve
     # would not have asked. What the Python arm below is for is a caller
     # without them, and SECURITY.md says of it what it says of every
     # Python path: the arithmetic is on integers and is not constant-time
-    if _libsecp256k1_serves(secp256k1, None):
+    if is_libsecp256k1_serving():
         try:
             key = libsecp256k1_keys.prvkey_tweak_add(xkey.key[1:], offset)
         except ValueError as e:
@@ -883,15 +888,15 @@ class _PythonPubKeyTweakChain:
     key is a modular square root, far dearer than their own parse, so a
     path of any length pays one instead of one per level.
 
-    `curves.curve` has the same arithmetic twice over -- `_tweak_add_var`
-    ends in `ec.add_var(P, mult(t, ec.G, ec))`, and `_TweakChain` is a
+    `curves` has the same arithmetic twice over -- `tweak_add_var`
+    ends in `ec.add_var(P, mult(t, ec.G, ec))`, and `TweakChain` is a
     point with many tweaks of it and the bindings' chain where they serve
     -- and this is not written here for want of noticing. Three things
-    differ, and each is the whole of a step: `_TweakChain`'s tweaks are
+    differ, and each is the whole of a step: `TweakChain`'s tweaks are
     absolute, measured from the point it was built on, where BIP32's are
-    successive; `_tweak_add_var` pays a `require_on_curve` per step, on a
+    successive; `tweak_add_var` pays a `require_on_curve` per step, on a
     point this one has just computed itself; and a refused tweak drops
-    `_TweakChain` to the one-shot pair and it answers the next one, where
+    `TweakChain` to the one-shot pair and it answers the next one, where
     BIP32 has to end the path instead.
 
     The contract is theirs, so that `_pub_key_tweak_chain` below can
@@ -922,9 +927,9 @@ class _PythonPubKeyTweakChain:
     Python throughout, and it has to be: with libsecp256k1 in reach their
     class is the better answer, so a chain that mixed the two would be
     the one shape never worth building. It cannot mix as written --
-    `mult` and the lift inside `point_from_octets` gate on
-    `_libsecp256k1_serves(secp256k1, None)`, which is the call that chose
-    this implementation, and cannot answer it differently -- and
+    `mult` and the lift inside `point_from_octets` gate on the state
+    `is_libsecp256k1_serving` reads, which is the call that chose this
+    implementation, and cannot answer it differently -- and
     `test_the_py_arm_reaches_no_bindings` checks that rather than
     trusting it, a dispatch made finer-grained one day being what would
     end it silently.
@@ -978,12 +983,12 @@ def _pub_key_tweak_chain(key: bytes) -> _PubKeyTweakChain:
     The dispatch, made once for a whole path rather than at every step of
     it: BIP32 is defined for secp256k1 alone, so what is asked here is
     not which curve this is but whether the bindings are there to serve
-    it, which is the one question `_libsecp256k1_serves` answers that
+    it, which is the one question `is_libsecp256k1_serving` answers that
     another curve would not have asked.
     """
     return (
         libsecp256k1_keys.PubkeyTweakChain(key)
-        if _libsecp256k1_serves(secp256k1, None)
+        if is_libsecp256k1_serving()
         else _PythonPubKeyTweakChain(key)
     )
 

@@ -29,3 +29,9 @@ driver that would keep both sides' numbers.
 
 The modules above btclib's primitives leave `btclib` for this package,
 each at the same path under `btclib_wallet` (issue btclib-org/btclib#2129).
+
+### `btclib-wallet` imports only btclib's public names
+
+The floor is `btclib>=2026.9.24`, the first btclib release publishing
+every name imported here, and the `secp256k1` extra names the bindings
+this package imports directly (issue btclib-org/btclib#2242).

@@ -13,7 +13,8 @@ own `py_arm_authority_test.py` is that inventory for btclib's arms, and
 this is the inventory for this package's.
 
 The arms are counted from the source -- a function containing a call to
-`_libsecp256k1_serves` is an arm -- so one added without an entry fails.
+`is_libsecp256k1_serving` is an arm -- so one added without an entry
+fails.
 The entries were measured, not reasoned:
 
     BTCLIB_NO_LIBSECP256K1=1 uv run --locked pytest <one module> \
@@ -66,7 +67,7 @@ _AUTHORITY: dict[str, tuple[str, ...]] = {
 def _py_arms() -> set[str]:
     """Return every function of the package that holds a dispatch.
 
-    A function whose source calls `_libsecp256k1_serves` has two arms, and
+    A function whose source calls `is_libsecp256k1_serving` has two arms, and
     the one this file is about is the arm that call declines. The match is
     textual, over the function's own source, so a comment writing the call
     spelling invents an arm and a nested function is attributed to its
@@ -82,7 +83,7 @@ def _py_arms() -> set[str]:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             segment = ast.get_source_segment(source, node) or ""
-            if "_libsecp256k1_serves(" in segment:
+            if "is_libsecp256k1_serving(" in segment:
                 found.add(f"{module}.{node.name}")
     return found
 

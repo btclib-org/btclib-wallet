@@ -900,7 +900,7 @@ def test_the_hook_skips_what_the_build_cannot_run(
     """Each build gets the skip its own name calls for.
 
     `tests.conftest` is where the name is patched, `INSTALLED` being
-    bound there by the import at the top of that module, and
+    bound there at the top of that module, and
     `monkeypatch` rather than an assignment because collection reads the
     same name and a value left standing would decide what the rest of
     the session skips.

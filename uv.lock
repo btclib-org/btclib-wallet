@@ -336,7 +336,7 @@ wheels = [
 [[package]]
 name = "btclib"
 version = "2026.10"
-source = { git = "https://github.com/btclib-org/btclib?branch=main#f38ea10876a5798f81b1e28e5ce5b52720be86f9" }
+source = { git = "https://github.com/btclib-org/btclib?branch=main#6291b33400d50197e5370fe636c5a769dafd36d0" }
 dependencies = [
     { name = "bitcoin-core-rpc" },
     { name = "typing-extensions" },
@@ -443,11 +443,13 @@ dependencies = [
 [package.optional-dependencies]
 secp256k1 = [
     { name = "btclib", extra = ["secp256k1"] },
+    { name = "btclib-secp256k1" },
 ]
 
 [package.dev-dependencies]
 bindings = [
     { name = "btclib", extra = ["secp256k1"] },
+    { name = "btclib-secp256k1" },
 ]
 check = [
     { name = "check-sdist" },
@@ -458,6 +460,7 @@ check = [
 ]
 dev = [
     { name = "btclib", extra = ["secp256k1"] },
+    { name = "btclib-secp256k1" },
     { name = "check-sdist" },
     { name = "check-wheel-contents" },
     { name = "cosmic-ray" },
@@ -479,6 +482,7 @@ dev = [
 ]
 docs = [
     { name = "btclib", extra = ["secp256k1"] },
+    { name = "btclib-secp256k1" },
     { name = "furo", marker = "python_full_version >= '3.12'" },
     { name = "myst-parser", marker = "python_full_version >= '3.12'" },
     { name = "sphinx", marker = "python_full_version >= '3.12'" },
@@ -493,6 +497,7 @@ harness = [
 ]
 lint = [
     { name = "btclib", extra = ["secp256k1"] },
+    { name = "btclib-secp256k1" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "ruff" },
@@ -502,6 +507,7 @@ mutation = [
 ]
 test = [
     { name = "btclib", extra = ["secp256k1"] },
+    { name = "btclib-secp256k1" },
     { name = "coverage" },
     { name = "hypothesis" },
     { name = "pytest" },
@@ -515,12 +521,16 @@ requires-dist = [
     { name = "bitcoin-core-rpc", specifier = ">=2026.9.3" },
     { name = "btclib", git = "https://github.com/btclib-org/btclib?branch=main" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", git = "https://github.com/btclib-org/btclib?branch=main" },
+    { name = "btclib-secp256k1", marker = "extra == 'secp256k1'", specifier = ">=0.8.0.6" },
     { name = "typing-extensions", specifier = ">=4.10" },
 ]
 provides-extras = ["secp256k1"]
 
 [package.metadata.requires-dev]
-bindings = [{ name = "btclib", extras = ["secp256k1"], git = "https://github.com/btclib-org/btclib?branch=main" }]
+bindings = [
+    { name = "btclib", extras = ["secp256k1"], git = "https://github.com/btclib-org/btclib?branch=main" },
+    { name = "btclib-secp256k1", specifier = ">=0.8.0.6" },
+]
 check = [
     { name = "check-sdist", specifier = ">=1.6.0" },
     { name = "check-wheel-contents", specifier = ">=0.6.3" },
@@ -530,6 +540,7 @@ check = [
 ]
 dev = [
     { name = "btclib", extras = ["secp256k1"], git = "https://github.com/btclib-org/btclib?branch=main" },
+    { name = "btclib-secp256k1", specifier = ">=0.8.0.6" },
     { name = "check-sdist", specifier = ">=1.6.0" },
     { name = "check-wheel-contents", specifier = ">=0.6.3" },
     { name = "cosmic-ray", specifier = ">=8.7.0" },
@@ -551,6 +562,7 @@ dev = [
 ]
 docs = [
     { name = "btclib", extras = ["secp256k1"], git = "https://github.com/btclib-org/btclib?branch=main" },
+    { name = "btclib-secp256k1", specifier = ">=0.8.0.6" },
     { name = "furo", marker = "python_full_version >= '3.12'", specifier = ">=2025.12.19" },
     { name = "myst-parser", marker = "python_full_version >= '3.12'", specifier = ">=5.1.0" },
     { name = "sphinx", marker = "python_full_version >= '3.12'", specifier = ">=9.1.0" },
@@ -565,6 +577,7 @@ harness = [
 ]
 lint = [
     { name = "btclib", extras = ["secp256k1"], git = "https://github.com/btclib-org/btclib?branch=main" },
+    { name = "btclib-secp256k1", specifier = ">=0.8.0.6" },
     { name = "mypy", specifier = ">=2.3.1" },
     { name = "pre-commit", specifier = ">=4.6.2" },
     { name = "ruff", specifier = ">=0.16.7" },
@@ -572,6 +585,7 @@ lint = [
 mutation = [{ name = "cosmic-ray", specifier = ">=8.7.0" }]
 test = [
     { name = "btclib", extras = ["secp256k1"], git = "https://github.com/btclib-org/btclib?branch=main" },
+    { name = "btclib-secp256k1", specifier = ">=0.8.0.6" },
     { name = "coverage", specifier = ">=7.16.0" },
     { name = "hypothesis", specifier = ">=6.168.0" },
     { name = "pytest", specifier = ">=9.1.1" },

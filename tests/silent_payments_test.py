@@ -27,9 +27,8 @@ from hashlib import sha256
 from typing import Any, cast
 
 import pytest
-from btclib._libsecp256k1 import silentpayments as libsecp256k1_silentpayments
 from btclib.b32 import power_of_2_base_conversion
-from btclib.bech32 import _BECH32_M_CONST, encode
+from btclib.bech32 import BECH32_M_CONST, encode
 from btclib.curves import bytes_from_point, mult, secp256k1
 from btclib.ecc import ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -39,6 +38,13 @@ from btclib.tx.out_point import OutPoint
 
 from btclib_wallet import silent_payments
 from tests import load, needs_bindings, vector_id
+
+# the bindings, None where they are not installed: every test reading
+# them is marked `bindings`, skipped in that configuration
+try:
+    from btclib_secp256k1 import silentpayments as libsecp256k1_silentpayments
+except ImportError:  # pragma: no cover -- only an install without them
+    libsecp256k1_silentpayments = None  # type: ignore[assignment]
 
 _VECTORS = load("_data", "send_and_receive_test_vectors.json", encoding="utf-8")
 
@@ -270,7 +276,7 @@ def _address(m: int | None = None, network: str = "mainnet") -> str:
 def _reencoded(version: int, payload: bytes, hrp: str = "sp") -> str:
     """Compose an address out of a version and a payload, valid or not."""
     data = [version, *power_of_2_base_conversion(payload, 8, 5)]
-    return encode(hrp, data, _BECH32_M_CONST).decode("ascii")
+    return encode(hrp, data, BECH32_M_CONST).decode("ascii")
 
 
 def test_the_address_round_trip_on_every_network() -> None:
@@ -390,7 +396,7 @@ def test_an_address_with_no_data_part_is_refused() -> None:
     BIP352's whatever the version, so nothing else asks.
     """
     with pytest.raises(BTClibValueError, match="empty data"):
-        silent_payments.keys_from_address(encode("sp", [], _BECH32_M_CONST))
+        silent_payments.keys_from_address(encode("sp", [], BECH32_M_CONST))
 
 
 def test_version_31_is_refused_and_the_others_are_read() -> None:
@@ -512,8 +518,8 @@ def test_output_keys_matches_across_arms(
 ) -> None:
     """The delegated and the Python arm answer the same set of outputs.
 
-    `output_keys`'s own dispatch is `_libsecp256k1_serves(secp256k1,
-    None)`, imported into this module's own namespace the way `dsa` and
+    `output_keys`'s own dispatch is `is_libsecp256k1_serving()`,
+    imported into this module's own namespace the way `dsa` and
     `ssa` import theirs, so a vector is run twice with the predicate
     patched between the two -- the same shape `dsa_test.py`'s own
     cross-arm tests use. `test_sending_vectors` already carries every
@@ -536,7 +542,7 @@ def test_output_keys_matches_across_arms(
     def _keys(*, delegated: bool) -> list[bytes] | None:
         with monkeypatch.context() as arm:
             if not delegated:
-                arm.setattr(silent_payments, "_libsecp256k1_serves", lambda *_a: False)
+                arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
             try:
                 return silent_payments.output_keys(prv_keys, outpoints, addresses)
             except BTClibValueError:
@@ -583,7 +589,7 @@ def test_output_keys_interleaved_groups_match_across_arms(
 
     delegated = silent_payments.output_keys(prv_keys, outpoints, addresses)
     with monkeypatch.context() as no_bindings:
-        no_bindings.setattr(silent_payments, "_libsecp256k1_serves", lambda *_a: False)
+        no_bindings.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
         python = silent_payments.output_keys(prv_keys, outpoints, addresses)
     assert len(delegated) == len(addresses)
     assert set(delegated) == set(python)
@@ -636,9 +642,9 @@ def test_scan_transaction_outputs_matches_across_arms(
 ) -> None:
     """The delegated and the Python arm of the full-node scan agree.
 
-    `scan_transaction_outputs`'s own dispatch is `_libsecp256k1_serves(
-    secp256k1, None)`, exactly `output_keys`'s, so a vector is run twice
-    with the predicate patched between the two --
+    `scan_transaction_outputs`'s own dispatch is
+    `is_libsecp256k1_serving()`, exactly `output_keys`'s, so a vector is
+    run twice with the predicate patched between the two --
     `test_output_keys_matches_across_arms`'s own shape, now available
     because `scan_transaction_outputs` gives the recipient's side a
     dispatch to flip. `test_receiving_vectors` already checks the light
@@ -665,7 +671,7 @@ def test_scan_transaction_outputs_matches_across_arms(
     def _scan(*, delegated: bool) -> list[silent_payments.SilentPaymentOutput] | None:
         with monkeypatch.context() as arm:
             if not delegated:
-                arm.setattr(silent_payments, "_libsecp256k1_serves", lambda *_a: False)
+                arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
             try:
                 return silent_payments.scan_transaction_outputs(
                     b_scan, B_spend, outpoints, pub_keys, given["outputs"], labels

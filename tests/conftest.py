@@ -18,15 +18,22 @@ and this file is the second of the two: such a run is refused
 """
 
 import difflib
+import importlib.util
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
 import pytest
-from btclib._libsecp256k1 import INSTALLED
+from btclib.curves import is_libsecp256k1_serving, set_libsecp256k1_serving
 from hypothesis import settings
+
+# whether the bindings can be imported at all, asked of the import system
+# without importing them: `curves.is_libsecp256k1_serving` answers whether
+# they serve, which `BTCLIB_NO_LIBSECP256K1` can make False with them
+# installed, and a test marked `bindings` needs them installed
+INSTALLED = importlib.util.find_spec("btclib_secp256k1") is not None
 
 # The deadline is a per-example time limit, measured on a run whose cost
 # the interpreter and the runner decide: pypy meets these tests with a
@@ -301,6 +308,20 @@ def pytest_configure(config: pytest.Config) -> None:
         config.getini("testpaths"),
         config.rootpath,
     )
+
+
+@pytest.fixture(autouse=True)
+def _libsecp256k1_serving_restored() -> Iterator[None]:
+    """Put the libsecp256k1 dispatch back as the test found it.
+
+    `curves.set_libsecp256k1_serving` is process-wide and nothing undoes
+    it, where `monkeypatch` undoes its own patches: a test switching the
+    dispatch off would otherwise leave every later test in the worker on
+    the Python arithmetic, passing while measuring the wrong arm.
+    """
+    serving = is_libsecp256k1_serving()
+    yield
+    set_libsecp256k1_serving(serving=serving)
 
 
 @pytest.fixture

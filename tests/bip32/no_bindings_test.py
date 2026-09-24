@@ -4,13 +4,13 @@
 
 """BIP32 derivation with btclib_secp256k1 not installed, in a subprocess.
 
-`btclib._libsecp256k1` asks for the bindings once, at import, so whether
-a derivation answers without them can only be asked of an interpreter
-that has not imported btclib yet. The bindings are put out of reach by a
-meta path finder that refuses the name, in a child interpreter, and this
-package is imported after that -- which is what the import does on a
-machine that never had them. btclib's own `no_bindings_test.py` asks the
-same of btclib's layers.
+btclib and `btclib_wallet.bip32.bip32` each ask for the bindings once,
+at import, so whether a derivation answers without them can only be
+asked of an interpreter that has imported neither yet. The bindings are
+put out of reach by a meta path finder that refuses the name, in a child
+interpreter, and this package is imported after that -- which is what
+the import does on a machine that never had them. btclib's own
+`no_bindings_test.py` asks the same of btclib's layers.
 
 What the child returns is compared with what this process computes with
 the bindings in reach: agreement between the two implementations is the
@@ -24,7 +24,7 @@ import subprocess
 import sys
 from typing import Any
 
-from btclib._libsecp256k1 import ENABLED, INSTALLED
+from btclib.curves import is_libsecp256k1_serving
 
 from btclib_wallet.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
 from tests import needs_bindings
@@ -51,14 +51,14 @@ class RefuseTheBindings:
 
 sys.meta_path.insert(0, RefuseTheBindings())
 
-from btclib._libsecp256k1 import INSTALLED
+from btclib.curves import is_libsecp256k1_serving
 from btclib_wallet.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
 
 assert "btclib_secp256k1" not in sys.modules, "the finder let the bindings in"
 
 rootxprv = rootxprv_from_seed({seed!r})
 print(json.dumps({{
-    "installed": INSTALLED,
+    "serving": is_libsecp256k1_serving(),
     "xprv": derive(rootxprv, {derivation!r}),
     "xpub": derive(xpub_from_xprv(rootxprv), {public_derivation!r}),
 }}))
@@ -87,12 +87,11 @@ def _child_answers() -> dict[str, Any]:
 @needs_bindings
 def test_bip32_answers_with_the_bindings_out_of_reach() -> None:
     """Both derivations answer what the bindings answer."""
-    assert INSTALLED
-    assert ENABLED
+    assert is_libsecp256k1_serving()
     rootxprv = rootxprv_from_seed(_SEED)
 
     answers = _child_answers()
 
-    assert answers["installed"] is False
+    assert answers["serving"] is False
     assert answers["xprv"] == derive(rootxprv, _DERIVATION)
     assert answers["xpub"] == derive(xpub_from_xprv(rootxprv), _PUBLIC_DERIVATION)

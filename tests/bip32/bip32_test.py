@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 from btclib import base58
-from btclib._libsecp256k1 import keys as libsecp256k1_keys
 from btclib.b58 import p2pkh
 from btclib.curves import (
     bytes_from_point,
@@ -72,6 +71,13 @@ from tests import (
     replace_unchecked,
     vector_id,
 )
+
+# the bindings, None where they are not installed: every test reading
+# them is marked `bindings`, skipped in that configuration
+try:
+    from btclib_secp256k1 import keys as libsecp256k1_keys
+except ImportError:  # pragma: no cover -- only an install without them
+    libsecp256k1_keys = None  # type: ignore[assignment]
 
 
 def _p2pkh_of(xkey: BIP32Key) -> str:
@@ -333,9 +339,9 @@ def test_serialization() -> None:
 def no_bindings_bip32(monkeypatch: pytest.MonkeyPatch) -> None:
     """Switch the dispatch off, and bip32's own bindings out of reach.
 
-    `no_bindings` clears `_libsecp256k1_available`, which is what every
-    `_libsecp256k1_serves` in the package reads, so it is the whole
-    dispatch and not one module's copy of a predicate. What it cannot
+    `no_bindings` switches off what every dispatch in the package reads,
+    so it is the whole dispatch and not one module's copy of a
+    predicate. What it cannot
     show is that *this* module asked: bip32 imports `keys` as a module,
     and a stand-in refusing every name in it is the proof -- a derivation
     that still reaches libsecp256k1 fails here rather than quietly
@@ -346,7 +352,7 @@ def no_bindings_bip32(monkeypatch: pytest.MonkeyPatch) -> None:
         def __getattr__(self, name: str) -> Any:
             # a green suite is one where this never runs, which is the
             # pragma tests.no_bindings carries for the same reason
-            raise AssertionError(  # pragma: no cover -- cleared _libsecp256k1_available keeps this uncalled
+            raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
                 f"the dispatch is switched off, and bip32 asked for {name}"
             )
 
@@ -904,8 +910,8 @@ def test_the_py_arm_reaches_no_bindings(monkeypatch: pytest.MonkeyPatch) -> None
     better calls, and out of reach there is nothing to mix. So the arm
     holds no call that could delegate -- which today it does not by
     construction, `mult` and the lift under `point_from_octets` gating on
-    `_libsecp256k1_serves(secp256k1, None)`, the very call that chose the
-    arm. Construction is a thing to check rather than to trust, and a
+    the state `is_libsecp256k1_serving` reads, the very call that chose
+    the arm. Construction is a thing to check rather than to trust, and a
     per-operation dispatch would end it without touching this file.
 
     `no_bindings_anywhere` is the check, generic to any arm of this shape:

@@ -184,23 +184,24 @@ needs_bindings = pytest.mark.bindings
 def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Switch the libsecp256k1 dispatch off, and the bindings out of reach.
 
-    `_libsecp256k1_available` is what `_libsecp256k1_serves` reads on
-    every call, so clearing it is the whole dispatch and not one module's
-    copy of a predicate. Replacing every bindings function `curve`
+    `curves.set_libsecp256k1_serving` sets what every dispatch reads on
+    every call, so switching it off is the whole dispatch and not one
+    module's copy of a predicate; `tests/conftest.py` puts it back after
+    every test. Replacing every bindings function `curve`
     imports is what proves they were not asked anyway: a dispatch this
     does not cover raises here instead of quietly measuring the bindings
     against themselves.
     """
-    from btclib.curves import curve  # noqa: PLC0415
+    from btclib.curves import curve, set_libsecp256k1_serving  # noqa: PLC0415
 
     def refuse(*_: object, **__: object) -> bytes:
         # a green suite is one where this never runs, the dispatch
         # above it ruling the call out
-        raise AssertionError(  # pragma: no cover -- cleared _libsecp256k1_available keeps this uncalled
+        raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
             "the libsecp256k1 dispatch is switched off"
         )
 
-    monkeypatch.setattr(curve, "_libsecp256k1_available", False)
+    set_libsecp256k1_serving(serving=False)
     monkeypatch.setattr(curve, "libsecp256k1_pubkey_from_prvkey", refuse)
     monkeypatch.setattr(curve, "libsecp256k1_pubkey_tweak_add", refuse)
     monkeypatch.setattr(curve, "libsecp256k1_pubkey_tweak_mul_sum", refuse)
@@ -228,19 +229,19 @@ def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     `btclib_wallet` or `btclib_secp256k1` and replaces every callable
     there whose
     `__module__` traces back to the bindings with one that raises,
-    whichever module holds the name; `_libsecp256k1_available` is cleared
+    whichever module holds the name; the dispatch is switched off
     alongside it, since a caller with the flag still on and every name
     unreachable is not the configuration a missing install produces. An
     arm this does not cover fails by calling through instead of passing
     by measuring the bindings against themselves.
     """
-    from btclib.curves import curve  # noqa: PLC0415
+    from btclib.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     def refuse(what: str) -> Callable[..., Any]:
         def asked(*_args: object, **_kwargs: object) -> Any:
             # a green suite is one where this never runs, the same pragma
             # no_bindings above carries for a call the dispatch rules out
-            raise AssertionError(  # pragma: no cover -- cleared _libsecp256k1_available keeps this uncalled
+            raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
                 f"the Python arm reached libsecp256k1: {what}"
             )
 
@@ -260,7 +261,7 @@ def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
             if origin.split(".")[0] == "btclib_secp256k1":
                 monkeypatch.setattr(mod, attr, refuse(f"{mod_name}.{attr}"))
 
-    monkeypatch.setattr(curve, "_libsecp256k1_available", False)
+    set_libsecp256k1_serving(serving=False)
 
 
 # --------------------------------------------------------------------------
