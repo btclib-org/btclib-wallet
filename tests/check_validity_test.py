@@ -42,7 +42,7 @@ def _signatures() -> list[tuple[str, int, str, list[str]]]:
             if "check_validity" in positional + keyword_only:
                 out.append(
                     (
-                        str(path.relative_to(PACKAGE.parent)),
+                        path.relative_to(PACKAGE.parent).as_posix(),
                         node.lineno,
                         node.name,
                         positional,
