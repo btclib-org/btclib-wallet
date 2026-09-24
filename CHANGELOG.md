@@ -52,6 +52,12 @@ input decides nothing (issue btclib-org/.github#1315).
 `MnemonicLang` and `ValidSigHashType` are published by this package's own
 modules, not imported from `btclib.alias` (issue btclib-org/btclib#2244).
 
+### `input_validation_test.py` checks this package's own aliases too
+
+An alias a public parameter takes, from btclib's `alias.py` or this package,
+is driven or exempted with a reason, and the walk drives `Entropy`; `BinStr`
+and `Mnemonic` wait on their functions' validation (closes #12, issue #15).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
