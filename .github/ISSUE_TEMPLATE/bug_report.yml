@@ -1,0 +1,77 @@
+---
+name: Bug report
+description: Something in btclib-wallet does not work as documented
+labels: [bug]
+
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Not every bug reachable from btclib-wallet is a btclib-wallet bug:
+        the keys, scripts, transactions and signatures it builds on are
+        [btclib](https://github.com/btclib-org/btclib/issues)'s, and a
+        traceback ending there belongs there. If in doubt, report it here.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce it
+      description: >
+        The shortest Python that shows it, and the full traceback if there
+        is one. The values that trigger it matter: paste the actual
+        descriptors, extended public keys, PSBTs or addresses, and never a
+        mnemonic, an extended private key or a mainnet private key you
+        still use.
+      render: python
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: btclib-wallet version
+      description: >
+        `python -c "from importlib.metadata import version;
+        print(version('btclib-wallet'))"`
+      placeholder: "2026.10"
+    validations:
+      required: true
+
+  - type: input
+    id: btclib-version
+    attributes:
+      label: btclib version
+      description: >
+        `python -c "import btclib; print(btclib.__version__)"`. Everything
+        this package encodes or signs goes through it, so which one is
+        installed is part of the report.
+      placeholder: "2026.10"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and interpreter
+      description: >
+        `python -VV` and the operating system, architecture included.
+      placeholder: "CPython 3.14.0, macOS 26.0 arm64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        The BIP or specification the behaviour should follow, a test
+        vector it disagrees with, the version this last worked on, and the
+        device, node or server on the other side where one is involved.

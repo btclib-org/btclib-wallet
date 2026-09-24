@@ -1,0 +1,84 @@
+---
+name: mutation
+# Coverage answers "was this line executed"; this answers "would the suite
+# notice if it were wrong", and a surviving mutant names one line at a
+# time where the answer is no. btclib-org/btclib#219 and
+# btclib-org/btclib#327 are the defects found inside a fully covered tree
+# that ask the question, and the profiles below are the ones that moved
+# here with the code they mutate.
+#
+# The baseline check, the session loop, the restore guard, the counts and
+# the upload are btclib-org/.github's reusable-mutation.yml, called at
+# @main (section 10 of that repository's README.md). What stays here is
+# this tree's own subject matter -- the profiles, their budgets and their
+# ceilings -- and the trigger, the schedule, the dispatch dropdown and the
+# concurrency group.
+#
+# It gates nothing, by design: a survival rate is not a regression, a
+# mutant surviving because a test is missing, so a red merge would block
+# whoever next touched the file for a hole somebody else left.
+#
+# What runs here is what .github/mutation/*.toml says, which is what
+# CONTRIBUTING.md documents for a local run: one list of scopes and test
+# commands, not a second copy of them in yaml.
+on:
+  # no pull_request trigger: a session is measured in hours, which section
+  # 10 of the organization's standard leaves to the calendar whole.
+  # check-toml parses the profiles on every commit, and `cosmic-ray
+  # baseline`, which the callee runs first, fails the run before any mutant
+  # if a test command has gone stale
+  schedule:
+    # section 10's calendar in btclib-org/.github, and not this file's to
+    # restate
+    - cron: "40 5 * * 1"
+  # the way to ask one profile's numbers without the whole matrix
+  workflow_dispatch:
+    inputs:
+      profile:
+        # `all` is what the schedule does; spelled rather than left empty,
+        # a blank entry in a dropdown reading as a mistake
+        description: one profile's slug, or all of them
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - keys
+          - signing
+          - fetch
+          - descriptors
+          - psbt
+          - boundaries
+# least privilege for the GITHUB_TOKEN: nothing here writes. In particular
+# no issues: write -- a survivor is a test to write rather than a defect to
+# track
+permissions:
+  contents: read
+# named literally rather than through github.workflow, which in a called
+# workflow is the caller's name. cancel-in-progress because a dispatch is
+# how somebody asks for these numbers now, and waiting behind the
+# scheduled run for hours would defeat it
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mutation:
+    uses: btclib-org/.github/.github/workflows/reusable-mutation.yml@main
+    with:
+      # one job per profile: its name, the slug the dropdown above selects
+      # it by, the job's ceiling in minutes, and one "<configuration>
+      # <budget>" line per session, each a file under .github/mutation
+      profiles: >-
+        [{"profile": "extended keys", "slug": "keys", "ceiling": 65, "sessions":
+        "bip32.toml 45m"},
+        {"profile": "BIP322 message signing", "slug": "signing", "ceiling": 30,
+        "sessions": "bip322.toml 10m"},
+        {"profile": "fetch and the mnemonics", "slug": "fetch", "ceiling": 60,
+        "sessions": "fetch.toml 15m\nfetch_decorators.toml 10m\nmnemonic.toml 15m"},
+        {"profile": "output descriptors and miniscript", "slug": "descriptors",
+        "ceiling": 100, "sessions": "descriptors.toml 90m"},
+        {"profile": "the psbt format", "slug": "psbt", "ceiling": 60, "sessions":
+        "psbt.toml 45m"},
+        {"profile": "wallets, the signer boundary and HWI", "slug": "boundaries",
+        "ceiling": 80, "sessions": "signer.toml 10m\nwallet.toml 20m\nhwi.toml 30m"}]
+      selected: ${{ inputs.profile }}

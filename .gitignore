@@ -1,0 +1,130 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+# test.yml's `dist` job writes the bill of materials here, alongside
+# dist/ above (issue btclib-org/btclib#1166): both are build output,
+# not source
+sbom/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environments: one list, not the literal venv/ and the wildcard venv*/
+# each naming it. Nothing here creates a virtualenv under a name venv*/
+# would catch and venv/ would not. The dotted side is where a wildcard
+# earns its place: CONTRIBUTING.md's other-interpreter run gives
+# UV_PROJECT_ENVIRONMENT=.venv-3.10, and a suffix makes a name .venv
+# alone does not match.
+.env
+.venv*
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyInstaller
+#  Usually these files are written by a Python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
+
+# vscode: the workspace files are tracked, and the rest of what the editor
+# writes there is not. The directory itself cannot be the pattern -- git does
+# not descend into an excluded directory, so a negation under `.vscode/` never
+# matches -- which is why this excludes the contents and re-admits two names
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# PyCharm
+.idea/
+
+# MACOS
+.DS_Store
+
+~*.docx
+
+.pytest_cache/
+
+# cosmic-ray sessions, written into the root by the commands CONTRIBUTING.md
+# gives: one row per mutant, and megabytes of them. What is worth keeping is
+# uploaded by the mutation workflow as an artifact, where it expires; a
+# session committed here would be a snapshot of a suite that has moved on
+*.sqlite

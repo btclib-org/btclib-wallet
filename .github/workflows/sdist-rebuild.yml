@@ -1,0 +1,54 @@
+---
+name: sdist-rebuild
+
+# section 12 of the organization's standard says a published sdist
+# reproduces from its tag, and this is where that is asked: the latest
+# release's sdist rebuilt from the commit its tag names, by the steps
+# RELEASING.md's "Rebuild a release from its tag" lists, and `gh
+# attestation verify` over the rebuilt file -- the attestation's digests
+# and not PyPI's, which say what the index holds rather than what was
+# signed. Weekly rather than in the release, where it would compare a
+# build with itself.
+#
+# The checkout at the tag, the rebuild and the verification are
+# btclib-org/.github's reusable-sdist-rebuild.yml, called at @main
+# (section 10 of its README.md). Until the first release the called job's
+# `gh release view` finds none and the run fails at that step: the red is
+# the absence of a release, and the first tag ends it
+
+on:
+  schedule:
+    # section 10's calendar in btclib-org/.github, and not this file's to
+    # restate
+    - cron: "40 3 * * 0"
+  workflow_dispatch:
+  # a change to this file is checked by the run it configures
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+    paths:
+      - .github/workflows/sdist-rebuild.yml
+
+permissions:
+  contents: read
+
+# no push trigger, so a merged pull request's run is the only reading the
+# merged file gets: the closed, merged run queues behind the one in flight
+# rather than cancelling it
+concurrency:
+  group: sdist-rebuild-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !(github.event.action == 'closed' && github.event.pull_request.merged) }}
+
+jobs:
+  rebuild:
+    if: >-
+      ${{ !github.event.pull_request.draft
+      && github.event.action != 'closed' }}
+    permissions:
+      contents: read
+      attestations: read # gh attestation verify reads the attestations API with it
+    uses: btclib-org/.github/.github/workflows/reusable-sdist-rebuild.yml@main
+    with:
+      # release.yml's attest job calls btclib-org/.github's
+      # reusable-attest.yml, so that workflow is the signer every release of
+      # this tree names
+      attest-signer: reusable-attest

@@ -1,0 +1,100 @@
+---
+name: integration-bitcoind
+
+# The suite's one part that needs a program this repository does not ship:
+# a bitcoind to talk to. `tests/integration/` skips itself without
+# BTCLIB_INTEGRATION, so every other workflow reports those tests skipped
+# and nothing else asks a real node whether a psbt this package built is
+# one it will relay. This is where that is asked: a disposable regtest
+# bitcoind, the account export, the funding, the spend and the broadcast.
+#
+# The checkout, the node install, the test run and the check that the
+# node's tests ran are btclib-org/.github's:
+# reusable-integration-bitcoind.yml, called at @main (section 10 of its
+# README.md). What stays here is the trigger, the schedule, the
+# concurrency group, the pinned release and its sha256, and the two
+# environment-variable names tests/integration/conftest.py reads.
+#
+# `regtest / Regtest against Bitcoin Core` is a required check on main:
+# what it asks is whether Core accepts what this branch built, and the
+# node is a pinned release verified against a published sha256, so the
+# answer is about this tree. A required check cannot carry a `paths`
+# filter, a check that never runs blocking the merge, which is the reason
+# section 10 of the organization's standard gives for this workflow's
+# unfiltered pull_request trigger.
+#
+# The HWI half of `tests/integration/` is `integration-hwi.yml`, a
+# workflow of its own with no pull_request trigger: it can go red on a
+# firmware release or an app whose screens changed wording, none of which
+# is a claim a branch's review has anything to do with. `exclude-classname`
+# below lets those HWI testcases skip here without failing the check that
+# the node's own tests ran.
+#
+# A schedule too: the job is a required check on every pull request and on
+# the commit a merge creates, so what the weekly run asks that nothing
+# else does is whether bitcoincore.org still serves the tarball pinned
+# below
+
+on:
+  schedule:
+    # section 10's calendar in btclib-org/.github, and not this file's to
+    # restate
+    - cron: "40 5 * * 2"
+  # the trigger set of the other gates: main so that the commit a merge
+  # creates is asked too, the pull request so that the merge result is,
+  # and workflow_call because release.yml calls this before it publishes
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      concurrency-suffix:
+        description: >
+          Appended to the concurrency group, and the release workflow is
+          the only caller that passes one. See the group below.
+        type: string
+        default: ""
+  workflow_dispatch:
+  pull_request:
+    # ready_for_review, so a pull request marked ready gets the run the
+    # draft condition withheld; closed, so that the landing falls in this
+    # pull request's own concurrency group and cancels the run it
+    # supersedes, the called job declining the real work on it
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+
+# least privilege for the GITHUB_TOKEN: nothing here writes, and the
+# tarball is fetched from bitcoincore.org, which does not know this token
+permissions:
+  contents: read
+
+# named literally rather than through github.workflow, which in a called
+# workflow is the caller's name; keyed on the pull request's own number,
+# which no push's github.ref can equal; and the suffix keeps a release run
+# out of the branch groups (btclib-org/.github#1083)
+concurrency:
+  group: >-
+    integration-bitcoind-${{ github.event.pull_request.number ||
+    github.ref }}${{ inputs.concurrency-suffix }}
+  cancel-in-progress: true
+
+jobs:
+  regtest:
+    uses: btclib-org/.github/.github/workflows/reusable-integration-bitcoind.yml@main
+    # a caller's permissions: block bounds the called workflow and refuses
+    # rather than trims
+    permissions:
+      contents: read
+    with:
+      # the release under test, and the sha256 of its linux tarball as the
+      # guix builders attested it in bitcoin-core/guix.sigs. Pinned rather
+      # than resolved to "latest": a run that installs whatever is newest
+      # reports the day Core released rather than the day this tree
+      # changed. integration-hwi.yml pins the same two values for its own
+      # signing test
+      bitcoind-version: "31.1"
+      bitcoind-sha256: >-
+        b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+      # tests/integration/conftest.py's own two switches
+      integration-env-var: BTCLIB_INTEGRATION
+      bitcoind-path-env-var: BTCLIB_BITCOIND
+      # the HWI testcases, which skip here for the reason the header gives
+      exclude-classname: hwi

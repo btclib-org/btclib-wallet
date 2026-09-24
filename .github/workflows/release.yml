@@ -1,0 +1,255 @@
+---
+name: release
+
+# one pipeline, two targets:
+# - pushing a v<version> tag runs the gates and the platform sweeps,
+#   publishes the distribution files test.yml's dist job built to PyPI,
+#   and turns the tag into a GitHub release whose notes come from
+#   RELEASE_NOTES.md
+# - workflow_dispatch is the rehearsal: the same pipeline from any branch,
+#   publishing to TestPyPI under a unique .dev<N> version. A rehearsal is
+#   never tagged
+# Both indices trust this workflow directly (PyPI Trusted Publishing, see
+# RELEASING.md): there is no API token to store or leak
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# never two runs of this workflow at once, and never a cancellation: the
+# subject here is a publication -- a version on an index, an attestation,
+# a release -- so a second run is a second attempt at the same side
+# effects, and cancelling one halfway is how a version reaches PyPI with
+# no release cut for it. Named literally, github.workflow being the
+# caller's name inside every workflow this one calls
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # the checkout, the ancestry check, the version comparison against the
+  # tag, and the retitling check on RELEASE_NOTES.md and CHANGELOG.md are
+  # btclib-org/.github's, called at @main (section 10 of its README.md).
+  # This tree is calendar-versioned, so tag-requires-day stays at its
+  # default; test below consumes version-suffix, the rehearsal output
+  version-check:
+    uses: btclib-org/.github/.github/workflows/reusable-version-check.yml@main
+
+  # what the suite cannot ask: did this release take something the last
+  # one gave. The release path and not the merge gate, for the reason
+  # section 12 of the organization's standard gives: before 1.0 a package
+  # breaks its surface deliberately, and the answer arrives once, where
+  # RELEASE_NOTES.md is being written. The previous-tag resolution and the
+  # griffe comparison are btclib-org/.github's
+  public-api:
+    uses: btclib-org/.github/.github/workflows/reusable-public-api.yml@main
+    with:
+      package: btclib_wallet
+
+  # the whole gate, exactly as a pull request runs it, and the build:
+  # test.yml's dist job builds the distribution files, checks them and
+  # uploads them, so this call is what makes them exist for the publish
+  # jobs below to download
+  test:
+    name: Run the test workflow
+    needs: version-check
+    # a caller's permissions: block bounds the called workflow and refuses
+    # rather than trims, so the scope test.yml's changes job declares is
+    # named here too
+    permissions:
+      contents: read
+      pull-requests: read # test.yml's changes job lists a pull request's files with it
+    uses: ./.github/workflows/test.yml # zizmor: ignore[self-repository]
+    with:
+      # what keeps this run out of the branch concurrency groups: see the
+      # group in test.yml
+      concurrency-suffix: "-release"
+      # empty on the tag path, where version-check skips the step that
+      # writes it: a release ships the version the tree declares
+      version-suffix: ${{ needs.version-check.outputs.version-suffix }}
+      # this is the run whose dist job builds what is published, so its
+      # Setup uv step must not trust a cache another run wrote
+      disable-dist-cache: true
+
+  # the checks a pull request lints with: without this a tag push could
+  # publish code the pre-commit hooks reject
+  lint:
+    name: Run the lint workflow
+    uses: ./.github/workflows/lint.yml # zizmor: ignore[self-repository]
+    with:
+      concurrency-suffix: "-release"
+
+  # a tag publishes the docstrings read the docs will render from it, so the
+  # build that would fail there fails here first
+  docs:
+    name: Run the docs workflow
+    uses: ./.github/workflows/docs.yml # zizmor: ignore[self-repository]
+    with:
+      concurrency-suffix: "-release"
+
+  # the platforms the merge gate does not wait for: each runs weekly, so a
+  # regression there could otherwise sit on main until after the tag
+  macos:
+    name: Run the macos workflow
+    uses: ./.github/workflows/os-macos.yml # zizmor: ignore[self-repository]
+    with:
+      concurrency-suffix: "-release"
+
+  ubuntu:
+    name: Run the ubuntu workflow
+    uses: ./.github/workflows/os-ubuntu.yml # zizmor: ignore[self-repository]
+    with:
+      concurrency-suffix: "-release"
+
+  windows:
+    name: Run the windows workflow
+    uses: ./.github/workflows/os-windows.yml # zizmor: ignore[self-repository]
+    with:
+      concurrency-suffix: "-release"
+
+  # a live bitcoind accepting what this tree builds: it gates every pull
+  # request, and the tag's own tree is asked once more, where the answer is
+  # still cheap to act on
+  integration:
+    name: Run the integration workflow
+    uses: ./.github/workflows/integration-bitcoind.yml # zizmor: ignore[self-repository]
+    with:
+      concurrency-suffix: "-release"
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: [public-api, test, lint, docs, ubuntu, macos, windows, integration]
+    # public-api is a need for the ordering -- its reading arrives before
+    # the upload -- and not for its result: it exits 1 on any break in the
+    # public surface since the last tag, which a cycle with breaking changes
+    # produces by design. `always()` opts back in past it, and the
+    # `.result` checks keep every other listed job the gate it is
+    # (section 12 of the organization's standard)
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      github.repository == 'btclib-org/btclib-wallet' &&
+      needs.test.result == 'success' && needs.lint.result == 'success' &&
+      needs.docs.result == 'success' && needs.ubuntu.result == 'success' &&
+      needs.macos.result == 'success' && needs.windows.result == 'success' &&
+      needs.integration.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/btclib-wallet/
+    permissions:
+      id-token: write # the OIDC token that lets TestPyPI trust the workflow itself
+    steps:
+      - name: Download the distribution files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      # generates PEP 740 attestations by default
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [public-api, test, lint, docs, ubuntu, macos, windows, integration]
+    # see publish-testpypi: public-api is a need for the ordering and not
+    # for its result, on a tag exactly as on a rehearsal
+    if: >-
+      always() && github.event_name == 'push' &&
+      github.repository == 'btclib-org/btclib-wallet' &&
+      needs.test.result == 'success' && needs.lint.result == 'success' &&
+      needs.docs.result == 'success' && needs.ubuntu.result == 'success' &&
+      needs.macos.result == 'success' && needs.windows.result == 'success' &&
+      needs.integration.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # the "pypi" environment requires a reviewer's approval before this
+    # job starts, and admits `v*` tags alone
+    environment:
+      name: pypi
+      url: https://pypi.org/project/btclib-wallet/
+    permissions:
+      id-token: write # the OIDC token that lets PyPI trust the workflow itself
+    steps:
+      - name: Download the distribution files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      # generates PEP 740 attestations by default
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  # the sentinel on what the index serves, against the version this run
+  # just published: it waits for the file to be served before installing,
+  # so it cannot pass by testing the previous release. A job of its own
+  # and not a step of publish-pypi, for the reason section 12 of the
+  # organization's standard gives: a failure here is a row of its own,
+  # red beside a publish job that stayed green
+  published:
+    name: Install the published version from PyPI
+    needs: publish-pypi
+    # a bare `needs` reads back through publish-pypi's own `needs`, and
+    # public-api two hops away would skip this job although the one
+    # dependency it lists succeeded
+    if: always() && needs.publish-pypi.result == 'success'
+    uses: ./.github/workflows/pypi-install.yml # zizmor: ignore[self-repository]
+    with:
+      version: ${{ github.ref_name }}
+
+  # the build provenance attestation over the files test.yml's dist job
+  # built and the bill of materials beside them: btclib-org/.github's
+  # reusable-attest.yml, called at @main. After a publish and not after the
+  # build, so that a run reaching here is one the environment approval
+  # already let through; always(), the other publish job being skipped
+  # rather than run
+  attest:
+    needs: [publish-pypi, publish-testpypi]
+    if: >-
+      always() && (needs.publish-pypi.result == 'success' ||
+      needs.publish-testpypi.result == 'success')
+    # a caller's permissions: block bounds the called workflow and refuses
+    # rather than trims, so every scope the callee declares is named here
+    # (btclib-org/.github#912): contents: read at its workflow level, the
+    # two writes on its job
+    permissions:
+      contents: read
+      id-token: write # the OIDC token the callee's signing step mints
+      attestations: write # the build provenance attestation the callee writes
+    uses: btclib-org/.github/.github/workflows/reusable-attest.yml@main
+    with:
+      dist-artifact: dist
+
+  # the GitHub release: btclib-org/.github's reusable-github-release.yml,
+  # called at @main. needs: names attest beside publish-pypi, attest
+  # producing the bundle the callee attaches; the if asks about those two
+  # alone, a failure of the published job beside this one bearing on
+  # nothing an announcement says
+  github-release:
+    needs: [publish-pypi, attest]
+    if: >-
+      always() && needs.publish-pypi.result == 'success' &&
+      needs.attest.result == 'success'
+    permissions:
+      contents: write # the callee creates the GitHub release with it
+    uses: btclib-org/.github/.github/workflows/reusable-github-release.yml@main
+    with:
+      dist-artifact: dist
+
+  # the sentinel on the documentation: read the docs activates and builds
+  # a new release tag from an automation rule of its own, and a build that
+  # never starts fails nothing, a site answering 200 serving the last build
+  # that succeeded. The wait is btclib-org/.github's reusable-documented.yml,
+  # called at @main; a rehearsal is never tagged and has nothing for read the
+  # docs to have built
+  documented:
+    needs: version-check
+    if: github.event_name == 'push'
+    uses: btclib-org/.github/.github/workflows/reusable-documented.yml@main
+    with:
+      readthedocs-slug: btclib-wallet
