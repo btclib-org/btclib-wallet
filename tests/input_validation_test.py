@@ -23,7 +23,7 @@ this package with the same vocabulary.
 ## How it calls what it calls
 
 The input types are few and well bounded, most of them named in btclib's
-`alias.py` and the key and path ones beside their converters.
+`alias.py` and the rest beside their converters.
 `_WRONG_TYPE` and `_WRONG_VALUE` give each of them values of the two
 kinds, and the walk finds every public module-level function whose
 *required* parameters are all of those types. Those it can call with no
@@ -69,7 +69,8 @@ import pytest
 from btclib.exceptions import BTClibException, BTClibTypeError
 
 _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
-# where the library input types this package takes are declared
+# where btclib declares the library input types this package takes, the
+# rest being declared at module level in this package
 _ALIAS_PY = Path(btclib.__file__).parent / "alias.py"
 
 # a value of no type the alias declares: the caller's own mistake, and a
@@ -82,6 +83,8 @@ _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
     "BIP32Key": (None, 1.5),
     "BinaryData": (None, 1.5),
     "DerPath": (None, 1.5),
+    # an int is an Entropy
+    "Entropy": (None, 1.5),
     "Integer": (None, 1.5),
     # an Octets, beside None and 1.5: every Octets is itself iterable, so
     # a signature reading Sequence[Octets] or Iterable[Octets] accepts
@@ -120,6 +123,8 @@ _WRONG_VALUE: dict[str, tuple[Any, ...]] = {
     # a string no path spelling reads, an index below zero, and one above
     # the four bytes a BIP32 index has
     "DerPath": ("m/x", -1, [2**32]),
+    # a string that is not 0/1 digits, and an int below zero
+    "Entropy": ("not binary", -1),
     "Integer": ("not hex at all",),
     # a hex string that is not hex, and one of odd length
     "Octets": ("not hex at all", "9"),
@@ -223,13 +228,14 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
     """A renamed type would narrow the walk without failing anything.
 
     Every name in the two vocabularies is still declared, in this package
-    or in btclib, and every type btclib's `alias.py` declares and a public
-    parameter of this package is annotated with is either in the
-    vocabulary or named below with the reason no wrong value can be built
-    for it.
+    or in btclib, and every type btclib's `alias.py` or a module of this
+    package declares and a public parameter of this package is annotated
+    with is either in the vocabulary or named below with the reason it is
+    not.
     """
     declared: set[str] = set()
     in_alias_py: set[str] = set()
+    own: set[str] = set()
     annotated: set[str] = set()
     for path in sorted(
         [*_LIBRARY.rglob("*.py"), *Path(btclib.__file__).parent.rglob("*.py")]
@@ -248,6 +254,7 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
             if path == _ALIAS_PY:
                 in_alias_py = names
             continue
+        own |= names
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
                 continue
@@ -274,11 +281,28 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
         # a Literal: a value outside it is what mypy refuses, and a test
         # passing one would be testing the type checker
         "BIP44ScriptType",
-        # a callable, never a required parameter: BIP38's cipher takes a
-        # key and a block, and its wrong values are the non-callables
+        # callbacks, which the module docstring's *What it does not reach*
+        # leaves to the fixture tests
         "BlockCipherF",
+        "InputSolver",
+        "SolutionSizer",
+        # behind a default wherever a public parameter takes it, and a
+        # parameter with a default is never driven
+        "OneOrMoreInt",
+        "PrvKeys",
     }
-    assert in_alias_py & annotated <= set(_WRONG_TYPE) | without_a_wrong_value
+    # a function taking one lets a bare TypeError or AttributeError out
+    # for a wrong type rather than a BTClibTypeError, and for Mnemonic
+    # normalize_mnemonic and the two seed-type functions answer a str no
+    # mnemonic carries rather than refusing it (issue #15)
+    not_yet_refused = {"BinStr", "Mnemonic"}
+    exempt = without_a_wrong_value | not_yet_refused
+    covered = (in_alias_py | own) & annotated
+    assert covered <= set(_WRONG_TYPE) | exempt
+    # an exemption that matches nothing, or names a type the walk drives,
+    # is one left behind
+    assert exempt <= covered
+    assert not exempt & set(_WRONG_TYPE)
 
 
 def test_the_walk_reaches_what_it_claims() -> None:
