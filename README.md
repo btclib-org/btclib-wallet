@@ -51,6 +51,7 @@ says how the choice is enforced.
 [![codeql workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/codeql.yml?query=branch%3Amain)
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/btclib-org/btclib-wallet/badge)](https://scorecard.dev/viewer/?uri=github.com/btclib-org/btclib-wallet)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14813/badge)](https://www.bestpractices.dev/projects/14813)
 
 [btclib](https://github.com/btclib-org/btclib) is the protocol: the
 encodings, the scripts, the transactions and the signature schemes, what
