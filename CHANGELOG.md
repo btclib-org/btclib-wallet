@@ -88,6 +88,11 @@ Its image lacks the interpreter `.python-version` names and has no
 network to download it; the lint workflow still runs the hook (issue
 btclib-org/.github#1348).
 
+### The rebuild of a release names the interpreter its tag pinned
+
+`RELEASING.md`'s *Rebuild a release from its tag* reads it from the tag's
+`.python-version` rather than naming one (issue btclib-org/.github#1349).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
