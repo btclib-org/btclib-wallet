@@ -136,7 +136,7 @@ jobs:
           # statements, and the statement count moves between interpreters.
           # Pinned here even so, because the coupling belongs where the gate
           # runs
-          python-version: "3.14"
+          python-version: "3.15"
       # neither --cov nor its report format is repeated here: addopts
       # carries --cov, and [tool.coverage.report] the report, so the bare
       # pytest below is what a contributor runs
@@ -197,7 +197,7 @@ jobs:
       # and installs nothing into the tree it is about to publish
       - name: Rewrite the sdist's member metadata
         run: |
-          uv run --no-project --python 3.14 \
+          uv run --no-project --python 3.15 \
             .github/scripts/normalize_sdist.py dist/
           sha256sum dist/*
       # what the files contain, as a document: reproducible for the reason
@@ -206,7 +206,7 @@ jobs:
       # the artifact the publish jobs hand to an index
       - name: Write the bill of materials
         run: |
-          uv run --no-project --python 3.14 \
+          uv run --no-project --python 3.15 \
             .github/scripts/generate_sbom.py dist/ sbom/
       # before anything is installed: a step below runs third-party code,
       # and uploading first freezes what release.yml's publish jobs will
@@ -266,7 +266,7 @@ jobs:
           mkdir "$RUNNER_TEMP/sdist"
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/sdist" --strip-components=1
           cd "$RUNNER_TEMP/sdist"
-          uv run --locked --python 3.14 --no-default-groups --group test pytest
+          uv run --locked --python 3.15 --no-default-groups --group test pytest
 
   # the single check main's branch protection requires from this workflow.
   # The rule names its checks as literal strings stored outside the

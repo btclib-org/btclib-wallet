@@ -8,4 +8,4 @@
 # A whole-line comment only: uv skips one of these, but a trailing comment
 # on the version line makes it ignore the file and fall back to a default
 # interpreter.
-3.14
+3.15

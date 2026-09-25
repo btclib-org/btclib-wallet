@@ -76,6 +76,12 @@ A skipped required check reads as passing, so both aggregates now fail
 a first step on the draft flag instead of skipping on it (issue
 btclib-org/.github#1327).
 
+### CPython 3.15 is the interpreter pinned and a version claimed
+
+`.python-version` names 3.15, its release candidate counting as a
+release, and the classifiers and the sweeps gain it; `requires-python`
+stays at 3.11 (issue btclib-org/.github#1324).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

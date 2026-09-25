@@ -27,7 +27,12 @@ version: 2
 # tomllib, which is standard library from 3.11 on. Which version above that
 # floor is `.python-version`'s to say -- these docs are built twice, here
 # and by docs.yml, and one interpreter is what keeps the build read on the
-# website and the build that gates a merge from being two questions
+# website and the build that gates a merge from being two questions --
+# except where read the docs does not offer that version yet. The values
+# it accepts are the `build.tools.python` enum of its v2 schema,
+# readthedocs/rtd_tests/fixtures/spec/v2/schema.json in
+# readthedocs/readthedocs.org, and until that lists `.python-version`'s
+# the newest it does list is the one here
 build:
   os: ubuntu-24.04
   tools:
