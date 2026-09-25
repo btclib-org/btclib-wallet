@@ -123,6 +123,11 @@ disagrees stops the chain after it (issue btclib-org/btclib-node#1063).
 `pmazzocchi` as the `pypi` and `testpypi` reviewers, not `fametrano` alone
 (issue btclib-org/.github#1355).
 
+### `CONTRIBUTING.md` and `README.md` link `GOVERNANCE.md` and `ROADMAP.md`
+
+Both point a contributor at the organization's one copy of each, in
+`btclib-org/.github` (issue btclib-org/.github#1359).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
