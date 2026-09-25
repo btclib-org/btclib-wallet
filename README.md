@@ -136,6 +136,13 @@ The address is the first one BIP84 lists for that mnemonic.
 - a chain backend behind one interface, over a full node's JSON-RPC or a
   block explorer's or an Electrum server's API
 
+## Architecture
+
+[ARCHITECTURE.md](./ARCHITECTURE.md) is the design: which module holds
+what, the one dependency on btclib, and every place a module crosses out
+of the process it runs in. [ASSURANCE_CASE.md](./ASSURANCE_CASE.md) is
+why the security section below holds.
+
 ## Security
 
 A mnemonic, an extended private key and a PSBT being signed are secrets,

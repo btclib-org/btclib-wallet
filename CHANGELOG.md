@@ -105,6 +105,12 @@ has no `.git` for its git commands (issue btclib-org/.github#1352).
 full shas, in its output and in the tracking issue, so two commits alike in
 their first twelve characters print as two (issue btclib-org/.github#1343).
 
+### `ARCHITECTURE.md` and `ASSURANCE_CASE.md` join the root
+
+The architecture moves there from `CLAUDE.md`, which points at it; the
+assurance case cites the tree for every claim (issue
+btclib-org/.github#1321).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

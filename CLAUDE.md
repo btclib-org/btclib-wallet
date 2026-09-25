@@ -15,38 +15,14 @@ against.
 
 ## Architecture
 
-The wallet side of btclib-org/btclib#2129's table, row 5: the package
-`btclib_wallet`, under `src/btclib_wallet/`, sitting above `btclib` —
-the protocol, row 4 — and depending on it and on `bitcoin-core-rpc`, row
-6. Dependencies point one way, down that table: nothing in `btclib` or in
-`bitcoin-core-rpc` imports this package, and this package re-exports
-nothing of `btclib`'s. `btclib_wallet.fetch` publishes
-`bitcoin-core-rpc`'s clients and transport under its own names, and
-`tests/all_test.py`'s `REEXPORTED` records each of them. The
-line between this package and `btclib` is Bitcoin Core's between
-`src/consensus` and `src/wallet`: what places a module here is
-everything from a seed to a signed, broadcast transaction, and every
-module with a counterparty outside the process — a socket, a
-subprocess, a node, a device — where the codec of a protocol stays
-`btclib`'s and opens nothing.
-
-- `bip32/` and `mnemonic/` derive keys, `slip132` and `bip44` turn them
-  into addresses, and `bip85` derives another wallet's entropy from one
-  root key, a BIP39 sentence being one of the formats it hands back
-- `descriptors/` reads the BIP380 grammar and hands back the scripts a
-  descriptor names, `descriptors.miniscript` reading BIP379's language;
-  `psbt/` is BIP174 and BIP370 with the fields later BIPs add
-- `wallet/` remembers which addresses it has handed out; `psbt_signer`
-  is the contract an external signer answers and `hwi` that contract
-  over Bitcoin Core's HWI; `core_import` writes what Bitcoin Core's
-  `importdescriptors` takes
-- `fetch/` is the one package that goes and asks — a node over
-  `bitcoin-core-rpc`'s two clients, an Esplora instance, an Electrum
-  server — and turns
-  the answers into `btclib`'s `Tx` and `TxOut`
-- what this package signs, it signs through `btclib.ecc`, so the dispatch
-  to the libsecp256k1 bindings and where constant time ends are
-  `btclib`'s, read in its `CLAUDE.md` and its `SECURITY.md`
+[ARCHITECTURE.md](./ARCHITECTURE.md) is the design: which module holds
+what, the one dependency on btclib, and every place a module crosses out
+of the process it runs in. Read it before touching `src/btclib_wallet/`,
+where what this package signs, it signs through `btclib.ecc`, so the
+dispatch to the libsecp256k1 bindings and where constant time ends are
+btclib's, read in its own
+[ARCHITECTURE.md](https://github.com/btclib-org/btclib/blob/main/ARCHITECTURE.md)
+and [SECURITY.md](https://github.com/btclib-org/btclib/blob/main/SECURITY.md).
 
 ## The primary checkout is the maintainer's
 

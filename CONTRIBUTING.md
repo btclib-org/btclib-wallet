@@ -270,8 +270,8 @@ enabled](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-c
 btclib-org/btclib-wallet](https://img.shields.io/badge/GitHub-btclib--org%2Fbtclib--wallet-181717?logo=github)](https://github.com/btclib-org/btclib-wallet/)
 
 To get an overview of the project, read the [README](./README.md) and
-[CLAUDE.md](./CLAUDE.md)'s *Architecture*, which is where the layering
-this package sits in is written down.
+[ARCHITECTURE.md](./ARCHITECTURE.md), which is where the layering this
+package sits in is written down.
 
 What a primitive does — a curve operation, a signature scheme, a script —
 is btclib's, not this package's: a finding that reproduces with `btclib`

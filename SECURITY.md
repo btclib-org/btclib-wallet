@@ -76,6 +76,9 @@ reproducible: RELEASING.md has that command.
 
 ## Where constant time ends
 
+The [assurance case](./ASSURANCE_CASE.md) is the threat model these are
+written against, and the argument for what this file does promise.
+
 These are known and inherent, and worth stating because this package is
 used to teach and to prototype as much as to build.
 
