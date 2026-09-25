@@ -689,11 +689,12 @@ environment and refuse to run without it.
 
 ```shell
 git checkout "v${version:?}" &&
+python=$(grep -Ev '^[[:space:]]*(#|$)' .python-version) &&
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) &&
 uv build &&
-uv run --no-project --python 3.15 \
+uv run --no-project --python "$python" \
   .github/scripts/normalize_sdist.py dist/ &&
-uv run --no-project --python 3.15 \
+uv run --no-project --python "$python" \
   .github/scripts/generate_sbom.py dist/ sbom/ &&
 repo=btclib-org/btclib-wallet &&
 signer=btclib-org/.github/.github/workflows/reusable-attest.yml &&
@@ -704,6 +705,13 @@ gh attestation verify "dist/btclib_wallet-${version:?}.tar.gz" \
 gh attestation verify "sbom/btclib_wallet-${version:?}.cdx.json" \
   --repo "$repo" --signer-workflow "$signer"
 ```
+
+`python` is the interpreter the tag's own `.python-version` pins, its
+comment and blank lines dropped, and not the one `main` pins:
+`normalize_sdist.py` writes the sdist again through the running
+interpreter's `gzip`, so a rebuild under another pin is the published
+bytes only where the two interpreters' zlib compress alike (issue
+btclib-org/.github#1349).
 
 The bill of materials is rebuilt with them and verified like them: its
 timestamp is `SOURCE_DATE_EPOCH` and its serial number is derived from
