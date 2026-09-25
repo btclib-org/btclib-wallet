@@ -111,6 +111,12 @@ The architecture moves there from `CLAUDE.md`, which points at it; the
 assurance case cites the tree for every claim (issue
 btclib-org/.github#1321).
 
+### The rebuild of a release builds under the release's own uv
+
+`RELEASING.md`'s *Rebuild a release from its tag* builds under the uv
+the published wheel names and verifies the sdist first: a wheel that
+disagrees stops the chain after it (issue btclib-org/btclib-node#1063).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
