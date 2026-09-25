@@ -117,6 +117,12 @@ btclib-org/.github#1321).
 the published wheel names and verifies the sdist first: a wheel that
 disagrees stops the chain after it (issue btclib-org/btclib-node#1063).
 
+### The publishing environments' required reviewer is any of the owners
+
+`RELEASING.md` and `REPOSITORY.md` name `fametrano`, `giacomocaironi` and
+`pmazzocchi` as the `pypi` and `testpypi` reviewers, not `fametrano` alone
+(issue btclib-org/.github#1355).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
