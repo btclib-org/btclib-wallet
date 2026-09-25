@@ -316,14 +316,17 @@ moves it back for the organization rather than here.
 ## Publishing
 
 **Publishing waits for an approval**: the `pypi` and `testpypi`
-environments both require a review from `fametrano`, and `pypi` is
-restricted to `v*` tags. `RELEASING.md` records the reasoning and the
-trusted publishers each index is given.
+environments both require a review from one of `fametrano`,
+`giacomocaironi` and `pmazzocchi`, and `pypi` is restricted to `v*`
+tags. `RELEASING.md` records the reasoning and the trusted publishers
+each index is given.
 
 ```shell
 gh api -X PUT repos/btclib-org/btclib-wallet/environments/pypi \
   --input - <<'JSON'
-{"reviewers": [{"type": "User", "id": 3296421}],
+{"reviewers": [{"type": "User", "id": 3296421},
+               {"type": "User", "id": 30932677},
+               {"type": "User", "id": 7437256}],
  "prevent_self_review": false,
  "deployment_branch_policy": {"protected_branches": false,
                               "custom_branch_policies": true}}
@@ -333,10 +336,17 @@ gh api -X POST \
   -f name='v*' -f type=tag
 gh api -X PUT repos/btclib-org/btclib-wallet/environments/testpypi \
   --input - <<'JSON'
-{"reviewers": [{"type": "User", "id": 3296421}],
+{"reviewers": [{"type": "User", "id": 3296421},
+               {"type": "User", "id": 30932677},
+               {"type": "User", "id": 7437256}],
  "prevent_self_review": false}
 JSON
 ```
+
+`30932677` is `giacomocaironi`'s account id and `7437256` is
+`pmazzocchi`'s, read back the same way as `fametrano`'s above:
+`gh api users/giacomocaironi --jq .id`,
+`gh api users/pmazzocchi --jq .id`.
 
 Read back:
 

@@ -97,8 +97,9 @@ one, and TestPyPI's rehearsal does the same there.
    with environment `testpypi`.
 
 1. In the GitHub repository settings, create the `pypi` and `testpypi`
-   environments. Both require a review from `fametrano`, so neither
-   index is uploaded to without a human approving that run; `publish-pypi`
+   environments. Both require a review from one of `fametrano`,
+   `giacomocaironi` and `pmazzocchi`, so neither index is uploaded to
+   without one of them approving that run; `publish-pypi`
    and `publish-testpypi` are the only holders of `id-token: write` that
    carry one of these two environments, and this is the gate in front of
    them. `attest` holds `id-token: write` too, for its own Sigstore
@@ -109,11 +110,12 @@ one, and TestPyPI's rehearsal does the same there.
    restriction is what makes that true of the environment and not just
    of an `if:` in a file a pull request could change.
 
-   Self-review stays allowed on purpose: the maintainer who pushes the
-   tag is the reviewer, and forbidding it would deadlock a
-   one-maintainer release. The approval is a confirmation step, not a
-   second pair of eyes; it becomes one as soon as there is a second
-   reviewer to add.
+   Self-review stays allowed: the environment does not require the
+   approver to differ from whoever pushed the tag, so the tag's own
+   pusher may also be the one who approves its release. That approval is
+   a confirmation step rather than a second pair of eyes; an approval
+   from either of the other two owners is the second pair of eyes the
+   pusher cannot be for their own release.
 
 ## Rehearse on TestPyPI
 
