@@ -688,7 +688,8 @@ command, and both scripts below read the variable out of their own
 environment and refuse to run without it.
 
 ```shell
-git checkout "v${version:?}" &&
+git worktree add --detach /tmp/btclib-wallet-rebuild "v${version:?}" &&
+cd /tmp/btclib-wallet-rebuild &&
 python=$(grep -Ev '^[[:space:]]*(#|$)' .python-version) &&
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) &&
 uv build &&
@@ -730,13 +731,10 @@ reading a mismatch as tampering:
   changes the digest. `tests/**` and `docs/**` are the patterns wide
   enough for that to happen by accident, and `source-exclude` beside them
   names what a linter or a type checker is known to leave there — but the
-  rule is the directory, not the list. Rebuild in a clean export, which
-  is what the checkout above is only if nothing was ever built in it:
-
-  ```shell
-  d=$(mktemp -d) && git archive "v${version:?}" | tar -x -C "$d" && cd "$d"
-  ```
-
+  rule is the directory, not the list. The worktree the command above
+  adds is a clean tree whatever the reader's checkout holds: it has only
+  the files the tag tracks, and `git worktree add` refuses a target that
+  already holds files.
 - **the build backend is bounded, not pinned.** `[build-system] requires`
   names a range rather than a version, and an isolated build takes
   whatever in that range is current, so a rebuild months later runs a
