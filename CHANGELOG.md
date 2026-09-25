@@ -99,6 +99,12 @@ btclib-org/.github#1348).
 the tag, clean by construction, and drops the `git archive` export, which
 has no `.git` for its git commands (issue btclib-org/.github#1352).
 
+### A drift line names both commits whole
+
+`check_vendored_vectors.py` prints the pinned commit and upstream's tip as
+full shas, in its output and in the tracking issue, so two commits alike in
+their first twelve characters print as two (issue btclib-org/.github#1343).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
