@@ -17,9 +17,14 @@ ci:
   # lands on
   autoupdate_commit_msg: "Update the pinned pre-commit hook revisions"
   autoupdate_schedule: weekly
-  # the hooks pre-commit.ci cannot run: they shell out to uv, which is not
-  # installed there, and the lint workflow covers them
-  skip: [mypy, pyroma]
+  # the hooks pre-commit.ci cannot run: mypy and pyroma shell out to uv,
+  # which is not installed there, and the lint workflow covers them.
+  #
+  # uv-lock installs its own uv, and asks it for the interpreter
+  # .python-version names: the pre-commit.ci image does not carry it and
+  # has no network to download it. The lint workflow installs that
+  # interpreter and runs uv-lock (issue btclib-org/.github#1348)
+  skip: [mypy, pyroma, uv-lock]
 
 repos:
   # this file checking itself, and the only two hooks here with no

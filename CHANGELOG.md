@@ -82,6 +82,12 @@ btclib-org/.github#1327).
 release, and the classifiers and the sweeps gain it; `requires-python`
 stays at 3.11 (issue btclib-org/.github#1324).
 
+### pre-commit.ci skips `uv-lock`
+
+Its image lacks the interpreter `.python-version` names and has no
+network to download it; the lint workflow still runs the hook (issue
+btclib-org/.github#1348).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
