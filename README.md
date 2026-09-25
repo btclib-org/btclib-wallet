@@ -157,6 +157,11 @@ verbatim. `uv sync` creates the environment; uv is the only tool that has
 to be installed. [REVIEWING.md](./REVIEWING.md) is what a pull request is
 answered against.
 
+How the organization decides, and who holds which role, is its
+[GOVERNANCE.md](https://github.com/btclib-org/.github/blob/main/GOVERNANCE.md);
+what it intends to do, and what it deliberately does not, is its
+[ROADMAP.md](https://github.com/btclib-org/.github/blob/main/ROADMAP.md).
+
 ## Links
 
 - Documentation: <https://btclib-wallet.readthedocs.io/>
