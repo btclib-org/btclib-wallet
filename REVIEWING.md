@@ -476,8 +476,8 @@ because that document, and not this one, is where the rule lives.
 - Does the diff make this package **re-export a name of btclib's**, or
   publish a `bitcoin_core_rpc` name that `tests/all_test.py`'s
   `REEXPORTED` does not record?
-  `CONTRIBUTING.md`'s *The one constraint* states it, and `CLAUDE.md`'s
-  *Architecture* has the layering.
+  `CONTRIBUTING.md`'s *The one constraint* states it, and
+  `ARCHITECTURE.md` has the layering.
 - Does a change that computes with a secret **do it through btclib**,
   rather than on Python integers of its own? `SECURITY.md`'s *Where
   constant time ends* says what the latter costs.
