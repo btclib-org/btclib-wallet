@@ -158,6 +158,12 @@ Where the entries above spell it `ellipticcurves`, it is `btclib_ecc`, with
 `BTClibEcc*` classes and `BTCLIB_ECC_NO_LIBSECP256K1`; a name btclib leaves
 unbound while delegating to it fails the suite (issue btclib-org/btclib#2282).
 
+### `REVIEWING.md` lets a filed issue carry its fix
+
+An issue filed from a review may say the fix where one is known: *What is
+filed, and what is not* dropped its "no fix", the filing bar standing as it
+was (issue btclib-org/.github#1378).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
