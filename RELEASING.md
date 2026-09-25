@@ -683,7 +683,7 @@ version=<the released version>
 The placeholder stands in a fence with nothing under it to reach, and the
 fence below writes it `${version:?}` and chains, which is the pair the
 tagging step of *Release to PyPI* describes. `SOURCE_DATE_EPOCH` is
-exported rather than prefixed onto `uv build`: a prefix binds one
+exported rather than prefixed onto the build: a prefix binds one
 command, and both scripts below read the variable out of their own
 environment and refuse to run without it.
 
@@ -692,16 +692,24 @@ git worktree add --detach /tmp/btclib-wallet-rebuild "v${version:?}" &&
 cd /tmp/btclib-wallet-rebuild &&
 python=$(grep -Ev '^[[:space:]]*(#|$)' .python-version) &&
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) &&
-uv build &&
+repo=btclib-org/btclib-wallet &&
+signer=btclib-org/.github/.github/workflows/reusable-attest.yml &&
+wheels=$(mktemp -d) &&
+gh release download "v${version:?}" --repo "$repo" --dir "$wheels" \
+  --pattern '*.whl' &&
+gh attestation verify "$wheels"/*.whl \
+  --repo "$repo" --signer-workflow "$signer" &&
+uv_version=$(unzip -p "$wheels"/*.whl '*.dist-info/WHEEL' |
+  sed -n 's/^Generator: uv //p') &&
+[[ $uv_version =~ ^[0-9]+([.][0-9]+)*$ ]] &&
+uvx "uv@$uv_version" build &&
 uv run --no-project --python "$python" \
   .github/scripts/normalize_sdist.py dist/ &&
 uv run --no-project --python "$python" \
   .github/scripts/generate_sbom.py dist/ sbom/ &&
-repo=btclib-org/btclib-wallet &&
-signer=btclib-org/.github/.github/workflows/reusable-attest.yml &&
-gh attestation verify "dist/btclib_wallet-${version:?}-py3-none-any.whl" \
-  --repo "$repo" --signer-workflow "$signer" &&
 gh attestation verify "dist/btclib_wallet-${version:?}.tar.gz" \
+  --repo "$repo" --signer-workflow "$signer" &&
+gh attestation verify "dist/btclib_wallet-${version:?}-py3-none-any.whl" \
   --repo "$repo" --signer-workflow "$signer" &&
 gh attestation verify "sbom/btclib_wallet-${version:?}.cdx.json" \
   --repo "$repo" --signer-workflow "$signer"
@@ -713,6 +721,18 @@ comment and blank lines dropped, and not the one `main` pins:
 interpreter's `gzip`, so a rebuild under another pin is the published
 bytes only where the two interpreters' zlib compress alike (issue
 btclib-org/.github#1349).
+
+`uv_version` is the uv the release job ran, read off the published
+wheel once its attestation verifies, so that what is read is signed: its
+`.dist-info/WHEEL` names it on the `Generator:` line, where the tag holds
+only `[tool.uv] required-version`, a floor `setup-uv` resolves to the
+newest uv at release time. The `[[ ]]` holds it to digits and dots
+before `uvx` sees it, `uvx` taking a URL or a VCS reference in that
+place and running what it fetches. That line is written by the
+build, so a wheel built under another uv is another digest (issue
+btclib-org/btclib-node#1063). The sdist is verified first, it being the
+file the rebuild exists to reproduce: a wheel that still disagrees stops
+the chain after that check rather than ahead of it.
 
 The bill of materials is rebuilt with them and verified like them: its
 timestamp is `SOURCE_DATE_EPOCH` and its serial number is derived from
@@ -735,14 +755,16 @@ reading a mismatch as tampering:
   adds is a clean tree whatever the reader's checkout holds: it has only
   the files the tag tracks, and `git worktree add` refuses a target that
   already holds files.
-- **the build backend is bounded, not pinned.** `[build-system] requires`
-  names a range rather than a version, and an isolated build takes
-  whatever in that range is current, so a rebuild months later runs a
-  backend the release never saw. What the ceiling bounds is the *content*
-  of the archive; its member metadata is `normalize_sdist.py`'s answer and not
-  the backend's, which is why the command above runs that script and why
-  a rebuild that skips it disagrees with the published archive on every
-  member's `mtime`.
+- **the build backend is the uv's own.** `[build-system] requires`
+  names a range rather than a version, and for
+  the uv the release ran, which the range admits, `uv build` uses the
+  backend built into that uv rather than a `uv_build` resolved from the
+  range. That is why the command above runs the release's uv rather than
+  the reader's, and why it reproduces the wheel only while that uv can
+  still be installed. The sdist's member metadata is `normalize_sdist.py`'s
+  answer and not the backend's, which is why the command above runs that
+  script and why a rebuild that skips it disagrees with the published
+  archive on every member's `mtime`.
 - **the rehearsal is a different version, by construction.** A TestPyPI
   dispatch appends `.dev<run*100+attempt>` to the version, so its files are not
   a second build of the release's — they are their own artifact, published
