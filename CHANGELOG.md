@@ -93,6 +93,12 @@ btclib-org/.github#1348).
 `RELEASING.md`'s *Rebuild a release from its tag* reads it from the tag's
 `.python-version` rather than naming one (issue btclib-org/.github#1349).
 
+### The rebuild of a release runs in a worktree of its tag
+
+`RELEASING.md`'s *Rebuild a release from its tag* builds in a worktree of
+the tag, clean by construction, and drops the `git archive` export, which
+has no `.git` for its git commands (issue btclib-org/.github#1352).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
