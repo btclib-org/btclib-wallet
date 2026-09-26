@@ -140,6 +140,12 @@ The `mod_sqrt_var` patch and the counted key derivation land in the module
 `CurveGroup`'s and `bytes_from_prv_key_int`'s `__module__` names, which
 holds under a btclib re-exporting ellipticcurves (closes #55).
 
+### The suite refuses a dispatch switch the installed btclib ignores
+
+`py_arm_authority_test.py`'s measurement sets `BTCLIB_NO_LIBSECP256K1`
+and `ELLIPTICCURVES_NO_LIBSECP256K1`; a run with either set while
+libsecp256k1 still serves exits 4 rather than measure it (closes #53).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
