@@ -323,19 +323,21 @@ copy: `derive` validates and calls `_derive`, which does not, and
 `_key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
 becomes a validated `BIP32KeyData`.
 
-**A refusal of ellipticcurves' own leaves as that package's class.** Under
+**A refusal of btclib_ecc's own leaves as that package's class.** Under
 a btclib carrying issue btclib-org/btclib#2282 the curve arithmetic and the
-schemes on it are ellipticcurves', whose `EllipticCurvesTypeError`,
-`EllipticCurvesValueError` and `EllipticCurvesRuntimeError` are a
+schemes on it are btclib_ecc's, whose `BTClibEccTypeError`,
+`BTClibEccValueError` and `BTClibEccRuntimeError` are a
 `TypeError`, a `ValueError` and a `RuntimeError` and no `BTClibException`:
 an argument this package hands on to it unchecked is refused as one of
 those, and that btclib binds each in `btclib.exceptions` for a caller to
-name. A catch that renames a refusal ellipticcurves may raise, to say
+name. A catch that renames a refusal btclib_ecc may raise, to say
 which field it was, names `ValueError`, so that the field is named
 whichever library refused; a catch that answers a failed check `False`
 names the runtime class of both libraries, which is `bip322`'s `_INVALID`.
 `tests/exception_family_test.py` holds the classes of both libraries for
-each kind, and a bare built-in is in none of them.
+each kind, and a bare built-in is in none of them. A name btclib does not
+bind falls back to btclib's own class in silence, so that module also fails
+where btclib delegates to btclib_ecc and leaves one of those names unbound.
 
 `tests/input_validation_test.py` drives that rule over every public
 function whose required parameters are all library input types;

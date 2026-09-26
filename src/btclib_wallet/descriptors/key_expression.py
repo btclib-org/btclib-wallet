@@ -582,8 +582,8 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
     # which of several participants was wrong is half the answer, and the
     # inner message names neither the function nor the position. Bitcoin
     # Core prefixes its own the same way, "musig(): ...". ValueError: a
-    # participant that is no point is refused by ellipticcurves, whose
-    # EllipticCurvesValueError is no BTClibValueError (issue
+    # participant that is no point is refused by btclib_ecc, whose
+    # BTClibEccValueError is no BTClibValueError (issue
     # btclib-org/btclib#2282)
     except ValueError as e:
         raise BTClibValueError(f"musig(): {e}") from e

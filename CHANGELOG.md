@@ -152,6 +152,12 @@ The contract's tests accept its classes beside btclib's, never a bare built-in;
 a psbt or `musig()` key it refuses is a `BTClibValueError`, and `bip322.verify`
 answers False to its runtime error (closes #54).
 
+### The curve package is `btclib_ecc`
+
+Where the entries above spell it `ellipticcurves`, it is `btclib_ecc`, with
+`BTClibEcc*` classes and `BTCLIB_ECC_NO_LIBSECP256K1`; a name btclib leaves
+unbound while delegating to it fails the suite (issue btclib-org/btclib#2282).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

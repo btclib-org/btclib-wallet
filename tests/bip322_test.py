@@ -363,7 +363,7 @@ def test_a_legacy_signature_recovering_no_key_is_false(
 
     With r the generator's x and s the message's own reduced hash, the
     first key id names R = G, so recovery computes s*G - s*G. The Python
-    arm refuses that with a runtime error, which is ellipticcurves' under
+    arm refuses that with a runtime error, which is btclib_ecc's under
     a btclib carrying issue btclib-org/btclib#2282 and no
     `BTClibRuntimeError`; `verify` answers every refusal of a well-formed
     signature False, whichever library raised it.

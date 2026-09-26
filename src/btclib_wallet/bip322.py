@@ -54,13 +54,13 @@ it to that one.
 
 Verification answers three states, as the BIP does. Valid is a return;
 invalid is a `ValueError` or a `RuntimeError` of btclib's or of
-ellipticcurves', whatever failed being what it says; and *inconclusive*
+btclib_ecc's, whatever failed being what it says; and *inconclusive*
 is `InconclusiveError`, which is the state for a signature that today's
 rules cannot judge -- a `to_sign` whose version is neither 0 nor 2, an
 upgradeable NOP, a witness program of a version this library does not
 know. Under a btclib carrying issue btclib-org/btclib#2282 the curve
 library's classes are no `BTClibException` -- a legacy signature whose
-recovered key is the point at infinity is its `EllipticCurvesRuntimeError`
+recovered key is the point at infinity is its `BTClibEccRuntimeError`
 -- so `_INVALID` names each class a single `except` has to catch.
 `verify` collapses all three states to a boolean, and an inconclusive
 signature is not a valid one.
@@ -142,15 +142,17 @@ __all__ = [
 TAG = b"BIP0322-signed-message"
 
 # what an invalid signature raises: any ValueError, btclib's
-# BTClibRuntimeError, and ellipticcurves' EllipticCurvesRuntimeError where
-# the installed btclib binds it (issue btclib-org/btclib#2282), btclib's
-# own class standing in for it where it does not. Named and not
+# BTClibRuntimeError, and btclib_ecc's BTClibEccRuntimeError where the
+# installed btclib binds it (issue btclib-org/btclib#2282), btclib's own
+# class standing in for it where it does not. The fallback is silent, and
+# tests/exception_family_test.py is what fails on a name btclib does not
+# bind where it delegates to btclib_ecc. Named and not
 # RuntimeError, which would read a RecursionError or a defect of the
 # library as a signature that failed
 _INVALID: tuple[type[Exception], ...] = (
     ValueError,
     BTClibRuntimeError,
-    getattr(btclib.exceptions, "EllipticCurvesRuntimeError", BTClibRuntimeError),
+    getattr(btclib.exceptions, "BTClibEccRuntimeError", BTClibRuntimeError),
 )
 
 SIMPLE = "smp"

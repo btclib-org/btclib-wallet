@@ -46,7 +46,7 @@ from tests.exception_family_test import RUNTIME_ERRORS, TYPE_ERRORS, VALUE_ERROR
 # UnicodeDecodeError -- leaves the contract btclib's exceptions module
 # documents, and reaches a caller who wrote `except BTClibValueError` to
 # reject bad input and has no reason to expect anything else. Each of the
-# three with ellipticcurves' class of its kind beside it, which is what a
+# three with btclib_ecc's class of its kind beside it, which is what a
 # parse that library performs refuses with (issue btclib-org/btclib#2282)
 CONTRACT = (*VALUE_ERRORS, *TYPE_ERRORS, *RUNTIME_ERRORS)
 

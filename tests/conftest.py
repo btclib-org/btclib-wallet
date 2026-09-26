@@ -37,9 +37,9 @@ INSTALLED = importlib.util.find_spec("btclib_secp256k1") is not None
 
 # what starts a process with the libsecp256k1 dispatch off, set to a
 # non-empty value. A btclib whose curves are its own reads the first; one
-# re-exporting ellipticcurves' curves (btclib-org/btclib#2282) serves
-# ellipticcurves' dispatch, which reads the second. Neither reads the other
-NO_LIBSECP256K1 = ("BTCLIB_NO_LIBSECP256K1", "ELLIPTICCURVES_NO_LIBSECP256K1")
+# re-exporting btclib_ecc's curves (btclib-org/btclib#2282) serves
+# btclib_ecc's dispatch, which reads the second. Neither reads the other
+NO_LIBSECP256K1 = ("BTCLIB_NO_LIBSECP256K1", "BTCLIB_ECC_NO_LIBSECP256K1")
 
 # The deadline is a per-example time limit, measured on a run whose cost
 # the interpreter and the runner decide: pypy meets these tests with a

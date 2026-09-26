@@ -20,10 +20,10 @@ drives the two separately:
 btclib's own `input_validation_test.py` walks btclib, and this one walks
 this package with the same vocabulary.
 
-A function of this package that hands its argument on to ellipticcurves
+A function of this package that hands its argument on to btclib_ecc
 -- a key to `scalar_from_prv_key` or `point_from_pub_key` most often --
 lets that package's refusal through, and its classes are
-`EllipticCurvesTypeError` and `EllipticCurvesException` (issue
+`BTClibEccTypeError` and `BTClibEccException` (issue
 btclib-org/btclib#2282): each rule accepts the class of either package,
 `tests/exception_family_test.py` holding the pair, and nothing else.
 
@@ -79,16 +79,16 @@ from typing import Any
 
 import pytest
 
-from tests.exception_family_test import EXCEPTIONS, TYPE_ERRORS
+from tests.exception_family_test import ECC_PACKAGE, EXCEPTIONS, TYPE_ERRORS
 
 _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
 # the libraries declaring the input types this package takes, the rest
 # being declared at module level in this package: btclib, and
-# ellipticcurves wherever it is installed, btclib binding its curve types
+# `ECC_PACKAGE` wherever it is installed, btclib binding its curve types
 # from it (issue btclib-org/btclib#2282)
 _LIBRARIES = [
     Path(spec.origin).parent
-    for name in ("btclib", "ellipticcurves")
+    for name in ("btclib", ECC_PACKAGE)
     if (spec := importlib.util.find_spec(name)) and spec.origin
 ]
 # where each of them declares its aliases

@@ -230,6 +230,15 @@ def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     _refuse_bindings(monkeypatch, sys.modules[set_libsecp256k1_serving.__module__])
 
 
+# the packages `no_bindings_anywhere` walks. `btclib_ecc` is a name a
+# lookup falls back from in silence, so `tests/exception_family_test.py`
+# asserts that the package defining the dispatch, and the package any
+# exception class btclib binds comes from, is one of these
+WALKED_PACKAGES = frozenset(
+    {"btclib", "btclib_ecc", "btclib_wallet", "btclib_secp256k1"}
+)
+
+
 def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put every already-bound btclib_secp256k1 callable out of reach.
 
@@ -245,25 +254,19 @@ def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     rather than looking it up again, so a patch on the module the bindings
     live in does not reach a name already copied out of it.
 
-    So this walks every module already loaded under `btclib`,
-    `ellipticcurves`, `btclib_wallet` or `btclib_secp256k1` and refuses
-    every bindings callable there, whichever module holds the name;
-    `ellipticcurves` is where a btclib that delegates its curve arithmetic
-    to it holds the dispatch. The dispatch is switched off alongside it,
-    since a caller with the flag still on and every name unreachable is
-    not the configuration a missing install produces. An arm this does
-    not cover fails by calling through instead of passing by measuring the
-    bindings against themselves.
+    So this walks every module already loaded under a package of
+    `WALKED_PACKAGES` and refuses every bindings callable there, whichever
+    module holds the name; `btclib_ecc` is where a btclib that delegates
+    its curve arithmetic to it holds the dispatch. The dispatch is
+    switched off alongside it, since a caller with the flag still on and
+    every name unreachable is not the configuration a missing install
+    produces. An arm this does not cover fails by calling through instead
+    of passing by measuring the bindings against themselves.
     """
     from btclib.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     for mod_name, mod in list(sys.modules.items()):
-        if mod_name.split(".")[0] in {
-            "btclib",
-            "ellipticcurves",
-            "btclib_wallet",
-            "btclib_secp256k1",
-        }:
+        if mod_name.split(".")[0] in WALKED_PACKAGES:
             _refuse_bindings(monkeypatch, mod)
 
     set_libsecp256k1_serving(serving=False)
