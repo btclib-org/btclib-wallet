@@ -7,6 +7,7 @@
 import hmac
 import itertools
 import re
+import sys
 from dataclasses import FrozenInstanceError, fields, replace
 from typing import Any
 
@@ -14,12 +15,12 @@ import pytest
 from btclib import base58
 from btclib.b58 import p2pkh
 from btclib.curves import (
+    # its module holds the `mod_sqrt_var` the lift calls, and patching it
+    # to raise is how the test below pins that validating an xpub takes no
+    # modular square root
+    CurveGroup,
     bytes_from_point,
     bytes_from_prv_key_int,
-    # the module: `mod_sqrt_var` is a function on it, and patching it to
-    # raise is how the test below pins that validating an xpub takes no
-    # modular square root
-    curve_group,
     mult,
     point_from_octets,
 )
@@ -351,7 +352,7 @@ def no_bindings_bip32(monkeypatch: pytest.MonkeyPatch) -> None:
     class Refuse:
         def __getattr__(self, name: str) -> Any:
             # a green suite is one where this never runs, which is the
-            # pragma tests.no_bindings carries for the same reason
+            # pragma tests._refuse_bindings carries for the same reason
             raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
                 f"the dispatch is switched off, and bip32 asked for {name}"
             )
@@ -448,16 +449,19 @@ def test_public_key_validation_does_not_lift(
     pins the predicate in place of the lift is reaching no square root at all,
     not a stopwatch: mod_sqrt_var is patched to raise, and the accepted key and
     the refused one both have to get their answer without it.
+
+    The patch lands in the module defining `CurveGroup`, found from the
+    class rather than named, since which package defines it is btclib's to
+    decide; the lift is asked first, so that a patch it does not read fails
+    here rather than passing by reaching nothing.
     """
 
     def refuse(*_: object) -> int:
-        # a green suite is one where this never runs, which is the pragma
-        # tests.no_bindings carries for the same reason
-        raise AssertionError(  # pragma: no cover -- the fast path here never needs mod_sqrt_var
-            "the y of an extended public key was computed"
-        )
+        raise AssertionError("the y of an extended public key was computed")
 
-    monkeypatch.setattr(curve_group, "mod_sqrt_var", refuse)
+    monkeypatch.setattr(sys.modules[CurveGroup.__module__], "mod_sqrt_var", refuse)
+    with pytest.raises(AssertionError, match="was computed"):
+        ec.y_var(ec.G[0])
 
     xpub = "xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy"
     assert BIP32KeyData.b58decode(xpub).b58encode() == xpub
