@@ -21,7 +21,7 @@ import difflib
 import importlib.util
 import json
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -31,9 +31,15 @@ from hypothesis import settings
 
 # whether the bindings can be imported at all, asked of the import system
 # without importing them: `curves.is_libsecp256k1_serving` answers whether
-# they serve, which `BTCLIB_NO_LIBSECP256K1` can make False with them
+# they serve, which a variable of `NO_LIBSECP256K1` can make False with them
 # installed, and a test marked `bindings` needs them installed
 INSTALLED = importlib.util.find_spec("btclib_secp256k1") is not None
+
+# what starts a process with the libsecp256k1 dispatch off, set to a
+# non-empty value. A btclib whose curves are its own reads the first; one
+# re-exporting ellipticcurves' curves (btclib-org/btclib#2282) serves
+# ellipticcurves' dispatch, which reads the second. Neither reads the other
+NO_LIBSECP256K1 = ("BTCLIB_NO_LIBSECP256K1", "ELLIPTICCURVES_NO_LIBSECP256K1")
 
 # The deadline is a per-example time limit, measured on a run whose cost
 # the interpreter and the runner decide: pypy meets these tests with a
@@ -262,6 +268,22 @@ def configuration_went_unread(
     return cov_config.config_file is None and inipath is not None
 
 
+def switch_went_unread(environ: Mapping[str, str], serving: bool) -> list[str]:
+    """Return the variables of `NO_LIBSECP256K1` set where the bindings serve.
+
+    Setting one is asking for a run on the Python arithmetic, and the
+    installed btclib reads at most one of them: a run it did not reach
+    exits 0 on the bindings' arm and reports the Python arm as unreached,
+    which `tests/py_arm_authority_test.py`'s measurement would record as
+    an entry. What decides is the dispatch's own answer rather than which
+    name this btclib reads, so a variable neither package reads any more
+    is caught by the same comparison.
+    """
+    if not serving:
+        return []
+    return [name for name in NO_LIBSECP256K1 if environ.get(name)]
+
+
 def pytest_configure(config: pytest.Config) -> None:
     """Gate a whole run at `fail_under`, and a partial one at nothing.
 
@@ -276,8 +298,17 @@ def pytest_configure(config: pytest.Config) -> None:
     gated, `pytest.UsageError` being what pytest prints without a
     traceback and exits `4` for -- an exit of its own, so the code says
     the run measured nothing rather than that something in the tree
-    failed.
+    failed. A run asking for the dispatch off and not getting it is
+    refused the same way, for the same reason.
     """
+    unread = switch_went_unread(os.environ, is_libsecp256k1_serving())
+    if unread:
+        raise pytest.UsageError(
+            f"set: {', '.join(unread)}; and libsecp256k1 is still serving,"
+            " the installed btclib reading none of them, so this run would"
+            " measure the bindings rather than the Python arithmetic. Set"
+            f" every one of {', '.join(NO_LIBSECP256K1)}."
+        )
     if configuration_went_unread(
         coverage_configuration(config),
         config.inipath,

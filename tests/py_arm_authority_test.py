@@ -17,16 +17,21 @@ The arms are counted from the source -- a function containing a call to
 fails.
 The entries were measured, not reasoned:
 
-    BTCLIB_NO_LIBSECP256K1=1 uv run --locked pytest <one module> \
+    BTCLIB_NO_LIBSECP256K1=1 ELLIPTICCURVES_NO_LIBSECP256K1=1 \
+        uv run --locked pytest <one module> \
         -m "not bindings" --cov=btclib_wallet --cov-report=json \
         --cov-fail-under=0
 
 reading back which lines of each arm ran. A module is named here when its
 run reached the arm's body, the `def` line excluded -- that line runs at
 import and would report every arm of every imported module as reached.
-`-m "not bindings"` because the environment variable switches the
-dispatch off with the bindings still installed, so what needs them is
-deselected rather than skipped.
+Both variables, because a btclib reads only one of them --
+`tests/conftest.py`'s `NO_LIBSECP256K1` says which reads which -- and a
+run whose dispatch still serves with either set is refused there rather
+than measured.
+`-m "not bindings"` because the variables switch the dispatch off with
+the bindings still installed, so what needs them is deselected rather
+than skipped.
 
 **Nothing here re-runs the measurement.** The tests below check the
 table's shape -- its keys against the parser, its cited modules against

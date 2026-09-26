@@ -21,6 +21,10 @@ The guard beside it is driven the same way, with one exception: the run
 it refuses cannot be the run reporting on it either, so the case it
 exists for is taken in a subprocess started from `tests/`.
 
+`switch_went_unread` is the other guard `pytest_configure` holds, and a
+run that trips it is refused before it measures anything, so it too is
+driven here rather than by the run it refuses.
+
 `pytest_collection_modifyitems` and the skip helper it calls are the
 build's own case rather than the runner's: a machine has the bindings or
 has not, so its own run reaches one way out of the `if`. They are driven
@@ -40,6 +44,7 @@ from typing import cast
 import pytest
 
 from tests.conftest import (
+    NO_LIBSECP256K1,
     REGENERATE,
     CoverageConfiguration,
     _skip_what_needs_the_bindings,
@@ -49,6 +54,7 @@ from tests.conftest import (
     coverage_fail_under,
     pytest_collection_modifyitems,
     pytest_configure,
+    switch_went_unread,
 )
 
 MODULE = "something_test.py"
@@ -838,6 +844,57 @@ def test_a_run_started_from_tests_says_it_is_ungated(tmp_path: Path) -> None:
     # own output is, so the assertion is on the stream that carries it
     assert "coverage read no configuration" in completed.stderr
     assert str(_ROOT) in completed.stderr
+
+
+@pytest.mark.parametrize("name", NO_LIBSECP256K1)
+def test_a_switch_the_dispatch_did_not_obey_is_named(name: str) -> None:
+    """Either variable set with the bindings serving is what is refused."""
+    assert switch_went_unread({name: "1"}, serving=True) == [name]
+
+
+def test_a_switch_the_dispatch_obeyed_is_not_refused() -> None:
+    """Both set and the dispatch off is the measurement's own run.
+
+    The installed btclib reads one of the two and ignores the other,
+    so an ignored variable beside an obeyed one is no finding.
+    """
+    both = dict.fromkeys(NO_LIBSECP256K1, "1")
+    assert switch_went_unread(both, serving=False) == []
+
+
+def test_an_empty_switch_is_no_switch() -> None:
+    """An empty value leaves the bindings serving, and asks for nothing.
+
+    That is how both packages read their variable, so a run carrying
+    one empty is an ordinary run with the bindings on.
+    """
+    empty = dict.fromkeys(NO_LIBSECP256K1, "")
+    assert switch_went_unread(empty, serving=True) == []
+    assert switch_went_unread({}, serving=True) == []
+
+
+def test_the_hook_refuses_a_run_the_switch_did_not_reach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`pytest_configure` raises ahead of the coverage decision.
+
+    The dispatch's answer is patched to serving, being what a btclib
+    that reads neither variable answers, which no one build reaches with
+    both of them set.
+    """
+    for name in NO_LIBSECP256K1:
+        monkeypatch.setenv(name, "1")
+    monkeypatch.setattr("tests.conftest.is_libsecp256k1_serving", lambda: True)
+    known = argparse.Namespace(cov_fail_under=100.0)
+    config = _config([], known, _controller(str(_INIPATH)))
+
+    with pytest.raises(pytest.UsageError) as raised:
+        pytest_configure(config)
+
+    assert "libsecp256k1 is still serving" in str(raised.value)
+    for name in NO_LIBSECP256K1:
+        assert name in str(raised.value)
+    assert known.cov_fail_under == 100.0
 
 
 def _item(*marker_names: str) -> tuple[pytest.Item, list[pytest.MarkDecorator]]:
