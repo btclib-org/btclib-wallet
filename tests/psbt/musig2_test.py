@@ -17,6 +17,7 @@ from btclib.script.engine import verify_transaction
 from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, musig2
 from btclib_wallet.psbt.psbt import prevouts, taproot_sig_hash
 from tests import load, vector_id
+from tests.exception_family_test import VALUE_ERRORS
 
 # BIP373's own participants, whose keys every vector of it aggregates.
 # The private keys are the BIP's, published beside the public ones: they
@@ -175,7 +176,7 @@ def test_a_whole_session_is_run_over_the_psbt() -> None:
         musig2.partial_sign(psbt, 0, sec_nonce, prv_key, aggregate_pub_key)
         # spent, and the bytearray says so: a second signature under one
         # secnonce is what hands out a private key
-        with pytest.raises(BTClibValueError, match="secnonce value is out of range"):
+        with pytest.raises(VALUE_ERRORS, match="secnonce value is out of range"):
             musig2.partial_sign(psbt, 0, sec_nonce, prv_key, aggregate_pub_key)
 
     for participant_pub_key in PARTICIPANT_PUB_KEYS:

@@ -35,6 +35,7 @@ from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, join
 from btclib_wallet.psbt import frost as psbt_frost
 from btclib_wallet.psbt.psbt import prevouts, taproot_sig_hash
 from tests import load
+from tests.exception_family_test import VALUE_ERRORS
 
 _GROUP: dict[str, Any] = load("ecc", "_data", "bip445", "sign_verify_vectors.json")[
     "test_groups"
@@ -238,7 +239,7 @@ def test_a_whole_session_is_run_over_the_psbt() -> None:
         )
         # spent, and the bytearray says so: a second signature under one
         # secnonce is what hands out the secret share
-        with pytest.raises(BTClibValueError, match="secnonce value is out of range"):
+        with pytest.raises(VALUE_ERRORS, match="secnonce value is out of range"):
             psbt_frost.partial_sign(
                 psbt, 0, sec_nonces[my_id], my_id, SEC_SHARES[my_id], THRESH_PK
             )
@@ -626,7 +627,7 @@ def test_the_updater_files_key_material_it_has_checked() -> None:
         )
 
     tampered = group_info((PUB_SHARES[0], PUB_SHARES[1], FOREIGN_PUB_SHARE))
-    with pytest.raises(BTClibValueError, match="do not lie on a single polynomial"):
+    with pytest.raises(VALUE_ERRORS, match="do not lie on a single polynomial"):
         psbt_frost.add_threshold_info(psbt.inputs[0], WRITER, tampered)
 
     # the identifiers of the group are 0 to n-1: one below, one past and
@@ -917,7 +918,7 @@ def test_assert_valid_records_reads_what_the_codec_cannot() -> None:
             "The provided key material is incorrect",
         ),
     ):
-        with pytest.raises(BTClibValueError, match=err_msg):
+        with pytest.raises(VALUE_ERRORS, match=err_msg):
             psbt_frost.assert_valid_records(
                 _broken(psbt, THRESHOLD_INFO, key_data, value).inputs[0]
             )

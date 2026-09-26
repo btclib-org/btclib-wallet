@@ -72,6 +72,7 @@ from tests import (
     replace_unchecked,
     vector_id,
 )
+from tests.exception_family_test import TYPE_ERRORS
 
 # the bindings, None where they are not installed: every test reading
 # them is marked `bindings`, skipped in that configuration
@@ -1083,7 +1084,7 @@ def test_the_chain_contract_no_derivation_here_asks_for() -> None:
     )
 
     chain = _PythonPubKeyTweakChain(key)
-    with pytest.raises(BTClibTypeError, match="invalid compressed type"):
+    with pytest.raises(TYPE_ERRORS, match="invalid compressed type"):
         chain.tweak_add(tweak, compressed="yes")  # type: ignore[arg-type]
     assert chain.tweak_add(tweak) == compressed
 

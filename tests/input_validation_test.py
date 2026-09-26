@@ -20,6 +20,13 @@ drives the two separately:
 btclib's own `input_validation_test.py` walks btclib, and this one walks
 this package with the same vocabulary.
 
+A function of this package that hands its argument on to ellipticcurves
+-- a key to `scalar_from_prv_key` or `point_from_pub_key` most often --
+lets that package's refusal through, and its classes are
+`EllipticCurvesTypeError` and `EllipticCurvesException` (issue
+btclib-org/btclib#2282): each rule accepts the class of either package,
+`tests/exception_family_test.py` holding the pair, and nothing else.
+
 ## How it calls what it calls
 
 The input types are few and well bounded, most of them named in btclib's
@@ -64,19 +71,28 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-import btclib
 import pytest
-from btclib.exceptions import BTClibException, BTClibTypeError
+
+from tests.exception_family_test import EXCEPTIONS, TYPE_ERRORS
 
 _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
-# where btclib declares the library input types this package takes, the
-# rest being declared at module level in this package
-_ALIAS_PY = Path(btclib.__file__).parent / "alias.py"
+# the libraries declaring the input types this package takes, the rest
+# being declared at module level in this package: btclib, and
+# ellipticcurves wherever it is installed, btclib binding its curve types
+# from it (issue btclib-org/btclib#2282)
+_LIBRARIES = [
+    Path(spec.origin).parent
+    for name in ("btclib", "ellipticcurves")
+    if (spec := importlib.util.find_spec(name)) and spec.origin
+]
+# where each of them declares its aliases
+_ALIAS_PYS = {library / "alias.py" for library in _LIBRARIES}
 
 # a value of no type the alias declares: the caller's own mistake, and a
 # call mypy refuses. The tuples are read round-robin so that a function
@@ -231,7 +247,7 @@ def test_a_wrong_type_leaves_as_a_btclib_type_error(dotted: str) -> None:
     is the library calling a caller's mistake a fact about the input.
     """
     for call in _calls(dotted, _WRONG_TYPE):
-        with pytest.raises(BTClibTypeError):
+        with pytest.raises(TYPE_ERRORS):
             call()
 
 
@@ -247,7 +263,7 @@ def test_a_wrong_value_leaves_as_a_btclib_exception(dotted: str) -> None:
     `BTClibTypeError` -- and the contract a caller is given is the base.
     """
     for call in _calls(dotted, _WRONG_VALUE):
-        with pytest.raises(BTClibException):
+        with pytest.raises(EXCEPTIONS):
             call()
 
 
@@ -267,17 +283,17 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
     """A renamed type would narrow the walk without failing anything.
 
     Every name in the two vocabularies is still declared, in this package
-    or in btclib, and every type btclib's `alias.py` or a module of this
-    package declares and a public parameter of this package is annotated
-    with is either in the vocabulary or named below with the reason it is
-    not.
+    or in one of `_LIBRARIES`, and every type an `alias.py` of those or a
+    module of this package declares and a public parameter of this package
+    is annotated with is either in the vocabulary or named below with the
+    reason it is not.
     """
     declared: set[str] = set()
     in_alias_py: set[str] = set()
     own: set[str] = set()
     annotated: set[str] = set()
     for path in sorted(
-        [*_LIBRARY.rglob("*.py"), *Path(btclib.__file__).parent.rglob("*.py")]
+        [*_LIBRARY.rglob("*.py"), *(p for d in _LIBRARIES for p in d.rglob("*.py"))]
     ):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         names = {
@@ -290,8 +306,8 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
         }
         declared |= names
         if not path.is_relative_to(_LIBRARY):
-            if path == _ALIAS_PY:
-                in_alias_py = names
+            if path in _ALIAS_PYS:
+                in_alias_py |= names
             continue
         own |= names
         for node in ast.walk(tree):

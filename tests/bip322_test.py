@@ -25,13 +25,14 @@ import pytest
 from btclib import b58
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
+from btclib.curves import secp256k1
 from btclib.ecc import bms, dsa, ssa
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
     InconclusiveError,
 )
-from btclib.hashes import hash160
+from btclib.hashes import hash160, magic_message, reduce_to_hlen
 from btclib.script import ScriptPubKey, address, serialize
 from btclib.script.engine import ALL_FLAGS, ScriptFlag
 from btclib.script.sig_hash import (
@@ -50,7 +51,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet import bip322
 from btclib_wallet.psbt import Psbt, finalize
-from tests import load, vector_id
+from tests import load, no_bindings, vector_id
 
 BASIC = load("_data", "basic-test-vectors.json", encoding="utf-8")
 GENERATED = load("_data", "generated-test-vectors.json", encoding="utf-8")
@@ -352,6 +353,27 @@ def dsa_sign(msg_hash: bytes, wif: str) -> bytes:
     """Return the DER signature of the hash, SIGHASH_ALL appended."""
     q = b58.prv_key_data_from_wif(wif).q
     return dsa.sign_(msg_hash, q).serialize() + ALL.to_bytes(1, "big")
+
+
+@pytest.mark.parametrize("rf", [27, 31], ids=["uncompressed", "compressed"])
+def test_a_legacy_signature_recovering_no_key_is_false(
+    rf: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A well-formed BMS signature whose recovered key is infinity is False.
+
+    With r the generator's x and s the message's own reduced hash, the
+    first key id names R = G, so recovery computes s*G - s*G. The Python
+    arm refuses that with a runtime error, which is ellipticcurves' under
+    a btclib carrying issue btclib-org/btclib#2282 and no
+    `BTClibRuntimeError`; `verify` answers every refusal of a well-formed
+    signature False, whichever library raised it.
+    """
+    no_bindings(monkeypatch)
+    msg = b"no key"
+    c = int.from_bytes(reduce_to_hlen(magic_message(msg)), "big") % secp256k1.n
+    sig = dsa.Sig(secp256k1.G[0] % secp256k1.n, c, check_validity=False)
+    legacy = bms.Sig(rf, sig, check_validity=False).b64encode()
+    assert not bip322.verify(msg, p2pkh(WIF_PUB), legacy)
 
 
 def test_legacy_signature_is_accepted_for_p2pkh_alone() -> None:

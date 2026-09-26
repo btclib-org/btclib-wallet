@@ -98,6 +98,7 @@ from btclib_wallet.psbt.psbt import (
 )
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from tests import load, replace_unchecked, vector_id
+from tests.exception_family_test import VALUE_ERRORS
 
 DOC_DESCRIPTORS = [
     descriptor_data["desc"]
@@ -1456,7 +1457,7 @@ UNPARSABLE = [
 )
 def test_unparsable(descriptor: str, message: str) -> None:
     """Refuse each unparsable descriptor with the message naming why."""
-    with pytest.raises(BTClibValueError, match=message):
+    with pytest.raises(VALUE_ERRORS, match=message):
         parse(descriptor)
 
 
@@ -1705,6 +1706,8 @@ BIP390_INVALID = [
     # a participant is aggregated as a point, so an x-only one is short of
     # the byte that says which point it is
     (f"tr(musig({XONLY},{MUSIG_B}))", "musig\\(\\): x-only"),
+    # and one that is no point, whose refusal is the curve library's
+    (f"tr(musig({OFF_CURVE},{MUSIG_B}))", "musig\\(\\): not a public key"),
     # and characters after the closing bracket that are no path at all
     (f"tr(musig({MUSIG_A},{MUSIG_B})x)", "not a musig\\(\\) derivation path"),
 ]

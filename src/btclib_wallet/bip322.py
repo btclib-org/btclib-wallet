@@ -53,14 +53,17 @@ signature to `ecc.bms`, and only for a p2pkh address, the BIP restricting
 it to that one.
 
 Verification answers three states, as the BIP does. Valid is a return;
-invalid is a `BTClibValueError` or a `BTClibRuntimeError`, whatever
-failed being what it says; and *inconclusive* is `InconclusiveError`,
-which is the state for a signature that today's rules cannot judge -- a
-`to_sign` whose version is neither 0 nor 2, an upgradeable NOP, a witness
-program of a version this library does not know. Each of those classes
-is a `BTClibException`, so a single `except` catches whichever comes.
-`verify` collapses all three to a boolean, and an inconclusive signature
-is not a valid one.
+invalid is a `ValueError` or a `RuntimeError` of btclib's or of
+ellipticcurves', whatever failed being what it says; and *inconclusive*
+is `InconclusiveError`, which is the state for a signature that today's
+rules cannot judge -- a `to_sign` whose version is neither 0 nor 2, an
+upgradeable NOP, a witness program of a version this library does not
+know. Under a btclib carrying issue btclib-org/btclib#2282 the curve
+library's classes are no `BTClibException` -- a legacy signature whose
+recovered key is the point at infinity is its `EllipticCurvesRuntimeError`
+-- so `_INVALID` names each class a single `except` has to catch.
+`verify` collapses all three states to a boolean, and an inconclusive
+signature is not a valid one.
 
 What is enforced is BIP322's list, through the engine's own flags: the
 consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
@@ -94,6 +97,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 
+import btclib.exceptions
 from btclib.alias import Octets, String
 from btclib.curves import bytes_from_prv_key_int
 from btclib.ecc import bms, dsa, ssa
@@ -136,6 +140,18 @@ __all__ = [
 ]
 
 TAG = b"BIP0322-signed-message"
+
+# what an invalid signature raises: any ValueError, btclib's
+# BTClibRuntimeError, and ellipticcurves' EllipticCurvesRuntimeError where
+# the installed btclib binds it (issue btclib-org/btclib#2282), btclib's
+# own class standing in for it where it does not. Named and not
+# RuntimeError, which would read a RecursionError or a defect of the
+# library as a signature that failed
+_INVALID: tuple[type[Exception], ...] = (
+    ValueError,
+    BTClibRuntimeError,
+    getattr(btclib.exceptions, "EllipticCurvesRuntimeError", BTClibRuntimeError),
+)
 
 SIMPLE = "smp"
 FULL = "ful"
@@ -468,7 +484,7 @@ def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
         verify_transaction(
             prevouts, tx, REQUIRED_RULES | UPGRADEABLE_RULES, hash_types=hash_types
         )
-    except (ValueError, BTClibRuntimeError) as e:
+    except _INVALID as e:
         required_only: list[int] = []
         verify_transaction(prevouts, tx, REQUIRED_RULES, hash_types=required_only)
         _assert_hash_types(required_only)
@@ -585,15 +601,15 @@ def verify(
     where they are, but neither of them is a signature that verified.
     """
     _assert_structurally_valid_(addr, sig)
-    # ValueError and BTClibRuntimeError: a signature that does not
-    # satisfy the script is False, and so are the two refusals `legacy`
-    # decides -- a compact signature where BIP322 proper was asked for,
-    # and one offered for an address that is not p2pkh; a caller's own
-    # mistake in the address or in the signature's encoding is refused
-    # above rather than excluded from the except
+    # _INVALID: a signature that does not satisfy the script is False,
+    # and so are the two refusals `legacy` decides -- a compact signature
+    # where BIP322 proper was asked for, and one offered for an address
+    # that is not p2pkh; a caller's own mistake in the address or in the
+    # signature's encoding is refused above rather than excluded from the
+    # except
     try:
         assert_as_valid(msg, addr, sig, legacy=legacy)
-    except (ValueError, BTClibRuntimeError):
+    except _INVALID:
         return False
 
     return True
@@ -665,7 +681,7 @@ def signed_message(psbt: Psbt) -> bytes | None:
     # the caller handing this something that is not a psbt
     try:
         return assert_signed_message(psbt)
-    except (ValueError, BTClibRuntimeError):
+    except _INVALID:
         return None
 
 
