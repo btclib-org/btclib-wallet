@@ -34,7 +34,7 @@ from tests import public_classes_with
 from tests.exception_family_test import RUNTIME_ERRORS, TYPE_ERRORS, VALUE_ERRORS
 
 # what btclib promises to raise, and the whole of it: a truncated buffer
-# has to be refused as one of these three, each with ellipticcurves' class
+# has to be refused as one of these three, each with btclib_ecc's class
 # of its kind beside it (issue btclib-org/btclib#2282), and never as an
 # IndexError or a struct error from underneath the library
 _CONTRACT_EXCEPTIONS = (*VALUE_ERRORS, *RUNTIME_ERRORS, *TYPE_ERRORS)

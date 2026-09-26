@@ -36,8 +36,8 @@ So a truth's `True` has to be its conservative value, and a flag whose
 The two tests below are that line, one each:
 
 - a kind refuses `"no"`, `0`, `1` and (where the annotation does not
-  declare it) `None`, with a `BTClibTypeError` -- or ellipticcurves'
-  `EllipticCurvesTypeError`, where the flag is handed on to that package
+  declare it) `None`, with a `BTClibTypeError` -- or btclib_ecc's
+  `BTClibEccTypeError`, where the flag is handed on to that package
   (issue btclib-org/btclib#2282)
 - a truth **accepts** them, on a fixture the flag's `True` accepts: a
   truth that starts refusing fails here, and the entry has to move rather

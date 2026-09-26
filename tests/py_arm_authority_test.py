@@ -17,7 +17,7 @@ The arms are counted from the source -- a function containing a call to
 fails.
 The entries were measured, not reasoned:
 
-    BTCLIB_NO_LIBSECP256K1=1 ELLIPTICCURVES_NO_LIBSECP256K1=1 \
+    BTCLIB_NO_LIBSECP256K1=1 BTCLIB_ECC_NO_LIBSECP256K1=1 \
         uv run --locked pytest <one module> \
         -m "not bindings" --cov=btclib_wallet --cov-report=json \
         --cov-fail-under=0

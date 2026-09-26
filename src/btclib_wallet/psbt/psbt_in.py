@@ -203,7 +203,7 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
     """Raise an exception if the dataclass element is not valid.
 
     Each `except` names `ValueError` rather than `BTClibValueError`: a
-    parse may be ellipticcurves', whose `EllipticCurvesValueError` is a
+    parse may be btclib_ecc's, whose `BTClibEccValueError` is a
     `ValueError` and no `BTClibValueError` (issue btclib-org/btclib#2282),
     and what it refuses leaves here as this package's refusal naming the
     field.
