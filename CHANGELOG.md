@@ -128,6 +128,18 @@ disagrees stops the chain after it (issue btclib-org/btclib-node#1063).
 Both point a contributor at the organization's one copy of each, in
 `btclib-org/.github` (issue btclib-org/.github#1359).
 
+### `tests.no_bindings` finds the dispatch from `set_libsecp256k1_serving`
+
+It refuses the bindings held by the module the switch's `__module__` names,
+`ellipticcurves.curves.curve` under a btclib re-exporting that switch, and
+`no_bindings_anywhere` walks `ellipticcurves` too (closes #52).
+
+### `bip32_test` and `key_wallet_test` find what they patch from a public name
+
+The `mod_sqrt_var` patch and the counted key derivation land in the module
+`CurveGroup`'s and `bytes_from_prv_key_int`'s `__module__` names, which
+holds under a btclib re-exporting ellipticcurves (closes #55).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

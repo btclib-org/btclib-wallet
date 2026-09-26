@@ -174,11 +174,39 @@ needs_bindings = pytest.mark.bindings
 
 # --------------------------------------------------------------------------
 # The libsecp256k1 dispatch switched off, shared by the tests that ask the
-# Python arm of a function a question. A copy of btclib's own two helpers
-# in its tests/curves/curve_test.py: the dispatch they switch off is
-# btclib's, `btclib.curves.curve`'s, and this package reaches the bindings
-# through it and through the names its own modules import.
+# Python arm of a function a question. The dispatch they switch off is the
+# one `btclib.curves.set_libsecp256k1_serving` sets, and this package
+# reaches the bindings through it and through the names its own modules
+# import.
 # --------------------------------------------------------------------------
+
+
+def _refuse_bindings(monkeypatch: pytest.MonkeyPatch, mod: types.ModuleType) -> None:
+    """Replace every btclib_secp256k1 callable `mod` holds with one that raises.
+
+    A callable is one of the bindings when its own `__module__` is in
+    btclib_secp256k1, whatever name `mod` holds it under, so no name of
+    `mod` is spelled here. A module `mod` holds is skipped: a caller
+    reaching through one, as bip32 reaches through `keys`, is refused by
+    walking that module itself.
+    """
+
+    def refuse(what: str) -> Callable[..., Any]:
+        def asked(*_args: object, **_kwargs: object) -> Any:
+            # a green suite is one where this never runs, the dispatch
+            # switched off beside every call of this ruling the call out
+            raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
+                f"the Python arm reached libsecp256k1: {what}"
+            )
+
+        return asked
+
+    for attr, value in list(vars(mod).items()):
+        if isinstance(value, types.ModuleType) or not callable(value):
+            continue
+        origin = getattr(value, "__module__", None) or ""
+        if origin.split(".")[0] == "btclib_secp256k1":
+            monkeypatch.setattr(mod, attr, refuse(f"{mod.__name__}.{attr}"))
 
 
 def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,79 +215,56 @@ def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     `curves.set_libsecp256k1_serving` sets what every dispatch reads on
     every call, so switching it off is the whole dispatch and not one
     module's copy of a predicate; `tests/conftest.py` puts it back after
-    every test. Replacing every bindings function `curve`
-    imports is what proves they were not asked anyway: a dispatch this
-    does not cover raises here instead of quietly measuring the bindings
-    against themselves.
-    """
-    from btclib.curves import curve, set_libsecp256k1_serving  # noqa: PLC0415
+    every test. Refusing every bindings callable the module defining that
+    switch holds is what proves they were not asked anyway: a dispatch
+    this does not cover raises here instead of quietly measuring the
+    bindings against themselves.
 
-    def refuse(*_: object, **__: object) -> bytes:
-        # a green suite is one where this never runs, the dispatch
-        # above it ruling the call out
-        raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
-            "the libsecp256k1 dispatch is switched off"
-        )
+    That module is the switch's own `__module__` rather than a name
+    written here, which package defines the dispatch being btclib's to
+    decide.
+    """
+    from btclib.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     set_libsecp256k1_serving(serving=False)
-    monkeypatch.setattr(curve, "libsecp256k1_pubkey_from_prvkey", refuse)
-    monkeypatch.setattr(curve, "libsecp256k1_pubkey_tweak_add", refuse)
-    monkeypatch.setattr(curve, "libsecp256k1_pubkey_tweak_mul_sum", refuse)
-    monkeypatch.setattr(curve, "libsecp256k1_pubkey_sum", refuse)
-    monkeypatch.setattr(curve, "libsecp256k1_xonly_pubkey_verify", refuse)
-    monkeypatch.setattr(curve, "libsecp256k1_xonly_to_pubkey", refuse)
-    # a class rather than a function, which is the one dispatch that
-    # builds an object instead of calling through
-    monkeypatch.setattr(curve, "Libsecp256k1PubkeyTweakChain", refuse)
+    _refuse_bindings(monkeypatch, sys.modules[set_libsecp256k1_serving.__module__])
 
 
 def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put every already-bound btclib_secp256k1 callable out of reach.
 
-    `no_bindings` above answers for `curve.py`'s own names, which is what
-    every arm gated on the curve and the hash function alone reaches
-    through. An arm gated on availability alone can hold a binding of its
-    own a module further out -- `btclib_wallet.bip32.bip32` imports
-    `keys`, `btclib.script.taproot` imports `xonly` -- and `from ...
-    import x as y` copies the object rather than looking it up again, so
-    a patch on the module the bindings live in does not reach a name
-    already copied out of it.
+    `no_bindings` above refuses only the copies the module defining the
+    dispatch holds, and a copy any other module holds is this walk's,
+    whatever gate stands in front of it: `sec_point` keeps its own
+    `pubkey_from_prvkey` behind the same curve-and-hash gate. The switch
+    is what keeps every copy uncalled either way; the refusals are what
+    show it did. An arm gated on availability alone can
+    hold a binding of its own a module further out --
+    `btclib_wallet.bip32.bip32` imports `keys`, `btclib.script.taproot`
+    imports `xonly` -- and `from ... import x as y` copies the object
+    rather than looking it up again, so a patch on the module the bindings
+    live in does not reach a name already copied out of it.
 
     So this walks every module already loaded under `btclib`,
-    `btclib_wallet` or `btclib_secp256k1` and replaces every callable
-    there whose
-    `__module__` traces back to the bindings with one that raises,
-    whichever module holds the name; the dispatch is switched off
-    alongside it, since a caller with the flag still on and every name
-    unreachable is not the configuration a missing install produces. An
-    arm this does not cover fails by calling through instead of passing
-    by measuring the bindings against themselves.
+    `ellipticcurves`, `btclib_wallet` or `btclib_secp256k1` and refuses
+    every bindings callable there, whichever module holds the name;
+    `ellipticcurves` is where a btclib that delegates its curve arithmetic
+    to it holds the dispatch. The dispatch is switched off alongside it,
+    since a caller with the flag still on and every name unreachable is
+    not the configuration a missing install produces. An arm this does
+    not cover fails by calling through instead of passing by measuring the
+    bindings against themselves.
     """
     from btclib.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
-    def refuse(what: str) -> Callable[..., Any]:
-        def asked(*_args: object, **_kwargs: object) -> Any:
-            # a green suite is one where this never runs, the same pragma
-            # no_bindings above carries for a call the dispatch rules out
-            raise AssertionError(  # pragma: no cover -- the dispatch switched off keeps this uncalled
-                f"the Python arm reached libsecp256k1: {what}"
-            )
-
-        return asked
-
     for mod_name, mod in list(sys.modules.items()):
-        if mod_name.split(".")[0] not in {
+        if mod_name.split(".")[0] in {
             "btclib",
+            "ellipticcurves",
             "btclib_wallet",
             "btclib_secp256k1",
         }:
-            continue
-        for attr, value in list(vars(mod).items()):
-            if isinstance(value, types.ModuleType) or not callable(value):
-                continue
-            origin = getattr(value, "__module__", None) or ""
-            if origin.split(".")[0] == "btclib_secp256k1":
-                monkeypatch.setattr(mod, attr, refuse(f"{mod_name}.{attr}"))
+            _refuse_bindings(monkeypatch, mod)
 
     set_libsecp256k1_serving(serving=False)
 

@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from typing import Any
 
 import pytest
 from btclib import b58
-from btclib.curves import sec_point, set_libsecp256k1_serving
+from btclib.curves import bytes_from_prv_key_int, set_libsecp256k1_serving
 from btclib.ecc import bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
@@ -539,31 +541,41 @@ def test_add_derives_the_public_key_once(
     What makes that a gate rather than a claim is *where* this counts.
     Every caller of `bytes_from_prv_key_int` binds it with a from-import,
     so patching one caller's name leaves the others multiplying
-    uncounted. Counted here instead are the two calls that name is a
-    wrapper around, in the module that defines it, so every derivation
-    reaching that function is counted whichever caller spelled it.
+    uncounted. Counted here instead are `mult` and every libsecp256k1
+    binding held by the module that defines it, found from the function's
+    own `__module__`, so every derivation reaching that function is counted
+    whichever caller spelled it and whichever package defines it.
 
     A key of its own, built inside this test: `pub` memoizes on the
     object, so one shared between tests would be multiplied by whichever
     ran first and by nothing here.
 
-    One of those two calls answers per install, which is why both arms
-    run: the bindings for the one that has them, `mult` for the one that
-    does not.
+    One of `mult` and those bindings answers per install, which is why both
+    arms run: the bindings for the one that has them, `mult` for the one
+    that does not.
     """
     if not bindings:
         set_libsecp256k1_serving(serving=False)
 
     calls = 0
-    for name in ("libsecp256k1_pubkey_from_prvkey", "mult"):
-        original = getattr(sec_point, name)
+    defining = sys.modules[bytes_from_prv_key_int.__module__]
+    bindings_held = [
+        name
+        for name, value in vars(defining).items()
+        if callable(value)
+        and not isinstance(value, types.ModuleType)
+        and (getattr(value, "__module__", None) or "").split(".")[0]
+        == "btclib_secp256k1"
+    ]
+    for name in ["mult", *bindings_held]:
+        original = getattr(defining, name)
 
         def counting(*args: object, _original: Any = original, **kwargs: Any) -> Any:
             nonlocal calls
             calls += 1
             return _original(*args, **kwargs)
 
-        monkeypatch.setattr(sec_point, name, counting)
+        monkeypatch.setattr(defining, name, counting)
 
     wallet = KeyWallet()
     wallet.add(b58.prv_key_data_from_wif(_WIF_COMPRESSED))
