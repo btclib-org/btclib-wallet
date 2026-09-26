@@ -36,7 +36,9 @@ So a truth's `True` has to be its conservative value, and a flag whose
 The two tests below are that line, one each:
 
 - a kind refuses `"no"`, `0`, `1` and (where the annotation does not
-  declare it) `None`, with a `BTClibTypeError`
+  declare it) `None`, with a `BTClibTypeError` -- or ellipticcurves'
+  `EllipticCurvesTypeError`, where the flag is handed on to that package
+  (issue btclib-org/btclib#2282)
 - a truth **accepts** them, on a fixture the flag's `True` accepts: a
   truth that starts refusing fails here, and the entry has to move rather
   than the test being edited
@@ -70,7 +72,6 @@ from typing import Any
 import pytest
 from btclib.b58 import p2pkh
 from btclib.curves import bytes_from_point, bytes_from_prv_key_int, mult
-from btclib.exceptions import BTClibTypeError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
@@ -121,6 +122,7 @@ from btclib_wallet.psbt.psbt_utils import (
 )
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet.script_wallet import KeyGroup
+from tests.exception_family_test import TYPE_ERRORS
 from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
@@ -672,7 +674,7 @@ def test_a_kind_refuses_a_non_bool(case: _Case) -> None:
     """
     wrong = _WRONG_TYPES if case.optional else (*_WRONG_TYPES, None)
     for value in wrong:
-        with pytest.raises(BTClibTypeError, match=f"invalid {case.flag} type"):
+        with pytest.raises(TYPE_ERRORS, match=f"invalid {case.flag} type"):
             case.function(**case.args, **{case.flag: value})
 
 

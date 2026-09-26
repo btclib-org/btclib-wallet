@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from btclib.exceptions import BTClibRuntimeError, BTClibTypeError, BTClibValueError
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -40,13 +39,16 @@ from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from tests import module_names, public_classes_with
+from tests.exception_family_test import RUNTIME_ERRORS, TYPE_ERRORS, VALUE_ERRORS
 
 # What a parser is allowed to raise. Anything else -- an IndexError off a
 # short slice, an OverflowError off an unchecked size, a KeyError, a
 # UnicodeDecodeError -- leaves the contract btclib's exceptions module
 # documents, and reaches a caller who wrote `except BTClibValueError` to
-# reject bad input and has no reason to expect anything else
-CONTRACT = (BTClibValueError, BTClibTypeError, BTClibRuntimeError)
+# reject bad input and has no reason to expect anything else. Each of the
+# three with ellipticcurves' class of its kind beside it, which is what a
+# parse that library performs refuses with (issue btclib-org/btclib#2282)
+CONTRACT = (*VALUE_ERRORS, *TYPE_ERRORS, *RUNTIME_ERRORS)
 
 # Bounded because these are parsers, not benchmarks: what a length field
 # does with the bytes behind it is decided in the first few of them, and

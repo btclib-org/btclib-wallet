@@ -578,7 +578,10 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str) -> None:
         raise BTClibValueError(err_msg)
     try:
         sec_point.point_from_octets(pub_key)
-    except BTClibValueError as e:
+    # ValueError: the parse may be ellipticcurves', whose
+    # EllipticCurvesValueError is no BTClibValueError (issue
+    # btclib-org/btclib#2282)
+    except ValueError as e:
         raise BTClibValueError(f"invalid {what}: {pub_key.hex()}") from e
 
 

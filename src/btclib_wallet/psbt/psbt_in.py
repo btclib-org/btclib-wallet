@@ -200,12 +200,19 @@ def _deserialize_witness_utxo(k: bytes, v: bytes, type_: str) -> TxOut:
 
 
 def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
-    """Raise an exception if the dataclass element is not valid."""
+    """Raise an exception if the dataclass element is not valid.
+
+    Each `except` names `ValueError` rather than `BTClibValueError`: a
+    parse may be ellipticcurves', whose `EllipticCurvesValueError` is a
+    `ValueError` and no `BTClibValueError` (issue btclib-org/btclib#2282),
+    and what it refuses leaves here as this package's refusal naming the
+    field.
+    """
     for pub_key, sig in partial_sigs.items():
         try:
             # pub_key must be a valid secp256k1 Point in SEC representation
             sec_point.point_from_octets(pub_key)
-        except BTClibValueError as e:
+        except ValueError as e:
             err_msg = f"invalid partial signature pub_key: {pub_key!r}"
             raise BTClibValueError(err_msg) from e
         try:
@@ -220,7 +227,7 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
             # this comment begin with "# type:", which mypy reads as a PEP 484
             # type comment and then calls the try block a syntax error
             dsa.Sig.parse(sig[:-1])
-        except BTClibValueError as e:
+        except ValueError as e:
             err_msg = f"invalid partial signature: {sig!r}"
             raise BTClibValueError(err_msg) from e
 

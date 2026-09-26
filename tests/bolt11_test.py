@@ -25,6 +25,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
 from tests import load, vector_id
+from tests.exception_family_test import VALUE_ERRORS
 
 _PRV_KEY = "e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734"
 
@@ -92,7 +93,7 @@ def test_bolt11_own_valid_examples(vector: dict[str, Any]) -> None:
 @pytest.mark.parametrize("vector", _INVALID, ids=_INVALID_IDS)
 def test_bolt11_own_invalid_examples(vector: dict[str, Any]) -> None:
     """Every invoice BOLT11's own "Examples of Invalid Invoices" refuses."""
-    with pytest.raises(BTClibValueError):
+    with pytest.raises(VALUE_ERRORS):
         Bolt11Invoice.from_invoice(vector["invoice"])
 
 

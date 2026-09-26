@@ -323,6 +323,20 @@ copy: `derive` validates and calls `_derive`, which does not, and
 `_key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
 becomes a validated `BIP32KeyData`.
 
+**A refusal of ellipticcurves' own leaves as that package's class.** Under
+a btclib carrying issue btclib-org/btclib#2282 the curve arithmetic and the
+schemes on it are ellipticcurves', whose `EllipticCurvesTypeError`,
+`EllipticCurvesValueError` and `EllipticCurvesRuntimeError` are a
+`TypeError`, a `ValueError` and a `RuntimeError` and no `BTClibException`:
+an argument this package hands on to it unchecked is refused as one of
+those, and that btclib binds each in `btclib.exceptions` for a caller to
+name. A catch that renames a refusal ellipticcurves may raise, to say
+which field it was, names `ValueError`, so that the field is named
+whichever library refused; a catch that answers a failed check `False`
+names the runtime class of both libraries, which is `bip322`'s `_INVALID`.
+`tests/exception_family_test.py` holds the classes of both libraries for
+each kind, and a bare built-in is in none of them.
+
 `tests/input_validation_test.py` drives that rule over every public
 function whose required parameters are all library input types;
 `tests/bool_contract_test.py`, `tests/built_object_contract_test.py` and

@@ -41,6 +41,7 @@ from btclib.hashes import hash160
 from btclib_wallet import bip38
 from btclib_wallet.bip38 import BlockCipherF
 from tests import aes_decrypt_block, aes_encrypt_block, aes_expand_key
+from tests.exception_family_test import VALUE_ERRORS
 
 
 def _encrypt_block(key: bytes, block: bytes) -> bytes:
@@ -568,9 +569,9 @@ def test_new_key_pair_refuses_a_cipher_that_returns_the_wrong_size() -> None:
 
 def test_encrypt_refuses_a_private_key_out_of_range() -> None:
     """`scalar_from_prv_key` refuses 0 and n, as it does everywhere else."""
-    with pytest.raises(BTClibValueError):
+    with pytest.raises(VALUE_ERRORS):
         bip38.encrypt(0, "pw", _encrypt_block)
-    with pytest.raises(BTClibValueError):
+    with pytest.raises(VALUE_ERRORS):
         bip38.encrypt(secp256k1.n, "pw", _encrypt_block)
 
 

@@ -26,7 +26,8 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
 - **Malformed input is refused the way the library says it is.** A
   public function handed an argument it cannot use raises
   `BTClibTypeError` or `BTClibValueError`, as btclib's own contract
-  requires (`tests/input_validation_test.py`,
+  requires, or ellipticcurves' class of the same kind where the argument
+  reaches that package unchecked (`tests/input_validation_test.py`,
   `tests/integer_policy_test.py`).
 - **Parsing octets from outside costs what the protocol allows.** A
   length or a count read from a descriptor, a PSBT or an extended key is
@@ -251,10 +252,11 @@ describes.
   request Bitcoin Core's `importdescriptors` takes and opens no RPC
   connection to send it.
 - **Psychological acceptability.** A parser refuses with
-  `BTClibTypeError` or `BTClibValueError` rather than an opaque
-  exception, and `assert_psbt_signer` raises on the first breach with
-  what was expected and what came back, because the first breach is the
-  one an implementer has to fix.
+  `BTClibTypeError` or `BTClibValueError`, or ellipticcurves' class of
+  the same kind, rather than an opaque exception, and
+  `assert_psbt_signer` raises on the first breach with what was expected
+  and what came back, because the first breach is the one an implementer
+  has to fix.
 - **Layering.** btclib does not import this package, and this package
   does not reimplement a primitive btclib already defines
   (`tests/imports_test.py`). `descriptors/`'s own three modules import
@@ -280,7 +282,8 @@ to, and what counters each.
   field — a derivation index, an account number — is expected.
 - **Uncaught exceptions on hostile input (CWE-248, CWE-755).**
   `tests/fuzz_test.py`'s contract — `BTClibValueError`, `BTClibTypeError`
-  or `BTClibRuntimeError`, and nothing else — driven by Hypothesis over
+  or `BTClibRuntimeError`, or ellipticcurves' class of the same kind, and
+  nothing else — driven by Hypothesis over
   every declared parser and by the harnesses under `fuzz/` running under
   ClusterFuzzLite. `tests/fuzz_corpus_test.py` checks that every seed of
   their corpus still parses.

@@ -55,6 +55,7 @@ from btclib_wallet.bip85 import (
 )
 from btclib_wallet.mnemonic.bip39 import entropy_from_mnemonic
 from tests import load, vector_id
+from tests.exception_family_test import VALUE_ERRORS
 
 _VECTORS = load("_data", "bip85_test_vectors.json")
 _ROOT = _VECTORS["master_bip32_root_key"]
@@ -396,7 +397,7 @@ def test_a_nostr_key_outside_the_curve_order_is_refused(
     that bech32-encodes the key instead of formatting it as a WIF.
     """
     _force_bip85_entropy(monkeypatch, leading.to_bytes(32, byteorder="big"))
-    with pytest.raises(BTClibValueError, match="private key not in 1..n-1"):
+    with pytest.raises(VALUE_ERRORS, match="private key not in 1..n-1"):
         nsec_from_root_key(_ROOT, 1, 1)
 
 

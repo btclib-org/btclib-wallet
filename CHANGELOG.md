@@ -146,6 +146,12 @@ holds under a btclib re-exporting ellipticcurves (closes #55).
 and `ELLIPTICCURVES_NO_LIBSECP256K1`; a run with either set while
 libsecp256k1 still serves exits 4 rather than measure it (closes #53).
 
+### A refusal of ellipticcurves' own leaves as that package's class
+
+The contract's tests accept its classes beside btclib's, never a bare built-in;
+a psbt or `musig()` key it refuses is a `BTClibValueError`, and `bip322.verify`
+answers False to its runtime error (closes #54).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

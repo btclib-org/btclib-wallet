@@ -18,13 +18,13 @@ from btclib import b58
 from btclib.b58 import wif_from_prv_key
 from btclib.curves import bytes_from_point, mult, scalar_from_prv_key
 from btclib.ecc import bms, dsa, ssa
-from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import magic_message
 from btclib.key import PrvKeyData, PubKeyData
 
 from btclib_wallet.bip32 import BIP32KeyData, bip32, rootxprv_from_seed
 from btclib_wallet.mnemonic import bip39
 from tests import replace_unchecked
+from tests.exception_family_test import TYPE_ERRORS, VALUE_ERRORS
 
 
 def test_an_extended_key_is_no_scalar() -> None:
@@ -36,9 +36,9 @@ def test_an_extended_key_is_no_scalar() -> None:
     q = 0xC0FFEE
     xprv = rootxprv_from_seed("5e" * 32)
     for text in (wif_from_prv_key(q), xprv):
-        with pytest.raises(BTClibValueError, match="invalid hex string"):
+        with pytest.raises(VALUE_ERRORS, match="invalid hex string"):
             scalar_from_prv_key(text)
-    with pytest.raises(BTClibTypeError, match="invalid octets type: BIP32KeyData"):
+    with pytest.raises(TYPE_ERRORS, match="invalid octets type: BIP32KeyData"):
         scalar_from_prv_key(BIP32KeyData.b58decode(xprv))  # type: ignore[arg-type]
     assert scalar_from_prv_key(bip32.prv_keyinfo_from_xprv(xprv)[0]) > 0
 
@@ -59,15 +59,15 @@ def test_an_extended_key_is_no_bip340_key() -> None:
     xpub_data = replace_unchecked(xpub_data, key=bytes_from_point(mult(q)))
     xpub = xpub_data.b58encode()
 
-    with pytest.raises(BTClibTypeError, match="not a BIP340 public key"):
+    with pytest.raises(TYPE_ERRORS, match="not a BIP340 public key"):
         ssa.point_from_bip340pub_key(xpub_data)
     # a `str` is read as hex and the Base58 alphabet is not hex, where the
     # same characters as `bytes` are already octets and are refused for
     # their length
-    with pytest.raises(BTClibValueError, match="invalid hex string"):
+    with pytest.raises(VALUE_ERRORS, match="invalid hex string"):
         ssa.point_from_bip340pub_key(xpub)
     err_msg = r"invalid size: 111 bytes instead of \(32, 33, 65\)"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(VALUE_ERRORS, match=err_msg):
         ssa.point_from_bip340pub_key(xpub.encode("ascii"))
 
 

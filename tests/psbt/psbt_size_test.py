@@ -42,6 +42,7 @@ from btclib_wallet.psbt.psbt_size import (
     estimated_input_sizes,
 )
 from tests import load, load_bin, vector_id
+from tests.exception_family_test import VALUE_ERRORS
 
 # BIP174's example, at the two stages this file needs it: what the
 # Signer was given, and what the Extractor produced. Both are the
@@ -107,7 +108,7 @@ def is_sig(element: bytes) -> bool:
     """
     try:
         dsa.Sig.parse(element[:-1], strict=False, check_validity=False)
-    except BTClibValueError:
+    except VALUE_ERRORS:
         return False
     return True
 
