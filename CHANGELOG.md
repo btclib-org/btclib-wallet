@@ -282,6 +282,12 @@ The keyword defaults to `DEFAULT_MAX_FEE_RATE`, Bitcoin Core's
 `-maxfeerate` default of 0.10 BTC/kvB, applied to the estimated vsize;
 a larger fee is a `BTClibValueError` (closes #73).
 
+### The suite refuses a constant default entropy in BIP39 and SLIP-0039
+
+`bip39_test` and `slip39_test` generate twice or more with no entropy given
+and assert the mnemonics, the SLIP-0039 identifiers and the share values
+differ, and that a default BIP39 entropy is 128 bits (closes #41).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

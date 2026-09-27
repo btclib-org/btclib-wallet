@@ -267,11 +267,14 @@ def test_chinese_is_ambiguous_and_answerable() -> None:
 
 
 def test_mnemonic_from_entropy() -> None:
-    """Accept entropy with a leading zero bit, and none at all."""
+    """Accept entropy with a leading zero bit, and draw 128 bits for none."""
     # zero leading bit should not throw an error
     bip39.mnemonic_from_entropy(secrets.randbits(127), "en")
-    # random mnemonic
-    bip39.mnemonic_from_entropy()
+    # None and the empty string both ask for entropy drawn afresh, so a
+    # constant default is what would make these two mnemonics equal
+    mnemonic = bip39.mnemonic_from_entropy()
+    assert mnemonic != bip39.mnemonic_from_entropy("")
+    assert len(bip39.entropy_from_mnemonic(mnemonic)) == 128
 
 
 # BIP39's japanese vectors, from bip32JP/bip32JP.github.io's

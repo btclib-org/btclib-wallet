@@ -157,6 +157,24 @@ def test_round_trip(extendable: bool) -> None:
         slip39.master_secret_from_mnemonics(mnemonics[0][:2], PASSPHRASE)
 
 
+def test_default_entropy_source_draws_afresh() -> None:
+    """Back one secret up repeatedly, and get different shares each time.
+
+    No entropy source is passed, so the draws are the default's; a
+    constant one would repeat the identifier and every share value.
+    """
+    backups = [
+        slip39.mnemonics_from_master_secret(bytes(16), groups=[(2, 3)])[0]
+        for _ in range(4)
+    ]
+    shares = [slip39.share_from_mnemonic(m) for group in backups for m in group]
+    # the identifier is fifteen bits, so two backups draw the same one
+    # with probability 2**-15: what is asserted is that four do not all
+    assert len({share.identifier for share in shares}) > 1
+    values = [share.value for share in shares]
+    assert len(set(values)) == len(values)
+
+
 def test_wrong_passphrase() -> None:
     """A wrong passphrase is a different secret, never an error.
 
