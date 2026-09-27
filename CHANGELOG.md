@@ -176,6 +176,18 @@ now reports the word count instead (closes #38).
 default `repr` printed it; `BIP32KeyData.__repr__` masks its key material
 for the same reason (closes #39).
 
+### The ClusterFuzzLite base image is pinned by digest
+
+`.clusterfuzzlite/Dockerfile`'s `FROM` names a `sha256` digest, and
+`.github/dependabot.yml` carries a `docker` ecosystem entry on
+`/.clusterfuzzlite` to move it forward (closes #32).
+
+### The ClusterFuzzLite build installs from `uv.lock`, not the index
+
+`.clusterfuzzlite/build.sh` installs a hashed `uv export --locked`
+requirements file with `pip3 install --require-hashes` before installing
+the package itself `--no-deps` (closes #33).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
