@@ -26,9 +26,12 @@ name: integration-bitcoind
 # The HWI half of `tests/integration/` is `integration-hwi.yml`, a
 # workflow of its own with no pull_request trigger: it can go red on a
 # firmware release or an app whose screens changed wording, none of which
-# is a claim a branch's review has anything to do with. `exclude-classname`
-# below lets those HWI testcases skip here without failing the check that
-# the node's own tests ran.
+# is a claim a branch's review has anything to do with. Here those
+# testcases skip for want of BTCLIB_HWI or BTCLIB_HWI_SIGN, and each
+# switch's skip message starts `set BTCLIB_HWI`: `skip-reason-prefix`
+# below exempts such a skip from the check that the node's own tests ran,
+# where an HWI testcase that skips for any other reason fails it
+# (btclib-org/.github#1419).
 #
 # A schedule too: the job is a required check on every pull request and on
 # the commit a merge creates, so what the weekly run asks that nothing
@@ -96,5 +99,5 @@ jobs:
       # tests/integration/conftest.py's own two switches
       integration-env-var: BTCLIB_INTEGRATION
       bitcoind-path-env-var: BTCLIB_BITCOIND
-      # the HWI testcases, which skip here for the reason the header gives
-      exclude-classname: hwi
+      # the HWI testcases' skips, exempt for the reason the header gives
+      skip-reason-prefix: "set BTCLIB_HWI"

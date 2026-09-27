@@ -550,7 +550,8 @@ BTCLIB_INTEGRATION=1 BTCLIB_BITCOIND=/path/to/bitcoind \
 
 A step after it reads that report and fails the job if a regtest test
 skipped, pytest exiting 0 for a module that skipped itself. The HWI tests
-skip there by design and are not counted.
+skip there by design, and the step accepts a skip whose message starts
+`set BTCLIB_HWI`, which both HWI switches' messages do.
 
 `integration-hwi.yml` — the HWI tests against a Trezor emulator and
 against a Ledger one under Speculos, each beside the same node. The

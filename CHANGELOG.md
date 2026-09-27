@@ -386,6 +386,12 @@ SIGN in place of `K` is found as the address it lowers to (closes #99).
 `neither a script nor an address` alone, which a btclib carrying
 btclib-org/btclib#2350 raises without the string it refused (closes #101).
 
+### The regtest job exempts the HWI skips by their message
+
+`integration-bitcoind.yml` passes `skip-reason-prefix: "set BTCLIB_HWI"` for
+`exclude-classname: hwi`: an HWI testcase skipping for another reason fails
+the check that the node's tests ran (issue btclib-org/.github#1419).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
