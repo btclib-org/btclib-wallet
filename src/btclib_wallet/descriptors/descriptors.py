@@ -316,7 +316,10 @@ def strip_checksum(descriptor: str) -> str:
     """
     body, separator, given_checksum = descriptor.partition("#")
     if "#" in given_checksum:
-        raise BTClibValueError(f"more than one '#' in the descriptor: {descriptor}")
+        position = len(body) + 1 + given_checksum.index("#")
+        raise BTClibValueError(
+            f"more than one '#' in the descriptor at position {position}"
+        )
     # computed before the comparison, and whether or not there is one to
     # compare against: it is also what refuses a character outside
     # INPUT_CHARSET, which is an error in a descriptor with no checksum
@@ -2079,7 +2082,7 @@ def _parse_tree(
         raise BTClibValueError(err_msg)
     if expression.startswith("{"):
         if not expression.endswith("}"):
-            raise BTClibValueError(f"unbalanced braces: {expression}")
+            raise BTClibValueError(f"unbalanced braces at position {len(expression)}")
         branches = _split_arguments(expression[1:-1])
         if len(branches) != 2:
             err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"

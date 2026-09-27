@@ -330,12 +330,14 @@ def _split_arguments(arguments: str) -> list[str]:
         elif char in ")}":
             depth -= 1
             if depth < 0:
-                raise BTClibValueError(f"unbalanced brackets: {arguments}")
+                raise BTClibValueError(
+                    f"unbalanced brackets at position {match.start()}"
+                )
         elif depth == 0:  # a comma, the only other character matched
             result.append(arguments[start : match.start()])
             start = match.end()
     if depth:
-        raise BTClibValueError(f"unbalanced brackets: {arguments}")
+        raise BTClibValueError(f"unbalanced brackets at position {len(arguments)}")
     result.append(arguments[start:])
     return result
 
@@ -344,7 +346,7 @@ def _split_function(expression: str) -> tuple[str, str]:
     """Return the function name and the argument string it encloses."""
     open_bracket = expression.find("(")
     if open_bracket < 1 or not expression.endswith(")"):
-        raise BTClibValueError(f"not a descriptor expression: {expression}")
+        raise BTClibValueError("not a descriptor expression: expected name(arguments)")
     return expression[:open_bracket], expression[open_bracket + 1 : -1]
 
 

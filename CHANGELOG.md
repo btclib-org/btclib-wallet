@@ -164,6 +164,11 @@ An issue filed from a review may say the fix where one is known: *What is
 filed, and what is not* dropped its "no fix", the filing bar standing as it
 was (issue btclib-org/.github#1378).
 
+### Malformed descriptors no longer echo key material in parse errors
+
+Checksum, bracket and function-shape errors name the fault without copying
+the caller's descriptor into exceptions that may be logged (closes #49).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
