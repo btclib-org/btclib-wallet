@@ -19,6 +19,7 @@ seed's keys, there being no key-hash wallet for it to agree with.
 
 from __future__ import annotations
 
+import string
 from collections.abc import Callable
 
 import pytest
@@ -34,6 +35,7 @@ from btclib_wallet.wallet import (
     RangedWallet,
     ScriptWallet,
 )
+from tests import NOT_STRIPPED
 
 # the "abandon abandon ... about" seed, whose master key BIP84 publishes
 # as its rootpriv
@@ -452,3 +454,18 @@ def test_a_wallet_that_names_no_branches_is_not_a_wallet() -> None:
     assert wallet.is_watch_only
     assert wallet.script_pub_key(0, 0).script == b"\x51"
     assert wallet.position_of(b"\x51") == (0, 0)
+
+
+def test_a_spelling_padded_beyond_ascii_whitespace_is_not_handed_out() -> None:
+    """ASCII whitespace around an address is tolerated, and nothing else.
+
+    `in` answers `False` where `address_info` raises, lowered or not.
+    """
+    wallet = script_wallet()
+    address = wallet.address(0, 0)
+    assert string.whitespace + address.upper() + string.whitespace in wallet
+    for pad in NOT_STRIPPED:
+        for spelling in (address, address.upper()):
+            assert pad + spelling + pad not in wallet
+            with pytest.raises(BTClibValueError, match="address not in the wallet"):
+                wallet.address_info(pad + spelling + pad)

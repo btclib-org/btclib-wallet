@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import functools
 import hmac
+import string
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -405,7 +406,8 @@ class BIP32KeyData:
         assert_type(address, (str, bytes, bytearray, memoryview), "base58 string")
 
         if isinstance(address, str):
-            address = address.strip()
+            # ASCII whitespace alone (issue #102)
+            address = address.strip(string.whitespace)
         elif not isinstance(address, bytes):
             # copied for the cache and not for the decoding, which takes
             # a buffer as it comes: a bytearray is unhashable, and a

@@ -25,7 +25,7 @@ answer is one or the other and `tx` may not import `psbt`.
 from __future__ import annotations
 
 import base64
-import binascii
+import string
 
 from btclib.alias import String
 from btclib.exceptions import BTClibValueError
@@ -48,10 +48,10 @@ def _octets_from_text(text: str) -> bytes:
     every letter, so a base64 string is almost never hex, and BIP174's
     magic makes one of them start with `cHNidP8`.
     """
-    # whitespace and nothing else is dropped, since base64 arrives
-    # wrapped as often as not -- and bytes.fromhex has skipped it since
-    # python 3.7 anyway, so this only makes the two consistent
-    packed = "".join(text.split())
+    # ASCII whitespace and nothing else is dropped, since base64 arrives
+    # wrapped as often as not -- and bytes.fromhex skips exactly that set
+    # anyway, so this only makes the two consistent (issue #102)
+    packed = text.translate(str.maketrans("", "", string.whitespace))
 
     try:
         return bytes.fromhex(packed)
@@ -63,7 +63,9 @@ def _octets_from_text(text: str) -> bytes:
         # the alphabet instead of refusing it, so text that is not base64
         # at all decodes to bytes that are not anything
         return base64.b64decode(packed, validate=True)
-    except binascii.Error as e:
+    # binascii.Error, and the ValueError of a str carrying a character
+    # outside ASCII
+    except ValueError as e:
         raise BTClibValueError("neither hex nor base64") from e
 
 
@@ -82,7 +84,7 @@ def _octets_from_any(data: String) -> bytes:
         return _octets_from_text(data)
 
     # the refusal of what is neither text nor bytes is bytes_from_octets's
-    # to give, `split` below being str's and `decode` bytes': a memoryview
+    # to give, `translate` above being str's and `decode` bytes': a memoryview
     # has no `decode`, and the coercion is what makes it bytes
     raw = bytes_from_octets(data)
     try:

@@ -7,6 +7,7 @@
 import base64
 import dataclasses
 import inspect
+import string
 from collections.abc import Sequence
 from copy import deepcopy
 from io import BytesIO
@@ -66,7 +67,7 @@ from btclib_wallet.psbt.psbt_in import _V2_FIELDS as _V2_INPUT_FIELDS
 from btclib_wallet.psbt.psbt_in import LOCK_TIME_THRESHOLD
 from btclib_wallet.psbt.psbt_out import _V2_FIELDS as _V2_OUTPUT_FIELDS
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR, PSBT_V2
-from tests import load
+from tests import NOT_STRIPPED, load
 from tests.conftest import JsonGolden
 from tests.psbt import psbt_vectors
 
@@ -5111,3 +5112,16 @@ def test_the_flag_still_switches_the_dict_check_off() -> None:
     assert psbt.to_dict(check_validity=False)["tx_modifiable"] == 0
     with pytest.raises(BTClibValueError, match="TX_MODIFIABLE is not allowed"):
         psbt.to_dict()
+
+
+def test_b64decode_strips_ascii_whitespace_alone() -> None:
+    """The padding outside ASCII is refused.
+
+    U+001C is not asserted: it is outside the base64 alphabet, which
+    this decoder discards rather than refuses (issue #108).
+    """
+    padded = string.whitespace + TO_BE_FINALIZED + string.whitespace
+    assert Psbt.b64decode(padded) == Psbt.b64decode(TO_BE_FINALIZED)
+    for pad in (pad for pad in NOT_STRIPPED if not pad.isascii()):
+        with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
+            Psbt.b64decode(pad + TO_BE_FINALIZED + pad)

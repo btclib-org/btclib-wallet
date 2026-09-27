@@ -133,6 +133,22 @@ upper case. For such a spelling of an address a wallet handed out,
 `address in wallet` answers `False` and `Wallet.address_info` raises, where
 both found the address.
 
+`silent_payments.keys_from_address` and `silent_payments.output_keys`,
+which reads each address through it, `BIP32KeyData.b58decode` and what
+reads an extended key through it, `bip32.derive` among them,
+`bip322.Sig.b64decode`, `bip322.verify` and `assert_as_valid` for the
+signature, `Psbt.b64decode`, `tx_or_psbt.tx_or_psbt_from_any`,
+`BIP32KeyOrigin.from_description` and `bip32.str_from_der_path`'s
+fingerprint strip only space, tab, newline, carriage return, vertical tab
+and form feed. Text padded with U+00A0, U+3000, U+2028, U+0085 or another
+character outside ASCII that `str.isspace` counts is refused with a
+`BTClibValueError`, where it was read as the value it wraps, and so is
+text padded with U+001C to U+001F, except by `Psbt.b64decode`
+(issue #108). `BIP32KeyOrigin.from_description` still accepts either
+padding after the path (issue #107). For such a spelling of an address a
+wallet handed out, `address in wallet` answers `False` and
+`Wallet.address_info` raises. Strip that padding before passing the text.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

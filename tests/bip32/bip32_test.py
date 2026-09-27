@@ -7,6 +7,7 @@
 import hmac
 import itertools
 import re
+import string
 import sys
 from dataclasses import FrozenInstanceError, fields, replace
 from typing import Any
@@ -65,6 +66,7 @@ from btclib_wallet.bip32.bip32 import (
 )
 from btclib_wallet.bip32.der_path import _indexes_from_der_path_str
 from tests import (
+    NOT_STRIPPED,
     load,
     needs_bindings,
     no_bindings,
@@ -1533,6 +1535,18 @@ def test_b58decode_strips_a_string_and_not_bytes() -> None:
     """
     xkey_data = BIP32KeyData.b58decode(f"  {XKEY}  ")
     assert xkey_data == BIP32KeyData.b58decode(XKEY)
+
+
+def test_b58decode_strips_ascii_whitespace_alone() -> None:
+    """What `str.strip()` would also take is left for base58 to refuse."""
+    padded = string.whitespace + XKEY + string.whitespace
+    assert BIP32KeyData.b58decode(padded) == BIP32KeyData.b58decode(XKEY)
+    # one side at a time: both would be refused as too long for an xkey
+    # before a character is read
+    for pad in NOT_STRIPPED:
+        for padded in (pad + XKEY, XKEY + pad):
+            with pytest.raises(BTClibValueError, match="(?i)base58 string"):
+                BIP32KeyData.b58decode(padded)
 
 
 def test_check_validity_defaults_to_true() -> None:

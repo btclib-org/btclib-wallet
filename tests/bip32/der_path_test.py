@@ -4,6 +4,8 @@
 
 """Tests for the `btclib_wallet.bip32.der_path` module."""
 
+import string
+
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 
@@ -16,6 +18,7 @@ from btclib_wallet.bip32 import (
     str_from_index_int,
 )
 from btclib_wallet.bip32.der_path import _HARDENING, _indexes_from_der_path_str
+from tests import NOT_STRIPPED
 
 
 def test_from_der_path_str() -> None:
@@ -274,3 +277,13 @@ def test_an_index_outside_the_32_bits_a_step_holds_is_refused() -> None:
     # the two spellings that were already bounded, unchanged
     assert indexes_from_der_path("m/0h") == [0x80000000]
     assert indexes_from_der_path(bytes.fromhex("ffffffff")) == [0xFFFFFFFF]
+
+
+def test_a_master_fingerprint_strips_ascii_whitespace_alone() -> None:
+    """Padding `string.whitespace` does not hold makes it no fingerprint."""
+    padded = string.whitespace + "deadbeef" + string.whitespace
+    assert str_from_der_path("m/0h", padded) == "deadbeef/0h"
+    for pad in NOT_STRIPPED:
+        err_msg = "invalid master fingerprint length"
+        with pytest.raises(BTClibValueError, match=err_msg):
+            str_from_der_path("m/0h", pad + "deadbeef" + pad)

@@ -392,6 +392,12 @@ btclib-org/btclib#2350 raises without the string it refused (closes #101).
 `exclude-classname: hwi`: an HWI testcase skipping for another reason fails
 the check that the node's tests ran (issue btclib-org/.github#1419).
 
+### Address, key and base64 readers strip ASCII whitespace alone
+
+`str.strip()` also takes U+00A0, U+3000 and the rest of what `str.isspace`
+counts; `string.whitespace` is Bitcoin Core's `IsSpace`. `tx_or_psbt_from_any`
+refuses non-ASCII text with `BTClibValueError`, not `ValueError` (closes #102).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

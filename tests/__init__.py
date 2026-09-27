@@ -41,6 +41,17 @@ import btclib_wallet
 
 _TESTS_DIR = Path(__file__).parent
 
+# what `str.strip()` takes and `string.whitespace` does not: U+001C is
+# ASCII and the rest are not. A value padded with one of them is not the
+# value it wraps (issue #102)
+NOT_STRIPPED = (
+    "\N{NO-BREAK SPACE}",
+    "\N{IDEOGRAPHIC SPACE}",
+    "\N{LINE SEPARATOR}",
+    "\N{NEXT LINE}",
+    "\N{INFORMATION SEPARATOR FOUR}",
+)
+
 
 def module_names() -> list[str]:
     """Return every module of the installed btclib_wallet, the root included.

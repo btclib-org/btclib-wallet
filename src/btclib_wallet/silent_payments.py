@@ -65,6 +65,7 @@ BIP352 is defined for that pair, and the 33-byte compressed points, the
 
 from __future__ import annotations
 
+import string
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -275,7 +276,9 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
     # the coercion before the length, as in b32.witness_from_address:
     # `len` of what is neither text nor bytes is a TypeError about a
     # builtin, where the codec below would have named the argument
-    addr = str_from_string(address, "address").strip()
+    #
+    # ASCII whitespace alone (issue #102)
+    addr = str_from_string(address, "address").strip(string.whitespace)
     if len(addr) > _MAX_ADDRESS_SIZE:
         err_msg = f"invalid address length: {len(addr)} > {_MAX_ADDRESS_SIZE}"
         raise BTClibValueError(err_msg)

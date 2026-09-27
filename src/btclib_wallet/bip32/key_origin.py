@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import string
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
@@ -146,7 +147,8 @@ class BIP32KeyOrigin:
         cls: type[BIP32KeyOrigin], data: str, *, check_validity: bool = True
     ) -> BIP32KeyOrigin:
         """Build a BIP32KeyOrigin from its fingerprint/path spelling."""
-        data = data.strip()
+        # ASCII whitespace alone (issue #102)
+        data = data.strip(string.whitespace)
         return cls(data[:8], data[9:], check_validity=check_validity)
 
     @override

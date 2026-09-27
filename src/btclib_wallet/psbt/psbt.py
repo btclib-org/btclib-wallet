@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import secrets
+import string
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, fields
@@ -1449,7 +1450,8 @@ class Psbt:
         -- a complaint about a builtin rather than about the psbt that was
         passed.
         """
-        psbt_str = str_from_string(psbt_str, "base64 psbt").strip()
+        # ASCII whitespace alone (issue #102)
+        psbt_str = str_from_string(psbt_str, "base64 psbt").strip(string.whitespace)
 
         # base64 answers a string it cannot read with binascii.Error, and
         # a str carrying a non-ascii character with a plain ValueError.

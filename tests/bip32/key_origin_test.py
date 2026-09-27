@@ -5,6 +5,7 @@
 """Tests for the `btclib_wallet.bip32.key_origin` module."""
 
 import dataclasses
+import string
 from typing import cast
 
 import pytest
@@ -19,6 +20,7 @@ from btclib_wallet.bip32 import (
     encode_to_bip32_derivs,
 )
 from btclib_wallet.bip32.der_path import _HARDENING
+from tests import NOT_STRIPPED
 from tests.conftest import JsonGolden
 
 
@@ -315,3 +317,14 @@ def test_an_unchecked_origin_cannot_enter_a_psbt_or_its_json() -> None:
         decode_hd_key_paths({pub_key: bad})
     with pytest.raises(BTClibValueError, match=err_msg):
         encode_to_bip32_derivs({pub_key: bad})
+
+
+def test_from_description_strips_ascii_whitespace_alone() -> None:
+    """Padding `string.whitespace` does not hold is part of the fingerprint."""
+    description = "deadbeef/0h/1"
+    expected = BIP32KeyOrigin.from_description(description)
+    padded = string.whitespace + description + string.whitespace
+    assert BIP32KeyOrigin.from_description(padded) == expected
+    for pad in NOT_STRIPPED:
+        with pytest.raises(BTClibValueError):
+            BIP32KeyOrigin.from_description(pad + description)

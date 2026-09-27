@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+import string
 
 import pytest
 from btclib.alias import String
@@ -15,6 +16,7 @@ from btclib.tx import Tx
 
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.tx_or_psbt import _octets_from_text, tx_or_psbt_from_any
+from tests import NOT_STRIPPED
 
 # BIP174's creator output, the psbt with nothing in it but the unsigned
 # transaction, and block 170's transaction: one of each, at the shortest
@@ -132,3 +134,21 @@ def test_hex_is_read_before_base64() -> None:
     assert base64.b64decode(both, validate=True) != bytes.fromhex(both)
 
     assert _octets_from_text(both) == bytes.fromhex(both)
+
+
+def test_only_ascii_whitespace_is_dropped() -> None:
+    """Around the text and inside it, as `bytes.fromhex` skips it.
+
+    Anything else `str.split()` would have dropped is refused, as the
+    `BTClibValueError` this module answers with: a character outside
+    ASCII reaches base64 as a `ValueError` of its own.
+    """
+    assert tx_or_psbt_from_any(string.whitespace + TX_HEX + string.whitespace) == TX
+    for pad in NOT_STRIPPED:
+        for text in (
+            pad + TX_HEX + pad,
+            TX_HEX[:10] + pad + TX_HEX[10:],
+            pad + PSBT_B64 + pad,
+        ):
+            with pytest.raises(BTClibValueError, match="neither hex nor base64"):
+                tx_or_psbt_from_any(text)

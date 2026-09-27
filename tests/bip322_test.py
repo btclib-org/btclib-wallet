@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import string
 from copy import deepcopy
 from typing import Any
 
@@ -51,7 +52,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet import bip322
 from btclib_wallet.psbt import Psbt, finalize
-from tests import load, no_bindings, vector_id
+from tests import NOT_STRIPPED, load, no_bindings, vector_id
 
 BASIC = load("_data", "basic-test-vectors.json", encoding="utf-8")
 GENERATED = load("_data", "generated-test-vectors.json", encoding="utf-8")
@@ -490,6 +491,25 @@ def test_b64decode_refuses_what_is_not_base64() -> None:
     smuggled = text[:10] + "\n" + text[10:]
     with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
         bip322.Sig.b64decode(smuggled)
+
+
+def test_only_ascii_whitespace_is_stripped_from_a_signature() -> None:
+    """A BIP322 signature and a legacy one, each padded both ways.
+
+    The legacy one is `_is_bms`'s to recognise, so the padding it keeps
+    makes the text neither, and it is refused as text no encoding here
+    reads, where btclib's own BMS decoder would have stripped it.
+    """
+    msg = b"padded"
+    prv_key = b58.prv_key_data_from_wif(WIF)
+    segwit = _address(WIF, "p2wpkh")
+    sig = bip322.sign(msg, prv_key, segwit).b64encode()
+    legacy = bms.sign(msg, prv_key).b64encode()
+    for addr, text in ((segwit, sig), (p2pkh(WIF_PUB), legacy)):
+        assert bip322.verify(msg, addr, string.whitespace + text + string.whitespace)
+        for pad in NOT_STRIPPED:
+            with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
+                bip322.verify(msg, addr, pad + text + pad)
 
 
 def test_is_bms_is_the_exact_65_octets_and_nothing_shorter() -> None:

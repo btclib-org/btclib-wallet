@@ -23,6 +23,7 @@ that says the output is *spendable* rather than merely predicted.
 
 from __future__ import annotations
 
+import string
 from hashlib import sha256
 from typing import Any, cast
 
@@ -37,7 +38,7 @@ from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
 
 from btclib_wallet import silent_payments
-from tests import load, needs_bindings, vector_id
+from tests import NOT_STRIPPED, load, needs_bindings, vector_id
 
 # the bindings, None where they are not installed: every test reading
 # them is marked `bindings`, skipped in that configuration
@@ -898,3 +899,15 @@ def test_a_script_path_spend_counts_unless_its_internal_key_is_nums() -> None:
 
     nums = Witness([tapscript, b"\xc0" + silent_payments.NUMS_H])
     assert silent_payments.pub_key_from_input(script_pub_key, b"", nums) is None
+
+
+def test_only_ascii_whitespace_is_stripped_from_an_address() -> None:
+    """The six characters of Bitcoin Core's `IsSpace`, and nothing else."""
+    address = _address()
+    expected = silent_payments.keys_from_address(address)
+    padded = string.whitespace + address + string.whitespace
+    assert silent_payments.keys_from_address(padded) == expected
+    for pad in NOT_STRIPPED:
+        for spelling in (address, address.upper()):
+            with pytest.raises(BTClibValueError):
+                silent_payments.keys_from_address(pad + spelling + pad)

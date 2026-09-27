@@ -62,6 +62,7 @@ https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki
 
 from __future__ import annotations
 
+import string
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -97,7 +98,8 @@ def _address_str(address: String) -> str:
     address it does not spell. Base58 is not case insensitive -- `1Lq`
     and `1lq` are different payloads -- so it is left exactly as it came.
     """
-    addr = str_from_string(address, "address").strip()
+    # ASCII whitespace alone (issue #102)
+    addr = str_from_string(address, "address").strip(string.whitespace)
     if addr.isascii() and addr.isupper() and b32.is_segwit_prefixed(addr):
         return addr.lower()
     return addr

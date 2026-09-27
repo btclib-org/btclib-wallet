@@ -95,6 +95,7 @@ https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki
 from __future__ import annotations
 
 import base64
+import string
 from dataclasses import dataclass
 
 import btclib.exceptions
@@ -351,7 +352,9 @@ class Sig:
         # and for its reason: what is neither text nor bytes left
         # `bip322.verify` as an AttributeError about a missing method
         # rather than as a refusal of the argument (issue btclib-org/btclib#814)
-        text = str_from_string(data, "base64 signature").strip()
+        #
+        # ASCII whitespace alone (issue #102)
+        text = str_from_string(data, "base64 signature").strip(string.whitespace)
         prefix = text[:_PREFIX_SIZE]
         if prefix not in _PREFIXES:
             prefix = SIMPLE
@@ -706,9 +709,10 @@ def _is_bms(sig: String) -> bool:
     octets long -- the shortest is a lone BIP340 signature, which its
     count and push length make 66.
     """
-    text = str_from_string(sig, "base64 signature")
+    # ASCII whitespace alone (issue #102)
+    text = str_from_string(sig, "base64 signature").strip(string.whitespace)
     try:
-        return len(base64.b64decode(text.strip(), validate=True)) == _BMS_SIZE
+        return len(base64.b64decode(text, validate=True)) == _BMS_SIZE
     except ValueError:
         return False
 

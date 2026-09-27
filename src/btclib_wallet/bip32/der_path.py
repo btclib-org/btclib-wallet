@@ -17,6 +17,7 @@ number spelled the one way it spells it.
 from __future__ import annotations
 
 import re
+import string
 from collections.abc import Iterable, Sequence
 
 from btclib.alias import Octets
@@ -276,7 +277,8 @@ def str_from_der_path(
     result = _str_from_der_path(der_path, hardening)
     if master_fingerprint:
         if isinstance(master_fingerprint, str):
-            first_element = master_fingerprint.strip()
+            # ASCII whitespace alone (issue #102)
+            first_element = master_fingerprint.strip(string.whitespace)
         else:
             first_element = master_fingerprint.hex()
         if len(first_element) != 8:
