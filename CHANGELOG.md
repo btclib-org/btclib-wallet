@@ -422,6 +422,12 @@ A step spelled `1_0`, `+1`, `-0` or in non-ASCII digits, or padded with U+3000,
 is refused without being quoted, and so is a ninth character other than `/` in
 `BIP32KeyOrigin.from_description`, where each was read as a path (closes #107).
 
+### `codeql-passed` reads a lagging row again and fails on a failed `analyze`
+
+An unfinished `analyze` row is read again up to three times, 10 s apart, before
+it is accepted (issue btclib-org/.github#1416), and an `analyze` result other
+than `success` or `skipped` fails the check (issue btclib-org/.github#1424).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
