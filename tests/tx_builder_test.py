@@ -26,6 +26,8 @@ exists to make.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
@@ -39,7 +41,7 @@ from btclib_wallet.psbt.psbt import extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import SIG_SIZE
 from btclib_wallet.psbt_signer import SoftwareSigner, export_account, request_signatures
-from btclib_wallet.tx_builder import build_psbt
+from btclib_wallet.tx_builder import DEFAULT_MAX_FEE, build_psbt
 
 # BIP39's "abandon abandon ... about" root, which BIP84 publishes and
 # `tests/software_signer_test.py` signs with
@@ -99,14 +101,49 @@ def test_the_fee_is_what_the_rate_asks_of_the_estimated_size() -> None:
 
 def test_the_transaction_fields_are_the_caller_s() -> None:
     """`tx_version` and `lock_time` reach the transaction being built."""
+    psbt_in = spendable(100_000)
+    # Core's MAX_SEQUENCE_NONFINAL: the lock time binds, no BIP125 signal
+    psbt_in.sequence = 0xFFFFFFFE
     built = build_psbt(
-        [spendable(100_000)],
+        [psbt_in],
         [TxOut(60_000, PAY_SCRIPT)],
         TEN_SAT_PER_VBYTE,
+        CHANGE_SCRIPT.script,
         tx_version=3,
         lock_time=800_000,
     )
     assert built.psbt.tx.version == 3
+    assert built.psbt.tx.lock_time == 800_000
+
+
+def test_a_lock_time_every_final_sequence_voids_is_refused() -> None:
+    """Consensus ignores the lock time when every input is final.
+
+    `IsFinalTx`'s rule: anti-fee-sniping asked for through `lock_time`
+    and built with final sequences would be a transaction final at once.
+    One non-final input is enough for the lock time to bind.
+    """
+    final = spendable(100_000)
+    explicit = spendable(100_000, tx_id=b"\x07" * 32)
+    explicit.sequence = 0xFFFFFFFF
+    with pytest.raises(BTClibValueError, match="lock_time 800000 is void"):
+        build_psbt(
+            [final, explicit],
+            [TxOut(60_000, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            CHANGE_SCRIPT.script,
+            lock_time=800_000,
+        )
+
+    explicit.sequence = 0xFFFFFFFE
+    built = build_psbt(
+        [final, explicit],
+        [TxOut(60_000, PAY_SCRIPT)],
+        TEN_SAT_PER_VBYTE,
+        CHANGE_SCRIPT.script,
+        lock_time=800_000,
+    )
+    assert [tx_in.sequence for tx_in in built.psbt.tx.vin] == [0xFFFFFFFF, 0xFFFFFFFE]
     assert built.psbt.tx.lock_time == 800_000
 
 
@@ -119,11 +156,11 @@ def test_an_input_spends_with_the_sequence_it_carries() -> None:
     """
     psbt_in = spendable(100_000)
     psbt_in.sequence = 0xFFFFFFFD
-    built = build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE)
+    built = build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)
     assert built.psbt.tx.vin[0].sequence == 0xFFFFFFFD
 
     built = build_psbt(
-        [spendable(100_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE
+        [spendable(100_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None
     )
     assert built.psbt.tx.vin[0].sequence == 0xFFFFFFFF
 
@@ -190,7 +227,7 @@ def test_change_one_satoshi_below_the_threshold_becomes_fee() -> None:
 def test_no_change_script_is_every_leftover_satoshi_to_the_fee() -> None:
     """A sweep: nothing comes back, and the psbt says so with no output."""
     built = build_psbt(
-        [spendable(100_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE
+        [spendable(100_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None
     )
     assert built.change_index is None
     assert built.change == 0
@@ -245,7 +282,9 @@ def test_the_dust_rate_is_the_network_s_and_not_this_transaction_s() -> None:
 def test_inputs_that_do_not_cover_the_outputs_and_the_fee() -> None:
     """Refused, with both totals in the message, and on either branch."""
     with pytest.raises(BTClibValueError, match="the inputs are worth"):
-        build_psbt([spendable(60_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE)
+        build_psbt(
+            [spendable(60_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None
+        )
     # the same shortfall reached through the change branch: the change is
     # negative, which is below every threshold, so the output is dropped
     # and what is left still does not pay for the smaller transaction
@@ -261,10 +300,10 @@ def test_inputs_that_do_not_cover_the_outputs_and_the_fee() -> None:
 def test_a_transaction_needs_an_input_and_an_output() -> None:
     """Core's CheckTransaction refuses an empty vin or vout; so does this."""
     with pytest.raises(BTClibValueError, match="no inputs"):
-        build_psbt([], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE)
+        build_psbt([], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)
 
     with pytest.raises(BTClibValueError, match="no outputs"):
-        build_psbt([spendable(100_000)], [], TEN_SAT_PER_VBYTE)
+        build_psbt([spendable(100_000)], [], TEN_SAT_PER_VBYTE, None)
 
     # nothing is paid and what would come back is dust, so dropping the
     # change output would leave a transaction with no output at all
@@ -284,6 +323,7 @@ def test_one_outpoint_is_spent_once() -> None:
             [spendable(100_000), spendable(100_000)],
             [TxOut(60_000, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
+            None,
         )
     # an input naming no output index is refused under its own name,
     # `Psbt.assert_valid` checking the input fields before the transaction
@@ -297,6 +337,7 @@ def test_one_outpoint_is_spent_once() -> None:
             [nameless, spendable(100_000)],
             [TxOut(60_000, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
+            None,
         )
 
     # the same output index of two different transactions is two utxos
@@ -313,7 +354,7 @@ def test_an_input_carrying_no_utxo_has_no_amount() -> None:
     """`prevouts`' refusal, which is what reads the amounts here."""
     psbt_in = PsbtIn(previous_tx_id=b"\x06" * 32, output_index=0)
     with pytest.raises(BTClibValueError, match="no utxo for input 0"):
-        build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE)
+        build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)
 
 
 def test_an_input_of_no_readable_type_is_answered_by_a_sizer() -> None:
@@ -328,7 +369,7 @@ def test_an_input_of_no_readable_type_is_answered_by_a_sizer() -> None:
     psbt_in.witness_script = witness_script
 
     with pytest.raises(BTClibValueError, match="no estimate"):
-        build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE)
+        build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)
 
     small = build_psbt(
         [psbt_in],
@@ -375,9 +416,9 @@ def test_a_legacy_input_is_priced_from_the_transaction_that_created_it() -> None
 def test_a_sequence_of_the_wrong_type(wrong: object) -> None:
     """Refused before a field is read off anything it holds."""
     with pytest.raises(BTClibTypeError):
-        build_psbt(wrong, [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE)  # type: ignore[arg-type]
+        build_psbt(wrong, [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError):
-        build_psbt([spendable(100_000)], wrong, TEN_SAT_PER_VBYTE)  # type: ignore[arg-type]
+        build_psbt([spendable(100_000)], wrong, TEN_SAT_PER_VBYTE, None)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("wrong", [None, 1.5])
@@ -386,13 +427,121 @@ def test_an_argument_of_the_wrong_type(wrong: object) -> None:
     inputs = [spendable(100_000)]
     outputs = [TxOut(60_000, PAY_SCRIPT)]
     with pytest.raises(BTClibTypeError):
-        build_psbt([wrong], outputs, TEN_SAT_PER_VBYTE)  # type: ignore[list-item]
+        build_psbt([wrong], outputs, TEN_SAT_PER_VBYTE, None)  # type: ignore[list-item]
     with pytest.raises(BTClibTypeError):
-        build_psbt(inputs, [wrong], TEN_SAT_PER_VBYTE)  # type: ignore[list-item]
+        build_psbt(inputs, [wrong], TEN_SAT_PER_VBYTE, None)  # type: ignore[list-item]
     with pytest.raises(BTClibTypeError):
-        build_psbt(inputs, outputs, wrong)  # type: ignore[arg-type]
+        build_psbt(inputs, outputs, wrong, None)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError):
-        build_psbt(inputs, outputs, TEN_SAT_PER_VBYTE, dust_fee_rate=wrong)  # type: ignore[arg-type]
+        build_psbt(inputs, outputs, TEN_SAT_PER_VBYTE, None, dust_fee_rate=wrong)  # type: ignore[arg-type]
+
+
+def test_the_change_script_is_spelled_rather_than_defaulted() -> None:
+    """A call that leaves it out is a call that sends the leftover to fee."""
+    parameter = inspect.signature(build_psbt).parameters["change_script_pub_key"]
+    assert parameter.default is inspect.Parameter.empty
+
+
+def test_an_output_below_its_dust_threshold_is_refused() -> None:
+    """Core's `Transaction amount too small`, at `dust_fee_rate`.
+
+    The payment is held to the threshold the change is, and exactly the
+    threshold is not dust. An unspendable output has a threshold of zero,
+    so an `OP_RETURN` carrying no value is paid.
+    """
+    threshold = dust_threshold(PAY_SCRIPT.script)
+    with pytest.raises(BTClibValueError, match=f"output 1 of {threshold - 1} "):
+        build_psbt(
+            [spendable(100_000)],
+            [TxOut(threshold, PAY_SCRIPT), TxOut(threshold - 1, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            CHANGE_SCRIPT.script,
+        )
+    ten_times = FeeRate(sats_per_kvbyte=10 * 3000)
+    with pytest.raises(BTClibValueError, match="is dust"):
+        build_psbt(
+            [spendable(100_000)],
+            [TxOut(threshold, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            CHANGE_SCRIPT.script,
+            dust_fee_rate=ten_times,
+        )
+
+    op_return = ScriptPubKey.nulldata(b"\x00")
+    built = build_psbt(
+        [spendable(100_000)],
+        [TxOut(threshold, PAY_SCRIPT), TxOut(0, op_return)],
+        TEN_SAT_PER_VBYTE,
+        CHANGE_SCRIPT.script,
+    )
+    assert [tx_out.value for tx_out in built.psbt.tx.vout][:2] == [threshold, 0]
+
+
+def test_a_fee_above_max_fee_is_refused() -> None:
+    """Core's `-maxtxfee`, 0.10 BTC unless the caller says otherwise.
+
+    Compared with the fee returned on both exits: the one a rate asks of
+    a transaction with change, and the whole leftover of a sweep.
+    """
+    # Core's DEFAULT_TRANSACTION_MAXFEE, COIN / 10
+    assert DEFAULT_MAX_FEE == 10_000_000
+    value = 100_000_000
+    # a sweep leaving exactly the ceiling is paid, one satoshi more is not
+    built = build_psbt(
+        [spendable(value)],
+        [TxOut(value - DEFAULT_MAX_FEE, PAY_SCRIPT)],
+        TEN_SAT_PER_VBYTE,
+        None,
+    )
+    assert built.fee == DEFAULT_MAX_FEE
+    with pytest.raises(BTClibValueError, match="a fee of 10000001 satoshi exceeds"):
+        build_psbt(
+            [spendable(value)],
+            [TxOut(value - DEFAULT_MAX_FEE - 1, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            None,
+        )
+    # the caller raises it where the fee is meant
+    built = build_psbt(
+        [spendable(value)],
+        [TxOut(value - DEFAULT_MAX_FEE - 1, PAY_SCRIPT)],
+        TEN_SAT_PER_VBYTE,
+        None,
+        max_fee=DEFAULT_MAX_FEE + 1,
+    )
+    assert built.fee == DEFAULT_MAX_FEE + 1
+
+    # the exit with change: the fee the rate asks, one satoshi over the ceiling
+    with_change = build_psbt(
+        [spendable(100_000)],
+        [TxOut(60_000, PAY_SCRIPT)],
+        TEN_SAT_PER_VBYTE,
+        CHANGE_SCRIPT.script,
+    )
+    with pytest.raises(BTClibValueError, match="exceeds max_fee"):
+        build_psbt(
+            [spendable(100_000)],
+            [TxOut(60_000, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            CHANGE_SCRIPT.script,
+            max_fee=with_change.fee - 1,
+        )
+
+
+@pytest.mark.parametrize(
+    "wrong, error",
+    [(True, BTClibTypeError), (1.5, BTClibTypeError), (-1, BTClibValueError)],
+)
+def test_a_max_fee_that_is_no_amount(wrong: object, error: type[Exception]) -> None:
+    """A bool is not a number, `is_integer`'s policy; nor is a negative fee."""
+    with pytest.raises(error, match="max_fee"):
+        build_psbt(
+            [spendable(100_000)],
+            [TxOut(60_000, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            CHANGE_SCRIPT.script,
+            max_fee=wrong,  # type: ignore[arg-type]
+        )
 
 
 def test_a_change_script_that_is_not_octets() -> None:

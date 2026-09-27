@@ -601,7 +601,7 @@ def knapsack(
     outputs: Sequence[TxOut],
     fee_rate: FeeRate,
     long_term_fee_rate: FeeRate,
-    change_script_pub_key: Octets | None = None,
+    change_script_pub_key: Octets | None,
     change_spend_weight: int | None = None,
     *,
     dust_fee_rate: FeeRate = DUST_RELAY_FEE_RATE,
@@ -759,7 +759,7 @@ def single_random_draw(
     outputs: Sequence[TxOut],
     fee_rate: FeeRate,
     long_term_fee_rate: FeeRate,
-    change_script_pub_key: Octets | None = None,
+    change_script_pub_key: Octets | None,
     change_spend_weight: int | None = None,
     *,
     dust_fee_rate: FeeRate = DUST_RELAY_FEE_RATE,
@@ -839,7 +839,7 @@ def select_coins(
     outputs: Sequence[TxOut],
     fee_rate: FeeRate,
     long_term_fee_rate: FeeRate,
-    change_script_pub_key: Octets | None = None,
+    change_script_pub_key: Octets | None,
     change_spend_weight: int | None = None,
     *,
     dust_fee_rate: FeeRate = DUST_RELAY_FEE_RATE,
@@ -847,6 +847,14 @@ def select_coins(
     rng: random.Random | None = None,
 ) -> SelectionResult:
     """Run the named algorithms and return the selection of lowest waste.
+
+    `change_script_pub_key` None is a selection whose every leftover
+    satoshi goes to the fee, which is what a sweep means and what a
+    caller who forgot the argument would get, so it is spelled rather
+    than defaulted, here and in `knapsack` and `single_random_draw`.
+    `branch_and_bound` keeps its default: with no change script its window
+    is zero wide, so the match it returns leaves nothing over for the fee
+    to take.
 
     `algorithms` names which of `"bnb"`, `"knapsack"` and `"srd"` to try
     -- every one of them by default, Core's own policy of running all

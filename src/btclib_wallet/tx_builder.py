@@ -72,11 +72,12 @@ from math import ceil
 from btclib import var_int
 from btclib.alias import Octets
 from btclib.consensus import WITNESS_SCALE_FACTOR
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import DUST_RELAY_FEE_RATE, FeeRate, dust_threshold, fee_from_vsize
 from btclib.tx import TxOut
+from btclib.tx.limits import SEQUENCE_FINAL
 from btclib.tx.tx import SEGWIT_MARKER
-from btclib.utils import assert_type, bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 from btclib_wallet.psbt.psbt import Psbt, prevouts
 from btclib_wallet.psbt.psbt_in import PsbtIn
@@ -85,9 +86,14 @@ from btclib_wallet.psbt.psbt_size import SolutionSizer
 from btclib_wallet.psbt.psbt_utils import PSBT_V0
 
 __all__ = [
+    "DEFAULT_MAX_FEE",
     "FundedPsbt",
     "build_psbt",
 ]
+
+# Core's wallet.h DEFAULT_TRANSACTION_MAXFEE, the -maxtxfee default: 0.10
+# BTC, the largest fee `build_psbt` pays unless its caller raises it
+DEFAULT_MAX_FEE = 10_000_000
 
 
 @dataclass(frozen=True)
@@ -176,6 +182,7 @@ def _assert_arguments(
     outputs: Sequence[TxOut],
     fee_rate: FeeRate,
     dust_fee_rate: FeeRate,
+    max_fee: int,
 ) -> None:
     """Refuse an argument of the wrong type before a field is read off it.
 
@@ -193,17 +200,34 @@ def _assert_arguments(
         assert_type(tx_out, TxOut, "output")
     assert_type(fee_rate, FeeRate, "fee rate")
     assert_type(dust_fee_rate, FeeRate, "dust fee rate")
+    if not is_integer(max_fee):
+        raise BTClibTypeError(f"invalid max_fee type: {type(max_fee).__name__}")
+    if max_fee < 0:
+        raise BTClibValueError(f"negative max_fee: {max_fee}")
+
+
+def _assert_fee_within(fee: int, max_fee: int) -> None:
+    """Refuse a fee above the ceiling, Core's `-maxtxfee` check.
+
+    `CreateTransactionInternal` compares the fee of the transaction it
+    has built, change decided, so this runs on each of `build_psbt`'s
+    exits rather than on what coin selection expected.
+    """
+    if fee > max_fee:
+        err_msg = f"a fee of {fee} satoshi exceeds max_fee, {max_fee} satoshi"
+        raise BTClibValueError(err_msg)
 
 
 def build_psbt(
     inputs: Sequence[PsbtIn],
     outputs: Sequence[TxOut],
     fee_rate: FeeRate,
-    change_script_pub_key: Octets | None = None,
+    change_script_pub_key: Octets | None,
     *,
     tx_version: int = 2,
     lock_time: int = 0,
     dust_fee_rate: FeeRate = DUST_RELAY_FEE_RATE,
+    max_fee: int = DEFAULT_MAX_FEE,
     sizer: SolutionSizer | None = None,
 ) -> FundedPsbt:
     """Return the psbt spending these inputs at this rate, and its change.
@@ -213,16 +237,17 @@ def build_psbt(
     being paid. What is left over pays the fee, and `change_script_pub_key`
     is where the rest of it goes -- to an output of that script when it
     would be worth more than `dust_threshold` asks, and to the fee when
-    it would not. No change script at all is every leftover satoshi to
-    the fee, which is what a caller sweeping an address means and what a
-    caller who forgot the argument gets, so it is spelled rather than
-    defaulted.
+    it would not. None is every leftover satoshi to the fee, which is
+    what a caller sweeping an address means and what a caller who forgot
+    the argument would get, so it is spelled rather than defaulted.
 
     Raised, all as `BTClibValueError`: no inputs, no outputs left to pay,
     an outpoint spent twice, an input carrying no utxo, an input whose
     type the psbt does not determine -- `psbt_size`'s rule, and `sizer`
-    is where a caller answers for one -- and inputs that do not cover the
-    outputs and the fee.
+    is where a caller answers for one -- an output worth less than
+    `dust_threshold` for its script, a `lock_time` that every input's
+    sequence voids, inputs that do not cover the outputs and the fee, and
+    a fee above `max_fee`.
 
     `tx_version` and `lock_time` are the transaction's, defaulting to
     Core's own 2 and to no lock time: the block height that would make a
@@ -230,17 +255,26 @@ def build_psbt(
     node. Each input's sequence is its own `PsbtIn.sequence`, and an
     input naming none spends with the final sequence -- no lock time and
     no BIP125 replacement, which a caller wanting either sets on the
-    input rather than having overwritten here.
+    input rather than having overwritten here. Consensus ignores the lock
+    time of a transaction whose every input is final, so a non-zero
+    `lock_time` there is refused rather than built into a transaction it
+    does not constrain.
 
-    `dust_fee_rate` is the rate the dust threshold is computed at, Core's
-    `-dustrelayfee` default; it is not `fee_rate`, an output being dust
-    by what the network will relay rather than by what this transaction
-    chose to pay.
+    `dust_fee_rate` is the rate the dust threshold is computed at, for
+    the outputs being paid and for the change, Core's `-dustrelayfee`
+    default; it is not `fee_rate`, an output being dust by what the
+    network will relay rather than by what this transaction chose to pay.
+
+    `max_fee` is the largest fee paid, in satoshi, `DEFAULT_MAX_FEE` being
+    Core's `-maxtxfee` default of 0.10 BTC: a mistyped `fee_rate`, or a
+    sweep of inputs worth far more than its outputs, is refused rather
+    than paid. The fee it is compared with is the one returned, change
+    that was too small to create included.
 
     The psbt is version 0, which every Signer reads; `Psbt.to_v2` is the
     other one.
     """
-    _assert_arguments(inputs, outputs, fee_rate, dust_fee_rate)
+    _assert_arguments(inputs, outputs, fee_rate, dust_fee_rate, max_fee)
     if not inputs:
         raise BTClibValueError("no inputs")
     change_script = (
@@ -282,10 +316,27 @@ def build_psbt(
     total_out = sum(tx_out.value for tx_out in outputs)
     remainder = total_in - total_out
 
+    # what the caller asked for, refused before any fee is priced: Core's
+    # `CreateTransactionInternal` refuses a dust recipient before it
+    # selects a coin
+    for i, tx_out in enumerate(outputs):
+        threshold = dust_threshold(tx_out.script_pub_key.script, dust_fee_rate)
+        if tx_out.value < threshold:
+            err_msg = f"output {i} of {tx_out.value} satoshi is dust: "
+            err_msg += f"its script's threshold is {threshold} satoshi"
+            raise BTClibValueError(err_msg)
+    if lock_time != 0 and all(
+        tx_in.sequence == SEQUENCE_FINAL for tx_in in psbt.tx.vin
+    ):
+        err_msg = f"lock_time {lock_time} is void: every input's sequence is "
+        err_msg += "final, and one input needs a non-final PsbtIn.sequence"
+        raise BTClibValueError(err_msg)
+
     if change_script is not None:
         fee = fee_from_vsize(psbt.vsize_estimate(sizer), fee_rate)
         change = remainder - fee
         if change >= dust_threshold(change_script, dust_fee_rate):
+            _assert_fee_within(fee, max_fee)
             # the last output, this having appended it
             psbt.outputs[-1].amount = change
             # the one state nothing else has judged: every other exit
@@ -307,4 +358,5 @@ def build_psbt(
         err_msg = f"the inputs are worth {total_in} satoshi, "
         err_msg += f"where the outputs and the fee need {total_out + owed}"
         raise BTClibValueError(err_msg)
+    _assert_fee_within(remainder, max_fee)
     return FundedPsbt(psbt, remainder, change_index)

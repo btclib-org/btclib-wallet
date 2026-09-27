@@ -235,6 +235,30 @@ Core takes, in any ASCII case, is a `BTClibValueError` (closes #64).
 `transport.valid_timeout`, bounded where a socket still waits; past it, a
 timeout left the transport's call as a bare `OverflowError` (closes #70).
 
+### The change script is a required argument
+
+`tx_builder.build_psbt`, `coin_selection.select_coins`, `knapsack` and
+`single_random_draw` take `change_script_pub_key` with no default, a sweep
+passing `None`; `branch_and_bound` keeps its default (closes #36).
+
+### `build_psbt` refuses a lock time that final sequences void
+
+A non-zero `lock_time` where every input's sequence is `0xffffffff` is a
+`BTClibValueError`, consensus ignoring the lock time of such a
+transaction (closes #37).
+
+### `build_psbt` refuses an output below the dust threshold
+
+An output being paid worth less than `dust_threshold` for its script, at
+the `dust_fee_rate` the change is created against, is a
+`BTClibValueError` (closes #42).
+
+### `build_psbt` refuses a fee above `max_fee`
+
+The keyword defaults to `DEFAULT_MAX_FEE`, Bitcoin Core's `-maxtxfee`
+default of 0.10 BTC, and a larger fee is a `BTClibValueError`
+(closes #48).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

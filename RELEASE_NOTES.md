@@ -50,6 +50,17 @@ refuses a `base_url` carrying a user or a password, or without a host,
 which a transport of the caller's received; pass the url without them,
 and let that transport add the credentials.
 
+`tx_builder.build_psbt`, `coin_selection.select_coins`, `knapsack` and
+`single_random_draw` require `change_script_pub_key`: a call that left it
+out, and so sent every leftover satoshi to the fee, raises a `TypeError`;
+pass the change script, or `None` for a sweep.
+
+`tx_builder.build_psbt` refuses with a `BTClibValueError` a fee above
+`max_fee`, 0.10 BTC unless raised, and an output being paid below its
+dust threshold. It refuses a non-zero `lock_time` too when every input's
+sequence is final: set a non-final `PsbtIn.sequence`, such as
+`0xfffffffe`, on an input for the lock time to bind.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

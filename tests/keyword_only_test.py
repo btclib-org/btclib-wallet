@@ -273,6 +273,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "tx_version",
         "lock_time",
         "dust_fee_rate",
+        "max_fee",
         "sizer",
     ],
     "btclib_wallet.tx_or_psbt:tx_or_psbt_from_any": ["check_validity"],

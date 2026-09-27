@@ -31,8 +31,9 @@ rate exactly as `tx_builder_test.py` asserts it independently.
 
 from __future__ import annotations
 
+import inspect
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -176,6 +177,24 @@ _FREE_CANDIDATE = Candidate(
 
 
 @pytest.mark.parametrize(
+    "function, required",
+    [
+        (select_coins, True),
+        (knapsack, True),
+        (single_random_draw, True),
+        # a zero-wide window: the match leaves nothing for the fee to take
+        (branch_and_bound, False),
+    ],
+)
+def test_the_change_script_is_spelled_where_leaving_it_out_costs(
+    function: Callable[..., object], required: bool
+) -> None:
+    """A forgotten change script is every leftover satoshi to the fee."""
+    parameter = inspect.signature(function).parameters["change_script_pub_key"]
+    assert (parameter.default is inspect.Parameter.empty) is required
+
+
+@pytest.mark.parametrize(
     "algorithm",
     [branch_and_bound, knapsack, single_random_draw],
 )
@@ -189,6 +208,7 @@ def test_a_check_validity_false_candidate_of_zero_weight_is_refused(
             [TxOut(500, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
         )
 
 
@@ -200,6 +220,7 @@ def test_select_coins_refuses_a_wrong_typed_candidate_sequence() -> None:
             [TxOut(500, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
         )
 
 
@@ -210,6 +231,7 @@ def test_select_coins_refuses_change_spend_weight_without_a_change_script() -> N
         [TxOut(500, PAY_SCRIPT)],
         TEN_SAT_PER_VBYTE,
         ONE_SAT_PER_VBYTE,
+        None,
     )
     assert result.change == 0
 
@@ -248,6 +270,7 @@ def test_select_coins_refuses_an_unknown_algorithm_name() -> None:
             [TxOut(500, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
             algorithms=("bnb", "coinjoin"),
         )
 
@@ -260,6 +283,7 @@ def test_select_coins_refuses_an_empty_algorithms_sequence() -> None:
             [TxOut(500, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
             algorithms=(),
         )
 
@@ -272,6 +296,7 @@ def test_select_coins_reports_insufficient_funds() -> None:
             [TxOut(60_000, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
         )
 
 
@@ -525,6 +550,7 @@ def test_knapsack_finds_the_single_exact_match() -> None:
         outputs,
         TEN_SAT_PER_VBYTE,
         ONE_SAT_PER_VBYTE,
+        None,
         rng=random.Random(0),
     )
     assert result.selected == (exact,)
@@ -540,6 +566,7 @@ def test_knapsack_falls_back_to_the_lowest_larger_candidate() -> None:
         outputs,
         TEN_SAT_PER_VBYTE,
         ONE_SAT_PER_VBYTE,
+        None,
         rng=random.Random(0),
     )
     assert result.selected == (candidate(1_000_000, 1),)
@@ -554,6 +581,7 @@ def test_knapsack_raises_when_the_pool_is_short_of_the_target() -> None:
             outputs,
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
             rng=random.Random(0),
         )
 
@@ -563,10 +591,20 @@ def test_single_random_draw_is_deterministic_under_a_seeded_engine() -> None:
     outputs = [TxOut(60_000, PAY_SCRIPT)]
     candidates = [candidate(100_000, 1), candidate(50_000, 2), candidate(30_000, 3)]
     first = single_random_draw(
-        candidates, outputs, TEN_SAT_PER_VBYTE, ONE_SAT_PER_VBYTE, rng=random.Random(42)
+        candidates,
+        outputs,
+        TEN_SAT_PER_VBYTE,
+        ONE_SAT_PER_VBYTE,
+        None,
+        rng=random.Random(42),
     )
     second = single_random_draw(
-        candidates, outputs, TEN_SAT_PER_VBYTE, ONE_SAT_PER_VBYTE, rng=random.Random(42)
+        candidates,
+        outputs,
+        TEN_SAT_PER_VBYTE,
+        ONE_SAT_PER_VBYTE,
+        None,
+        rng=random.Random(42),
     )
     assert first.selected == second.selected
     assert first.waste == second.waste
@@ -597,6 +635,7 @@ def test_single_random_draw_raises_when_the_shuffle_never_covers_target() -> Non
             outputs,
             TEN_SAT_PER_VBYTE,
             ONE_SAT_PER_VBYTE,
+            None,
             rng=random.Random(0),
         )
 
@@ -702,7 +741,7 @@ def test_a_changeless_match_funds_build_psbt_with_no_change_script() -> None:
         )
         for c in result.selected
     ]
-    built = build_psbt(psbt_inputs, outputs, TEN_SAT_PER_VBYTE)
+    built = build_psbt(psbt_inputs, outputs, TEN_SAT_PER_VBYTE, None)
     assert built.change_index is None
 
 
@@ -732,7 +771,12 @@ def test_target_overhead_is_padded_at_the_pool_size_var_int_boundary() -> None:
     # summed effective value across the whole pool matches target exactly
     candidates = [candidate(per_candidate + fee, i) for i in range(1, pool_size + 1)]
     result = knapsack(
-        candidates, outputs, TEN_SAT_PER_VBYTE, TEN_SAT_PER_VBYTE, rng=random.Random(0)
+        candidates,
+        outputs,
+        TEN_SAT_PER_VBYTE,
+        TEN_SAT_PER_VBYTE,
+        None,
+        rng=random.Random(0),
     )
     assert len(result.selected) == pool_size
     psbt_inputs = [
@@ -743,7 +787,7 @@ def test_target_overhead_is_padded_at_the_pool_size_var_int_boundary() -> None:
         )
         for c in result.selected
     ]
-    built = build_psbt(psbt_inputs, outputs, TEN_SAT_PER_VBYTE)
+    built = build_psbt(psbt_inputs, outputs, TEN_SAT_PER_VBYTE, None)
     assert built.change_index is None
 
 
@@ -868,7 +912,12 @@ def test_knapsack_approximate_best_subset_improves_on_the_first_pass() -> None:
     outputs = [TxOut(60_000, PAY_SCRIPT)]
     candidates = [candidate(40_000, 1), candidate(35_000, 2), candidate(30_000, 3)]
     result = knapsack(
-        candidates, outputs, ONE_SAT_PER_VBYTE, ONE_SAT_PER_VBYTE, rng=random.Random(2)
+        candidates,
+        outputs,
+        ONE_SAT_PER_VBYTE,
+        ONE_SAT_PER_VBYTE,
+        None,
+        rng=random.Random(2),
     )
     assert _covers(result, candidates)
     total = sum(c.effective_value(ONE_SAT_PER_VBYTE) for c in result.selected)
@@ -922,7 +971,7 @@ def test_knapsack_returns_every_applicable_candidate_on_an_exact_total() -> None
         TxOut(target - half + 1, PAY_SCRIPT),
         _ONE_VBYTE_WEIGHT,
     )
-    result = knapsack([a, b], outputs, fee_rate, fee_rate, rng=random.Random(0))
+    result = knapsack([a, b], outputs, fee_rate, fee_rate, None, rng=random.Random(0))
     assert set(result.selected) == {a, b}
 
 
@@ -937,7 +986,12 @@ def test_knapsack_prefers_the_lowest_larger_when_it_beats_the_subset() -> None:
         just_above,
     ]
     result = knapsack(
-        candidates, outputs, ONE_SAT_PER_VBYTE, ONE_SAT_PER_VBYTE, rng=random.Random(5)
+        candidates,
+        outputs,
+        ONE_SAT_PER_VBYTE,
+        ONE_SAT_PER_VBYTE,
+        None,
+        rng=random.Random(5),
     )
     assert result.selected == (just_above,)
 
@@ -955,7 +1009,7 @@ def test_knapsack_prefers_the_single_bigger_coin_over_a_larger_subset() -> None:
     fee_rate = _rate(0)
     cents = _cents([6, 7, 8, 20, 30])
     result = knapsack(
-        cents, [TxOut(16, PAY_SCRIPT)], fee_rate, fee_rate, rng=random.Random(0)
+        cents, [TxOut(16, PAY_SCRIPT)], fee_rate, fee_rate, None, rng=random.Random(0)
     )
     assert [c.tx_out.value for c in result.selected] == [20]
 
@@ -974,7 +1028,7 @@ def test_knapsack_breaks_a_subset_sum_tie_toward_the_single_coin() -> None:
     fee_rate = _rate(0)
     cents = _cents([5, 6, 7, 8, 18, 20, 30])
     result = knapsack(
-        cents, [TxOut(16, PAY_SCRIPT)], fee_rate, fee_rate, rng=random.Random(0)
+        cents, [TxOut(16, PAY_SCRIPT)], fee_rate, fee_rate, None, rng=random.Random(0)
     )
     assert [c.tx_out.value for c in result.selected] == [18]
 
@@ -989,6 +1043,7 @@ def test_select_coins_with_a_single_algorithm_skips_the_other_two() -> None:
         outputs,
         TEN_SAT_PER_VBYTE,
         ONE_SAT_PER_VBYTE,
+        None,
         algorithms=("bnb",),
     )
     assert result.algorithm == "bnb"
