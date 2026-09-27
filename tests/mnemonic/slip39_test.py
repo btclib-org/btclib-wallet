@@ -352,6 +352,62 @@ def test_invalid_threshold(groups: list[tuple[int, int]], group_threshold: int) 
         )
 
 
+@pytest.mark.parametrize(
+    "argument, value, err_msg",
+    [
+        ("groups", 5, "invalid groups type: int"),
+        ("groups", {(1, 1)}, "invalid groups type: set"),
+        ("groups", [5], "invalid group type: int"),
+        ("groups", [b"\x01\x01"], "invalid group type: bytes"),
+        ("groups", [("1", 1)], "invalid member threshold type: str"),
+        ("groups", [(1, 1.0)], "invalid member count type: float"),
+        ("groups", [(True, True)], "invalid member threshold type: bool"),
+        ("group_threshold", "1", "invalid group threshold type: str"),
+        ("group_threshold", True, "invalid group threshold type: bool"),
+        ("iteration_exponent", "1", "invalid iteration exponent type: str"),
+        ("iteration_exponent", 1.0, "invalid iteration exponent type: float"),
+        ("passphrase", b"TREZOR", "invalid passphrase type: bytes"),
+        ("entropy_source", None, "invalid entropy source type: NoneType"),
+    ],
+)
+def test_generation_argument_of_another_type(
+    argument: str, value: object, err_msg: str
+) -> None:
+    """Refuse each argument of a type the signature does not declare.
+
+    Each carries a default, so `input_validation_test` never drives it.
+    """
+    with pytest.raises(BTClibTypeError, match=err_msg):
+        slip39.mnemonics_from_master_secret(bytes(16), **{argument: value})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("group", [(1,), (2, 3, 1)])
+def test_a_group_that_is_no_pair(group: tuple[int, ...]) -> None:
+    """How many items a group holds is a value, and refused as one."""
+    err_msg = f"invalid group: {len(group)} items"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        slip39.mnemonics_from_master_secret(bytes(16), groups=[group])  # type: ignore[list-item]
+
+
+def test_a_group_may_be_a_list() -> None:
+    """A json configuration decodes a pair to a list, and it is one."""
+    secret = bytes(range(16))
+    source = fixed_identifier(0x1234)
+    groups = [[1, 1]]
+    as_list = slip39.mnemonics_from_master_secret(
+        secret,
+        groups,  # type: ignore[arg-type]
+        entropy_source=source,
+    )
+    assert as_list == slip39.mnemonics_from_master_secret(secret, entropy_source=source)
+
+
+def test_passphrase_of_another_type_to_recover() -> None:
+    """The passphrase check is shared, so recovery refuses the type too."""
+    with pytest.raises(BTClibTypeError, match="invalid passphrase type: NoneType"):
+        slip39.master_secret_from_mnemonics(_VECTORS[0][1], None)  # type: ignore[arg-type]
+
+
 def test_shares_that_are_no_sequence() -> None:
     """An iterable of shares that is not a sequence is refused, not read.
 

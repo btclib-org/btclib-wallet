@@ -34,7 +34,11 @@ from btclib_wallet.bip32.der_path import (
     str_from_der_path,
     str_from_index_int,
 )
-from btclib_wallet.mnemonic.entropy import bin_str_entropy_from_wordlist_indexes
+from btclib_wallet.mnemonic.entropy import (
+    bin_str_entropy_from_rolls,
+    bin_str_entropy_from_wordlist_indexes,
+)
+from btclib_wallet.mnemonic.slip39 import mnemonics_from_master_secret
 from btclib_wallet.psbt.psbt import PSBT_V2, Psbt
 from btclib_wallet.wallet.script_wallet import KeyGroup
 
@@ -88,6 +92,25 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
     ("derivation path as text", str_from_der_path),
     ("derivation index as a step", str_from_index_int),
     ("word-list index", lambda v: bin_str_entropy_from_wordlist_indexes([v], 2048)),
+    ("dice roll bits", lambda v: bin_str_entropy_from_rolls(v, 2, [1, 2, 1, 2])),
+    ("dice base", lambda v: bin_str_entropy_from_rolls(4, v, [1, 2, 1, 2])),
+    ("dice roll", lambda v: bin_str_entropy_from_rolls(4, 2, [v, 2, 1, 2])),
+    (
+        "slip39 group threshold",
+        lambda v: mnemonics_from_master_secret(bytes(16), group_threshold=v),
+    ),
+    (
+        "slip39 iteration exponent",
+        lambda v: mnemonics_from_master_secret(bytes(16), iteration_exponent=v),
+    ),
+    (
+        "slip39 member threshold",
+        lambda v: mnemonics_from_master_secret(bytes(16), groups=[(v, 1)]),
+    ),
+    (
+        "slip39 member count",
+        lambda v: mnemonics_from_master_secret(bytes(16), groups=[(1, v)]),
+    ),
     # `_assert_valid_branch` and `_assert_valid_address_index` compare
     # with `<`, `>=` and `in {0, 1}`, none of which a bool fails, so the
     # refusal is this layer's own `is_integer`
@@ -179,6 +202,11 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     assert str_from_der_path([1]) == "m/1"
     assert str_from_index_int(1) == "1"
     assert bin_str_entropy_from_wordlist_indexes([1], 2048) == "00000000001"
+    assert bin_str_entropy_from_rolls(4, 2, [1, 2, 1, 2], shuffle=False) == "0101"
+    one_of_one = mnemonics_from_master_secret(
+        bytes(16), [(1, 1)], group_threshold=1, iteration_exponent=0
+    )
+    assert [len(group) for group in one_of_one] == [1]
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1).depth == 5
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1, max_index=1).depth == 5
 

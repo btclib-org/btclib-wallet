@@ -188,6 +188,17 @@ for the same reason (closes #39).
 requirements file with `pip3 install --require-hashes` before installing
 the package itself `--no-deps` (closes #33).
 
+### SLIP-0039 generation refuses an argument of another type
+
+`slip39.mnemonics_from_master_secret` refuses one with a `BTClibTypeError`,
+`groups` included, and a bool where an integer belongs (closes #43).
+
+### Dice rolls are shuffled as a copy, and refused unless integers
+
+`bin_str_entropy_from_rolls` leaves the caller's rolls in order, reads a
+tuple, and refuses with a `BTClibTypeError` what is no sequence of
+integers (closes #47).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

@@ -447,6 +447,41 @@ def test_a_dice_base_that_is_not_an_integer() -> None:
         bin_str_entropy_from_rolls(4, True, [1, 2, 1, 2])
 
 
+def test_the_shuffle_leaves_the_callers_rolls_alone() -> None:
+    """The caller's record of the dice keeps the order they were rolled in.
+
+    A tuple, which cannot be shuffled in place, is read the same way.
+    """
+    rolls = list(range(1, 5)) * 32
+    before = list(rolls)
+    assert len(bin_str_entropy_from_rolls(256, 4, rolls)) == 256
+    assert rolls == before
+    assert len(bin_str_entropy_from_rolls(256, 4, tuple(rolls))) == 256
+
+
+@pytest.mark.parametrize(
+    "bits, rolls, err_msg",
+    [
+        (4.0, [1, 2, 1, 2], "invalid bits type: float"),
+        (True, [1, 2, 1, 2], "invalid bits type: bool"),
+        (4, None, "invalid rolls type: NoneType"),
+        # a set would have dropped the repeated rolls
+        (4, {1, 2}, "invalid rolls type: set"),
+        (4, (roll for roll in [1, 2, 1, 2]), "invalid rolls type: generator"),
+        (4, "1212", "invalid roll type: str"),
+        (4, [1, 2.0, 1, 2], "invalid roll type: float"),
+        (4, [True, 2, 1, 2], "invalid roll type: bool"),
+    ],
+)
+@pytest.mark.parametrize("shuffle", [True, False])
+def test_rolls_of_another_type(
+    bits: Any, rolls: Any, err_msg: str, *, shuffle: bool
+) -> None:
+    """Refuse what is no number of bits, no sequence, or no integer roll."""
+    with pytest.raises(BTClibTypeError, match=err_msg):
+        bin_str_entropy_from_rolls(bits, 2, rolls, shuffle=shuffle)
+
+
 def test_bin_str_entropy_from_random() -> None:
     """Check the random entropy source, its mixing and its bit cap."""
     for to_be_hashed in (True, False):

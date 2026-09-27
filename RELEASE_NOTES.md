@@ -22,6 +22,13 @@ refuse shares passed as an iterable that is not a sequence -- a set, a
 generator, an iterator, `dict.keys()` -- with a `BTClibTypeError`, where
 they read it; pass a `list` or a `tuple` instead.
 
+`mnemonic.slip39.mnemonics_from_master_secret` refuses with a
+`BTClibTypeError` a `groups` passed as a set or a dict, and a bool as a
+threshold, a member count or the iteration exponent, where it read them;
+pass a `list` or a `tuple` of integer pairs, and integers.
+`mnemonic.entropy.bin_str_entropy_from_rolls` refuses the same way rolls
+passed as a set or a generator and a bool as a roll or as `bits`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

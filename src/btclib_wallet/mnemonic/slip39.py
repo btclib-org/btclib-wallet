@@ -58,7 +58,7 @@ from hashlib import pbkdf2_hmac, sha256
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import network_from_name
-from btclib.utils import assert_type, bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 from btclib_wallet.bip32 import rootxprv_from_seed
 from btclib_wallet.mnemonic.entropy import (
@@ -389,6 +389,7 @@ def _assert_valid_passphrase(passphrase: str) -> None:
     UTF-8 and carrying on would derive a seed that another
     implementation, asked the same question, refuses to derive.
     """
+    assert_type(passphrase, str, "passphrase")
     if any(not 32 <= ord(char) <= 126 for char in passphrase):
         err_msg = "invalid passphrase: only printable ASCII (32-126) is allowed"
         raise BTClibValueError(err_msg)
@@ -565,6 +566,34 @@ def _assert_mnemonic_sequence(mnemonics: object) -> None:
         raise BTClibTypeError(err_msg)
 
 
+def _assert_groups(groups: object) -> None:
+    """Refuse anything but a sequence of (member threshold, member count).
+
+    A pair is a tuple, or the list a json configuration decodes one to;
+    a str or bytes of two items is no pair, however it unpacks. How many
+    items a pair holds is a value, run time being unable to tell
+    tuple[int] from tuple[int, int]; the bounds on each integer are
+    `_split_secret`'s.
+    """
+    if not isinstance(groups, Sequence):
+        raise BTClibTypeError(f"invalid groups type: {type(groups).__name__}")
+    for group in groups:
+        if not isinstance(group, tuple | list):
+            raise BTClibTypeError(f"invalid group type: {type(group).__name__}")
+        if len(group) != 2:
+            err_msg = f"invalid group: {len(group)} items, "
+            err_msg += "(member threshold, member count) required"
+            raise BTClibValueError(err_msg)
+        _assert_integers(("member threshold", group[0]), ("member count", group[1]))
+
+
+def _assert_integers(*named: tuple[str, object]) -> None:
+    """Refuse each value that is not an integer, a bool included."""
+    for what, value in named:
+        if not is_integer(value):
+            raise BTClibTypeError(f"invalid {what} type: {type(value).__name__}")
+
+
 def master_secret_from_mnemonics(
     mnemonics: Sequence[Mnemonic], passphrase: str = ""
 ) -> bytes:
@@ -625,7 +654,15 @@ def mnemonics_from_master_secret(
     is the same bytes through another name); anything weaker substituted
     here is a secret an attacker can reproduce.
     """
+    _assert_groups(groups)
+    _assert_integers(
+        ("group threshold", group_threshold),
+        ("iteration exponent", iteration_exponent),
+    )
     assert_type(extendable, bool, "extendable")
+    if not callable(entropy_source):
+        err_msg = f"invalid entropy source type: {type(entropy_source).__name__}"  # type: ignore[unreachable]
+        raise BTClibTypeError(err_msg)
     _assert_valid_passphrase(passphrase)
     secret = bytes_from_octets(master_secret)
     _assert_valid_length(len(secret), "master secret")

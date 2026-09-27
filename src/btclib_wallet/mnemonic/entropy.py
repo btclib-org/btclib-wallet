@@ -356,13 +356,28 @@ def collect_rolls(bits: int) -> tuple[int, list[int]]:
     return dice_sides, rolls
 
 
+def _assert_rolls(rolls: object) -> None:
+    """Refuse anything but a sequence of integer rolls.
+
+    A sequence is what holds every roll in the order rolled: a set would
+    have dropped the repeated ones before reaching here.
+    """
+    if not isinstance(rolls, Sequence):
+        raise BTClibTypeError(f"invalid rolls type: {type(rolls).__name__}")
+    for roll in rolls:
+        if not is_integer(roll):
+            raise BTClibTypeError(f"invalid roll type: {type(roll).__name__}")
+
+
 def bin_str_entropy_from_rolls(
-    bits: int, dice_sides: int, rolls: list[int], shuffle: bool = True
+    bits: int, dice_sides: int, rolls: Sequence[int], shuffle: bool = True
 ) -> BinStr:
     """Return raw entropy from the input dice rolls.
 
     Dice rolls are represented by integers in the [1-dice_sides] range;
-    there must be enough rolls to satisfy the bit-size requirement.
+    there must be enough rolls to satisfy the bit-size requirement. The
+    rolls are a sequence, a list or a tuple, and the caller's own is left
+    in the order it was rolled: the shuffle reorders a copy.
 
     Only rolls having value in the [1-base] range are used, with base
     being the highest power of 2 that is lower than the dice_sides (e.g.
@@ -384,9 +399,12 @@ def bin_str_entropy_from_rolls(
     # `_bits_per_digit` below takes `base.bit_length()`, which a float
     # has no method named, so a caller passing 6.0 would hear a bare
     # AttributeError rather than this module's own message
+    if not is_integer(bits):
+        raise BTClibTypeError(f"invalid bits type: {type(bits).__name__}")
     if not is_integer(dice_sides):
         err_msg = f"invalid dice base type: {type(dice_sides).__name__}"
         raise BTClibTypeError(err_msg)
+    _assert_rolls(rolls)
     assert_type(shuffle, bool, "shuffle")
     if dice_sides < 2:
         raise BTClibValueError(f"invalid dice base: {dice_sides}, must be >= 2")
@@ -395,6 +413,7 @@ def bin_str_entropy_from_rolls(
     base = 2**bits_per_roll
 
     if shuffle:
+        rolls = list(rolls)
         secrets.SystemRandom().shuffle(rolls)
 
     min_roll_number = math.ceil(bits / bits_per_roll)
