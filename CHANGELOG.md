@@ -288,6 +288,12 @@ a larger fee is a `BTClibValueError` (closes #73).
 and assert the mnemonics, the SLIP-0039 identifiers and the share values
 differ, and that a default BIP39 entropy is 128 bits (closes #41).
 
+### `HwiSigner` keeps caller text off HWI's options, and the psbt off argv
+
+A message, a policy name or a registration starting with `-` reaches HWI
+as a value (closes #45), a psbt goes to its standard input rather than to
+a size-capped argv (closes #51), and a NUL in an argument is refused.
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

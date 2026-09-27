@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -83,42 +84,81 @@ FINGERPRINT = fingerprint(XPRV_ROOT).hex()
 
 # what the stand-in prints for a command, before any test changes it: the
 # device is the software signer of the same key, so every answer is one
-# btclib can check rather than a fixture that only looks right
+# btclib can check rather than a fixture that only looks right.
+#
+# It reads its arguments the way HWI's `process_commands` does: with
+# `--stdin`, each line of standard input split by `shlex.split` and
+# appended, and then one argparse over the whole, of the shape the tables
+# below transcribe, answering a refusal as HWI's MISSING_ARGUMENTS. So a
+# value argparse would take for an option is refused here as HWI would
+# refuse it, rather than read by position.
 _STAND_IN = """
-import json, pathlib, sys
+import argparse, json, pathlib, shlex, sys
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt_signer import SoftwareSigner
 
 ANSWERS = json.loads({answers!r})
+here = pathlib.Path(__file__)
 # what it was run with, for the tests that are about the argv itself
-pathlib.Path(__file__).with_suffix(".argv.json").write_text(json.dumps(sys.argv[1:]))
-signer = SoftwareSigner({xprv!r})
-args = [arg for arg in sys.argv[1:]]
-command = next(arg for arg in args if not arg.startswith("-") and arg not in
-               ("main", "test", "regtest", "signet", {fingerprint!r}))
+here.with_suffix(".argv.json").write_text(json.dumps(sys.argv[1:]))
+cli_args = sys.argv[1:]
+if "--stdin" in cli_args:
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line == "":
+            break
+        cli_args.extend(shlex.split(line))
+# and what argparse was handed, standard input included
+here.with_suffix(".cli.json").write_text(json.dumps(cli_args))
 
-if command in ANSWERS:
-    print(json.dumps(ANSWERS[command]))
-elif command == "enumerate":
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        print(json.dumps({{"error": message, "code": -2}}))
+        sys.exit(2)
+
+parser = Parser()
+parser.add_argument("--chain", choices={chains!r}, default="main")
+parser.add_argument("--fingerprint")
+parser.add_argument("--stdin", action="store_true")
+parser.add_argument("--emulators", action="store_true")
+commands = parser.add_subparsers(dest="command", required=True)
+for name, positionals in {commands!r}.items():
+    command_parser = commands.add_parser(name)
+    for positional in positionals:
+        command_parser.add_argument(positional)
+display = commands.choices["displayaddress"].add_mutually_exclusive_group(
+    required=True
+)
+display.add_argument("--desc")
+display.add_argument("--registration")
+commands.choices["displayaddress"].add_argument("--index", type=int)
+commands.choices["displayaddress"].add_argument("--multipath-index", type=int)
+args = parser.parse_args(cli_args)
+signer = SoftwareSigner({xprv!r})
+
+if args.command in ANSWERS:
+    print(json.dumps(ANSWERS[args.command]))
+elif args.command == "enumerate":
     print(json.dumps([{{"type": "stand-in", "model": "stand_in_simulator",
                         "path": "/dev/null", "fingerprint": {fingerprint!r}}}]))
-elif command == "getxpub":
-    print(json.dumps({{"xpub": signer.xpub(args[args.index("getxpub") + 1])}}))
-elif command == "signtx":
-    psbt = Psbt.b64decode(args[args.index("signtx") + 1])
+elif args.command == "getxpub":
+    print(json.dumps({{"xpub": signer.xpub(args.path)}}))
+elif args.command == "signtx":
+    psbt = Psbt.b64decode(args.psbt)
     print(json.dumps({{"psbt": signer.sign_psbt(psbt).b64encode()}}))
-elif command == "signmessage":
-    i = args.index("signmessage")
-    message = args[i + 1].encode("utf-8")
-    print(json.dumps({{"signature": signer.sign_message(message, args[i + 2])}}))
-elif command == "displayaddress":
+elif args.command == "signmessage":
+    message = args.message.encode("utf-8")
+    print(json.dumps({{"signature": signer.sign_message(message, args.path)}}))
+elif args.command == "displayaddress" and args.desc is not None:
     from btclib_wallet.descriptors import parse
-    descriptor = parse(args[args.index("--desc") + 1])
-    print(json.dumps({{"address": signer.display_address(descriptor)}}))
-elif command == "registerdescriptor":
+    print(json.dumps({{"address": signer.display_address(parse(args.desc))}}))
+elif args.command == "registerdescriptor":
     print(json.dumps({{"registration": "deadbeef"}}))
 else:
-    print(json.dumps({{"error": "unknown command " + command, "code": -13}}))
+    print(json.dumps({{"error": "not answered: " + args.command, "code": -13}}))
 """
 
 
@@ -144,7 +184,7 @@ HWI_COMMANDS = {
 
 # the global flags, which HWI's parser takes before the command, and the
 # per-command one btclib passes
-HWI_GLOBAL_FLAGS = ("--chain", "--fingerprint", "--emulators")
+HWI_GLOBAL_FLAGS = ("--chain", "--fingerprint", "--emulators", "--stdin")
 HWI_COMMAND_FLAGS = {"displayaddress": ("--desc",)}
 
 # what btclib reads out of each answer. `signed` is the second key of
@@ -202,7 +242,11 @@ def stand_in(tmp_path: Path, answers: dict[str, object]) -> list[str]:
     script = tmp_path / f"hwi_stand_in_{len(list(tmp_path.iterdir()))}.py"
     script.write_text(
         _STAND_IN.format(
-            answers=json.dumps(answers), xprv=XPRV_ROOT, fingerprint=FINGERPRINT
+            answers=json.dumps(answers),
+            xprv=XPRV_ROOT,
+            fingerprint=FINGERPRINT,
+            chains=HWI_CHAINS,
+            commands=HWI_COMMANDS,
         ),
         encoding="ascii",
     )
@@ -312,6 +356,16 @@ def last_argv(hwi: list[str]) -> list[str]:
     adapter would have built.
     """
     recorded = Path(hwi[-1]).with_suffix(".argv.json")
+    return json.loads(recorded.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def last_cli(hwi: list[str]) -> list[str]:
+    """Return what the stand-in last parsed: its argv and its `--stdin` lines.
+
+    The list HWI's `process_commands` hands argparse, so a command whose
+    values went to standard input is read here whole.
+    """
+    recorded = Path(hwi[-1]).with_suffix(".cli.json")
     return json.loads(recorded.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
@@ -480,6 +534,7 @@ def test_a_descriptor_is_registered_and_the_receipt_is_opaque(tmp_path: Path) ->
     # address of it
     argv = last_argv(hwi)
     assert argv[argv.index("registerdescriptor") + 1 :] == [
+        "--",
         "my wallet",
         add_checksum(str(ranged)),
     ]
@@ -519,8 +574,7 @@ def test_a_registered_policy_s_address_is_asked_for_at_its_index(
     assert device.display_policy_address("cafe", 5, 1) == "shown"
     argv = last_argv(hwi)
     assert argv[argv.index("displayaddress") + 1 :] == [
-        "--registration",
-        "cafe",
+        "--registration=cafe",
         "--index",
         "5",
         "--multipath-index",
@@ -530,8 +584,7 @@ def test_a_registered_policy_s_address_is_asked_for_at_its_index(
     device.display_policy_address("cafe")
     argv = last_argv(hwi)
     assert argv[argv.index("displayaddress") + 1 :] == [
-        "--registration",
-        "cafe",
+        "--registration=cafe",
         "--index",
         "0",
         "--multipath-index",
@@ -560,6 +613,93 @@ def test_a_message_signature_is_verified_against_the_address(hwi: list[str]) -> 
     assert sign_message(device, b"hello".hex(), der_path, address) == signature
     with pytest.raises(BTClibValueError, match="not utf-8"):
         device.sign_message(b"\xff\xfe", der_path)
+
+
+@pytest.mark.parametrize("text", ["-x", "--help", "--", "a\nb"])
+def test_caller_text_is_never_read_as_an_option(tmp_path: Path, text: str) -> None:
+    """A message or a name starting with `-` is a message or a name.
+
+    The stand-in parses with HWI's argparse shape, which reads such a
+    value as an option unless a `--` ends the options first. The
+    registration is an option's value, which `--` does not reach, so it
+    goes joined to its flag. A message holding a newline is the reason
+    these stay on the command line rather than on `--stdin`, whose lines
+    HWI splits one at a time.
+    """
+    hwi = stand_in(tmp_path, {})
+    device = signer(hwi)
+    der_path = "m/44h/0h/0h/0/0"
+    address = export_account(device, "m/44h/0h/0h")[0].address(0)
+
+    # verified against the address, so what was signed is the text itself
+    sign_message(device, text.encode("utf-8"), der_path, address)
+    assert last_cli(hwi)[-2:] == [text, der_path]
+
+    ranged = export_account(device, "m/84h/0h/0h")[0]
+    assert device.register_descriptor(text, ranged) == "deadbeef"
+    assert last_cli(hwi)[-2:] == [text, add_checksum(str(ranged))]
+
+
+@pytest.mark.parametrize("registration", ["-x", "--help", "-1"])
+def test_a_registration_is_never_read_as_an_option(
+    tmp_path: Path, registration: str
+) -> None:
+    """Joined to `--registration`, which is what keeps it that flag's value."""
+    hwi = stand_in(tmp_path, {"displayaddress": {"address": "shown"}})
+    assert signer(hwi).display_policy_address(registration) == "shown"
+    assert f"--registration={registration}" in last_argv(hwi)
+
+
+def test_a_psbt_goes_to_standard_input_whatever_its_size(tmp_path: Path) -> None:
+    """A psbt past what one argument may carry is signed all the same.
+
+    Past Linux's 128 KiB where a page is 4 KiB, which the module docstring
+    of `btclib_wallet.hwi` names beside the other limits, and past Windows'
+    whole command line: an unknown field stands in here for a
+    large `non_witness_utxo`. `--stdin` is on the command line, and the
+    psbt is not.
+    """
+    hwi = stand_in(tmp_path, {})
+    device = signer(hwi)
+    psbt = account_psbt(device)[0]
+    psbt.unknown[b"\xfc\x00"] = b"\x00" * 110_000
+    sent = psbt.b64encode()
+    assert len(sent) > 128 * 1024
+
+    signed = device.sign_psbt(psbt)
+    assert signed.inputs[0].partial_sigs
+    assert signed.unknown == psbt.unknown
+    argv = last_argv(hwi)
+    assert argv[-2:] == ["--stdin", "signtx"]
+    assert sent not in argv
+    assert last_cli(hwi)[-1] == sent
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        pytest.param(lambda d: d.sign_message(b"a\x00b", "m/0"), id="signmessage"),
+        pytest.param(
+            lambda d: d.register_descriptor(
+                "a\x00b", parse(f"wpkh({xpub_from_xprv(XPRV_ROOT)}/*)")
+            ),
+            id="registerdescriptor",
+        ),
+        pytest.param(lambda d: d.display_policy_address("a\x00b"), id="displayaddress"),
+    ],
+)
+def test_a_nul_character_is_refused_before_anything_runs(
+    tmp_path: Path, command: Callable[[HwiSigner], object]
+) -> None:
+    """No operating system passes a NUL on a command line.
+
+    So it is the caller's value that is refused, as a `BTClibValueError`
+    naming the command, and no process is started to find that out.
+    """
+    hwi = stand_in(tmp_path, {})
+    with pytest.raises(BTClibValueError, match="takes no NUL character"):
+        command(signer(hwi))
+    assert not Path(hwi[-1]).with_suffix(".argv.json").exists()
 
 
 def test_what_the_subprocess_can_do_wrong(tmp_path: Path) -> None:
@@ -781,10 +921,11 @@ def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
 def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
     """Every command sent is one of the six, spelled as HWI takes it.
 
-    The argv is read back from what crossed the process boundary, so what
-    is compared with the table is what a device would have received: the
+    What is compared with the table is what the stand-in parsed, standard
+    input included, so it is what a device would have received: the
     command name, the positional arguments in order, and the flags of
     each -- `--desc` being the one that is per-command rather than global.
+    A `--` ends the options, and everything after it is positional.
     """
     hwi = stand_in(tmp_path, {})
     device = signer(hwi)
@@ -792,26 +933,32 @@ def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
 
     ran = {}
     enumerate_devices(executable=hwi)
-    ran["enumerate"] = last_argv(hwi)
+    ran["enumerate"] = last_cli(hwi)
     device.xpub("m/84h/0h/0h")
-    ran["getxpub"] = last_argv(hwi)
+    ran["getxpub"] = last_cli(hwi)
+    device.sign_psbt(account_psbt(device)[0])
+    ran["signtx"] = last_cli(hwi)
     device.sign_message(b"hello", "m/84h/0h/0h/0/0")
-    ran["signmessage"] = last_argv(hwi)
+    ran["signmessage"] = last_cli(hwi)
     device.display_address(receive, 0)
-    ran["displayaddress"] = last_argv(hwi)
+    ran["displayaddress"] = last_cli(hwi)
     device.register_descriptor("wallet", receive)
-    ran["registerdescriptor"] = last_argv(hwi)
+    ran["registerdescriptor"] = last_cli(hwi)
+    assert set(ran) == set(HWI_COMMANDS)
 
     for command, argv in ran.items():
-        assert command in HWI_COMMANDS
         # the global flags come first, as HWI's parser wants them, and
-        # each is one of the three btclib passes
+        # each is one of those btclib passes
         flags = [arg for arg in argv[: argv.index(command)] if arg.startswith("-")]
         assert set(flags) <= set(HWI_GLOBAL_FLAGS)
         after = argv[argv.index(command) + 1 :]
-        positional = [arg for arg in after if not arg.startswith("-")]
-        command_flags = [arg for arg in after if arg.startswith("-")]
-        assert len(positional) == len(HWI_COMMANDS[command]) + len(command_flags)
+        split = after.index("--") if "--" in after else len(after)
+        options, operands = after[:split], after[split + 1 :]
+        positional = [arg for arg in options if not arg.startswith("-")]
+        command_flags = [arg for arg in options if arg.startswith("-")]
+        assert len(positional) + len(operands) == len(HWI_COMMANDS[command]) + len(
+            command_flags
+        )
         assert tuple(command_flags) == HWI_COMMAND_FLAGS.get(command, ())
 
     # and the chain is one of the names HWI takes
