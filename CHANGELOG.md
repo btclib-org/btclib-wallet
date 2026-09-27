@@ -344,6 +344,18 @@ The union seam in `RELEASE_NOTES.md` that no hook reports, the
 `.secrets.baseline` conflict on `generated_at` that costs a review round,
 and the `timeout` macOS does not ship.
 
+### `integration-hwi.yml` installs bitcoind with `.github`'s script
+
+It runs `install_bitcoind.py`, as the reusable workflow that
+`integration-bitcoind.yml` calls does, and the tree's own `install-bitcoind`
+action is dropped (issue btclib-org/.github#1373).
+
+### `codeql.yml`, `REPOSITORY.md` and `dependabot.yml` follow sections 10 and 11
+
+The aggregate accepts `analyze`'s lagging rows (issue btclib-org/.github#1395),
+signatures and SHA pinning are read back (issue btclib-org/.github#1409), and
+`pre-commit` is an ecosystem left unused (issue btclib-org/.github#1391).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

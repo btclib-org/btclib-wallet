@@ -118,12 +118,34 @@ jobs:
           enable-cache: true
       # the signing test spends a regtest coin, so this job needs the
       # node integration-bitcoind.yml's regtest job needs, from the same pin
+      # and installed by the same script: btclib-org/.github's
+      # install_bitcoind.py, which its reusable-integration-bitcoind.yml
+      # runs for that job. Checked out beside this tree rather than over
+      # it, `path:` keeping the two apart; `main` is the trust
+      # integration-bitcoind.yml already extends by calling that workflow
+      # at @main, and the checkout is sparse, so what lands is
+      # .github/scripts and that repository's root files
+      - name: Check out btclib-org/.github's scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/.github
+          ref: main
+          path: standard
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # --no-project --python 3.15: the script takes the standard library
+      # alone, so it runs on an interpreter uv fetches and not in this
+      # tree's environment. It prints the daemon's path and nothing else,
+      # and the step prints the version that answered, which is what dates
+      # a green run
       - name: Install bitcoind
         id: bitcoind
-        uses: ./.github/actions/install-bitcoind # zizmor: ignore[self-repository]
-        with:
-          version: ${{ env.BITCOIND_VERSION }}
-          sha256: ${{ env.BITCOIND_SHA256 }}
+        run: |
+          daemon=$(uv run --no-project --python 3.15 \
+            standard/.github/scripts/install_bitcoind.py \
+            "$BITCOIND_VERSION" "$BITCOIND_SHA256")
+          echo "path=$daemon" >> "$GITHUB_OUTPUT"
+          "$daemon" -version | head -n 1
       # what the emulator is linked against, and patchelf to make it
       # runnable at all: the published binary is built under nix, so its
       # interpreter and its RUNPATH name /nix/store paths that exist on
@@ -353,12 +375,23 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
+      # the node, as the trezor job installs it and for its reasons
+      - name: Check out btclib-org/.github's scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/.github
+          ref: main
+          path: standard
+          persist-credentials: false
+          sparse-checkout: .github/scripts
       - name: Install bitcoind
         id: bitcoind
-        uses: ./.github/actions/install-bitcoind # zizmor: ignore[self-repository]
-        with:
-          version: ${{ env.BITCOIND_VERSION }}
-          sha256: ${{ env.BITCOIND_SHA256 }}
+        run: |
+          daemon=$(uv run --no-project --python 3.15 \
+            standard/.github/scripts/install_bitcoind.py \
+            "$BITCOIND_VERSION" "$BITCOIND_SHA256")
+          echo "path=$daemon" >> "$GITHUB_OUTPUT"
+          "$daemon" -version | head -n 1
       # speculos runs an ARM binary through qemu's user-mode emulation,
       # and the wheel does not carry qemu: it execs `qemu-arm-static` off
       # the PATH
