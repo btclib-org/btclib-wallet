@@ -6,6 +6,7 @@
 
 import math
 import secrets
+import string
 from io import StringIO
 from typing import Any
 
@@ -25,6 +26,11 @@ from btclib_wallet.mnemonic import (
     wordlist_indexes_from_bin_str_entropy,
 )
 from btclib_wallet.mnemonic.entropy import _bits, _bits_per_digit
+
+# the refusals of a string entropy that is not ASCII digits (issue #103)
+_NOT_BINARY = "invalid entropy: not a binary 0/1 string"
+_NOT_DECIMAL = "invalid entropy: not ASCII decimal digits"
+_NOT_HEX = "invalid entropy: what follows 0x is not ASCII hex digits"
 
 
 def test_indexes() -> None:
@@ -62,8 +68,10 @@ def test_an_index_no_word_answers_to_is_refused() -> None:
     )
 
     for out_of_range in (-1, 2048, 2**32):
-        with pytest.raises(BTClibValueError, match="invalid index: "):
+        with pytest.raises(BTClibValueError) as excinfo:
             bin_str_entropy_from_wordlist_indexes([*good, out_of_range], 2048)
+        # the bound and not the index, a word of the mnemonic
+        assert str(excinfo.value) == "invalid index: not in [0, 2048)"
     # the same index, in the base that does have a word for it
     assert bin_str_entropy_from_wordlist_indexes([2048], 4096)
 
@@ -116,14 +124,15 @@ def test_conversions() -> None:
 
     # a decimal string starting with "0" and a digit below "b": "01" sorts
     # below "0b", so `== "0b"` weakened to `<=` reads a plain decimal as
-    # binary too -- "010" is 10 in decimal and 2 read as binary
+    # binary too -- "010" is 10 in decimal, and as binary its first two
+    # characters are taken for the prefix, leaving "0"
     assert bin_str_entropy_from_int("010", 4) == "1010"
-    # neither prefixed nor a valid plain decimal: `int("ab")` raises, so
-    # `== "0x"` weakened to `>=` is what a string of only letters tells
-    # apart -- "ab" sorts above "0x" and parses as hex (171) where the
-    # unweakened check falls through to `int("ab")` and raises instead
-    with pytest.raises(BTClibValueError, match="not a base 10 number"):
+    # neither prefixed nor a valid plain decimal: "ab" sorts above "0x",
+    # so `== "0x"` weakened to `>=` sends it to the hex branch, whose
+    # refusal is another message
+    with pytest.raises(BTClibValueError) as excinfo:
         bin_str_entropy_from_int("ab", 8)
+    assert str(excinfo.value) == _NOT_DECIMAL
 
     max_bits = max(_bits)
 
@@ -196,9 +205,10 @@ def test_exceptions() -> None:
     assert len(entropy) == 224
     assert int(entropy, 2) == int_entropy211
 
-    err_msg = "negative entropy: "
-    with pytest.raises(BTClibValueError, match=err_msg):
+    # the value stays out of the message, being seed material
+    with pytest.raises(BTClibValueError) as excinfo:
         bin_str_entropy_from_entropy(-1 * int_entropy211)
+    assert str(excinfo.value) == "negative entropy"
 
     bytes_entropy216 = int_entropy211.to_bytes(27, byteorder="big", signed=False)
     entropy = bin_str_entropy_from_entropy(bytes_entropy216, 214)
@@ -217,8 +227,9 @@ def test_exceptions() -> None:
     with pytest.raises(BTClibTypeError, match="invalid octets type: tuple"):
         bin_str_entropy_from_entropy(())  # type: ignore[arg-type]
 
-    with pytest.raises(BTClibValueError, match="not a base 10 number"):
+    with pytest.raises(BTClibValueError) as excinfo:
         bin_str_entropy_from_int("not an int")
+    assert str(excinfo.value) == _NOT_DECIMAL
 
     with pytest.raises(BTClibTypeError, match="invalid entropy type: int"):
         bin_str_entropy_from_str(3)  # type: ignore[arg-type]
@@ -266,10 +277,10 @@ def test_collect_rolls_refuses_a_negative_or_a_short_roll(
 
     D30's base is 16 (2**4, the highest power of 2 below 30), so 5 is a
     usable roll and not the boundary -- `0 < roll <= base` weakened to
-    `0 != roll <= base` would accept `-1` (nonzero, and `-1 <= 16`), and
-    weakened to `0 < roll == base` would refuse every usable roll that is
-    not 16 itself, which the D120 vectors above never exercise: every one
-    of their manual rolls is 64, D120's own base.
+    `0 < roll == base` would refuse every usable roll that is not 16
+    itself, which the D120 vectors above never exercise: every one of
+    their manual rolls is 64, D120's own base. `-1` is no ASCII decimal
+    digits, so it is asked again before the bounds are read.
     """
     monkeypatch.setattr("sys.stdin", StringIO("30\n-1\n0\n5\n"))
     dice_sides, dice_rolls = collect_rolls(4)
@@ -382,9 +393,10 @@ def test_bin_str_entropy_from_rolls() -> None:
 
     rolls = [secrets.randbelow(base) + 1 for _ in range(roll_number)]
     rolls[1] = dice_base + 1
-    err_msg = "invalid roll: "  # 21 is not in [1-20]
-    with pytest.raises(BTClibValueError, match=err_msg):
+    # the bound and not the roll
+    with pytest.raises(BTClibValueError) as excinfo:
         bin_str_entropy_from_rolls(bits, dice_base, rolls)
+    assert str(excinfo.value) == f"invalid roll: not in [1-{dice_base}]"
 
     rolls = [secrets.randbelow(base) + 1 for _ in range(roll_number)]
     err_msg = "invalid dice base: "
@@ -561,3 +573,127 @@ def test_a_bin_str_that_is_no_str() -> None:
         if wrong is not None:
             with pytest.raises(BTClibTypeError, match="invalid entropy type: "):
                 bin_str_entropy_from_random(128, wrong)
+
+
+# what `str.strip()` with no argument also takes and Bitcoin Core's IsSpace
+# does not
+_NON_CORE_SPACES = (
+    "\N{NO-BREAK SPACE}",
+    "\N{IDEOGRAPHIC SPACE}",
+    "\N{LINE SEPARATOR}",
+    "\N{INFORMATION SEPARATOR FOUR}",
+)
+# ten in ARABIC-INDIC and in FULLWIDTH digits, both of which `int` reads
+_ARABIC_INDIC_TEN = "\N{ARABIC-INDIC DIGIT ONE}\N{ARABIC-INDIC DIGIT ZERO}"
+_FULLWIDTH_TEN = "\N{FULLWIDTH DIGIT ONE}\N{FULLWIDTH DIGIT ZERO}"
+
+
+def test_a_string_entropy_is_read_in_ascii_digits_alone() -> None:
+    """Only ASCII digits are read, and only ASCII whitespace is stripped.
+
+    `int` takes the digit-grouping underscore, a sign and every Unicode
+    decimal digit, and `str.strip()` every character `isspace` counts, so
+    each of these read as a number (issue #103). The refusal names no
+    part of the string, which is seed material.
+    """
+    refused = {
+        _NOT_HEX: [
+            "0x1_0",
+            "0x_10",
+            "0x" + _ARABIC_INDIC_TEN,
+            "0x" + _FULLWIDTH_TEN,
+            "0x",
+            "0x 10",
+            "0x+10",
+            "0x-10",
+            # padding `isspace` counts and ASCII does not, after the
+            # digits: the string still starts with 0x
+            *(f"0x10{pad}" for pad in _NON_CORE_SPACES),
+        ],
+        _NOT_DECIMAL: [
+            "1_6",
+            "\N{ARABIC-INDIC DIGIT ONE}\N{ARABIC-INDIC DIGIT SIX}",
+            "\N{FULLWIDTH DIGIT ONE}\N{FULLWIDTH DIGIT SIX}",
+            "+16",
+            "-16",
+            "-0x10",
+            "",
+            " ",
+            *(f"{pad}16{pad}" for pad in _NON_CORE_SPACES),
+            # ahead of the prefix it is no prefix, so the decimal refusal
+            *(f"{pad}0x10" for pad in _NON_CORE_SPACES),
+        ],
+        _NOT_BINARY: [
+            "0b1_0000",
+            "0b" + "\N{ARABIC-INDIC DIGIT ONE}" + "\N{ARABIC-INDIC DIGIT ZERO}" * 4,
+            "0b+10000",
+            "0b 10000",
+            "0b0b10000",
+            *(f"0b10000{pad}" for pad in _NON_CORE_SPACES),
+        ],
+    }
+    for err_msg, spellings in refused.items():
+        for spelling in spellings:
+            with pytest.raises(BTClibValueError) as excinfo:
+                bin_str_entropy_from_int(spelling, 128)
+            assert str(excinfo.value) == err_msg
+
+    # what stays: ASCII whitespace around each spelling, and upper case
+    sixteen = bin_str_entropy_from_int(16, 128)
+    ws = string.whitespace
+    for spelling in ("0x10", "0X10", "0b10000", "0B10000", "16", "016"):
+        assert bin_str_entropy_from_int(f"{ws}{spelling}{ws}", 128) == sixteen
+    hex_digits = "0123456789abcdefABCDEF"
+    raw = bin_str_entropy_from_int(int(hex_digits, 16), 128)
+    assert bin_str_entropy_from_int("0x" + hex_digits, 128) == raw
+
+
+def test_raw_entropy_is_ascii_0_and_1_alone() -> None:
+    """A binary string's every character is an ASCII "0" or "1".
+
+    `int(x, 2)` also reads a sign, the "0b" prefix, whitespace around
+    it, the underscore and the Unicode digits one and zero, and
+    `bin_str_entropy_from_str` then handed the string back as raw
+    entropy, those characters counted in its length (issue #103).
+    """
+    for not_raw in (
+        "+" + "1" * 127,
+        "-" + "1" * 127,
+        "0b" + "1" * 126,
+        "1_" + "1" * 126,
+        " " + "1" * 127,
+        "1" * 127 + "\N{IDEOGRAPHIC SPACE}",
+        "\N{ARABIC-INDIC DIGIT ONE}" * 128,
+    ):
+        for read in (
+            bin_str_entropy_from_str,
+            bin_str_entropy_from_entropy,
+            bytes_entropy_from_str,
+            lambda x: wordlist_indexes_from_bin_str_entropy(x, 2048),
+            lambda x: bin_str_entropy_from_random(128, x),
+        ):
+            with pytest.raises(BTClibValueError) as excinfo:
+                read(not_raw)
+            assert str(excinfo.value) == _NOT_BINARY
+
+
+def test_collect_rolls_reads_ascii_digits_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dice count or a roll that is not ASCII decimal digits is asked again.
+
+    `int` read "1_2" as 12, U+FF14 (FULLWIDTH DIGIT FOUR) as 4, U+0663
+    (ARABIC-INDIC DIGIT THREE) as 3 and "+2" as 2 (issue #103). ASCII
+    whitespace around an answer is still stripped.
+    """
+    answers = [
+        "1_2",
+        "\N{FULLWIDTH DIGIT FOUR}",
+        " 8\t",
+        "\N{ARABIC-INDIC DIGIT THREE}",
+        "+2",
+        "5\N{IDEOGRAPHIC SPACE}",
+        " 5\t",
+    ]
+    monkeypatch.setattr("sys.stdin", StringIO("".join(f"{a}\n" for a in answers)))
+    assert collect_rolls(3) == (8, [5])

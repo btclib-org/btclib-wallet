@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import secrets
+import string
 from collections.abc import Iterable, Sequence
 from hashlib import sha512
 
@@ -68,24 +69,34 @@ def _bits_per_digit(base: int) -> int:
     return base.bit_length() - 1
 
 
+def _is_ascii_digits(text: str, digits: str) -> bool:
+    """Return True for a non-empty string of those ASCII digits alone.
+
+    `int(text, base)` reads more than digits: the digit-grouping
+    underscore of Python's number literals, a sign, the prefix of its own
+    base, whitespace around them, U+3000 among it, and every Unicode
+    decimal digit, U+0661 (ARABIC-INDIC ONE) as readily as "1". Each is a
+    second spelling of one number, and so of one seed, which is why the
+    text is checked here before `int` reads it.
+    """
+    return bool(text) and all(c in digits for c in text)
+
+
 def _int_from_bin_str(entropy: BinStr) -> int:
     """Return the number a binary 0/1 string spells, or refuse the string.
 
-    `int(x, 2)` answers what is no binary string with the bare
-    ValueError "invalid literal for int() with base 2", which names
-    neither the parameter nor this library, and what is no string at all
-    with a bare TypeError, bytes and bytearray excepted: those it reads as
-    the digits they spell.
+    Only ASCII "0" and "1" are digits of it, as `_is_ascii_digits` says;
+    what is no string at all is refused too, bytes and bytearray
+    included, which `int(x, 2)` reads as the digits they spell.
 
-    Neither message carries the value, and neither does this one: raw
-    entropy is seed material, and every error in this module says a
-    length or a count and never the digits (issue btclib-org/btclib#137).
+    The refusal does not carry the value: raw entropy is seed material,
+    and every error in this module says a length or a count and never
+    the digits (issue btclib-org/btclib#137).
     """
     assert_type(entropy, str, "entropy")
-    try:
-        return int(entropy, 2)
-    except ValueError as e:
-        raise BTClibValueError("invalid entropy: not a binary 0/1 string") from e
+    if not _is_ascii_digits(entropy, "01"):
+        raise BTClibValueError("invalid entropy: not a binary 0/1 string")
+    return int(entropy, 2)
 
 
 def wordlist_indexes_from_bin_str_entropy(entropy: BinStr, base: int) -> list[int]:
@@ -120,14 +131,15 @@ def bin_str_entropy_from_wordlist_indexes(indexes: Sequence[int], base: int) -> 
     carried: base-`base` arithmetic accepts any number as a digit, so
     2048 in a 2048-word list is not an error but a carry into the digit
     above it -- entropy nothing spells, out of a function whose whole
-    job is to say what a mnemonic means.
+    job is to say what a mnemonic means. The refusal names the bound and
+    not the index, which with the wrong `base` is a word of the mnemonic.
     """
     entropy = 0
     for index in indexes:
         if not is_integer(index):
             raise BTClibTypeError(f"invalid index type: {type(index).__name__}")
         if not 0 <= index < base:
-            raise BTClibValueError(f"invalid index: {index}, not in [0, {base})")
+            raise BTClibValueError(f"invalid index: not in [0, {base})")
         entropy = entropy * base + index
 
     binentropy = f"{entropy:b}"
@@ -223,9 +235,11 @@ def bin_str_entropy_from_int(
 ) -> BinStr:
     """Return raw entropy from the input integer entropy.
 
-    Input entropy can be expressed as int or string starting with
-    "0x"/"0b"; it is front-padded with zeros digits as much as necessary
-    to satisfy the bit-size requirement.
+    Input entropy can be expressed as int or as a string of ASCII
+    digits: binary after "0b", hex after "0x", and decimal otherwise,
+    with only ASCII whitespace stripped around it. It is front-padded
+    with zeros digits as much as necessary to satisfy the bit-size
+    requirement.
 
     If more bits than required are provided, the leftmost ones are
     retained.
@@ -233,23 +247,25 @@ def bin_str_entropy_from_int(
     Default bit-sizes are 128, 160, 192, 224, 256, or 512 bits.
     """
     if isinstance(int_entropy, str):
-        int_entropy = int_entropy.strip().lower()
-        if int_entropy[:2] == "0b":
-            int_entropy = _int_from_bin_str(int_entropy)
+        # `string.whitespace` is Bitcoin Core's IsSpace, where a bare
+        # `strip()` also takes U+00A0, U+3000 and U+001C. No refusal
+        # below quotes the string, which is seed material
+        text = int_entropy.strip(string.whitespace).lower()
+        if text[:2] == "0b":
+            int_entropy = _int_from_bin_str(text[2:])
+        elif text[:2] == "0x":
+            hex_digits = text[2:]
+            if not _is_ascii_digits(hex_digits, string.hexdigits):
+                err_msg = "invalid entropy: what follows 0x is not ASCII hex digits"
+                raise BTClibValueError(err_msg)
+            int_entropy = int(hex_digits, 16)
         else:
-            # the two `int` readings left, and the same bare ValueError
-            # out of both: "invalid literal for int() with base 16",
-            # naming neither the parameter nor this library -- and
-            # carrying the digits, which the message here does not
-            base = 16 if int_entropy[:2] == "0x" else 10
-            try:
-                int_entropy = int(int_entropy, base)
-            except ValueError as e:
-                err_msg = f"invalid entropy: not a base {base} number"
-                raise BTClibValueError(err_msg) from e
+            if not _is_ascii_digits(text, string.digits):
+                raise BTClibValueError("invalid entropy: not ASCII decimal digits")
+            int_entropy = int(text, 10)
 
     if int_entropy < 0:
-        raise BTClibValueError(f"negative entropy: {int_entropy}")
+        raise BTClibValueError("negative entropy")
 
     # if a single int, make it a tuple
     if isinstance(bits, int):
@@ -304,7 +320,8 @@ def collect_rolls(bits: int) -> tuple[int, list[int]]:
     Interactive on purpose, input() and print() being its interface:
     the caller gets (dice sides, the rolls that count). Rolls beyond
     a power of two are discarded and asked again, carrying no whole
-    bits.
+    bits, and so is an answer that is not ASCII decimal digits once
+    ASCII whitespace is stripped.
 
     The automated mode rolls with `secrets`, and must keep doing so.
     `bip85.rolls_from_root_key` derives rolls as well, and derives them
@@ -327,9 +344,10 @@ def collect_rolls(bits: int) -> tuple[int, list[int]]:
             if dice_sides_str.startswith("a"):
                 automate = True
                 dice_sides_str = dice_sides_str[1:]
-            try:
+            dice_sides_str = dice_sides_str.strip(string.whitespace)
+            if _is_ascii_digits(dice_sides_str, string.digits):
                 dice_sides = int(dice_sides_str)
-            except ValueError:
+            else:
                 dice_sides = 0
 
     bits_per_roll = _bits_per_digit(dice_sides)
@@ -342,14 +360,12 @@ def collect_rolls(bits: int) -> tuple[int, list[int]]:
     for i in range(min_roll_number):
         roll = 0
         while not 0 < roll <= base:
-            try:
-                if automate:
-                    roll_str = str(1 + secrets.randbelow(dice_sides))
-                else:
-                    roll_str = input(f"roll #{i + 1}/{min_roll_number}: ")
-                roll = int(roll_str)
-            except ValueError:
-                roll = 0
+            if automate:
+                roll_str = str(1 + secrets.randbelow(dice_sides))
+            else:
+                roll_str = input(f"roll #{i + 1}/{min_roll_number}: ")
+                roll_str = roll_str.strip(string.whitespace)
+            roll = int(roll_str) if _is_ascii_digits(roll_str, string.digits) else 0
         rolls.append(roll)
     print(f"collected {min_roll_number} usable D{dice_sides} rolls")
 
@@ -419,10 +435,10 @@ def bin_str_entropy_from_rolls(
     min_roll_number = math.ceil(bits / bits_per_roll)
     i = 0
     for roll in rolls:
-        # reject invalid rolls not in [1-dice_sides]
+        # reject invalid rolls not in [1-dice_sides], naming the bound and
+        # not the roll, which with the wrong `dice_sides` is a real one
         if not 0 < roll <= dice_sides:
-            msg = f"invalid roll: {roll} is not in [1-{dice_sides}]"
-            raise BTClibValueError(msg)
+            raise BTClibValueError(f"invalid roll: not in [1-{dice_sides}]")
 
         # collect only usable rolls in [1-base]
         if 0 < roll <= base:

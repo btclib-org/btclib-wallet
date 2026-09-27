@@ -149,6 +149,26 @@ padding after the path (issue #107). For such a spelling of an address a
 wallet handed out, `address in wallet` answers `False` and
 `Wallet.address_info` raises. Strip that padding before passing the text.
 
+`mnemonic.entropy.bin_str_entropy_from_int` refuses with a
+`BTClibValueError` a string entropy that is not ASCII digits -- binary after
+`0b`, hex after `0x`, decimal otherwise -- once space, tab, newline,
+carriage return, vertical tab and form feed are stripped around it, where
+`int` read `0x1_0`, `1_6`, `+16` and fullwidth or Arabic-Indic digits as 16
+and U+00A0 or U+3000 was stripped too. The functions reading a binary-string
+entropy, `bin_str_entropy_from_str`, `bytes_entropy_from_str` and
+`bin_str_entropy_from_entropy` among them, refuse one holding anything but
+ASCII `0` and `1` -- a sign, `0b`, whitespace, an underscore -- which `int`
+read as binary; `bytes_entropy_from_str` raised a bare `OverflowError` on a
+leading `-`. Pass ASCII digits alone. The refusals read `invalid entropy:
+what follows 0x is not ASCII hex digits` and `invalid entropy: not ASCII
+decimal digits`, where they said `not a base 16 number` and `not a base 10
+number`, and a negative entropy's reads `negative entropy`, without the
+number. `bin_str_entropy_from_wordlist_indexes` and
+`bin_str_entropy_from_rolls` name the range and not the value of an index or
+a roll outside it: `invalid index: not in [0, 2048)`, `invalid roll: not in
+[1-6]`. Match `invalid entropy`, `negative entropy`, `invalid index` and
+`invalid roll` alone.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

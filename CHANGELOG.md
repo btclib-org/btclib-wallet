@@ -398,6 +398,12 @@ the check that the node's tests ran (issue btclib-org/.github#1419).
 counts; `string.whitespace` is Bitcoin Core's `IsSpace`. `tx_or_psbt_from_any`
 refuses non-ASCII text with `BTClibValueError`, not `ValueError` (closes #102).
 
+### `mnemonic.entropy` reads a string entropy in ASCII digits alone
+
+`int` read `0x1_0`, `1_6`, `+16`, non-ASCII digits and U+3000 padding as 16,
+`collect_rolls` read `+2` and those digits, and a binary string took `-`, `0b`
+or `_`. No refusal quotes the entropy, an index or a roll (closes #103).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
