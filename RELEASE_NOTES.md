@@ -76,6 +76,14 @@ what `max_fee_rate`, 0.10 BTC/kvB unless raised, asks of the estimated
 virtual size, however far below `max_fee` it is; pass a higher
 `max_fee_rate` where such a fee is meant.
 
+A psbt with an input whose `witness_utxo` is not, in amount and script,
+the output of its `non_witness_utxo` the outpoint names is refused with a
+`BTClibValueError` by `Psbt.assert_valid`, and so by `Psbt.parse` and
+every function validating the psbt, where it was accepted and the
+`witness_utxo` read; set it to that output, or drop it.
+`bip322.assert_as_valid` refuses a proof of funds in which it contradicts
+the transaction an earlier input carries.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

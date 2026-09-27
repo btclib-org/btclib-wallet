@@ -55,6 +55,7 @@ from btclib_wallet.psbt.psbt import (
     OUTPUTS_MODIFIABLE,
     PSBT_GLOBAL_UNSIGNED_TX,
     PSBT_GLOBAL_VERSION,
+    _prev_out,
     _sig_hash_from_psbt_in,
     _sort_or_shuffle,
     leaf_script,
@@ -3116,6 +3117,63 @@ def test_the_outpoint_names_an_output_of_the_non_witness_utxo() -> None:
     err_msg = "outpoint vout out of range for the non-witness utxo"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
+
+
+def test_a_witness_utxo_has_to_be_the_output_the_outpoint_names() -> None:
+    """A witness utxo contradicting the non-witness utxo beside it is refused.
+
+    The non-witness utxo is vouched for by the outpoint's tx_id and the
+    witness utxo by nothing, and a fee computed from a false amount is
+    not the fee the transaction pays.
+    """
+    prev_out = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))
+    tx, prev_tx = _spending_tx(prev_out)
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].non_witness_utxo = prev_tx
+    # the same output, built for another network: the network is in
+    # neither serialized field, so it is no contradiction
+    script = prev_out.script_pub_key.script
+    psbt.inputs[0].witness_utxo = TxOut(100_000, ScriptPubKey(script, "testnet"))
+    assert psbt.inputs[0].witness_utxo != prev_out
+    psbt.assert_signable()
+    assert prevouts(psbt) == [prev_out]
+
+    err_msg = "mismatched witness utxo / non-witness utxo output"
+    other_script = ScriptPubKey.p2wpkh(PubKeyData(_OTHER_PUB_KEY))
+    for witness_utxo in (
+        TxOut(1_000, prev_out.script_pub_key),
+        TxOut(100_000, other_script),
+    ):
+        psbt.inputs[0].witness_utxo = witness_utxo
+        with pytest.raises(BTClibValueError, match=err_msg):
+            prevouts(psbt)
+        with pytest.raises(BTClibValueError, match=err_msg):
+            Psbt.parse(psbt.serialize(check_validity=False))
+
+
+def test_the_output_spent_is_read_from_the_non_witness_utxo() -> None:
+    """Where both utxo fields are there, the vouched one is the answer.
+
+    `Psbt.assert_valid` refuses the two disagreeing, so what is asked
+    here is `_prev_out` itself, on an input nothing has validated.
+    """
+    prev_out = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))
+    _, prev_tx = _spending_tx(prev_out)
+    psbt_in = PsbtIn(
+        non_witness_utxo=prev_tx,
+        witness_utxo=TxOut(1_000, prev_out.script_pub_key),
+        previous_tx_id=prev_tx.id,
+        output_index=0,
+    )
+    assert _prev_out(psbt_in) == prev_out
+
+    # an index past the transaction's vout is no output, whatever the
+    # witness utxo says
+    psbt_in.output_index = len(prev_tx.vout)
+    assert _prev_out(psbt_in) is None
+
+    psbt_in.non_witness_utxo = None
+    assert _prev_out(psbt_in) == TxOut(1_000, prev_out.script_pub_key)
 
 
 def _taproot_signed(description: str) -> Psbt:

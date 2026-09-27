@@ -555,6 +555,21 @@ def test_the_utxo_of_an_input_is_the_transaction_its_outpoint_names(
         view.input(0)
 
 
+def test_a_witness_utxo_contradicting_the_non_witness_utxo_is_refused() -> None:
+    """The input's other question about its utxo, asked of one map."""
+    prev_tx = Tx(1, 0, [TxIn(OutPoint("22" * 32, 0), b"\x51", 0)], [TxOut(9, b"\x51")])
+    tx = Tx(2, 0, [TxIn(OutPoint(prev_tx.id, 0), b"", 0)], [TxOut(1, b"\x51")])
+    psbt = Psbt.from_tx(tx, check_validity=False)
+    psbt.inputs[0].non_witness_utxo = prev_tx
+    psbt.inputs[0].witness_utxo = TxOut(8, b"\x51")
+    view = PsbtView(psbt.serialize(check_validity=False))
+
+    err_msg = "mismatched witness utxo / non-witness utxo output"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        view.input(0)
+    assert view.input(0, check_validity=False).witness_utxo == TxOut(8, b"\x51")
+
+
 def test_a_lock_time_no_transaction_can_have_is_refused() -> None:
     """One input requiring a height and another a time, read one at a time.
 

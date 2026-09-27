@@ -657,6 +657,18 @@ def test_proof_of_funds_reuses_an_earlier_non_witness_utxo() -> None:
         with pytest.raises(BTClibValueError, match="no utxo for input 1"):
             bip322._psbt_prevouts(psbt)
 
+    # a witness utxo beside the transaction an earlier input carries,
+    # which `Psbt.assert_valid` cannot compare: the transaction decides
+    psbt.inputs[1].output_index = 0
+    psbt.inputs[2].witness_utxo = funding.vout[1]
+    assert bip322._psbt_prevouts(psbt)[2] == funding.vout[1]
+    psbt.inputs[2].witness_utxo = TxOut(1, funding.vout[1].script_pub_key)
+    with pytest.raises(BTClibValueError, match="input 2: mismatched witness utxo"):
+        bip322._psbt_prevouts(psbt)
+    psbt.inputs[2].witness_utxo = TxOut(1000, spend.vout[0].script_pub_key)
+    with pytest.raises(BTClibValueError, match="input 2: mismatched witness utxo"):
+        bip322._psbt_prevouts(psbt)
+
 
 def _sign_with(msg: bytes, script_type: str, hash_type: int) -> tuple[str, bip322.Sig]:
     """Sign as `bip322.sign` does, with the hash type the caller names.

@@ -685,25 +685,45 @@ def _assert_valid_input_fields(psbt_in: PsbtIn, version: int, i: int) -> None:
 
 
 def _assert_valid_utxo(psbt_in: PsbtIn) -> None:
-    """Raise unless a non-witness utxo is the transaction the outpoint names.
+    """Raise unless the input's utxo fields are of the output it spends.
 
-    Two questions about one field, both of them about the input alone,
-    which is why a caller reading one input at a time can ask them --
-    `btclib_wallet.psbt.psbt_view` does, on the map it has just read.
+    Questions about the input alone, which is why a caller reading one
+    input at a time can ask them -- `btclib_wallet.psbt.psbt_view` does,
+    on the map it has just read.
 
     The transaction has to be the one the outpoint's tx_id names, and the
     outpoint has to name one of its outputs: an index past its vout is an
     IndexError to everything that reads the spent output --
     `_signable_payload`, the Finalizer's sig_hash -- where malformed
     input owes the caller a BTClibValueError.
+
+    A witness utxo beside it has to be that output, amount and script.
+    The transaction is vouched for by the outpoint's tx_id and the
+    witness utxo by nothing, so a disagreement means the witness utxo is
+    false. It is refused rather than read past: BIP174 allows both fields
+    on one input and names no winner, its own simple Signer reading the
+    witness utxo first and Bitcoin Core's `PSBTInput::GetUTXO` the
+    non-witness one, so two conforming readers of one such psbt would
+    sign against different outputs.
     """
     non_witness_utxo = psbt_in.non_witness_utxo
     if non_witness_utxo is None:
         return
     if non_witness_utxo.id != psbt_in.previous_tx_id:
         raise BTClibValueError("mismatched non-witness utxo / outpoint tx_id")
-    if (psbt_in.output_index or 0) >= len(non_witness_utxo.vout):
+    vout = psbt_in.output_index or 0
+    if vout >= len(non_witness_utxo.vout):
         raise BTClibValueError("outpoint vout out of range for the non-witness utxo")
+    witness_utxo = psbt_in.witness_utxo
+    spent = non_witness_utxo.vout[vout]
+    # the serialized fields and not TxOut equality, which also compares
+    # the network a ScriptPubKey was built for: that is in neither field
+    # and is not what a signature commits to
+    if witness_utxo is not None and (
+        witness_utxo.value != spent.value
+        or witness_utxo.script_pub_key.script != spent.script_pub_key.script
+    ):
+        raise BTClibValueError("mismatched witness utxo / non-witness utxo output")
 
 
 def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None:
@@ -745,13 +765,12 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
 def _signable_payload(psbt_in: PsbtIn) -> bytes:
     """Return the hash the input's script_pub_key commits to.
 
-    Which utxo the input carries is which kind of input it is. A
-    witness_utxo is the spent output itself, and it has to be a witness
-    one: p2sh is accepted only as the wrapper, so what is typed then is
-    the redeem script, while the payload stays the p2sh one -- the
-    hash160 the caller checks that redeem script against. A
-    non_witness_utxo is the whole previous transaction, and the output
-    being spent is the one the input's own outpoint names.
+    The script is read from the output `_prev_out` answers, the vouched
+    one where both utxo fields are there. A witness_utxo also says that
+    output is a witness one: p2sh is accepted only as the wrapper, so
+    what is typed then is the redeem script, while the payload stays the
+    p2sh one -- the hash160 the caller checks that redeem script
+    against. A non_witness_utxo alone leaves every kind open.
 
     p2tr is one of the three because it is a witness kind, which is the
     whole of the rule: BIP174 wrote the rule when witness v0 was the
@@ -760,23 +779,18 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     hash160 the caller checks next, 20 bytes never equalling the 32 of
     an output key.
     """
-    if witness_utxo := psbt_in.witness_utxo:
-        script_type, payload = type_and_payload(witness_utxo.script_pub_key.script)
+    prev_out = _prev_out(psbt_in)
+    if prev_out is None:
+        err_msg = "missing script_pub_key"
+        raise BTClibValueError(err_msg)
+
+    script_type, payload = type_and_payload(prev_out.script_pub_key.script)
+    if psbt_in.witness_utxo is not None:
         if script_type == "p2sh":
             script_type, _ = type_and_payload(psbt_in.redeem_script)
         if script_type not in {"p2wpkh", "p2wsh", "p2tr"}:
             raise BTClibValueError("script type not in ('p2wpkh', 'p2wsh', 'p2tr')")
-        return payload
-
-    if psbt_in.non_witness_utxo:
-        script_pub_key = psbt_in.non_witness_utxo.vout[
-            psbt_in.output_index or 0
-        ].script_pub_key
-        _, payload = type_and_payload(script_pub_key.script)
-        return payload
-
-    err_msg = "missing script_pub_key"
-    raise BTClibValueError(err_msg)
+    return payload
 
 
 def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
@@ -1845,18 +1859,22 @@ def _prev_out(psbt_in: PsbtIn) -> TxOut | None:
     the non_witness_utxo the whole transaction it belongs to, indexed by
     the outpoint.
 
+    Where both are there the non_witness_utxo is read, as Bitcoin Core's
+    `PSBTInput::GetUTXO` reads it: its tx_id is the outpoint's, and
+    nothing ties the witness_utxo to the outpoint at all.
+    `_assert_valid_utxo` refuses the two disagreeing, so on a psbt that
+    passed Psbt.assert_valid the choice changes nothing.
+
     The index is bound-checked rather than trusted. Psbt.assert_valid
     does check it against that transaction's vout, and every caller here
-    runs after it, so this is belt and braces -- but None is a answer both
-    callers already handle, and an IndexError out of a private helper is
-    not.
+    runs after it, so this is belt and braces -- but None is an answer
+    its callers handle, and an IndexError out of a private helper is not.
     """
-    if psbt_in.witness_utxo:
+    non_witness_utxo = psbt_in.non_witness_utxo
+    if non_witness_utxo is None:
         return psbt_in.witness_utxo
     vout = psbt_in.output_index or 0
-    if psbt_in.non_witness_utxo and vout < len(psbt_in.non_witness_utxo.vout):
-        return psbt_in.non_witness_utxo.vout[vout]
-    return None
+    return non_witness_utxo.vout[vout] if vout < len(non_witness_utxo.vout) else None
 
 
 def _spent_script(psbt_in: PsbtIn) -> bytes:

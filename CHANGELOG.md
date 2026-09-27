@@ -294,6 +294,12 @@ A message, a policy name or a registration starting with `-` reaches HWI
 as a value (closes #45), a psbt goes to its standard input rather than to
 a size-capped argv (closes #51), and a NUL in an argument is refused.
 
+### A psbt input's witness utxo has to be the output its non-witness utxo names
+
+`Psbt.assert_valid` refuses one differing in amount or script, and the
+spent output is read from `non_witness_utxo` as Bitcoin Core reads it;
+`bip322` does both against an earlier input's transaction (closes #40).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
