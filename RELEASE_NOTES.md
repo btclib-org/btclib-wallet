@@ -208,6 +208,18 @@ were absent. Remove the `/`; the refusal reads `invalid derivation index`.
 `BIP32KeyOrigin.from_description`, whose reading of a path is the lenient
 one, reads `deadbeef/` as `deadbeef`.
 
+`Psbt.b64decode`, `bip322.Sig.b64decode`, and `bip322.verify` and
+`assert_as_valid` for the signature, refuse with a `BTClibValueError`
+base64 that is not the text `base64.b64encode` writes for its bytes, where
+they read those bytes: a bit set in what the last character leaves over,
+`YR==` read as `YQ==`, and on CPython and PyPy 3.11 an `=` after a whole
+group. The refusal reads `invalid base64 encoding: not canonical`, and
+`bip322.verify` raises it for a legacy signature so encoded, where it
+answered `False`. `tx_or_psbt.tx_or_psbt_from_any` refuses such a `str` as
+`neither hex nor base64`, and reads such bytes as a raw transaction, where
+both were read as the psbt. Pass the text `base64.b64encode` writes, which
+is the text Bitcoin Core writes and the only text it reads.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

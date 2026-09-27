@@ -24,7 +24,6 @@ answer is one or the other and `tx` may not import `psbt`.
 
 from __future__ import annotations
 
-import base64
 import string
 
 from btclib.alias import String
@@ -32,7 +31,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets
 
-from btclib_wallet.psbt.psbt import PSBT_MAGIC_BYTES, Psbt
+from btclib_wallet.psbt.psbt import PSBT_MAGIC_BYTES, Psbt, _b64decode
 
 __all__ = [
     "tx_or_psbt_from_any",
@@ -59,13 +58,9 @@ def _octets_from_text(text: str) -> bytes:
         pass
 
     try:
-        # validate=True: without it b64decode drops whatever is outside
-        # the alphabet instead of refusing it, so text that is not base64
-        # at all decodes to bytes that are not anything
-        return base64.b64decode(packed, validate=True)
-    # binascii.Error, and the ValueError of a str carrying a character
-    # outside ASCII
-    except ValueError as e:
+        # canonical base64 alone (issue #114)
+        return _b64decode(packed)
+    except BTClibValueError as e:
         raise BTClibValueError("neither hex nor base64") from e
 
 

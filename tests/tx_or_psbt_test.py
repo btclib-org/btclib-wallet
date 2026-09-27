@@ -16,7 +16,7 @@ from btclib.tx import Tx
 
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.tx_or_psbt import _octets_from_text, tx_or_psbt_from_any
-from tests import NOT_STRIPPED
+from tests import NOT_STRIPPED, padding_bits_set
 
 # BIP174's creator output, the psbt with nothing in it but the unsigned
 # transaction, and block 170's transaction: one of each, at the shortest
@@ -152,3 +152,15 @@ def test_only_ascii_whitespace_is_dropped() -> None:
         ):
             with pytest.raises(BTClibValueError, match="neither hex nor base64"):
                 tx_or_psbt_from_any(text)
+
+
+def test_a_padding_bit_set_is_neither() -> None:
+    """A psbt's base64 is read in its canonical form alone (issue #114).
+
+    `validate=True` decodes the altered text to the psbt it was altered
+    from.
+    """
+    altered = padding_bits_set(PSBT_B64)
+    assert base64.b64decode(altered, validate=True) == base64.b64decode(PSBT_B64)
+    with pytest.raises(BTClibValueError, match="^neither hex nor base64$"):
+        tx_or_psbt_from_any(altered)

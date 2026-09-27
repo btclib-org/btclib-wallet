@@ -28,6 +28,7 @@ import importlib
 import json
 import pkgutil
 import re
+import string
 import sys
 import types
 from collections.abc import Callable
@@ -51,6 +52,29 @@ NOT_STRIPPED = (
     "\N{NEXT LINE}",
     "\N{INFORMATION SEPARATOR FOUR}",
 )
+
+_BASE64_ALPHABET = (
+    string.ascii_uppercase + string.ascii_lowercase + string.digits + "+/"
+)
+
+
+def padding_bits_set(text: str) -> str:
+    """Return the padded base64 text with a padding bit set.
+
+    The lowest bit of the last character before the `=` is one the
+    decoded bytes do not hold, so the result decodes to the same bytes
+    and is not the canonical encoding of them (issue #114).
+    """
+    body = text.rstrip("=")
+    assert body != text, "only a padded text leaves bits over"
+    last = _BASE64_ALPHABET[_BASE64_ALPHABET.index(body[-1]) ^ 1]
+    return body[:-1] + last + text[len(body) :]
+
+
+# the refusal of an `=` after a whole group: "not canonical" where
+# `validate=True` reads it, on CPython and PyPy 3.11, and base64's own
+# message from CPython 3.12 on (issue #114)
+EXCESS_PADDING = "^invalid base64 encoding: (not canonical|Excess padding not allowed)$"
 
 
 def module_names() -> list[str]:

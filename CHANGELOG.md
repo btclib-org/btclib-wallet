@@ -434,6 +434,12 @@ than `success` or `skipped` fails the check (issue btclib-org/.github#1424).
 `xpub...//*` and `musig(...)/`, as Bitcoin Core refuses the empty step, where
 each was read as though that `/` were absent (closes #116).
 
+### The base64 readers read the canonical encoding alone
+
+`YR==`, which decoded as `YQ==`, and an `=` after a whole group, which CPython
+and PyPy 3.11 decoded, are refused as Bitcoin Core's `DecodeBase64` refuses
+them; `bip322.Sig.b64decode` does not quote a non-ASCII character (closes #114).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

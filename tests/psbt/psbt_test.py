@@ -67,7 +67,7 @@ from btclib_wallet.psbt.psbt_in import _V2_FIELDS as _V2_INPUT_FIELDS
 from btclib_wallet.psbt.psbt_in import LOCK_TIME_THRESHOLD
 from btclib_wallet.psbt.psbt_out import _V2_FIELDS as _V2_OUTPUT_FIELDS
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR, PSBT_V2
-from tests import NOT_STRIPPED, load
+from tests import EXCESS_PADDING, NOT_STRIPPED, load, padding_bits_set
 from tests.conftest import JsonGolden
 from tests.psbt import psbt_vectors
 
@@ -5158,3 +5158,44 @@ def test_b64decode_refuses_a_character_inside_the_text(character: str) -> None:
     smuggled = TO_BE_FINALIZED[:20] + character + TO_BE_FINALIZED[20:]
     with pytest.raises(BTClibValueError, match=_NOT_BASE64):
         Psbt.b64decode(smuggled)
+
+
+@pytest.mark.parametrize(
+    "test_vector",
+    [
+        param
+        for param in psbt_vectors("bip174_test_vectors.json", "valid psbts")
+        if param.values[0]["encoded psbt"].endswith("=")
+    ],
+)
+def test_b64decode_refuses_a_padding_bit_set(test_vector: dict[str, str]) -> None:
+    """A padded psbt with a bit set that its bytes do not hold is refused.
+
+    `validate=True` reads it as the psbt it was altered from, and Bitcoin
+    Core's `DecodeBase64` refuses it (issue #114).
+    """
+    encoded = test_vector["encoded psbt"]
+    altered = padding_bits_set(encoded)
+    assert base64.b64decode(altered, validate=True) == base64.b64decode(encoded)
+    with pytest.raises(
+        BTClibValueError, match="^invalid base64 encoding: not canonical$"
+    ):
+        Psbt.b64decode(altered)
+
+
+@pytest.mark.parametrize(
+    "excess",
+    [
+        pytest.param(TO_BE_FINALIZED + "=", id="after a whole group"),
+        pytest.param(TO_BE_FINALIZED + "===", id="three after a whole group"),
+    ],
+)
+def test_b64decode_refuses_excess_padding(excess: str) -> None:
+    """More `=` than the length leaves over is refused, as Core refuses it.
+
+    CPython and PyPy 3.11 read both under `validate=True` as the psbt
+    without the `=`, and later interpreters refuse them themselves (issue
+    #114).
+    """
+    with pytest.raises(BTClibValueError, match=EXCESS_PADDING):
+        Psbt.b64decode(excess)

@@ -206,6 +206,37 @@ HAS_SIG_HASH_SINGLE = 0b0000_0100
 _FINAL_SEQUENCE = 0xFFFFFFFF
 
 
+def _b64decode(text: str) -> bytes:
+    """Return the bytes the text is the canonical base64 encoding of.
+
+    The base64 reader of `Psbt.b64decode`, `tx_or_psbt`'s text form and
+    `bip322`'s signatures. Canonical is what `base64.b64encode` writes,
+    and it is what Bitcoin Core's `DecodeBase64` accepts: a length that is
+    a multiple of four, at most two `=` and only at the end, and zero in
+    the bits the last character leaves over, which
+    `ConvertBits<6, 8, false>` refuses otherwise. Core's
+    `base64_encode_decode` fuzz target asserts that whatever it decodes
+    encodes back to the same text. Without the comparison below,
+    `validate=True` still reads `YR==` as `YQ==`'s `a`, and CPython and
+    PyPy 3.11 read `AAAA===` as `AAAA`, so several texts decode to one
+    psbt or one signature.
+
+    `validate=True` is what refuses a character outside the alphabet,
+    which `b64decode` otherwise drops. A refusal is a `BTClibValueError`
+    saying what base64 found, and never quotes the text, which can carry
+    key material.
+    """
+    try:
+        decoded = base64.b64decode(text, validate=True)
+    # binascii.Error, and the ValueError of a str carrying a character
+    # outside ASCII
+    except ValueError as e:
+        raise BTClibValueError(f"invalid base64 encoding: {e}") from e
+    if base64.b64encode(decoded).decode("ascii") != text:
+        raise BTClibValueError("invalid base64 encoding: not canonical")
+    return decoded
+
+
 def _assert_map_count(count: int, maximum: int, what: str) -> None:
     """Refuse a declared map count no transaction could have.
 
@@ -1450,31 +1481,16 @@ class Psbt:
         -- a complaint about a builtin rather than about the psbt that was
         passed.
 
-        Inside the text every character is base64 or the text is refused, a
-        line break included: Bitcoin Core's `DecodeBase64PSBT` refuses the
-        same, and `tx_or_psbt.tx_or_psbt_from_any` is the reader that takes a
-        psbt wrapped in lines.
+        Inside the text every character is base64, and the text is the
+        encoding `base64.b64encode` writes, or the text is refused, a line
+        break included: Bitcoin Core's `DecodeBase64PSBT` refuses the same,
+        and `tx_or_psbt.tx_or_psbt_from_any` is the reader that takes a psbt
+        wrapped in lines.
         """
         # ASCII whitespace alone (issue #102)
         psbt_str = str_from_string(psbt_str, "base64 psbt").strip(string.whitespace)
-
-        # base64 answers a string it cannot read with binascii.Error, and
-        # a str carrying a non-ascii character with a plain ValueError.
-        # Neither is BTClibValueError, so a caller catching that to reject
-        # a pasted psbt -- which is the whole audience of this method --
-        # gets an exception it never asked about. `bms.Sig.b64decode` and
-        # `ecies.Envelope.b64decode` both answer with the library's own.
-        # What base64 says is kept and the text is not quoted, a psbt being
-        # able to carry key material.
-        #
-        # validate=True: without it b64decode drops whatever is outside the
-        # alphabet instead of refusing it, so text that is not base64 decodes
-        # as the psbt it hides (issue #108)
-        try:
-            psbt_decoded = base64.b64decode(psbt_str, validate=True)
-        except ValueError as e:
-            raise BTClibValueError(f"invalid base64 encoding: {e}") from e
-
+        # canonical base64 alone (issues #108 and #114)
+        psbt_decoded = _b64decode(psbt_str)
         return cls.parse(psbt_decoded, check_validity=check_validity)
 
     @classmethod

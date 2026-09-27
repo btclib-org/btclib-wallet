@@ -120,6 +120,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, bytes_from_octets, str_from_string
 
 from btclib_wallet.psbt import Psbt, extract_tx
+from btclib_wallet.psbt.psbt import _b64decode
 
 __all__ = [
     "FULL",
@@ -360,10 +361,8 @@ class Sig:
             prefix = SIMPLE
         else:
             text = text[_PREFIX_SIZE:]
-        try:
-            payload_bin = base64.b64decode(text.encode("ascii"), validate=True)
-        except ValueError as e:  # binascii.Error and UnicodeEncodeError
-            raise BTClibValueError(f"invalid base64 encoding: {e}") from e
+        # canonical base64 alone (issue #114)
+        payload_bin = _b64decode(text)
 
         if prefix == SIMPLE:
             return cls(Witness.parse(payload_bin, check_validity=check_validity))
@@ -711,9 +710,11 @@ def _is_bms(sig: String) -> bool:
     """
     # ASCII whitespace alone (issue #102)
     text = str_from_string(sig, "base64 signature").strip(string.whitespace)
+    # canonical base64 alone (issue #114): other text is not recognised
+    # here, so `Sig.b64decode` is what refuses it
     try:
-        return len(base64.b64decode(text, validate=True)) == _BMS_SIZE
-    except ValueError:
+        return len(_b64decode(text)) == _BMS_SIZE
+    except BTClibValueError:
         return False
 
 

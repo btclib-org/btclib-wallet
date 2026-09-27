@@ -52,7 +52,14 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet import bip322
 from btclib_wallet.psbt import Psbt, finalize
-from tests import NOT_STRIPPED, load, no_bindings, vector_id
+from tests import (
+    EXCESS_PADDING,
+    NOT_STRIPPED,
+    load,
+    no_bindings,
+    padding_bits_set,
+    vector_id,
+)
 
 BASIC = load("_data", "basic-test-vectors.json", encoding="utf-8")
 GENERATED = load("_data", "generated-test-vectors.json", encoding="utf-8")
@@ -527,6 +534,74 @@ def test_is_bms_is_the_exact_65_octets_and_nothing_shorter() -> None:
     short = base64.b64encode(b"x" * 40).decode()
     with pytest.raises(BTClibRuntimeError, match="not enough binary data"):
         bip322.assert_as_valid(b"hello", addr, short, legacy=True)
+
+
+def _vector_signatures(*, padded: bool) -> list[Any]:
+    """Return every vector signature whose base64 is padded, or is not."""
+    groups = {
+        "simple": _cases("simple"),
+        "full": _cases("full"),
+        "pof": GENERATED["proof_of_funds"],
+    }
+    return [
+        pytest.param(case, signature, id=vector_id(i, name, case["type"], j))
+        for name, group in groups.items()
+        for i, case in enumerate(group)
+        for j, signature in enumerate(case["bip322_signatures"])
+        if signature.endswith("=") == padded
+    ]
+
+
+@pytest.mark.parametrize("case, signature", _vector_signatures(padded=True))
+def test_a_padding_bit_set_is_refused(case: dict[str, Any], signature: str) -> None:
+    """A padded vector with a bit set that its bytes do not hold is refused.
+
+    `validate=True` reads it as the signature it was altered from, and
+    Bitcoin Core's `DecodeBase64` refuses it (issue #114).
+    """
+    altered = padding_bits_set(signature)
+    msg = case["message"].encode()
+    for sig in (altered, altered.encode("ascii")):
+        with pytest.raises(
+            BTClibValueError, match="^invalid base64 encoding: not canonical$"
+        ):
+            bip322.Sig.b64decode(sig)
+        with pytest.raises(
+            BTClibValueError, match="^invalid base64 encoding: not canonical$"
+        ):
+            bip322.verify(msg, case["address"], sig)
+
+
+@pytest.mark.parametrize("case, signature", _vector_signatures(padded=False))
+def test_excess_padding_is_refused(case: dict[str, Any], signature: str) -> None:
+    """An `=` after a whole group is refused, as Core refuses it.
+
+    CPython and PyPy 3.11 read it under `validate=True` as the signature
+    without the `=`, and later interpreters refuse it themselves (issue
+    #114).
+    """
+    with pytest.raises(BTClibValueError, match=EXCESS_PADDING):
+        bip322.Sig.b64decode(signature + "=")
+
+
+def test_a_legacy_signature_is_read_in_its_canonical_form_alone() -> None:
+    """`_is_bms` recognises the canonical text of 65 octets and no other.
+
+    The same octets with a padding bit set are not recognised, so the
+    text reaches `Sig.b64decode`, which refuses it (issue #114).
+    """
+    msg = b"canonical"
+    legacy = bms.sign(msg, b58.prv_key_data_from_wif(WIF)).b64encode()
+    assert bip322._is_bms(legacy)
+    assert bip322.verify(msg, p2pkh(WIF_PUB), legacy)
+
+    altered = padding_bits_set(legacy)
+    assert base64.b64decode(altered, validate=True) == base64.b64decode(legacy)
+    assert not bip322._is_bms(altered)
+    with pytest.raises(
+        BTClibValueError, match="^invalid base64 encoding: not canonical$"
+    ):
+        bip322.verify(msg, p2pkh(WIF_PUB), altered)
 
 
 def _to_sign_of(msg: bytes, addr: str, **kwargs: Any) -> tuple[Tx, Tx]:
