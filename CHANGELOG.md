@@ -416,6 +416,12 @@ Past the ASCII whitespace stripped from either end, a line break or a U+001C
 is refused with `BTClibValueError`, as Bitcoin Core's `DecodeBase64PSBT`
 refuses it, where the decoder dropped it and read the rest (closes #108).
 
+### A derivation path's step is ASCII digits, padded with ASCII whitespace
+
+A step spelled `1_0`, `+1`, `-0` or in non-ASCII digits, or padded with U+3000,
+is refused without being quoted, and so is a ninth character other than `/` in
+`BIP32KeyOrigin.from_description`, where each was read as a path (closes #107).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

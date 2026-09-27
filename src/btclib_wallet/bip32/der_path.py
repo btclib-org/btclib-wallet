@@ -10,8 +10,9 @@ Three hardening symbols are read and two are written, which is not an
 oversight: BIP32 spells its own test vectors "m/0H/1/2H", while BIP380
 lists "[deadbeef/0H/0H/0H]" among its invalid hardened indicators, beside
 "0f" and "-0". So a path is read leniently, and `bip380_enforced` is the
-stricter reading a descriptor needs -- the two symbols it allows, and the
-number spelled the one way it spells it.
+stricter reading a descriptor needs -- the two symbols it allows, and no
+leading m, empty step or whitespace. Both readings spell a step's number
+in ASCII decimal digits alone, which is what Bitcoin Core reads.
 """
 
 from __future__ import annotations
@@ -45,11 +46,11 @@ _BIP380_HARDENINGS = ("'", "h")
 # FormatHDKeypath writes when it is not echoing an apostrophe it read
 _HARDENING = "h"
 
-# BIP380's spelling of a step's number: decimal digits, and nothing else.
-# `int` is what the lenient reading uses instead, and it takes "+1", "1_0"
-# and the spaces of "m / 0 h / 0" -- none of them a step a descriptor may
-# carry, and all of them a path this module has always accepted
-_BIP380_INDEX = re.compile(r"[0-9]+")
+# a step's number, in either reading: ASCII decimal digits and nothing else,
+# which is the `[0-9]+` Bitcoin Core's ParseKeyPathElement reads through
+# ToIntegral. `int` alone would also take "+1", "-0", "1_0", the digits of
+# every other script and the Unicode whitespace around them (issue #107)
+_INDEX = re.compile(r"[0-9]+")
 
 # the offset a hardened index carries: BIP32 splits the 2**32 indexes in
 # half at 2**31, so an index is hardened when it reaches this value, and
@@ -72,19 +73,20 @@ def _index_and_hardening_from_str(s: str, *, bip380_enforced: bool) -> tuple[int
     a different one with the same meaning and another checksum.
     """
     symbols = _BIP380_HARDENINGS if bip380_enforced else _HARDENINGS
+    if not bip380_enforced:
+        # ASCII whitespace alone, around the step and before its symbol
+        s = s.strip(string.whitespace)
     hardening = s[-1] if s and s[-1] in symbols else ""
     number = s[:-1] if hardening else s
-    if bip380_enforced and not _BIP380_INDEX.fullmatch(number):
-        raise BTClibValueError(f"invalid derivation index: {s}")
-    try:
-        index = int(number)
-    # what `int` refuses is a step, so the error says so, and says it the
-    # way every other error here does: bare ValueError out of a public
-    # function is what "invalid literal for int() with base 10" was
-    except ValueError as e:
-        raise BTClibValueError(f"invalid derivation index: {s}") from e
-    if not 0 <= index < _HARDENED_OFFSET:
-        raise BTClibValueError(f"invalid index: {index}")
+    if not bip380_enforced:
+        number = number.rstrip(string.whitespace)
+    # neither refusal quotes the step: it is caller text, and a key written
+    # after a path with no separator between them is read as its last step
+    if not _INDEX.fullmatch(number):
+        raise BTClibValueError("invalid derivation index: not ASCII decimal digits")
+    index = int(number)
+    if index >= _HARDENED_OFFSET:
+        raise BTClibValueError("invalid index: not below 2**31")
     return index + (_HARDENED_OFFSET if hardening else 0), hardening
 
 
@@ -113,12 +115,15 @@ def int_from_index_str(s: str, *, bip380_enforced: bool = False) -> int:
     """Return one path step as its index: "0h" is 0x80000000.
 
     Any of the three hardening symbols is read, uppercase "H" included,
-    which is how BIP32 spells its own vectors. `bip380_enforced` reads
-    the two a descriptor may hold instead, and holds the number to
-    decimal digits; see the module docstring for why the two readings
-    differ. An index at or above the hardened offset must be spelled
-    with a symbol, not as the number.
+    which is how BIP32 spells its own vectors, and ASCII whitespace
+    around the step and before its symbol is dropped. `bip380_enforced`
+    reads the two symbols a descriptor may hold instead, and no
+    whitespace; see the module docstring for why the two readings
+    differ. The number is ASCII decimal digits in both. An index at or
+    above the hardened offset must be spelled with a symbol, not as the
+    number.
     """
+    assert_type(s, str, "derivation index")
     return _index_and_hardening_from_str(s, bip380_enforced=bip380_enforced)[0]
 
 
@@ -147,15 +152,18 @@ def _pairs_from_der_path_str(
 ) -> tuple[list[int], list[str]]:
     """Return a path string's indexes, and the symbols it spelled them with.
 
-    The lenient reading drops an empty step, which is what makes a
-    trailing slash a path of the same depth, and skips a leading m. The
-    BIP380 one does neither: its grammar has no m and no empty step, so
-    each is an index that does not parse.
+    The lenient reading strips ASCII whitespace around each step, drops
+    an empty step, which is what makes a trailing slash a path of the
+    same depth, and skips a leading m. The BIP380 one does none of them:
+    its grammar has no whitespace, no m and no empty step, so each is an
+    index that does not parse.
     """
-    steps = [x.strip() for x in der_path.split("/")]
-    if skip_m and not bip380_enforced and steps[0].lower() == "m":
-        steps = steps[1:]
+    steps = der_path.split("/")
     if not bip380_enforced:
+        # ASCII whitespace alone (issue #107)
+        steps = [s.strip(string.whitespace) for s in steps]
+        if skip_m and steps[0].lower() == "m":
+            steps = steps[1:]
         steps = [s for s in steps if s]
 
     pairs = [

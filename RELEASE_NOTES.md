@@ -143,9 +143,7 @@ fingerprint strip only space, tab, newline, carriage return, vertical tab
 and form feed. Text padded with U+00A0, U+3000, U+2028, U+0085 or another
 character outside ASCII that `str.isspace` counts is refused with a
 `BTClibValueError`, where it was read as the value it wraps, and so is
-text padded with U+001C to U+001F.
-`BIP32KeyOrigin.from_description` still accepts either
-padding after the path (issue #107). For such a spelling of an address a
+text padded with U+001C to U+001F. For such a spelling of an address a
 wallet handed out, `address in wallet` answers `False` and
 `Wallet.address_info` raises. Strip that padding before passing the text.
 
@@ -182,6 +180,25 @@ character outside the base64 alphabet -- a line break, a space, U+001C,
 where it decoded the psbt the rest of the text spells. Remove the line
 breaks from a wrapped psbt, or pass it to
 `tx_or_psbt.tx_or_psbt_from_any`, which removes them.
+
+`bip32.indexes_from_der_path`, `hardenings_from_der_path`,
+`int_from_index_str` and every function reading a path string through
+them, `bip32.derive` and `BIP32KeyOrigin.from_description` among them,
+refuse with a `BTClibValueError` a step whose number is not ASCII decimal
+digits -- `1_0`, `+1`, `-0`, fullwidth or Arabic-Indic digits -- or that is
+padded with anything but space, tab, newline, carriage return, vertical tab
+and form feed, where it was read as the number. With `bip380_enforced=True`
+they refuse a step padded at all, and so `descriptors.parse` refuses a
+step with a space around it. `BIP32KeyOrigin.from_description` refuses text
+whose ninth character is not `/`, where it dropped that character and read
+`deadbeef0/1` as `deadbeef/1`. `int_from_index_str` refuses a step that is
+not a `str` with a `BTClibTypeError`, and reads a step with ASCII whitespace
+after its symbol, `"0h "`, which it refused. Pass each step as ASCII digits.
+The refusals read `invalid derivation index: not ASCII decimal digits` and
+`invalid index: not below 2**31`, where they quoted the step or its number;
+match those. `bip85`'s functions write their index into a path string, and
+refuse a negative one with the first and one of 2**31 or more with the
+second.
 
 ## v2026.9.24
 

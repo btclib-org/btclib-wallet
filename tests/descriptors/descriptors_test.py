@@ -1264,6 +1264,28 @@ def test_the_origin_is_the_same_whichever_symbol_spelled_it() -> None:
     assert apostrophes != aitches
 
 
+def test_a_path_step_holds_no_whitespace() -> None:
+    """BIP380's grammar has no whitespace in a step (issue #107).
+
+    Bitcoin Core reads a step's number through `ToIntegral`, which
+    refuses leading whitespace and any trailing character, in the key
+    origin and in the key's own path alike.
+    """
+    key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
+    for descriptor in (
+        f"pkh([deadbeef/ 0h]{key})",
+        f"pkh([deadbeef/0h ]{key})",
+        f"pkh({XPUB}/ 0)",
+        f"pkh({XPUB}/0 /1)",
+    ):
+        with pytest.raises(BTClibValueError, match="^invalid derivation index$"):
+            parse(descriptor)
+    key_expression = parse(f"pkh([deadbeef/0h]{XPUB}/0)").key_expressions[0]
+    assert key_expression.der_path == (0,)
+    assert key_expression.origin is not None
+    assert key_expression.origin.der_path == [0x80000000]
+
+
 def test_key_origin_is_kept() -> None:
     """The origin does not change the script, and is not thrown away."""
     key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"

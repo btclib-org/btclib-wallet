@@ -4,6 +4,7 @@
 
 """Tests for the `btclib_wallet.bip32.der_path` module."""
 
+import re
 import string
 
 import pytest
@@ -11,14 +12,20 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 
 from btclib_wallet.bip32 import (
     bytes_from_der_path,
+    derive,
     hardenings_from_der_path,
     indexes_from_der_path,
     int_from_index_str,
+    rootxprv_from_seed,
     str_from_der_path,
     str_from_index_int,
 )
 from btclib_wallet.bip32.der_path import _HARDENING, _indexes_from_der_path_str
 from tests import NOT_STRIPPED
+
+# the two refusals of a path step, whole: neither quotes the step
+NOT_DIGITS = "^invalid derivation index: not ASCII decimal digits$"
+NOT_BELOW = "^" + re.escape("invalid index: not below 2**31") + "$"
 
 
 def test_from_der_path_str() -> None:
@@ -77,18 +84,18 @@ def test_from_der_path_str() -> None:
         # irregular str != normalized str from bytes
         assert der_path_str != str_from_der_path(der_path_bytes)
 
-    with pytest.raises(BTClibValueError, match="invalid index: "):
+    with pytest.raises(BTClibValueError, match=NOT_DIGITS):
         _indexes_from_der_path_str("m/1/2/-3h/4", True)
 
-    with pytest.raises(BTClibValueError, match="invalid index: "):
+    with pytest.raises(BTClibValueError, match=NOT_DIGITS):
         _indexes_from_der_path_str("m/1/2/-3/4", True)
 
     i = 0x80000000
 
-    with pytest.raises(BTClibValueError, match="invalid index: "):
+    with pytest.raises(BTClibValueError, match=NOT_BELOW):
         _indexes_from_der_path_str(f"m/1/2/{i}/4", True)
 
-    with pytest.raises(BTClibValueError, match="invalid index: "):
+    with pytest.raises(BTClibValueError, match=NOT_BELOW):
         _indexes_from_der_path_str(f"m/1/2/{i}h/4", True)
 
 
@@ -101,8 +108,11 @@ def test_index_int_to_from_str() -> None:
         with pytest.raises(BTClibValueError, match="invalid index: "):
             str_from_index_int(i)
 
-    for s in ("-1", "-1h", f"{0x80000000}h", f"{0xFFFFFFFF + 1}"):
-        with pytest.raises(BTClibValueError, match="invalid index: "):
+    for s in ("-1", "-1h"):
+        with pytest.raises(BTClibValueError, match=NOT_DIGITS):
+            int_from_index_str(s)
+    for s in (f"{0x80000000}h", f"{0xFFFFFFFF + 1}"):
+        with pytest.raises(BTClibValueError, match=NOT_BELOW):
             int_from_index_str(s)
 
     with pytest.raises(BTClibValueError, match="invalid hardening symbol: "):
@@ -149,21 +159,22 @@ def test_bip380_enforced_reads_two_symbols() -> None:
         )
 
     # what the BIP32 reading takes and BIP380's grammar does not: its own
-    # invalid hardened indicators, and the numbers `int` alone accepts
-    for step in ("0H", "-0", "+1", "1_0", " 0 h"):
-        assert isinstance(int_from_index_str(step), int)
-        with pytest.raises(BTClibValueError, match="invalid derivation index: "):
+    # invalid hardened indicators, and ASCII whitespace around a step
+    for step in ("0H", " 0 h"):
+        assert int_from_index_str(step) == 0x80000000
+        with pytest.raises(BTClibValueError, match=NOT_DIGITS):
             int_from_index_str(step, bip380_enforced=True)
 
     # and what neither reading takes, as an error of its own rather than
-    # as the bare ValueError of `int`
-    for step in ("0f", "", "0hh"):
+    # as the bare ValueError of `int` -- the numbers `int` alone accepts
+    # among them
+    for step in ("0f", "", "0hh", "-0", "+1", "1_0"):
         for enforced in (False, True):
-            with pytest.raises(BTClibValueError, match="invalid derivation index: "):
+            with pytest.raises(BTClibValueError, match=NOT_DIGITS):
                 int_from_index_str(step, bip380_enforced=enforced)
 
     # the number is still held to a BIP32 index
-    with pytest.raises(BTClibValueError, match="invalid index: "):
+    with pytest.raises(BTClibValueError, match=NOT_BELOW):
         int_from_index_str("2147483648", bip380_enforced=True)
 
     # BIP380's grammar has neither a leading m nor an empty step, both of
@@ -188,7 +199,7 @@ def test_only_a_leading_m_is_skipped() -> None:
     sorting at or after "m" -- most letters, not `m` alone -- silently
     dropping it instead of refusing it as the index it is not.
     """
-    with pytest.raises(BTClibValueError, match="invalid derivation index: zzz"):
+    with pytest.raises(BTClibValueError, match=NOT_DIGITS):
         indexes_from_der_path("zzz/5")
 
 
@@ -287,3 +298,54 @@ def test_a_master_fingerprint_strips_ascii_whitespace_alone() -> None:
         err_msg = "invalid master fingerprint length"
         with pytest.raises(BTClibValueError, match=err_msg):
             str_from_der_path("m/0h", pad + "deadbeef" + pad)
+
+
+def test_a_step_is_ascii_digits_padded_with_ascii_whitespace_alone() -> None:
+    """What `int` reads beyond ASCII digits is no step (issue #107).
+
+    Bitcoin Core reads a step's number through `ToIntegral`, whose format
+    is `[0-9]+`, so a digit-grouping underscore, a sign, a digit of
+    another script and whitespace outside `string.whitespace` each make
+    a string that is no path, where `int` read every one as a number.
+    """
+    xkey = rootxprv_from_seed(bytes(16))
+    not_a_step = (
+        "1_0",
+        "+1",
+        "-0",
+        "\N{ARABIC-INDIC DIGIT ONE}\N{ARABIC-INDIC DIGIT ZERO}",
+        "\N{FULLWIDTH DIGIT ONE}",
+        "1_0h",
+        "+1'",
+    )
+    padded = [pad + "1" for pad in NOT_STRIPPED]
+    padded += ["1" + pad for pad in NOT_STRIPPED]
+    padded += ["1" + pad + "h" for pad in NOT_STRIPPED]
+    for step in (*not_a_step, *padded):
+        with pytest.raises(BTClibValueError, match=NOT_DIGITS):
+            indexes_from_der_path(f"m/{step}")
+        with pytest.raises(BTClibValueError, match=NOT_DIGITS):
+            int_from_index_str(step)
+        with pytest.raises(BTClibValueError, match=NOT_DIGITS):
+            derive(xkey, f"m/0/{step}")
+
+    # the padding `string.whitespace` holds is still dropped, around a step
+    # and before its symbol, and the path is the one it pads
+    ws = string.whitespace
+    assert indexes_from_der_path(f"m/{ws}1{ws}/{ws}0{ws}h{ws}") == [1, 0x80000000]
+    assert int_from_index_str(f"{ws}0{ws}'{ws}") == 0x80000000
+    assert derive(xkey, f"m/0/{ws}1{ws}") == derive(xkey, "m/0/1")
+
+    # and the BIP380 reading takes no whitespace at all, as its grammar has
+    # none: Core's ToIntegral refuses leading whitespace
+    for path in ("0h/ 1", " 0h", "0h\t", "0h/1\N{IDEOGRAPHIC SPACE}"):
+        with pytest.raises(BTClibValueError, match=NOT_DIGITS):
+            indexes_from_der_path(path, bip380_enforced=True)
+
+
+def test_a_step_is_text() -> None:
+    """A step that is not a string is refused as a type, not read by `int`."""
+    for step in (b"1", 1, None):
+        err_msg = f"^invalid derivation index type: {type(step).__name__}$"
+        with pytest.raises(BTClibTypeError, match=err_msg):
+            int_from_index_str(step)  # type: ignore[arg-type]

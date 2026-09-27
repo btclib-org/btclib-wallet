@@ -328,3 +328,40 @@ def test_from_description_strips_ascii_whitespace_alone() -> None:
     for pad in NOT_STRIPPED:
         with pytest.raises(BTClibValueError):
             BIP32KeyOrigin.from_description(pad + description)
+
+
+def test_from_description_reads_a_slash_after_the_fingerprint() -> None:
+    """A ninth character that is not "/" makes no key origin (issue #107).
+
+    Bitcoin Core splits a key origin at "/" and refuses a first part that
+    is not eight characters, so what follows the fingerprint is either
+    nothing or a "/" and the path.
+    """
+    err_msg = "^invalid key origin: no / after the fingerprint$"
+    for description in (
+        "deadbeef0/1",
+        "deadbeefX0h/1",
+        "deadbeef\N{IDEOGRAPHIC SPACE}",
+        "deadbeef0",
+    ):
+        with pytest.raises(BTClibValueError, match=err_msg):
+            BIP32KeyOrigin.from_description(description)
+
+    empty = BIP32KeyOrigin("deadbeef", [])
+    assert BIP32KeyOrigin.from_description("deadbeef") == empty
+    assert BIP32KeyOrigin.from_description("deadbeef/") == empty
+    assert BIP32KeyOrigin.from_description("deadbeef/1").der_path == [1]
+
+
+def test_from_description_refuses_padding_after_the_path() -> None:
+    """What `string.whitespace` does not hold is no padding of the path."""
+    description = "deadbeef/0h/1"
+    expected = BIP32KeyOrigin.from_description(description)
+    for pad in NOT_STRIPPED:
+        err_msg = "^invalid derivation index: not ASCII decimal digits$"
+        with pytest.raises(BTClibValueError, match=err_msg):
+            BIP32KeyOrigin.from_description(description + pad)
+        with pytest.raises(BTClibValueError, match=err_msg):
+            BIP32KeyOrigin.from_description("deadbeef/0h/" + pad + "1")
+    ws = string.whitespace
+    assert BIP32KeyOrigin.from_description(f"deadbeef/{ws}0h{ws}/1{ws}") == expected

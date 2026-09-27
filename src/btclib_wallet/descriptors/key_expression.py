@@ -386,17 +386,17 @@ def _der_path(path: str) -> list[int]:
     """Return the indexes of a `/`-separated derivation path.
 
     `bip380_enforced` is the whole of the difference from what a BIP32
-    path may spell: an uppercase "H", a "+1", a leading "m" and the
-    spaces of "0 h" are all read elsewhere in btclib and none of them is
-    a step BIP380 allows. It also refuses 2**31 and above written
+    path may spell: an uppercase "H", a leading "m" and the spaces of
+    "0 h" are all read by the lenient reading and none of them is a step
+    BIP380 allows. Neither reading takes 2**31 or above written
     unhardened, there being no such BIP32 index.
     """
     try:
         return indexes_from_der_path(path, bip380_enforced=True) if path else []
-    # btclib's message names the step it refused, and a step is caller text
-    # that can hold a key: one written after a path without the comma
-    # before it is read as the path's last step. What precedes the colon
-    # names the fault alone
+    # a step is caller text that can hold a key: one written after a path
+    # without the comma before it is read as the path's last step. So the
+    # refusal carries what precedes the colon, the fault alone, whatever
+    # der_path's own message goes on to say
     except BTClibValueError as e:
         raise BTClibValueError(str(e).partition(":")[0]) from None
 

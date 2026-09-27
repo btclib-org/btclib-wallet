@@ -146,9 +146,20 @@ class BIP32KeyOrigin:
     def from_description(
         cls: type[BIP32KeyOrigin], data: str, *, check_validity: bool = True
     ) -> BIP32KeyOrigin:
-        """Build a BIP32KeyOrigin from its fingerprint/path spelling."""
+        """Build a BIP32KeyOrigin from its fingerprint/path spelling.
+
+        The fingerprint is the first eight characters, and a ninth has to
+        be the "/" the path follows. The path is read leniently, as
+        `indexes_from_der_path` reads it, so "deadbeef/" is the empty path
+        "deadbeef" is, the way "m/0/" is "m/0".
+        """
         # ASCII whitespace alone (issue #102)
         data = data.strip(string.whitespace)
+        # Bitcoin Core splits a key origin at "/" and holds the first part to
+        # eight characters, so "deadbeef0/1" is not the origin "deadbeef/1".
+        # The refusal quotes nothing, the text being the caller's (issue #107)
+        if len(data) > 8 and data[8] != "/":
+            raise BTClibValueError("invalid key origin: no / after the fingerprint")
         return cls(data[:8], data[9:], check_validity=check_validity)
 
     @override

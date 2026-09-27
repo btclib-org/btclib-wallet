@@ -490,9 +490,15 @@ def test_an_application_parameter_outside_its_table() -> None:
 
 
 def test_an_index_no_path_level_can_hold() -> None:
-    """A level is 31 bits before it is hardened, and cannot be negative."""
-    with pytest.raises(BTClibValueError, match="invalid index: 2147483648"):
+    """A level is 31 bits before it is hardened, and cannot be negative.
+
+    The index is written into a path string and read back, so what
+    refuses it is the path reader, which quotes no step (issue #107).
+    """
+    err_msg = r"^invalid index: not below 2\*\*31$"
+    with pytest.raises(BTClibValueError, match=err_msg):
         wif_from_root_key(_ROOT, 0x80000000)
 
-    with pytest.raises(BTClibValueError, match="invalid index: -1"):
+    err_msg = "^invalid derivation index: not ASCII decimal digits$"
+    with pytest.raises(BTClibValueError, match=err_msg):
         xprv_from_root_key(_ROOT, -1)
