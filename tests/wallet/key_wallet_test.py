@@ -474,7 +474,7 @@ def test_a_key_added_to_a_bip32_wallet_is_not_derived() -> None:
 
 
 def test_an_address_is_found_however_it_is_spelled() -> None:
-    """Verify bech32 lookups ignore case and spaces; base58 must not."""
+    """Verify bech32 lookups take upper case and spaces; base58 must not."""
     wallet = BIP32KeyWallet(_ROOT, "m/84h/0h/0h")
     address = wallet.next_address()
     for spelling in (address.upper(), f"  {address}  ", address.encode("ascii")):

@@ -275,10 +275,16 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
     # the coercion before the length, as in b32.witness_from_address:
     # `len` of what is neither text nor bytes is a TypeError about a
     # builtin, where the codec below would have named the argument
-    addr = str_from_string(address, "address").strip().lower()
+    addr = str_from_string(address, "address").strip()
     if len(addr) > _MAX_ADDRESS_SIZE:
         err_msg = f"invalid address length: {len(addr)} > {_MAX_ADDRESS_SIZE}"
         raise BTClibValueError(err_msg)
+    # `decode` is handed the string as it came, so that its refusal of
+    # mixed case reaches the caller. bech32 is ASCII, and anything else is
+    # refused here: a `decode` that lowers the string before reading its
+    # alphabet takes U+212A KELVIN SIGN for "k" (issue btclib-org/btclib#2347)
+    if not addr.isascii():
+        raise BTClibValueError("non-ASCII character in address")
 
     hrp, data = decode(addr, BECH32_M_CONST)
     if hrp == _MAINNET_HRP:

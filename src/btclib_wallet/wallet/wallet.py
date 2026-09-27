@@ -89,13 +89,18 @@ _LAST_INDEX = 999
 def _address_str(address: String) -> str:
     """Return an address spelled the way a wallet records it.
 
-    Bech32 is case insensitive and BIP173 blesses the upper case spelling
-    for QR codes, so an address read off one has to find the lower case
-    one the wallet handed out. Base58 is not case insensitive -- `1Lq`
+    A bech32 string is all lower case or all upper case, BIP173 blessing
+    the second for QR codes, so an address read off one has to find the
+    lower case one the wallet handed out. Only an ASCII upper case string
+    is lowered: a mixed-case one is not bech32, and `str.lower` maps
+    U+212A KELVIN SIGN onto "k", so lowering either would match it to an
+    address it does not spell. Base58 is not case insensitive -- `1Lq`
     and `1lq` are different payloads -- so it is left exactly as it came.
     """
     addr = str_from_string(address, "address").strip()
-    return addr.lower() if b32.is_segwit_prefixed(addr) else addr
+    if addr.isascii() and addr.isupper() and b32.is_segwit_prefixed(addr):
+        return addr.lower()
+    return addr
 
 
 @dataclass(frozen=True)

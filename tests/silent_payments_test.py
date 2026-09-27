@@ -302,14 +302,31 @@ def test_the_address_round_trip_on_every_network() -> None:
             network_type,
         )
 
-    # and the address is read back whatever the case and the spacing, as
-    # every other btclib address is
+    # and the address is read back in upper case and whatever the spacing,
+    # as every other btclib bech32 address is
     address = _address()
     assert silent_payments.keys_from_address(f"  {address.upper()} ") == (
         B_scan,
         B_spend,
         "main",
     )
+
+
+def test_an_address_bech32_refuses_is_refused_here_too() -> None:
+    """A mixed-case spelling, and a letter that only lowers onto ASCII.
+
+    BIP173 says a decoder must not accept a mixed-case string, and BIP352
+    inherits the rule through bech32m. U+212A KELVIN SIGN is its own upper
+    case and `str.lower` maps it onto "k", so in an all-uppercase address
+    it would pass for the "k" it replaces.
+    """
+    address = _address()
+    assert "k" in address  # otherwise the replacement below replaces nothing
+    with pytest.raises(BTClibValueError, match="mixed case"):
+        silent_payments.keys_from_address(address[:10] + address[10:].upper())
+    kelvin = address.upper().replace("K", "\N{KELVIN SIGN}")
+    with pytest.raises(BTClibValueError, match="non-ASCII character"):
+        silent_payments.keys_from_address(kelvin)
 
 
 def test_a_network_no_network_has_is_refused() -> None:

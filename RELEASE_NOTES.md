@@ -126,6 +126,13 @@ version btclib decodes, a wallet-policy placeholder `wallet_policy` writes
 `K` -- or nothing. Any other `str` is refused with a `BTClibValueError` and
 any other type with a `BTClibTypeError`, where they were held; pass an xpub.
 
+`silent_payments.keys_from_address` refuses with a `BTClibValueError` a
+mixed-case address and one holding a character outside ASCII, where it read
+the address the string lowers to; pass the address all lower case or all
+upper case. For such a spelling of an address a wallet handed out,
+`address in wallet` answers `False` and `Wallet.address_info` raises, where
+both found the address.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

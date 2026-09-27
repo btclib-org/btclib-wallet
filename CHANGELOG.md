@@ -374,6 +374,12 @@ Other text is refused without being quoted: an xprv damaged by a character
 decodes as no key, and where only its checksum changed it still spells the
 key (closes #97).
 
+### A mixed-case or non-ASCII address is not read as the one it lowers to
+
+`silent_payments.keys_from_address` refuses both, and a wallet lowers only an
+ASCII all-uppercase spelling: neither a mixed-case string nor U+212A KELVIN
+SIGN in place of `K` is found as the address it lowers to (closes #99).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

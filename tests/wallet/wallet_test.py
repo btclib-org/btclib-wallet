@@ -271,6 +271,25 @@ def test_an_address_of_a_bech32_spelling_is_found_however_it_is_written() -> Non
         assert wallet.address_info(spelling).address == address
 
 
+def test_a_spelling_bech32_refuses_is_not_a_handed_out_address() -> None:
+    """A mixed-case spelling, and a letter that only lowers onto ASCII.
+
+    Neither is a bech32 string: BIP173 refuses mixed case, and U+212A
+    KELVIN SIGN is outside ASCII although `str.lower` maps it onto "k".
+    So neither names the address it would lower to, and `in` answers
+    `False` where `address_info` raises.
+    """
+    wallet = script_wallet()
+    address = wallet.address(0, 0)
+    assert "k" in address  # otherwise the replacement below replaces nothing
+    mixed = address[:10] + address[10:].upper()
+    kelvin = address.upper().replace("K", "\N{KELVIN SIGN}")
+    for spelling in (mixed, kelvin):
+        assert spelling not in wallet
+        with pytest.raises(BTClibValueError, match="address not in the wallet"):
+            wallet.address_info(spelling)
+
+
 @BUILDERS
 def test_every_position_argument_defaults_to_the_first_receiving_address(
     build: Callable[[], RangedWallet],
