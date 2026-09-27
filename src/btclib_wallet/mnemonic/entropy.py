@@ -396,11 +396,11 @@ def bin_str_entropy_from_rolls(
     carried from there to a wallet that reads dice are shifted by one,
     by whoever carries them.
     """
+    if not is_integer(bits):
+        raise BTClibTypeError(f"invalid bits type: {type(bits).__name__}")
     # `_bits_per_digit` below takes `base.bit_length()`, which a float
     # has no method named, so a caller passing 6.0 would hear a bare
     # AttributeError rather than this module's own message
-    if not is_integer(bits):
-        raise BTClibTypeError(f"invalid bits type: {type(bits).__name__}")
     if not is_integer(dice_sides):
         err_msg = f"invalid dice base type: {type(dice_sides).__name__}"
         raise BTClibTypeError(err_msg)

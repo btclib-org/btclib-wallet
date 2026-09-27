@@ -29,6 +29,16 @@ pass a `list` or a `tuple` of integer pairs, and integers.
 `mnemonic.entropy.bin_str_entropy_from_rolls` refuses the same way rolls
 passed as a set or a generator and a bool as a roll or as `bits`.
 
+`mnemonic.slip39.Share` refuses with a `BTClibTypeError` a `value` that is
+not `bytes` -- a `bytearray` or a list of ints included -- and a bool as
+an integer field or a non-bool as `extendable`, where it held them; pass
+`bytes`, integers and a bool. `mxprv_from_mnemonics` refuses a falsy
+passphrase of another type, `0`, `[]` or `b""`, where it read the empty
+passphrase; pass `None` or `""`. `mnemonics_from_master_secret` refuses
+an `entropy_source` answering anything but `bytes` or a `bytearray` of
+the length asked -- a 1-of-1 backup read a list, a `memoryview` or a
+draw of another length; return exactly that.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

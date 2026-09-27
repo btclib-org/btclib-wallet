@@ -217,6 +217,12 @@ A url with a user or a password is a `BTClibValueError` that does not echo
 it, since the `HttpError` of a status other than 200 quotes the url
 (closes #65).
 
+### A SLIP-0039 share, and its passphrase, refuse a value of another type
+
+`slip39.Share`, `mnemonic_from_share` and an entropy source's draws are
+type-checked, and `mxprv_from_mnemonics` reads only `None` as the empty
+passphrase, refusing a falsy value of another type (closes #63) (closes #66).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

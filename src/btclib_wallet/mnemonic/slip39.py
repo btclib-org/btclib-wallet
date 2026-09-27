@@ -269,7 +269,15 @@ class Share:
         self.assert_valid()
 
     def assert_valid(self) -> None:
-        """Raise if a field is outside what the share format can hold."""
+        """Raise if a field is outside what the share format can hold.
+
+        Each field's type is asked before its value: a share can be built
+        by hand, from a json record say, where `true` would pass the
+        range check as 1 and a hex string the length check as a str of
+        twice the bytes.
+        """
+        assert_type(self.extendable, bool, "extendable")
+        assert_type(self.value, bytes, "share value")
         top = _MAX_SHARE_COUNT - 1
         for name, value, lower, upper in (
             ("identifier", self.identifier, 0, (1 << _ID_BITS) - 1),
@@ -280,6 +288,7 @@ class Share:
             ("member index", self.member_index, 0, top),
             ("member threshold", self.member_threshold, 1, _MAX_SHARE_COUNT),
         ):
+            _assert_integers((name, value))
             if not lower <= value <= upper:
                 err_msg = f"invalid {name}: {value}, not in [{lower}-{upper}]"
                 raise BTClibValueError(err_msg)
@@ -362,6 +371,7 @@ def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
 
 def mnemonic_from_share(share: Share) -> Mnemonic:
     """Return the SLIP-0039 mnemonic encoding the share."""
+    assert_type(share, Share, "share")
     share.assert_valid()
     header = f"{share.identifier:015b}"
     header += "1" if share.extendable else "0"
@@ -464,6 +474,24 @@ def _recover_secret(threshold: int, shares: Sequence[tuple[int, bytes]]) -> byte
     return secret
 
 
+def _drawn(entropy_source: Callable[[int], bytes], n_bytes: int) -> bytes:
+    """Return n_bytes from the entropy source, refusing anything else.
+
+    A bytearray is taken, as bytes: the first threshold - 2 draws are
+    shares as they stand, so what the source returns is what a Share
+    holds, and a Share holds bytes.
+    """
+    drawn: object = entropy_source(n_bytes)
+    if not isinstance(drawn, bytes | bytearray):
+        err_msg = f"invalid entropy source output type: {type(drawn).__name__}"
+        raise BTClibTypeError(err_msg)
+    if len(drawn) != n_bytes:
+        err_msg = f"invalid entropy source output length: {len(drawn)} bytes "
+        err_msg += f"instead of {n_bytes}"
+        raise BTClibValueError(err_msg)
+    return bytes(drawn)
+
+
 def _split_secret(
     threshold: int,
     share_count: int,
@@ -487,8 +515,8 @@ def _split_secret(
     n = len(secret)
     # T-2 shares are free, the digest and the secret pin the rest of
     # the polynomial down
-    points = [(i, entropy_source(n)) for i in range(threshold - 2)]
-    random_part = entropy_source(n - _DIGEST_BYTES)
+    points = [(i, _drawn(entropy_source, n)) for i in range(threshold - 2)]
+    random_part = _drawn(entropy_source, n - _DIGEST_BYTES)
     points.extend(
         ((_DIGEST_X, _digest(random_part, secret) + random_part), (_SECRET_X, secret))
     )
@@ -682,7 +710,7 @@ def mnemonics_from_master_secret(
     # the low fifteen bits of the first two bytes drawn, rather than the
     # high fifteen: both are uniform, and this way a two-byte source
     # spells the identifier it produces
-    identifier = int.from_bytes(entropy_source(2), byteorder="big")
+    identifier = int.from_bytes(_drawn(entropy_source, 2), byteorder="big")
     identifier &= (1 << _ID_BITS) - 1
     ems = _feistel(
         secret, passphrase, iteration_exponent, identifier, extendable, decrypt=False
@@ -727,7 +755,12 @@ def mxprv_from_mnemonics(
 
     The master secret is the BIP32 seed, so there is no stretching step
     between the two: SLIP-0039 backs up the seed itself.
+
+    None is the empty passphrase; any other value is handed on to be
+    checked, so a falsy one of another type is refused rather than read
+    as the empty passphrase.
     """
-    seed = master_secret_from_mnemonics(mnemonics, passphrase or "")
+    passphrase = "" if passphrase is None else passphrase
+    seed = master_secret_from_mnemonics(mnemonics, passphrase)
     version = network_from_name(network).bip32_prv
     return rootxprv_from_seed(seed, version)

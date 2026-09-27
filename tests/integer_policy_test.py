@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum, IntEnum
+from functools import partial
 from typing import Any
 
 import pytest
@@ -38,7 +39,7 @@ from btclib_wallet.mnemonic.entropy import (
     bin_str_entropy_from_rolls,
     bin_str_entropy_from_wordlist_indexes,
 )
-from btclib_wallet.mnemonic.slip39 import mnemonics_from_master_secret
+from btclib_wallet.mnemonic.slip39 import Share, mnemonics_from_master_secret
 from btclib_wallet.psbt.psbt import PSBT_V2, Psbt
 from btclib_wallet.wallet.script_wallet import KeyGroup
 
@@ -63,6 +64,38 @@ def _psbt(**field: Any) -> Psbt:
         "hd_key_paths": {},
     }
     return Psbt(**(fields | field), check_validity=False)
+
+
+def _share(**field: Any) -> Share:
+    """Return a 1-of-1 SLIP-0039 share, with one field of it replaced."""
+    fields: dict[str, Any] = {
+        "identifier": 1,
+        "extendable": True,
+        "iteration_exponent": 0,
+        "group_index": 0,
+        "group_threshold": 1,
+        "group_count": 1,
+        "member_index": 0,
+        "member_threshold": 1,
+        "value": bytes(16),
+    }
+    return Share(**(fields | field))
+
+
+_SHARE_FIELDS = (
+    "identifier",
+    "iteration_exponent",
+    "group_index",
+    "group_threshold",
+    "group_count",
+    "member_index",
+    "member_threshold",
+)
+
+
+def _share_with(name: str, value: Any) -> Share:
+    """Return `_share` with the field `name` set to `value`."""
+    return _share(**{name: value})
 
 
 # every field whose contract is an integer quantity, with the shortest
@@ -111,6 +144,8 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
         "slip39 member count",
         lambda v: mnemonics_from_master_secret(bytes(16), groups=[(1, v)]),
     ),
+    # partial and not a lambda, which would close over the loop variable
+    *((f"slip39 share {name}", partial(_share_with, name)) for name in _SHARE_FIELDS),
     # `_assert_valid_branch` and `_assert_valid_address_index` compare
     # with `<`, `>=` and `in {0, 1}`, none of which a bool fails, so the
     # refusal is this layer's own `is_integer`
@@ -207,6 +242,7 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
         bytes(16), [(1, 1)], group_threshold=1, iteration_exponent=0
     )
     assert [len(group) for group in one_of_one] == [1]
+    assert all(getattr(_share_with(n, 1), n) == 1 for n in _SHARE_FIELDS)
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1).depth == 5
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1, max_index=1).depth == 5
 

@@ -299,6 +299,126 @@ def test_invalid_share_field(field: str, value: int) -> None:
         slip39.Share(**fields)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "field, value, err_msg",
+    [
+        ("identifier", "1", "invalid identifier type: str"),
+        ("identifier", 1.5, "invalid identifier type: float"),
+        ("iteration_exponent", None, "invalid iteration exponent type: NoneType"),
+        ("member_index", 1.0, "invalid member index type: float"),
+        ("extendable", 1, "invalid extendable type: int"),
+        # the hex spelling of 16 bytes is 32 characters, a valid length
+        ("value", "00" * 16, "invalid share value type: str"),
+        ("value", [0] * 16, "invalid share value type: list"),
+        ("value", bytearray(16), "invalid share value type: bytearray"),
+    ],
+)
+def test_share_field_of_another_type(field: str, value: object, err_msg: str) -> None:
+    """Refuse each Share field of a type the class does not declare."""
+    fields: dict[str, object] = {
+        "identifier": 1,
+        "extendable": True,
+        "iteration_exponent": 0,
+        "group_index": 0,
+        "group_threshold": 1,
+        "group_count": 1,
+        "member_index": 0,
+        "member_threshold": 1,
+        "value": bytes(16),
+    }
+    fields[field] = value
+    with pytest.raises(BTClibTypeError, match=err_msg):
+        slip39.Share(**fields)  # type: ignore[arg-type]
+
+
+def test_mnemonic_from_share_refuses_what_is_no_share() -> None:
+    """Refuse a value that is not a Share before asking it anything."""
+    with pytest.raises(BTClibTypeError, match="invalid share type: NoneType"):
+        slip39.mnemonic_from_share(None)  # type: ignore[arg-type]
+    mnemonic: str = _VECTORS[0][1][0]
+    with pytest.raises(BTClibTypeError, match="invalid share type: str"):
+        slip39.mnemonic_from_share(mnemonic)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "groups, group_threshold",
+    [
+        # a threshold of 3 or more is what makes a draw a share as it stands
+        ([(3, 5)], 1),
+        ([(1, 1)] * 3, 3),
+        ([(2, 3)], 1),
+    ],
+)
+def test_a_bytearray_entropy_source_is_read_as_bytes(
+    groups: list[tuple[int, int]], group_threshold: int
+) -> None:
+    """A bytearray source's draws become bytes before any Share holds them."""
+    counting = CountingSource()
+
+    def source(n_bytes: int) -> bytes:
+        return bytearray(counting(n_bytes))  # type: ignore[return-value]
+
+    secret = bytes(range(16))
+    mnemonics = slip39.mnemonics_from_master_secret(
+        secret, groups, group_threshold, entropy_source=source
+    )
+    member_threshold = groups[0][0]
+    shares = [
+        group[i]
+        for group in mnemonics[:group_threshold]
+        for i in range(member_threshold)
+    ]
+    assert slip39.master_secret_from_mnemonics(shares) == secret
+
+
+@pytest.mark.parametrize(
+    "output, error, err_msg",
+    [
+        (lambda n: memoryview(bytes(n)), BTClibTypeError, "output type: memoryview"),
+        (lambda n: bytes(n).hex(), BTClibTypeError, "output type: str"),
+        (lambda n: None, BTClibTypeError, "output type: NoneType"),
+        (
+            lambda n: bytes(n - 1),
+            BTClibValueError,
+            "output length: 1 bytes instead of 2",
+        ),
+        (
+            lambda n: bytes(n + 1),
+            BTClibValueError,
+            "output length: 3 bytes instead of 2",
+        ),
+    ],
+)
+@pytest.mark.parametrize("groups", [[(1, 1)], [(3, 5)]])
+def test_entropy_source_output_of_another_type_or_length(
+    output: Callable[[int], object],
+    error: type[Exception],
+    err_msg: str,
+    groups: list[tuple[int, int]],
+) -> None:
+    """Refuse what the source draws, naming the source, at any threshold.
+
+    The identifier is the first draw, two bytes, whatever the groups.
+    """
+    with pytest.raises(error, match=f"invalid entropy source {err_msg}"):
+        slip39.mnemonics_from_master_secret(bytes(16), groups, entropy_source=output)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("passphrase", [0, [], b""])
+def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) -> None:
+    """None is the empty passphrase, and no other falsy value is.
+
+    A value of another type is refused whether or not it is empty.
+    """
+    shares = _VECTORS[0][1]
+    xprv = slip39.mxprv_from_mnemonics(shares)
+    assert slip39.mxprv_from_mnemonics(shares, None) == xprv
+    assert slip39.mxprv_from_mnemonics(shares, "") == xprv
+    err_msg = f"invalid passphrase type: {type(passphrase).__name__}"
+    with pytest.raises(BTClibTypeError, match=err_msg):
+        slip39.mxprv_from_mnemonics(shares, passphrase)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("n_bytes", [0, 14, 17])
 def test_invalid_secret_length(n_bytes: int) -> None:
     """Refuse master secrets and share values of invalid length."""
