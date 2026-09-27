@@ -205,6 +205,18 @@ The context it builds when given none has `minimum_version` set to
 `TLSv1_2`: PyPy's `ssl.create_default_context()` leaves it at
 `MINIMUM_SUPPORTED`, where CPython's already answers `TLSv1_2` (closes #46).
 
+### `EsploraFetcher` and `ElectrumFetcher` check their constructor arguments
+
+A `base_url` that is no http(s) url with a host, a `timeout` that is no
+positive finite number, or a `transport` that is not callable is refused
+at construction, as a `BTClibTypeError` or `BTClibValueError` (closes #44).
+
+### `EsploraFetcher` refuses a `base_url` carrying credentials
+
+A url with a user or a password is a `BTClibValueError` that does not echo
+it, since the `HttpError` of a status other than 200 quotes the url
+(closes #65).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

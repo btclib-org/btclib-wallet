@@ -20,7 +20,7 @@ import json
 import pytest
 from bitcoin_core_rpc import FetchError as RpcFetchError
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibValueError, FetchError, RpcError
+from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, RpcError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint
@@ -162,6 +162,48 @@ def test_transport_is_required() -> None:
     """No default: no transport is a `TypeError`, no fallback server."""
     with pytest.raises(TypeError, match="transport"):
         ElectrumFetcher()  # type: ignore[call-arg]
+
+
+def test_a_transport_that_is_not_callable_is_refused() -> None:
+    """Refuse at construction what the first fetch would call."""
+    with pytest.raises(BTClibTypeError, match="not a callable transport"):
+        ElectrumFetcher(transport=5)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("timeout", ["soon", None, True])
+def test_a_timeout_that_is_no_number_is_refused(timeout: object) -> None:
+    """A bool is not a number of seconds, though `True` would be read as one."""
+    with pytest.raises(BTClibTypeError, match="non-numeric timeout"):
+        fetcher(TIP_HEADER_RAW, timeout=timeout)
+
+
+# the timeouts `ElectrumFetcher` refuses as a value: none positive,
+# none finite, or an int no float holds -- the last past `str`'s digit limit
+# too, which is why each carries an id pytest need not render
+NO_TIMEOUTS = [
+    pytest.param(timeout, id=name)
+    for name, timeout in (
+        ("zero", 0),
+        ("negative-int", -1),
+        ("negative-float", -0.5),
+        ("inf", float("inf")),
+        ("nan", float("nan")),
+        ("10**400", 10**400),
+        ("10**5000", 10**5000),
+    )
+]
+
+
+@pytest.mark.parametrize("timeout", NO_TIMEOUTS)
+def test_a_timeout_that_is_no_positive_number_is_refused(timeout: float) -> None:
+    """Refused at construction, whatever the transport would make of it."""
+    with pytest.raises(BTClibValueError, match="timeout is not a positive finite"):
+        fetcher(TIP_HEADER_RAW, timeout=timeout)
+
+
+def test_an_integer_timeout_is_a_number_of_seconds() -> None:
+    """The refusal of a bool does not refuse the `int` it subclasses."""
+    assert fetcher(TIP_HEADER_RAW, timeout=5).timeout == 5
 
 
 def test_get_tx_parses_the_serialization_the_server_sent() -> None:

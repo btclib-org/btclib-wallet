@@ -54,6 +54,8 @@ this expects text is not compatible in the way that matters.
 from __future__ import annotations
 
 import json
+from sys import float_info
+from urllib.parse import urlsplit
 
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
@@ -128,6 +130,43 @@ _MAX_FEE_ESTIMATES_BODY = 4096
 _MAX_FEE_TARGET = 1008
 
 
+def _checked_base_url(base_url: str) -> str:
+    """Return `base_url`, having refused a url no request can reach.
+
+    `http_request` refuses a scheme other than http(s) of every url it is
+    handed; checked here as well, with a host and a port that is a
+    number, a url that cannot work is refused at the line that wrote it.
+
+    Credentials in the url are refused, as `bitcoin_core_rpc` refuses
+    them in its own: the url is echoed by the messages this class raises,
+    and a password would travel with it into every traceback and log.
+    Nothing here echoes the url before that refusal, and the refusal of a
+    url `urlsplit` cannot read is raised `from None`, some of its
+    messages quoting the part of the url that holds the credentials.
+    """
+    if not isinstance(base_url, str):
+        raise BTClibTypeError(f"non-string base_url: {type(base_url).__name__}")
+    try:
+        split = urlsplit(base_url)
+    except ValueError:
+        raise BTClibValueError("invalid base_url: not a url") from None
+    if split.username is not None or split.password is not None:
+        err_msg = "credentials in base_url, which takes none:"
+        err_msg += " a transport of the caller's is what adds them"
+        raise BTClibValueError(err_msg)
+    if split.scheme not in ("http", "https"):
+        err_msg = f"invalid base_url scheme: '{split.scheme}' instead of http(s)"
+        raise BTClibValueError(err_msg)
+    if not split.hostname:
+        raise BTClibValueError("no host in base_url")
+    try:
+        # parsed when read, from what follows the credentials refused above
+        _ = split.port
+    except ValueError as e:
+        raise BTClibValueError(f"invalid base_url port: {e}") from e
+    return base_url
+
+
 class EsploraFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, answered by an Esplora instance over HTTP.
 
@@ -156,8 +195,16 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         transport: HttpTransport = urlopen_transport,
     ) -> None:
         super().__init__(network, verify_network=verify_network)
-        self.base_url = base_url.rstrip("/")
+        self.base_url = _checked_base_url(base_url).rstrip("/")
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise BTClibTypeError(f"non-numeric timeout: {timeout!r}")
+        # a bound and not `isfinite`, and the value not rendered, for the
+        # reasons `ElectrumFetcher.__init__` gives
+        if not 0 < timeout <= float_info.max:
+            raise BTClibValueError("timeout is not a positive finite number")
         self.timeout = timeout
+        if not callable(transport):
+            raise BTClibTypeError(f"not a callable transport: {transport!r}")
         self.transport = transport
 
     def _request(
