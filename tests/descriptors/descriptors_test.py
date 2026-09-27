@@ -37,7 +37,7 @@ from dataclasses import fields, is_dataclass, replace
 from typing import get_args
 
 import pytest
-from btclib import b58
+from btclib import b58, base58
 from btclib.alias import Octets
 from btclib.ecc import dsa, ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -52,6 +52,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from hypothesis import given
 from hypothesis import strategies as st
 
+from btclib_wallet import slip132
 from btclib_wallet.bip32 import BIP32KeyOrigin, fingerprint
 from btclib_wallet.bip32.bip32 import (
     BIP32KeyData,
@@ -3625,11 +3626,31 @@ def test_a_template_refusal_echoes_no_private_key(template: str, message: str) -
     _assert_unechoed(excinfo.value)
 
 
+def _reencoded(xkey: str, start: int, octets: bytes) -> str:
+    """Return `xkey` with `octets` written at `start`, and a new checksum."""
+    payload = bytearray(base58.decode(xkey, 78))
+    payload[start : start + len(octets)] = octets
+    return base58.encode(bytes(payload)).decode("ascii")
+
+
+# an xprv damaged in one character or one field, and text that is no key
+# at all: none decodes, so none is recognized as private, and each is
+# refused as what it is not
+DAMAGED_XKEYS = [
+    pytest.param(
+        XPRV_ROOT[:-1] + ("j" if XPRV_ROOT[-1] != "j" else "k"), id="last-changed"
+    ),
+    pytest.param(XPRV_ROOT[:-1], id="last-dropped"),
+    pytest.param(_reencoded(XPRV_ROOT, 5, b"\x01\x02\x03\x04"), id="depth-0-parent"),
+    pytest.param(_reencoded(XPRV_ROOT, 0, b"\xde\xad\xbe\xef"), id="unknown-version"),
+    pytest.param("garbage", id="garbage"),
+]
+
+
 def test_a_key_expression_refuses_an_xprv() -> None:
     """`xkey` is public in every instance, not only in what `parse` built.
 
-    Refused without being quoted, and whichever way the instance is made;
-    what is no extended key passes, a wallet-policy placeholder being one
+    Refused without being quoted, and whichever way the instance is made
     (issue #95).
     """
     err_msg = "^an extended private key is no xkey: pass its xpub$"
@@ -3640,4 +3661,37 @@ def test_a_key_expression_refuses_an_xprv() -> None:
     with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         replace(public, xkey=XPRV_SECOND)
     _assert_unechoed(excinfo.value)
-    assert KeyExpression(xkey="@0").xkey == "@0"
+
+
+@pytest.mark.parametrize("xkey", DAMAGED_XKEYS)
+def test_a_key_expression_refuses_what_is_no_xpub(xkey: str) -> None:
+    """Neither an xpub nor a placeholder, refused without a quote (issue #97).
+
+    A damaged xprv differs from the key in as little as its checksum, so
+    the message repeating it would repeat the key.
+    """
+    err_msg = "^invalid xkey: no extended public key and no placeholder$"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        KeyExpression(xkey=xkey, der_path=(0,))
+    assert xkey not in "".join(traceback.format_exception(excinfo.value))
+    _assert_unechoed(excinfo.value)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        wallet_policy_descriptor("wpkh(@0/**)", [KeyExpression(xkey=xkey)])
+
+
+def test_what_a_key_expression_xkey_holds() -> None:
+    """An xpub of any version btclib decodes, a placeholder, or nothing."""
+    xpubs = (
+        xpub_from_xprv(XPRV_ROOT),
+        TESTNET_XPUB,
+        xpub_from_xprv(slip132.p2wpkh_xkey(XPRV_ROOT)),
+        xpub_from_xprv(slip132.p2wpkh_p2sh_xkey(XPRV_ROOT)),
+    )
+    placeholders = ("K", "@0", "@12", "@0/**", "@3/<2;3>/*", "musig(@0,@1)/**")
+    for xkey in (*xpubs, *placeholders, ""):
+        assert KeyExpression(xkey=xkey).xkey == xkey
+    for near_miss in ("@01", "@0/*", "musig(@0,@1)", "k"):
+        with pytest.raises(BTClibValueError, match="^invalid xkey"):
+            KeyExpression(xkey=near_miss)
+    with pytest.raises(BTClibTypeError, match="^invalid xkey type: bytes$"):
+        KeyExpression(xkey=xpubs[0].encode("ascii"))  # type: ignore[arg-type]

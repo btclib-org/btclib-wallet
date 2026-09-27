@@ -35,7 +35,7 @@ from btclib import b58
 from btclib.curves import point_from_pub_key, secp256k1
 from btclib.curves.sec_point import bytes_from_point
 from btclib.ecc.musig2 import key_agg, key_sort
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import network_from_name
 from btclib.utils import bytes_from_octets
 from typing_extensions import override
@@ -61,6 +61,15 @@ __all__ = ["KeyExpression", "PrvKeys"]
 
 _FINGERPRINT = re.compile(r"[0-9a-fA-F]{8}")
 _HEX = re.compile(r"[0-9a-fA-F]*")
+# what `xkey` holds where it is no extended key: the stand-ins the
+# wallet-policy functions of `descriptors` write -- a BIP388 placeholder
+# alone, or with the chain suffix it is paired with, a musig() group of
+# them with that suffix, and the one key `_skeleton_key` writes everywhere
+_INDEX = r"(?:0|[1-9][0-9]*)"
+_CHAIN_SUFFIX = rf"(?:/\*\*|/<{_INDEX};{_INDEX}>/\*)"
+_PLACEHOLDER = re.compile(
+    rf"K|@{_INDEX}{_CHAIN_SUFFIX}?|musig\(@{_INDEX}(?:,@{_INDEX})*\){_CHAIN_SUFFIX}"
+)
 # what `_split_arguments` stops at, compiled once here rather than
 # handed to `re.finditer` as a pattern string per call: the cache that
 # would answer for it is a dict lookup on that string, which a function
@@ -127,12 +136,27 @@ class KeyExpression:
     hardening: str = _HARDENING
 
     def __post_init__(self) -> None:
-        """Refuse an extended private key as `xkey`, without echoing it.
+        """Refuse an `xkey` that is no xpub or placeholder, quoting none of it.
 
-        What is not an extended key at all passes: `xkey` also holds the
-        placeholders a wallet-policy template is written with.
+        An extended public key of any version btclib decodes, or one of the
+        wallet-policy stand-ins `_PLACEHOLDER` matches, or nothing at all
+        where the key is `pub_key` or `participants`. What else is refused
+        includes an xprv, and an xprv damaged by a character, which decodes
+        as no key -- and where only its checksum changed still spells one.
         """
-        if self.xkey and _is_extended_prv_key(self.xkey):
+        if not isinstance(self.xkey, str):
+            err_msg = f"invalid xkey type: {type(self.xkey).__name__}"  # type: ignore[unreachable]
+            raise BTClibTypeError(err_msg)
+        if not self.xkey or _PLACEHOLDER.fullmatch(self.xkey):
+            return
+        try:
+            is_private = BIP32KeyData.b58decode(self.xkey).is_private
+        # from None: btclib's reason is about the characters, which are
+        # what this refuses to repeat
+        except ValueError:
+            err_msg = "invalid xkey: no extended public key and no placeholder"
+            raise BTClibValueError(err_msg) from None
+        if is_private:
             err_msg = "an extended private key is no xkey: pass its xpub"
             raise BTClibValueError(err_msg)
 
@@ -445,15 +469,6 @@ def _is_extended_key(key: str) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _is_extended_prv_key(key: str) -> bool:
-    try:
-        return BIP32KeyData.b58decode(key).is_private
-    # ValueError, as in `_is_extended_key`: characters that are no
-    # extended key are no private one either
-    except ValueError:
-        return False
 
 
 def _neutered(xkey: str, prv_keys: dict[str, str]) -> str:

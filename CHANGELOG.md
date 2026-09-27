@@ -368,6 +368,12 @@ With a `BTClibValueError` that does not quote it, so no `KeyExpression` holds
 an xprv for its `str`, or a wallet-policy refusal quoting it, to echo
 (closes #95).
 
+### `KeyExpression`'s `xkey` is an xpub, a placeholder or nothing
+
+Other text is refused without being quoted: an xprv damaged by a character
+decodes as no key, and where only its checksum changed it still spells the
+key (closes #97).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

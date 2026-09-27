@@ -120,6 +120,12 @@ joined it; pass a `list` or a `tuple`.
 private key as `xkey`, where it held it; pass its xpub, and the xprv under
 that xpub in `prv_keys` where a hardened step needs it.
 
+`descriptors.KeyExpression`'s `xkey` holds an extended public key of a
+version btclib decodes, a wallet-policy placeholder `wallet_policy` writes
+-- `@N`, `@N/**`, `@N/<M;N>/*`, `musig(@N,...)` with one of those suffixes,
+`K` -- or nothing. Any other `str` is refused with a `BTClibValueError` and
+any other type with a `BTClibTypeError`, where they were held; pass an xpub.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`
