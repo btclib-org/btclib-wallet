@@ -316,6 +316,12 @@ A psbt paying a silent payment is refused as `psbt.sign` refuses it before
 A counted input without a key its script commits to is refused, not left out,
 and `set_output_scripts` waits for every counted input's share (closes #76).
 
+### `HwiSigner.sign_psbt` runs BIP375's Signer checks before `hwi` runs
+
+A psbt `psbt.sign` would refuse is refused on a direct call too, not only
+through `request_signatures`, and a request that is no psbt is a
+`BTClibTypeError` (closes #82).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

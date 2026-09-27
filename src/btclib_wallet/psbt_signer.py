@@ -90,7 +90,7 @@ from btclib_wallet.descriptors import (
     wallet_policy_address,
 )
 from btclib_wallet.psbt.psbt import Psbt, assert_signatures_only, combine, sign
-from btclib_wallet.psbt.silent_payments import _assert_signable
+from btclib_wallet.psbt.silent_payments import _assert_sendable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -480,12 +480,11 @@ def request_signatures(signer: PsbtSigner, psbt: Psbt) -> Psbt:
     the signer sees it, the ones `psbt.sign` asks: a signer outside this
     process need not know BIP375, and the signature it returns commits the
     funds to whatever script the output carries, which no check on the
-    answer can take back.
+    answer can take back. Asked here for every `PsbtSigner`, a caller's
+    own included, and not only by the signers this package ships.
     """
     assert_type(psbt, Psbt, "request")
-    if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
-        psbt.assert_valid()
-        _assert_signable(psbt)
+    _assert_sendable(psbt)
     returned = signer.sign_psbt(psbt)
     assert_signatures_only(psbt, returned)
     return combine([psbt, returned])

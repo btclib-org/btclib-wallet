@@ -150,6 +150,7 @@ from btclib.utils import assert_type, bytes_from_octets, is_integer
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt.silent_payments import _assert_sendable
 from btclib_wallet.psbt_signer import SignerCapabilities
 
 __all__ = [
@@ -660,7 +661,15 @@ class HwiSigner:
         One signer of an m-of-n answers for its own key and for no other,
         which is the same answer `psbt.sign` gives by adding nothing; what
         a caller compares is the psbt it gets back.
+
+        A psbt paying a silent payment is asked BIP375's Signer rules
+        before `hwi` runs, as `request_signatures` asks them: a device
+        need not know BIP375, and this method is public, so a caller
+        reaching it directly would otherwise send the device a psbt
+        `psbt.sign` refuses.
         """
+        assert_type(psbt, Psbt, "psbt")
+        _assert_sendable(psbt)
         sent = psbt.b64encode()
         # on standard input, one line and then the end of it: the module
         # docstring says why the psbt alone goes there

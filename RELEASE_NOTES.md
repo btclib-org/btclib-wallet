@@ -101,6 +101,10 @@ point is counted unless `PSBT_IN_TAP_MERKLE_ROOT` or a control block proves
 it. `set_output_scripts` refuses until every counted input has a share, where
 it derived the scripts from the shares there were.
 
+`hwi.HwiSigner.sign_psbt` called directly refuses such a psbt the same way,
+before `hwi` runs, where it sent it to the device; and it refuses a request
+that is no `Psbt` with a `BTClibTypeError` rather than an `AttributeError`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

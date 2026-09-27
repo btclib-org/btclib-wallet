@@ -41,16 +41,20 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from btclib.curves import bytes_from_point, mult
+from btclib.ecc import dsa
 from btclib.exceptions import (
     BTClibTypeError,
     BTClibValueError,
     SignerError,
     SignerNotFoundError,
 )
+from btclib.key import PubKeyData
 from btclib.network import NETWORKS
+from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
-from btclib_wallet.bip32 import fingerprint
+from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
 from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index, parse
 from btclib_wallet.hwi import (
@@ -63,7 +67,10 @@ from btclib_wallet.hwi import (
     enumerate_devices,
     is_available,
 )
-from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt import silent_payments
+from btclib_wallet.psbt.psbt import Psbt, ecdsa_sig_hash
+from btclib_wallet.psbt.psbt_in import PsbtIn
+from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
     MessageSigner,
@@ -468,6 +475,50 @@ def test_a_psbt_goes_out_and_comes_back_checked(hwi: list[str]) -> None:
     signed = request_signatures(device, psbt)
     assert signed.inputs[0].partial_sigs
     assert not psbt.inputs[0].partial_sigs
+
+
+def test_a_silent_payment_is_checked_before_hwi_runs(tmp_path: Path) -> None:
+    """BIP375's Signer rules, asked of a direct call as of `request_signatures`.
+
+    The stand-in answers with a psbt it signed whatever it was sent, as a
+    device that knows nothing of BIP375 would: a silent payment output with
+    no script yet is refused before `hwi` runs, which the stand-in not
+    having recorded an argv shows. Once the share is written and the script
+    derived, the psbt goes to the device as any other does.
+    """
+    path = "m/84h/0h/0h/0/0"
+    xprv = derive(XPRV_ROOT, path)
+    prv_key = int.from_bytes(BIP32KeyData.b58decode(xprv).key[1:], "big")
+    sec = bytes_from_point(mult(prv_key))
+    psbt_in = PsbtIn(
+        witness_utxo=TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(sec))),
+        previous_tx_id=b"\x06" * 32,
+        output_index=0,
+        hd_key_paths={sec: BIP32KeyOrigin(bytes.fromhex(FINGERPRINT), path)},
+    )
+    # scan key 2G, spend key 3G
+    sp_info = bytes_from_point(mult(2)) + bytes_from_point(mult(3))
+    psbt_out = PsbtOut(amount=90_000, sp_v0_info=sp_info)
+    psbt = Psbt(2, [psbt_in], [psbt_out], 2, {}, tx_modifiable=0b11)
+
+    signed = Psbt.b64decode(psbt.b64encode())
+    sig = dsa.sign_(ecdsa_sig_hash(signed, 0, hash_type=1), prv_key)
+    signed.inputs[0].partial_sigs[sec] = sig.serialize() + b"\x01"
+    blind = stand_in(tmp_path, {"signtx": {"psbt": signed.b64encode()}})
+    argv = Path(blind[-1]).with_suffix(".argv.json")
+    with pytest.raises(BTClibValueError, match="Signer must not yet sign"):
+        signer(blind).sign_psbt(psbt)
+    assert not argv.exists()
+
+    # and a request that is no psbt is refused before it is read
+    with pytest.raises(BTClibTypeError, match="psbt"):
+        signer(blind).sign_psbt("not a psbt")  # type: ignore[arg-type]
+    assert not argv.exists()
+
+    silent_payments.set_input_share(psbt, 0, prv_key)
+    silent_payments.set_output_scripts(psbt)
+    honest = signer(stand_in(tmp_path, {}))
+    assert honest.sign_psbt(psbt).inputs[0].partial_sigs
 
 
 def test_an_answer_that_changed_the_transaction_is_refused(tmp_path: Path) -> None:

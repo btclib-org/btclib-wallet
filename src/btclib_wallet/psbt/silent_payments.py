@@ -39,8 +39,11 @@ all, then the output scripts recomputed and compared.
 `btclib_wallet.psbt.psbt.sign` and `btclib_wallet.psbt.psbt.extract_tx`
 run the checks of their own role whenever an output carries
 PSBT_OUT_SP_V0_INFO: `_assert_signable` and `_assert_extractable` are
-what each asks. `btclib_wallet.psbt_signer.request_signatures` asks
-`_assert_signable` too, before a signer outside the process sees the psbt.
+what each asks. A psbt sent to a signer outside the process is asked
+`_assert_sendable` first, which is `_assert_signable` for a psbt paying a
+silent payment: `btclib_wallet.psbt_signer.request_signatures` asks it of
+every signer, and `btclib_wallet.hwi.HwiSigner.sign_psbt` asks it of a
+direct call.
 
 **What a psbt input's public key is, and why it needs its own reader.**
 `btclib_wallet.silent_payments.pub_key_from_input` reads it off a *signed*
@@ -795,6 +798,21 @@ def _assert_extractable(psbt: Psbt) -> None:
     assert_as_valid(psbt)
     what = "so the extracted transaction would pay the empty script"
     _assert_output_scripts_set(psbt, what)
+
+
+def _assert_sendable(psbt: Psbt) -> None:
+    """Raise unless a psbt may go to a signer outside the process.
+
+    The Signer's checks, `_assert_signable`, asked before the psbt leaves
+    rather than left to whatever answers: a signer that does not know
+    BIP375 signs a silent payment output whatever script it carries, and
+    its signature commits the funds to that script. A psbt paying no
+    silent payment has nothing here to ask.
+    """
+    if not any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
+        return
+    psbt.assert_valid()
+    _assert_signable(psbt)
 
 
 def _share_for(a: int, scan_key: bytes, aux: Octets | None) -> tuple[bytes, bytes]:
