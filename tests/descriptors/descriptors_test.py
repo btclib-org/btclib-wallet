@@ -33,7 +33,7 @@ produces is the address of that very script.
 """
 
 import traceback
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
 from typing import get_args
 
 import pytest
@@ -3623,3 +3623,21 @@ def test_a_template_refusal_echoes_no_private_key(template: str, message: str) -
     with pytest.raises(BTClibValueError, match=message) as excinfo:
         wallet_policy_descriptor(template, [])
     _assert_unechoed(excinfo.value)
+
+
+def test_a_key_expression_refuses_an_xprv() -> None:
+    """`xkey` is public in every instance, not only in what `parse` built.
+
+    Refused without being quoted, and whichever way the instance is made;
+    what is no extended key passes, a wallet-policy placeholder being one
+    (issue #95).
+    """
+    err_msg = "^an extended private key is no xkey: pass its xpub$"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        KeyExpression(xkey=XPRV_ROOT, der_path=(0,), wildcard=0)
+    _assert_unechoed(excinfo.value)
+    public = KeyExpression(xkey=xpub_from_xprv(XPRV_SECOND))
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        replace(public, xkey=XPRV_SECOND)
+    _assert_unechoed(excinfo.value)
+    assert KeyExpression(xkey="@0").xkey == "@0"

@@ -362,6 +362,12 @@ signatures and SHA pinning are read back (issue btclib-org/.github#1409), and
 quoting the descriptor text around it, a WIF or an xprv included (closes #49);
 btclib's bech32 decoder can still quote an `addr()` argument (issue #94).
 
+### `KeyExpression` refuses an extended private key as `xkey`
+
+With a `BTClibValueError` that does not quote it, so no `KeyExpression` holds
+an xprv for its `str`, or a wallet-policy refusal quoting it, to echo
+(closes #95).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

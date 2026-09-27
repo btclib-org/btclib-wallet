@@ -94,11 +94,11 @@ class KeyExpression:
     what BIP174 carries in a PSBT.
 
     `xkey` is public whatever the descriptor spelled: `parse` neuters an
-    xprv and hands the private material back to its caller, so no part of
-    a parsed descriptor holds a key that signs. What that costs is a
-    hardened step, which an xpub cannot take -- `sec` takes the keys back
-    as a parameter for it, the way Bitcoin Core's expansion takes a
-    `SigningProvider`.
+    xprv and hands the private material back to its caller, and the
+    constructor refuses one, so no key expression holds a key that signs.
+    What that costs is a hardened step, which an xpub cannot take -- `sec`
+    takes the keys back as a parameter for it, the way Bitcoin Core's
+    expansion takes a `SigningProvider`.
     """
 
     origin: BIP32KeyOrigin | None = None
@@ -125,6 +125,16 @@ class KeyExpression:
     # ways -- BIP380's own valid `[deadbeef/0'/0h/0']` -- is read and
     # written back in the symbol its last hardened step used
     hardening: str = _HARDENING
+
+    def __post_init__(self) -> None:
+        """Refuse an extended private key as `xkey`, without echoing it.
+
+        What is not an extended key at all passes: `xkey` also holds the
+        placeholders a wallet-policy template is written with.
+        """
+        if self.xkey and _is_extended_prv_key(self.xkey):
+            err_msg = "an extended private key is no xkey: pass its xpub"
+            raise BTClibValueError(err_msg)
 
     @property
     def is_ranged(self) -> bool:
@@ -435,6 +445,15 @@ def _is_extended_key(key: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _is_extended_prv_key(key: str) -> bool:
+    try:
+        return BIP32KeyData.b58decode(key).is_private
+    # ValueError, as in `_is_extended_key`: characters that are no
+    # extended key are no private one either
+    except ValueError:
+        return False
 
 
 def _neutered(xkey: str, prv_keys: dict[str, str]) -> str:

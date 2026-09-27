@@ -116,6 +116,10 @@ generator, an iterator -- where it read it; pass a `list` or a `tuple`.
 sequence -- a `dict` view, any container that is only iterable -- where it
 joined it; pass a `list` or a `tuple`.
 
+`descriptors.KeyExpression` refuses with a `BTClibValueError` an extended
+private key as `xkey`, where it held it; pass its xpub, and the xprv under
+that xpub in `prv_keys` where a hardened step needs it.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

@@ -452,16 +452,19 @@ def test_a_registered_policy_s_address_is_compared_with_the_policy_s() -> None:
 
 
 def test_a_descriptor_that_holds_a_private_key_is_not_sent() -> None:
-    """Nothing `parse` returns can fail this, and a hand-built one can.
+    """No constructor returns what fails this, and a key written around one can.
 
-    `parse` neuters every xprv it reads, so the case is a `KeyExpression`
-    built by hand -- which the fragment classes are public enough to allow
-    -- and the moment before it goes to something outside the process is
-    the moment to catch it.
+    `parse` neuters every xprv it reads and `KeyExpression` refuses one, so
+    the case is a key expression whose `xkey` was written without its
+    constructor, as unpickling does -- and the moment before it goes to
+    something outside the process is the moment to catch it.
     """
-    assert_public(parse(f"wpkh({xpub_from_xprv(XPRV_ROOT)}/0/*)"))
+    xpub = xpub_from_xprv(XPRV_ROOT)
+    assert_public(parse(f"wpkh({xpub}/0/*)"))
 
-    private = WpkhDescriptor(KeyExpression(xkey=XPRV_ROOT, der_path=(0,), wildcard=0))
+    key = KeyExpression(xkey=xpub, der_path=(0,), wildcard=0)
+    object.__setattr__(key, "xkey", XPRV_ROOT)
+    private = WpkhDescriptor(key)
     with pytest.raises(BTClibValueError, match="holds a private key"):
         assert_public(private)
     with pytest.raises(BTClibValueError, match="holds a private key"):
@@ -470,14 +473,11 @@ def test_a_descriptor_that_holds_a_private_key_is_not_sent() -> None:
     # a participant of a musig() is a key expression like any other, and
     # `key_expressions` answers with the aggregate rather than with them,
     # so the participants are walked here explicitly
-    assert_public(parse(f"tr(musig({xpub_from_xprv(XPRV_ROOT)},{XPUB_OTHER}))"))
+    assert_public(parse(f"tr(musig({xpub},{XPUB_OTHER}))"))
+    participant = KeyExpression(xkey=xpub)
+    object.__setattr__(participant, "xkey", XPRV_ROOT)
     smuggled = TrDescriptor(
-        KeyExpression(
-            participants=(
-                KeyExpression(xkey=XPRV_ROOT),
-                KeyExpression(xkey=XPUB_OTHER),
-            )
-        )
+        KeyExpression(participants=(participant, KeyExpression(xkey=XPUB_OTHER)))
     )
     with pytest.raises(BTClibValueError, match="holds a private key"):
         assert_public(smuggled)

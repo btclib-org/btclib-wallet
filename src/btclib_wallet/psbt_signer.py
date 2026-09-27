@@ -38,9 +38,10 @@ to remember:
   says it must open to.
 
 Nothing here sends a private key anywhere, and nothing can: a `Descriptor`
-holds no key that signs, `descriptors.parse` having neutered what it read,
-and `assert_public` is what says so of one built by hand rather than
-parsed. A psbt has no field for a private key at all.
+holds no key that signs, `descriptors.parse` having neutered what it read
+and `KeyExpression` refusing an xprv, and `assert_public` is what says so
+of a key expression that reached a descriptor around its constructor. A
+psbt has no field for a private key at all.
 
 Selecting *which* device answers, the transport it answers over, and the
 timeouts and output limits a subprocess needs are the adapter's, not this
@@ -443,11 +444,12 @@ def select_device(devices: Sequence[SignerDevice], fingerprint: Octets) -> Signe
 def assert_public(descriptor: Descriptor) -> None:
     """Raise if any key of the descriptor is one that signs.
 
-    Nothing `descriptors.parse` returns can fail this: it neuters every
-    xprv it reads and hands the private spelling back to its caller. What
-    this catches is a descriptor built by hand, which the fragment classes
-    are public enough to allow -- and the moment before it is sent to
-    something outside the process is the moment to catch it.
+    Nothing `descriptors.parse` returns can fail this, nor any key
+    expression its constructor built: the first neuters every xprv it reads,
+    the second refuses one. What this catches is a key expression whose
+    fields were written without that constructor -- unpickled, or through
+    `object.__setattr__` -- and the moment before it is sent to something
+    outside the process is the moment to catch it.
     """
     for key in descriptor.key_expressions:
         keys = [key.xkey] if key.xkey else []
