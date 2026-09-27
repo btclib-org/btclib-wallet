@@ -1441,7 +1441,7 @@ class Psbt:
     def b64decode(
         cls: type[Psbt], psbt_str: String, *, check_validity: bool = True
     ) -> Psbt:
-        """Build a Psbt from its base64 text, stripping whitespace.
+        """Build a Psbt from its base64 text, whitespace stripped at either end.
 
         The coercion before the strip, as `bms.Sig.b64decode` does it and
         for the reason issue btclib-org/btclib#814 gives: without it, what is
@@ -1449,6 +1449,11 @@ class Psbt:
         facing its own "argument should be a bytes-like object or ASCII string"
         -- a complaint about a builtin rather than about the psbt that was
         passed.
+
+        Inside the text every character is base64 or the text is refused, a
+        line break included: Bitcoin Core's `DecodeBase64PSBT` refuses the
+        same, and `tx_or_psbt.tx_or_psbt_from_any` is the reader that takes a
+        psbt wrapped in lines.
         """
         # ASCII whitespace alone (issue #102)
         psbt_str = str_from_string(psbt_str, "base64 psbt").strip(string.whitespace)
@@ -1458,10 +1463,16 @@ class Psbt:
         # Neither is BTClibValueError, so a caller catching that to reject
         # a pasted psbt -- which is the whole audience of this method --
         # gets an exception it never asked about. `bms.Sig.b64decode` and
-        # `ecies.Envelope.b64decode` both answer with the library's own
+        # `ecies.Envelope.b64decode` both answer with the library's own.
+        # What base64 says is kept and the text is not quoted, a psbt being
+        # able to carry key material.
+        #
+        # validate=True: without it b64decode drops whatever is outside the
+        # alphabet instead of refusing it, so text that is not base64 decodes
+        # as the psbt it hides (issue #108)
         try:
-            psbt_decoded = base64.b64decode(psbt_str)
-        except ValueError as e:  # binascii.Error and UnicodeEncodeError
+            psbt_decoded = base64.b64decode(psbt_str, validate=True)
+        except ValueError as e:
             raise BTClibValueError(f"invalid base64 encoding: {e}") from e
 
         return cls.parse(psbt_decoded, check_validity=check_validity)

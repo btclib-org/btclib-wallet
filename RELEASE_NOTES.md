@@ -143,8 +143,8 @@ fingerprint strip only space, tab, newline, carriage return, vertical tab
 and form feed. Text padded with U+00A0, U+3000, U+2028, U+0085 or another
 character outside ASCII that `str.isspace` counts is refused with a
 `BTClibValueError`, where it was read as the value it wraps, and so is
-text padded with U+001C to U+001F, except by `Psbt.b64decode`
-(issue #108). `BIP32KeyOrigin.from_description` still accepts either
+text padded with U+001C to U+001F.
+`BIP32KeyOrigin.from_description` still accepts either
 padding after the path (issue #107). For such a spelling of an address a
 wallet handed out, `address in wallet` answers `False` and
 `Wallet.address_info` raises. Strip that padding before passing the text.
@@ -175,6 +175,13 @@ is over 520 bytes -- sixteen compressed keys are 547 -- and one of more than
 twenty keys anywhere, where it parsed them; put the keys of the first two
 inside `wsh()` or `sh(wsh())` instead. `wallet_policy_descriptor` refuses the
 same, the descriptor it builds being read by `parse`.
+
+`Psbt.b64decode` refuses with a `BTClibValueError` text holding a
+character outside the base64 alphabet -- a line break, a space, U+001C,
+`!` -- anywhere past the ASCII whitespace it strips from either end,
+where it decoded the psbt the rest of the text spells. Remove the line
+breaks from a wrapped psbt, or pass it to
+`tx_or_psbt.tx_or_psbt_from_any`, which removes them.
 
 ## v2026.9.24
 

@@ -410,6 +410,12 @@ A bare `multi()` of more than three keys, a redeem script inside `sh()` over
 520 bytes and more than twenty keys anywhere are refused, as Bitcoin Core
 refuses them; the `sh()` one gave an unspendable address (closes #109).
 
+### `Psbt.b64decode` refuses a character outside the base64 alphabet
+
+Past the ASCII whitespace stripped from either end, a line break or a U+001C
+is refused with `BTClibValueError`, as Bitcoin Core's `DecodeBase64PSBT`
+refuses it, where the decoder dropped it and read the rest (closes #108).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

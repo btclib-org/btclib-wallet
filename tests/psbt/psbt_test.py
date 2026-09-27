@@ -5114,14 +5114,47 @@ def test_the_flag_still_switches_the_dict_check_off() -> None:
         psbt.to_dict()
 
 
-def test_b64decode_strips_ascii_whitespace_alone() -> None:
-    """The padding outside ASCII is refused.
+_NOT_BASE64 = "^invalid base64 encoding: Only base64 data is allowed$"
+_NOT_ASCII = (
+    "^invalid base64 encoding: string argument should contain only ASCII characters$"
+)
 
-    U+001C is not asserted: it is outside the base64 alphabet, which
-    this decoder discards rather than refuses (issue #108).
+
+def test_b64decode_strips_ascii_whitespace_alone() -> None:
+    """ASCII whitespace at either end is stripped, and no other padding.
+
+    U+001C to U+001F are ASCII and `str.isspace` counts them, so those
+    `NOT_STRIPPED` leaves out are asserted beside it (issue #108).
     """
     padded = string.whitespace + TO_BE_FINALIZED + string.whitespace
     assert Psbt.b64decode(padded) == Psbt.b64decode(TO_BE_FINALIZED)
-    for pad in (pad for pad in NOT_STRIPPED if not pad.isascii()):
-        with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
+    separators = (
+        "\N{INFORMATION SEPARATOR THREE}",
+        "\N{INFORMATION SEPARATOR TWO}",
+        "\N{INFORMATION SEPARATOR ONE}",
+    )
+    for pad in (*NOT_STRIPPED, *separators):
+        match = _NOT_BASE64 if pad.isascii() else _NOT_ASCII
+        with pytest.raises(BTClibValueError, match=match):
             Psbt.b64decode(pad + TO_BE_FINALIZED + pad)
+
+
+@pytest.mark.parametrize(
+    "character",
+    [
+        pytest.param("!", id="punctuation"),
+        pytest.param("\N{NULL}", id="NUL"),
+        pytest.param("\N{INFORMATION SEPARATOR FOUR}", id="U+001C"),
+        pytest.param("\N{LINE FEED}", id="a line break"),
+        pytest.param(" ", id="a space"),
+    ],
+)
+def test_b64decode_refuses_a_character_inside_the_text(character: str) -> None:
+    """A character outside the base64 alphabet is refused, not dropped.
+
+    Each is placed inside a psbt that decodes without it, so that what
+    refuses it is the alphabet and not a broken group (issue #108).
+    """
+    smuggled = TO_BE_FINALIZED[:20] + character + TO_BE_FINALIZED[20:]
+    with pytest.raises(BTClibValueError, match=_NOT_BASE64):
+        Psbt.b64decode(smuggled)

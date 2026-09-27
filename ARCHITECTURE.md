@@ -85,8 +85,9 @@ submodule loads on first attribute access through the package's own
   each adds — BIP373, BIP445 and BIP375 respectively — `frost`'s own
   fields being proprietary records under a btclib identifier until a BIP
   assigns them the bytes.
-- `tx_or_psbt.py` sniffs BIP174's five-byte magic and dispatches to
-  `Tx.parse`, `Psbt.parse` or `Psbt.b64decode` accordingly, so a caller
+- `tx_or_psbt.py` decodes hex or base64 itself, ASCII whitespace removed,
+  sniffs BIP174's five-byte magic and dispatches to `Tx.parse` or
+  `Psbt.parse` accordingly, so a caller
   holding hex, base64 or raw bytes from an unknown source does not answer
   that question itself.
 - `tx_builder.py` composes a psbt at a fee rate with change, out of parts
