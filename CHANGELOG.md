@@ -380,6 +380,12 @@ key (closes #97).
 ASCII all-uppercase spelling: neither a mixed-case string nor U+212A KELVIN
 SIGN in place of `K` is found as the address it lowers to (closes #99).
 
+### `descriptors_test` matches the refusal of a non-script without its quote
+
+`test_index_of_refuses_what_it_could_only_answer_none_for` matches
+`neither a script nor an address` alone, which a btclib carrying
+btclib-org/btclib#2350 raises without the string it refused (closes #101).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

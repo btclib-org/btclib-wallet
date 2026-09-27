@@ -2725,7 +2725,7 @@ def test_index_of_refuses_what_it_could_only_answer_none_for() -> None:
             descriptor.index_of(wrong)  # type: ignore[arg-type]
     # a string is the hex of a script or an address, and this one is
     # neither, so the complaint is btclib's rather than bytes.fromhex's
-    with pytest.raises(BTClibValueError, match="neither a script nor an address: "):
+    with pytest.raises(BTClibValueError, match="neither a script nor an address"):
         descriptor.index_of("not an address")
 
 
