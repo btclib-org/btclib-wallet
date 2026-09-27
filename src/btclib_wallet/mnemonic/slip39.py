@@ -52,7 +52,7 @@ from __future__ import annotations
 import hmac
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import pbkdf2_hmac, sha256
 
 from btclib.alias import Octets
@@ -260,7 +260,10 @@ class Share:
     group_count: int
     member_index: int
     member_threshold: int
-    value: bytes
+    # never in repr: value is the (encrypted) master secret, and a repr
+    # ends up in logs, debuggers and tracebacks the way any other
+    # exception message or print does
+    value: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
         self.assert_valid()
@@ -324,7 +327,10 @@ def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
     # which of the two customization strings the checksum used
     extendable = bits[_ID_BITS] == "1"
     if not _rs1024_verify(indexes, extendable):
-        raise BTClibValueError(f"invalid checksum: {mnemonic}")
+        # never the share itself: it is the (encrypted) master secret, one
+        # typo away from being recoverable, and an exception message ends
+        # up in logs and crash reports
+        raise BTClibValueError(f"invalid checksum: {n_words} words")
 
     padded_bits = len(bits) - _HEADER_BITS - _CHECKSUM_BITS
     # the padded value is a whole number of words, so its length is a

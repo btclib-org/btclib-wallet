@@ -184,10 +184,15 @@ def test_lang_from_mnemonic() -> None:
         mnemonic = bip39.mnemonic_from_entropy(entropy, lang)
         assert bip39.lang_from_mnemonic(mnemonic) == lang
 
-    # a word in no word-list at all
-    err_msg = "unknown language for mnemonic: "
-    with pytest.raises(BTClibValueError, match=err_msg):
-        bip39.lang_from_mnemonic("btclib " * 11 + "btclib")
+    # a word in no word-list at all: the exception reports the word
+    # count, never the sentence -- a mistyped mnemonic is one guess away
+    # from the one it was meant to be (issue btclib-org/btclib-wallet#38)
+    typo = "btclib " * 11 + "btclib"
+    err_msg = "unknown language for mnemonic: 12 words"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        bip39.lang_from_mnemonic(typo)
+    assert typo not in str(excinfo.value)
+    assert "btclib" not in str(excinfo.value)
 
     # NFC in, NFKD word-list: the same mnemonic, and the same language
     spanish = bip39.mnemonic_from_entropy(entropy, "es")

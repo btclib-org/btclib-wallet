@@ -212,6 +212,37 @@ def test_unknown_word() -> None:
         slip39.share_from_mnemonic(mnemonic)
 
 
+def test_invalid_checksum() -> None:
+    """Refuse a bad checksum, reporting the word count, never the share.
+
+    A mistyped mnemonic is one guess away from the share it was meant to
+    be (issue btclib-org/btclib-wallet#38).
+    """
+    mnemonic = _VECTORS[0][1][0]
+    words = mnemonic.split()
+    wordlist = WORDLISTS.wordlist("slip39")
+    words[-1] = next(word for word in wordlist if word != words[-1])
+    typo = " ".join(words)
+
+    err_msg = f"invalid checksum: {len(words)} words"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        slip39.share_from_mnemonic(typo)
+    assert typo not in str(excinfo.value)
+
+
+def test_share_repr_masks_value() -> None:
+    """`repr(share)` never prints `value`, the (encrypted) master secret.
+
+    `BIP32KeyData.__repr__` masks its key material for the same reason
+    (issue btclib-org/btclib-wallet#39).
+    """
+    share = slip39.share_from_mnemonic(_VECTORS[0][1][0])
+    assert share.value.hex() not in repr(share)
+    assert repr(share.value) not in repr(share)
+    # the non-secret fields remain readable
+    assert f"identifier={share.identifier}" in repr(share)
+
+
 def test_whitespace_is_collapsed() -> None:
     """Verify extra whitespace decodes to the same share."""
     mnemonic = _VECTORS[0][1][0]

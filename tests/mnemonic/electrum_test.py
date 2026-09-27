@@ -779,9 +779,14 @@ def test_a_wordlist_the_encoding_does_not_round_trip(
     # is int_entropy + 1, so 1 here is a mismatch and nothing else is
     monkeypatch.setattr(electrum, "_bin_str_entropy_from_mnemonic", lambda *_: "1")
 
+    # the failing candidate is a mnemonic like any other, and the
+    # exception reports its word count, never the sentence
+    # (issue btclib-org/btclib-wallet#38)
+    candidate = electrum._mnemonic_from_int_entropy(2, "en")
     err_msg = "cannot extract the same entropy from mnemonic: "
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         electrum._search_mnemonic(1, "01", "en")
+    assert candidate not in str(excinfo.value)
 
 
 def test_2fa_words() -> None:
@@ -955,10 +960,12 @@ def test_entropy_round_trips_through_every_candidate(
     than dead code.
     """
     monkeypatch.setattr(electrum, "_bin_str_entropy_from_mnemonic", lambda *_: "0")
+    candidate = electrum._mnemonic_from_int_entropy(2, "en")
     with pytest.raises(
         BTClibValueError, match="cannot extract the same entropy from mnemonic: "
-    ):
+    ) as excinfo:
         electrum.mnemonic_from_entropy("standard", 1, "en")
+    assert candidate not in str(excinfo.value)
 
 
 def test_lang_from_mnemonic() -> None:
@@ -974,8 +981,14 @@ def test_lang_from_mnemonic() -> None:
         mnemonic = electrum.mnemonic_from_entropy("standard", entropy, lang)
         assert electrum.lang_from_mnemonic(mnemonic) == lang
 
-    with pytest.raises(BTClibValueError, match="unknown language for mnemonic: "):
-        electrum.lang_from_mnemonic("btclib " * 11 + "btclib")
+    # the exception reports the word count, never the sentence
+    # (issue btclib-org/btclib-wallet#38)
+    typo = "btclib " * 11 + "btclib"
+    with pytest.raises(
+        BTClibValueError, match="unknown language for mnemonic: 12 words"
+    ) as excinfo:
+        electrum.lang_from_mnemonic(typo)
+    assert typo not in str(excinfo.value)
 
     # a chinese sentence in characters both lists hold. BIP39 answers it
     # by comparing the entropies, which are equal, the two lists being

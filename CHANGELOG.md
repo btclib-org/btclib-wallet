@@ -164,6 +164,18 @@ An issue filed from a review may say the fix where one is known: *What is
 filed, and what is not* dropped its "no fix", the filing bar standing as it
 was (issue btclib-org/.github#1378).
 
+### A mistyped mnemonic or SLIP-0039 share is no longer echoed whole
+
+`bip39.py`, `electrum.py` and `slip39.py` reported the sentence in the
+exception raised over an unrecognized language or a bad checksum; each
+now reports the word count instead (closes #38).
+
+### `slip39.Share`'s `repr` no longer prints `value`
+
+`value` is the (encrypted) master secret, and the frozen dataclass's
+default `repr` printed it; `BIP32KeyData.__repr__` masks its key material
+for the same reason (closes #39).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
