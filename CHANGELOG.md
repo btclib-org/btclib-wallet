@@ -338,6 +338,12 @@ or holds an element that is no `Psbt` a `BTClibTypeError` (closes #88).
 An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
 or holds an element that is no `Psbt` a `BTClibTypeError` (closes #89).
 
+### `CLAUDE.md` names three failures a session met in this tree
+
+The union seam in `RELEASE_NOTES.md` that no hook reports, the
+`.secrets.baseline` conflict on `generated_at` that costs a review round,
+and the `timeout` macOS does not ship.
+
 ### A malformed descriptor's refusal no longer echoes its private keys
 
 `descriptors.parse` and `wallet_policy_descriptor` name what is wrong without
