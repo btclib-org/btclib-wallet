@@ -52,13 +52,13 @@ from __future__ import annotations
 import hmac
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import pbkdf2_hmac, sha256
 
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import network_from_name
-from btclib.utils import assert_type, bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 from btclib_wallet.bip32 import rootxprv_from_seed
 from btclib_wallet.mnemonic.entropy import (
@@ -260,13 +260,24 @@ class Share:
     group_count: int
     member_index: int
     member_threshold: int
-    value: bytes
+    # never in repr: value is the (encrypted) master secret, and a repr
+    # ends up in logs, debuggers and tracebacks the way any other
+    # exception message or print does
+    value: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
         self.assert_valid()
 
     def assert_valid(self) -> None:
-        """Raise if a field is outside what the share format can hold."""
+        """Raise if a field is outside what the share format can hold.
+
+        Each field's type is asked before its value: a share can be built
+        by hand, from a json record say, where `true` would pass the
+        range check as 1 and a hex string the length check as a str of
+        twice the bytes.
+        """
+        assert_type(self.extendable, bool, "extendable")
+        assert_type(self.value, bytes, "share value")
         top = _MAX_SHARE_COUNT - 1
         for name, value, lower, upper in (
             ("identifier", self.identifier, 0, (1 << _ID_BITS) - 1),
@@ -277,6 +288,7 @@ class Share:
             ("member index", self.member_index, 0, top),
             ("member threshold", self.member_threshold, 1, _MAX_SHARE_COUNT),
         ):
+            _assert_integers((name, value))
             if not lower <= value <= upper:
                 err_msg = f"invalid {name}: {value}, not in [{lower}-{upper}]"
                 raise BTClibValueError(err_msg)
@@ -324,7 +336,10 @@ def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
     # which of the two customization strings the checksum used
     extendable = bits[_ID_BITS] == "1"
     if not _rs1024_verify(indexes, extendable):
-        raise BTClibValueError(f"invalid checksum: {mnemonic}")
+        # never the share itself: it is the (encrypted) master secret, one
+        # typo away from being recoverable, and an exception message ends
+        # up in logs and crash reports
+        raise BTClibValueError(f"invalid checksum: {n_words} words")
 
     padded_bits = len(bits) - _HEADER_BITS - _CHECKSUM_BITS
     # the padded value is a whole number of words, so its length is a
@@ -356,6 +371,7 @@ def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
 
 def mnemonic_from_share(share: Share) -> Mnemonic:
     """Return the SLIP-0039 mnemonic encoding the share."""
+    assert_type(share, Share, "share")
     share.assert_valid()
     header = f"{share.identifier:015b}"
     header += "1" if share.extendable else "0"
@@ -383,6 +399,7 @@ def _assert_valid_passphrase(passphrase: str) -> None:
     UTF-8 and carrying on would derive a seed that another
     implementation, asked the same question, refuses to derive.
     """
+    assert_type(passphrase, str, "passphrase")
     if any(not 32 <= ord(char) <= 126 for char in passphrase):
         err_msg = "invalid passphrase: only printable ASCII (32-126) is allowed"
         raise BTClibValueError(err_msg)
@@ -457,6 +474,24 @@ def _recover_secret(threshold: int, shares: Sequence[tuple[int, bytes]]) -> byte
     return secret
 
 
+def _drawn(entropy_source: Callable[[int], bytes], n_bytes: int) -> bytes:
+    """Return n_bytes from the entropy source, refusing anything else.
+
+    A bytearray is taken, as bytes: the first threshold - 2 draws are
+    shares as they stand, so what the source returns is what a Share
+    holds, and a Share holds bytes.
+    """
+    drawn: object = entropy_source(n_bytes)
+    if not isinstance(drawn, bytes | bytearray):
+        err_msg = f"invalid entropy source output type: {type(drawn).__name__}"
+        raise BTClibTypeError(err_msg)
+    if len(drawn) != n_bytes:
+        err_msg = f"invalid entropy source output length: {len(drawn)} bytes "
+        err_msg += f"instead of {n_bytes}"
+        raise BTClibValueError(err_msg)
+    return bytes(drawn)
+
+
 def _split_secret(
     threshold: int,
     share_count: int,
@@ -480,8 +515,8 @@ def _split_secret(
     n = len(secret)
     # T-2 shares are free, the digest and the secret pin the rest of
     # the polynomial down
-    points = [(i, entropy_source(n)) for i in range(threshold - 2)]
-    random_part = entropy_source(n - _DIGEST_BYTES)
+    points = [(i, _drawn(entropy_source, n)) for i in range(threshold - 2)]
+    random_part = _drawn(entropy_source, n - _DIGEST_BYTES)
     points.extend(
         ((_DIGEST_X, _digest(random_part, secret) + random_part), (_SECRET_X, secret))
     )
@@ -559,6 +594,34 @@ def _assert_mnemonic_sequence(mnemonics: object) -> None:
         raise BTClibTypeError(err_msg)
 
 
+def _assert_groups(groups: object) -> None:
+    """Refuse anything but a sequence of (member threshold, member count).
+
+    A pair is a tuple, or the list a json configuration decodes one to;
+    a str or bytes of two items is no pair, however it unpacks. How many
+    items a pair holds is a value, run time being unable to tell
+    tuple[int] from tuple[int, int]; the bounds on each integer are
+    `_split_secret`'s.
+    """
+    if not isinstance(groups, Sequence):
+        raise BTClibTypeError(f"invalid groups type: {type(groups).__name__}")
+    for group in groups:
+        if not isinstance(group, tuple | list):
+            raise BTClibTypeError(f"invalid group type: {type(group).__name__}")
+        if len(group) != 2:
+            err_msg = f"invalid group: {len(group)} items, "
+            err_msg += "(member threshold, member count) required"
+            raise BTClibValueError(err_msg)
+        _assert_integers(("member threshold", group[0]), ("member count", group[1]))
+
+
+def _assert_integers(*named: tuple[str, object]) -> None:
+    """Refuse each value that is not an integer, a bool included."""
+    for what, value in named:
+        if not is_integer(value):
+            raise BTClibTypeError(f"invalid {what} type: {type(value).__name__}")
+
+
 def master_secret_from_mnemonics(
     mnemonics: Sequence[Mnemonic], passphrase: str = ""
 ) -> bytes:
@@ -619,7 +682,15 @@ def mnemonics_from_master_secret(
     is the same bytes through another name); anything weaker substituted
     here is a secret an attacker can reproduce.
     """
+    _assert_groups(groups)
+    _assert_integers(
+        ("group threshold", group_threshold),
+        ("iteration exponent", iteration_exponent),
+    )
     assert_type(extendable, bool, "extendable")
+    if not callable(entropy_source):
+        err_msg = f"invalid entropy source type: {type(entropy_source).__name__}"  # type: ignore[unreachable]
+        raise BTClibTypeError(err_msg)
     _assert_valid_passphrase(passphrase)
     secret = bytes_from_octets(master_secret)
     _assert_valid_length(len(secret), "master secret")
@@ -639,7 +710,7 @@ def mnemonics_from_master_secret(
     # the low fifteen bits of the first two bytes drawn, rather than the
     # high fifteen: both are uniform, and this way a two-byte source
     # spells the identifier it produces
-    identifier = int.from_bytes(entropy_source(2), byteorder="big")
+    identifier = int.from_bytes(_drawn(entropy_source, 2), byteorder="big")
     identifier &= (1 << _ID_BITS) - 1
     ems = _feistel(
         secret, passphrase, iteration_exponent, identifier, extendable, decrypt=False
@@ -684,7 +755,12 @@ def mxprv_from_mnemonics(
 
     The master secret is the BIP32 seed, so there is no stretching step
     between the two: SLIP-0039 backs up the seed itself.
+
+    None is the empty passphrase; any other value is handed on to be
+    checked, so a falsy one of another type is refused rather than read
+    as the empty passphrase.
     """
-    seed = master_secret_from_mnemonics(mnemonics, passphrase or "")
+    passphrase = "" if passphrase is None else passphrase
+    seed = master_secret_from_mnemonics(mnemonics, passphrase)
     version = network_from_name(network).bip32_prv
     return rootxprv_from_seed(seed, version)

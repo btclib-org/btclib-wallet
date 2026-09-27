@@ -164,6 +164,180 @@ An issue filed from a review may say the fix where one is known: *What is
 filed, and what is not* dropped its "no fix", the filing bar standing as it
 was (issue btclib-org/.github#1378).
 
+### A mistyped mnemonic or SLIP-0039 share is no longer echoed whole
+
+`bip39.py`, `electrum.py` and `slip39.py` reported the sentence in the
+exception raised over an unrecognized language or a bad checksum; each
+now reports the word count instead (closes #38).
+
+### `slip39.Share`'s `repr` no longer prints `value`
+
+`value` is the (encrypted) master secret, and the frozen dataclass's
+default `repr` printed it; `BIP32KeyData.__repr__` masks its key material
+for the same reason (closes #39).
+
+### The ClusterFuzzLite base image is pinned by digest
+
+`.clusterfuzzlite/Dockerfile`'s `FROM` names a `sha256` digest, and
+`.github/dependabot.yml` carries a `docker` ecosystem entry on
+`/.clusterfuzzlite` to move it forward (closes #32).
+
+### The ClusterFuzzLite build installs from `uv.lock`, not the index
+
+`.clusterfuzzlite/build.sh` installs a hashed `uv export --locked`
+requirements file with `pip3 install --require-hashes` before installing
+the package itself `--no-deps` (closes #33).
+
+### SLIP-0039 generation refuses an argument of another type
+
+`slip39.mnemonics_from_master_secret` refuses one with a `BTClibTypeError`,
+`groups` included, and a bool where an integer belongs (closes #43).
+
+### Dice rolls are shuffled as a copy, and refused unless integers
+
+`bin_str_entropy_from_rolls` leaves the caller's rolls in order, reads a
+tuple, and refuses with a `BTClibTypeError` what is no sequence of
+integers (closes #47).
+
+### `TlsLineTransport`'s default context sets TLS 1.2 as its floor
+
+The context it builds when given none has `minimum_version` set to
+`TLSv1_2`: PyPy's `ssl.create_default_context()` leaves it at
+`MINIMUM_SUPPORTED`, where CPython's already answers `TLSv1_2` (closes #46).
+
+### `EsploraFetcher` and `ElectrumFetcher` check their constructor arguments
+
+A `base_url` that is no http(s) url with a host, a `timeout` that is no
+positive finite number, or a `transport` that is not callable is refused
+at construction, as a `BTClibTypeError` or `BTClibValueError` (closes #44).
+
+### `EsploraFetcher` refuses a `base_url` carrying credentials
+
+A url with a user or a password is a `BTClibValueError` that does not echo
+it, since the `HttpError` of a status other than 200 quotes the url
+(closes #65).
+
+### A SLIP-0039 share, and its passphrase, refuse a value of another type
+
+`slip39.Share`, `mnemonic_from_share` and an entropy source's draws are
+type-checked, and `mxprv_from_mnemonics` reads only `None` as the empty
+passphrase, refusing a falsy value of another type (closes #63) (closes #66).
+
+### `BitcoinCoreFetcher` and `BitcoinCoreRestFetcher` check their client
+
+A `client` of another class is a `BTClibTypeError` at construction, and so
+is an `estimate_mode` that is no string; a string that is none of the modes
+Core takes, in any ASCII case, is a `BTClibValueError` (closes #64).
+
+### A timeout past `threading.TIMEOUT_MAX` is a `BTClibValueError`
+
+`TlsLineTransport`, `EsploraFetcher` and `ElectrumFetcher` share one check,
+`transport.valid_timeout`, bounded where a socket still waits; past it, a
+timeout left the transport's call as a bare `OverflowError` (closes #70).
+
+### The change script is a required argument
+
+`tx_builder.build_psbt`, `coin_selection.select_coins`, `knapsack` and
+`single_random_draw` take `change_script_pub_key` with no default, a sweep
+passing `None`; `branch_and_bound` keeps its default (closes #36).
+
+### `build_psbt` refuses a lock time that final sequences void
+
+A non-zero `lock_time` where every input's sequence is `0xffffffff` is a
+`BTClibValueError`, consensus ignoring the lock time of such a
+transaction (closes #37).
+
+### `build_psbt` refuses an output below the dust threshold
+
+An output being paid worth less than `dust_threshold` for its script, at
+the `dust_fee_rate` the change is created against, is a
+`BTClibValueError` (closes #42).
+
+### `build_psbt` refuses a fee above `max_fee`
+
+The keyword defaults to `DEFAULT_MAX_FEE`, Bitcoin Core's `-maxtxfee`
+default of 0.10 BTC, and a larger fee is a `BTClibValueError`
+(closes #48).
+
+### `psbt.sign` runs BIP375's Signer checks on a silent payment
+
+Before any key is asked, it refuses what `psbt.silent_payments.assert_as_valid`
+refuses, a sighash other than `SIGHASH_ALL` among it, and a silent payment
+output with no script yet (closes #34).
+
+### `psbt.extract_tx` runs BIP375's Extractor check on a silent payment
+
+`check_validity` also runs `psbt.silent_payments.assert_as_valid`, which
+reads a finalized input's key from its final scripts, and refuses a silent
+payment output with no script (closes #35).
+
+### `psbt.combine` merges a silent payment output's script
+
+The script is taken from whichever psbt carries it, and two different ones
+are refused with a `BTClibValueError` rather than one kept (closes #50).
+
+### `build_psbt` refuses a fee above what `max_fee_rate` asks
+
+The keyword defaults to `DEFAULT_MAX_FEE_RATE`, Bitcoin Core's
+`-maxfeerate` default of 0.10 BTC/kvB, applied to the estimated vsize;
+a larger fee is a `BTClibValueError` (closes #73).
+
+### The suite refuses a constant default entropy in BIP39 and SLIP-0039
+
+`bip39_test` and `slip39_test` generate twice or more with no entropy given
+and assert the mnemonics, the SLIP-0039 identifiers and the share values
+differ, and that a default BIP39 entropy is 128 bits (closes #41).
+
+### `HwiSigner` keeps caller text off HWI's options, and the psbt off argv
+
+A message, a policy name or a registration starting with `-` reaches HWI
+as a value (closes #45), a psbt goes to its standard input rather than to
+a size-capped argv (closes #51), and a NUL in an argument is refused.
+
+### A psbt input's witness utxo has to be the output its non-witness utxo names
+
+`Psbt.assert_valid` refuses one differing in amount or script, and the
+spent output is read from `non_witness_utxo` as Bitcoin Core reads it;
+`bip322` does both against an earlier input's transaction (closes #40).
+
+### `estimated_input_sizes` checks the utxo against the outpoint
+
+A `non_witness_utxo` not the transaction the `TxIn` names, or without the
+output it names, is a `BTClibValueError`, as is a `witness_utxo` differing
+from that output, no longer read in its place (closes #80).
+
+### `request_signatures` runs BIP375's Signer checks before a signer is asked
+
+A psbt paying a silent payment is refused as `psbt.sign` refuses it before
+`sign_psbt` is called, so a signer asked through it sees none (closes #74).
+
+### Which inputs a silent payment sums is decided by the script they spend
+
+A counted input without a key its script commits to is refused, not left out,
+and `set_output_scripts` waits for every counted input's share (closes #76).
+
+### `HwiSigner.sign_psbt` runs BIP375's Signer checks before `hwi` runs
+
+A psbt `psbt.sign` would refuse is refused on a direct call too, not only
+through `request_signatures`, and a request that is no psbt is a
+`BTClibTypeError` (closes #82).
+
+### `psbt.combine` validates the psbt it returns
+
+Copies valid alone whose merge is not, such as one's `witness_utxo`
+contradicting another's `non_witness_utxo`, are a `BTClibValueError`
+(closes #81).
+
+### `psbt.combine` refuses no psbts and what is not a psbt
+
+An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
+or holds an element that is no `Psbt` a `BTClibTypeError` (closes #88).
+
+### `psbt.join` refuses no psbts and what is not a psbt
+
+An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
+or holds an element that is no `Psbt` a `BTClibTypeError` (closes #89).
+
 ### Malformed descriptors no longer echo key material in parse errors
 
 Checksum, bracket and function-shape errors name the fault without copying

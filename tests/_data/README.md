@@ -771,10 +771,12 @@ Verdict: **transcribed**, and a subset by design. `tests/hwi_test.py`
 holds the commands `btclib_wallet.hwi` runs — `enumerate`, `getxpub`,
 `signtx`, `signmessage`, `displayaddress`, `registerdescriptor` — with
 the positional arguments of each, the global flags it passes
-(`--chain`, `--fingerprint`, `--emulators`), the `--desc` of
+(`--chain`, `--fingerprint`, `--emulators`, `--stdin`), the `--desc` of
 `displayaddress`, the chains `--chain` takes, and the keys read out of
-each answer. Not every chain it transcribes is one btclib sends:
-testnet4 goes out as `test`, and `btclib_wallet.hwi`'s `_HWI_CHAIN` says why.
+each answer. Its stand-in reads `--stdin` as `process_commands` does,
+each line split by `shlex.split` before the one argparse. Not every
+chain it transcribes is one btclib sends: testnet4 goes out as `test`,
+and `btclib_wallet.hwi`'s `_HWI_CHAIN` says why.
 
 What the parser declares and `btclib_wallet.hwi` leaves alone, under the reason
 each is left alone for. `setup`, `wipe`, `restore`, `backup`,

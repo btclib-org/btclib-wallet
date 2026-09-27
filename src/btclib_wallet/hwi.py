@@ -57,6 +57,26 @@ temporary files whose size is watched while the child runs, so a backend
 past the limit is killed where it stands rather than read to EOF into
 memory and measured afterwards.
 
+What a caller supplies reaches HWI's argparse as an argument, where one
+starting with `-` would be read as an option: so the caller's text goes
+after a `--`, which ends the options, and an option's value is joined to
+its flag, `--registration=<value>`, which `--` does not reach.
+
+The psbt grows with what it carries, a `non_witness_utxo` being a whole
+previous transaction, and a command line is capped: one argument at
+32 pages on Linux, 128 KiB where a page is 4 KiB, the whole of it at
+32 767 characters on Windows and at `ARG_MAX` on macOS. So `sign_psbt`
+passes `--stdin` and writes the psbt to HWI's standard input instead,
+which no such limit caps.
+
+That is not where everything goes. HWI splits each line it reads there
+with `shlex.split` and parses the result with the same argparse, so a
+value starting with `-` needs its `--` there too, and a value holding a
+newline cannot be written at all -- which a message may hold, and a
+base64 psbt never does. And `shlex.split` builds a token one character
+at a time, copying it each time, so HWI's reading of a psbt grows with
+the square of its length: `timeout` bounds it like any other wait.
+
 Failures come back as `exceptions.SignerError`, carrying HWI's own error
 code where there is one: -14 is the user pressing the button that says
 no, -3 is a cable, -9 is a model that will never do it. The one failure
@@ -130,6 +150,7 @@ from btclib.utils import assert_type, bytes_from_octets, is_integer
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt.silent_payments import _assert_sendable
 from btclib_wallet.psbt_signer import SignerCapabilities
 
 __all__ = [
@@ -311,6 +332,7 @@ def _run(
     *,
     timeout: float,
     max_output: int,
+    stdin: bytes | None,
 ) -> Any:
     """Run HWI and return the json it answered, or raise what it failed with.
 
@@ -327,10 +349,25 @@ def _run(
     the child alone, so the size is a question this process can ask
     between two waits, and one byte past the limit is read back whatever
     the child did afterwards.
+
+    `stdin`, where given, is a temporary file too, written whole before
+    the child starts. A pipe's buffer is bounded, so writing a psbt larger
+    than it blocks until the child reads, and a child that never does
+    would hang this process before the timeout began. None leaves the
+    child the standard input this process has.
     """
-    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+    with (
+        tempfile.TemporaryFile() as out,
+        tempfile.TemporaryFile() as err,
+        tempfile.TemporaryFile() as given,
+    ):
+        if stdin is not None:
+            given.write(stdin)
+            given.seek(0)
         try:
-            process = subprocess.Popen(argv, stdout=out, stderr=err)  # noqa: S603
+            process = subprocess.Popen(  # noqa: S603
+                argv, stdin=None if stdin is None else given, stdout=out, stderr=err
+            )
         except FileNotFoundError as e:
             # the one failure that is not about a device: the command line
             # is not installed, which a caller offering signers of several
@@ -461,7 +498,7 @@ def enumerate_devices(
     argv = [*_executable(executable), *_chain_args(network), "enumerate"]
     if emulators:
         argv.insert(-1, "--emulators")
-    answer = _run(argv, timeout=timeout, max_output=max_output)
+    answer = _run(argv, timeout=timeout, max_output=max_output, stdin=None)
     if not isinstance(answer, list):
         raise SignerError(f"hwi enumerate did not answer a list: {answer!r}")
     return [_device(entry) for entry in answer]
@@ -560,10 +597,18 @@ class HwiSigner:
         err_msg += " name the one to use by its fingerprint"
         raise SignerError(err_msg)
 
-    def _hwi(self, *args: str) -> Any:
-        """Run one command against this device, by fingerprint."""
+    def _hwi(self, *args: str, stdin: bytes | None) -> Any:
+        """Run one command against this device, by fingerprint.
+
+        An argument holding a NUL is refused here: no operating system
+        passes one on a command line, and `subprocess` would raise a bare
+        `ValueError` about it.
+        """
         if self._closed:
             raise SignerError("the signer is closed")
+        if any("\x00" in arg for arg in args):
+            err_msg = f"hwi {args[0]} takes no NUL character on a command line"
+            raise BTClibValueError(err_msg)
         argv = [
             *self.executable,
             *_chain_args(self.network),
@@ -571,11 +616,11 @@ class HwiSigner:
             self._fingerprint.hex(),
             *args,
         ]
-        return _run(argv, timeout=self.timeout, max_output=self.max_output)
+        return _run(argv, timeout=self.timeout, max_output=self.max_output, stdin=stdin)
 
     def _answer(self, command: list[str], field: str) -> str:
         """Return one string field of an answer, refusing one without it."""
-        answer = self._hwi(*command)
+        answer = self._hwi(*command, stdin=None)
         if not isinstance(answer, dict) or field not in answer:
             err_msg = f"hwi {command[0]} did not answer a {field}: {answer!r}"
             raise SignerError(err_msg)
@@ -616,9 +661,19 @@ class HwiSigner:
         One signer of an m-of-n answers for its own key and for no other,
         which is the same answer `psbt.sign` gives by adding nothing; what
         a caller compares is the psbt it gets back.
+
+        A psbt paying a silent payment is asked BIP375's Signer rules
+        before `hwi` runs, as `request_signatures` asks them: a device
+        need not know BIP375, and this method is public, so a caller
+        reaching it directly would otherwise send the device a psbt
+        `psbt.sign` refuses.
         """
+        assert_type(psbt, Psbt, "psbt")
+        _assert_sendable(psbt)
         sent = psbt.b64encode()
-        answer = self._hwi("signtx", sent)
+        # on standard input, one line and then the end of it: the module
+        # docstring says why the psbt alone goes there
+        answer = self._hwi("--stdin", "signtx", stdin=f"{sent}\n".encode("ascii"))
         if not isinstance(answer, dict) or "psbt" not in answer:
             raise SignerError(f"hwi signtx did not answer a psbt: {answer!r}")
         returned = str(answer["psbt"])
@@ -644,7 +699,8 @@ class HwiSigner:
         a string and passing it to its own signer as one. The bytes are
         decoded as utf-8 for that, and a message that is not utf-8 is one
         this backend cannot be asked for -- which is a limit of the
-        command line rather than of the device, and is said as such.
+        command line rather than of the device, and is said as such. It
+        goes after a `--`, so a message starting with `-` is a message.
         """
         octets = bytes_from_octets(message)
         try:
@@ -654,7 +710,7 @@ class HwiSigner:
             err_msg += " this message is not utf-8"
             raise BTClibValueError(err_msg) from e
         return self._answer(
-            ["signmessage", text, str_from_der_path(der_path)], "signature"
+            ["signmessage", "--", text, str_from_der_path(der_path)], "signature"
         )
 
     def display_address(self, descriptor: Descriptor, index: int = 0) -> str:
@@ -696,7 +752,8 @@ class HwiSigner:
         """
         assert_type(name, str, "name")
         text = add_checksum(str(descriptor))
-        return self._answer(["registerdescriptor", name, text], "registration")
+        # after a `--`, so a name starting with `-` is a name
+        return self._answer(["registerdescriptor", "--", name, text], "registration")
 
     def display_policy_address(
         self, registration: str, index: int = 0, multipath_index: int = 0
@@ -719,8 +776,9 @@ class HwiSigner:
         return self._answer(
             [
                 "displayaddress",
-                "--registration",
-                registration,
+                # joined, which is what keeps a value starting with `-` a
+                # value: `--` ends options and does not reach one's value
+                f"--registration={registration}",
                 "--index",
                 str(index),
                 "--multipath-index",

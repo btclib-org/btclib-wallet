@@ -54,7 +54,7 @@ from __future__ import annotations
 from btclib import electrum
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibValueError, FetchError
+from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import Tx
@@ -70,7 +70,7 @@ from btclib_wallet.fetch.fetcher import (
     tx_from_raw,
     tx_id_hex,
 )
-from btclib_wallet.fetch.transport import DEFAULT_TIMEOUT, LineTransport
+from btclib_wallet.fetch.transport import DEFAULT_TIMEOUT, LineTransport, valid_timeout
 
 __all__ = [
     "ElectrumFetcher",
@@ -125,8 +125,11 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         super().__init__(network, verify_network=verify_network)
+        if not callable(transport):
+            raise BTClibTypeError(f"not a callable transport: {transport!r}")
         self.transport = transport
-        self.timeout = timeout
+        # checked here for a transport of the caller's that checks nothing
+        self.timeout = valid_timeout(timeout)
         self._next_id = 0
 
     def _next_request_id(self) -> int:

@@ -377,6 +377,11 @@ def _psbt_prevouts(psbt: Psbt) -> list[TxOut]:
     an output from the same transaction as an input earlier in the
     list", which is what keeps a proof over many outputs of one
     transaction from carrying that transaction many times.
+
+    Where the transaction the outpoint names is at hand, it decides, as
+    it does in `psbt.prevouts`, and a witness utxo contradicting it is
+    refused: `Psbt.assert_valid` compares the two fields of one input,
+    and cannot see a transaction carried by an earlier one.
     """
     transactions: dict[bytes, Tx] = {}
     outs: list[TxOut] = []
@@ -385,12 +390,18 @@ def _psbt_prevouts(psbt: Psbt) -> list[TxOut]:
             transactions[psbt_in.non_witness_utxo.id] = psbt_in.non_witness_utxo
         vout = psbt_in.output_index or 0
         prev_tx = transactions.get(psbt_in.previous_tx_id or b"")
-        if psbt_in.witness_utxo is not None:
-            outs.append(psbt_in.witness_utxo)
-        elif prev_tx is not None and vout < len(prev_tx.vout):
-            outs.append(prev_tx.vout[vout])
-        else:
+        prev_out = witness_utxo = psbt_in.witness_utxo
+        if prev_tx is not None:
+            prev_out = prev_tx.vout[vout] if vout < len(prev_tx.vout) else None
+        if prev_out is None:
             raise BTClibValueError(f"no utxo for input {i}")
+        if witness_utxo is not None and (
+            witness_utxo.value != prev_out.value
+            or witness_utxo.script_pub_key.script != prev_out.script_pub_key.script
+        ):
+            err_msg = f"input {i}: mismatched witness utxo / non-witness utxo output"
+            raise BTClibValueError(err_msg)
+        outs.append(prev_out)
     return outs
 
 

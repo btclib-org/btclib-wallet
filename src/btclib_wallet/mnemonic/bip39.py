@@ -204,7 +204,11 @@ def lang_from_mnemonic(mnemonic: Mnemonic) -> str:
         if WORDLISTS.language_length(lang) == _BIP39_WORDLIST_LENGTH
     ]
     if not candidates:
-        raise BTClibValueError(f"unknown language for mnemonic: '{mnemonic}'")
+        # never the sentence itself: a mnemonic one typo away from being
+        # valid is one typo away from being recovered, and an exception
+        # message ends up in logs and crash reports
+        n_words = len(mnemonic.split())
+        raise BTClibValueError(f"unknown language for mnemonic: {n_words} words")
     if len(candidates) == 1:
         return candidates[0]
 

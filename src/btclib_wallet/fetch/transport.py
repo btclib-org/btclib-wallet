@@ -62,8 +62,8 @@ from __future__ import annotations
 
 import ssl
 from collections.abc import Callable
-from math import isfinite
 from socket import create_connection
+from threading import TIMEOUT_MAX
 from time import monotonic
 
 from bitcoin_core_rpc import (
@@ -91,6 +91,7 @@ __all__ = [
     "TlsLineTransport",
     "http_request",
     "urlopen_transport",
+    "valid_timeout",
 ]
 
 # how much one read asks for: a recv allocates what it is asked for, so a
@@ -98,6 +99,31 @@ __all__ = [
 _READ_CHUNK = 64 * 1024
 
 _MAX_PORT = 65535
+
+
+def valid_timeout(timeout: float) -> float:
+    """Return `timeout`, refusing what no socket will wait for.
+
+    The check `TlsLineTransport`, `EsploraFetcher` and `ElectrumFetcher`
+    make of the timeout they take. A bool is not a duration,
+    `timeout=True` being one second.
+
+    The bound is `threading.TIMEOUT_MAX`, the largest timeout `threading`
+    takes for a blocking call: `socket.settimeout` takes it too,
+    and raises an `OverflowError`, which is no `OSError`, for seconds
+    past what the interpreter's clock type holds. Compared rather than
+    asked of
+    `isfinite`, which raises that same `OverflowError` for an int too
+    large for a float: comparing an int with a float is exact, and a nan
+    passes no comparison. The value is not rendered, an int past `str`'s
+    digit limit raising a `ValueError` of its own.
+    """
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise BTClibTypeError(f"non-numeric timeout: {type(timeout).__name__}")
+    if not 0 < timeout <= TIMEOUT_MAX:
+        err_msg = f"timeout is not a positive number of seconds up to {TIMEOUT_MAX}"
+        raise BTClibValueError(err_msg)
+    return timeout
 
 
 def _time_left(deadline: float, where: str) -> float:
@@ -171,13 +197,16 @@ class TlsLineTransport:
     - no proxy from the environment: `socket.create_connection` reads no
       proxy variable, so the connection goes to the host named here;
     - TLS verified by default: `context` defaults to
-      `ssl.create_default_context()`, which requires a certificate chaining
-      to the default CA certificates it loads and matching `host`.
+      `ssl.create_default_context()` with its `minimum_version` set to
+      TLS 1.2, a context requiring a certificate chaining to the default CA
+      certificates it loads and matching `host`.
 
     A server whose certificate those do not trust -- a server of
     one's own with a self-signed certificate, say -- is reached by passing
     a `context` that trusts that certificate,
-    `ssl.create_default_context(cafile=...)`, which keeps both checks on.
+    `ssl.create_default_context(cafile=...)`, which keeps both checks on;
+    the TLS 1.2 floor on it is that caller's to set, a supplied context
+    being used as given.
     No flag here turns verification off; what a context a caller supplies
     accepts is that caller's decision, as a transport of their own would
     be. Plain TCP is not offered: a caller who wants it writes that
@@ -218,9 +247,14 @@ class TlsLineTransport:
             raise BTClibTypeError(f"non-integer max_line_size: {max_line_size!r}")
         if max_line_size < 1:
             raise BTClibValueError(f"invalid max_line_size: {max_line_size}")
+        if context is None:
+            context = ssl.create_default_context()
+            # CPython's default context sets this floor itself and PyPy's
+            # leaves it to OpenSSL, so the transport states it
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
         self._host = host
         self._port = port
-        self._context = ssl.create_default_context() if context is None else context
+        self._context = context
         self._max_line_size = max_line_size
 
     @property
@@ -254,10 +288,7 @@ class TlsLineTransport:
             raise BTClibTypeError(f"non-bytes request: {request!r}")
         if request.count(b"\n") != 1 or not request.endswith(b"\n"):
             raise BTClibValueError(f"not one newline-terminated line: {request!r}")
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
-            raise BTClibTypeError(f"non-numeric timeout: {timeout!r}")
-        if not isfinite(timeout) or timeout <= 0:
-            raise BTClibValueError(f"timeout is not a positive number: {timeout}")
+        valid_timeout(timeout)
 
         where = f"{self._host}:{self._port}"
         deadline = monotonic() + timeout

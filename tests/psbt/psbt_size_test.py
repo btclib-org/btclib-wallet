@@ -432,6 +432,42 @@ def test_a_script_nobody_can_solve_has_no_estimate() -> None:
         estimated_input_sizes(psbt.inputs[0], tx_in)
 
 
+def test_the_utxo_is_checked_against_the_outpoint() -> None:
+    """What `Psbt.assert_valid` asks of an input, asked of a pair handed in.
+
+    Nothing need have validated either argument, so an outpoint naming an
+    output the non-witness utxo does not have is a BTClibValueError and
+    not an IndexError, and the witness utxo beside it is checked against
+    that output rather than read in its place.
+    """
+    psbt = Psbt.b64decode(BIP174_SIGNED_PSBT)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    utxo = psbt_in.non_witness_utxo
+    assert utxo is not None
+    expected = estimated_input_sizes(psbt_in, tx_in)
+
+    tx_id, vout = tx_in.prev_out.tx_id, tx_in.prev_out.vout
+    past = TxIn(OutPoint(tx_id, len(utxo.vout)), b"", tx_in.sequence)
+    err_msg = "outpoint vout out of range for the non-witness utxo"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        estimated_input_sizes(psbt_in, past)
+    other = TxIn(OutPoint("11" * 32, vout), b"", tx_in.sequence)
+    with pytest.raises(BTClibValueError, match="mismatched non-witness utxo"):
+        estimated_input_sizes(psbt_in, other)
+
+    spent = utxo.vout[vout]
+    psbt_in.witness_utxo = TxOut(spent.value, spent.script_pub_key)
+    assert estimated_input_sizes(psbt_in, tx_in) == expected
+    err_msg = "mismatched witness utxo / non-witness utxo output"
+    for witness_utxo in (
+        TxOut(spent.value + 1, spent.script_pub_key),
+        TxOut(spent.value, ScriptPubKey.nulldata("gm")),
+    ):
+        psbt_in.witness_utxo = witness_utxo
+        with pytest.raises(BTClibValueError, match=err_msg):
+            estimated_input_sizes(psbt_in, tx_in)
+
+
 def test_a_taproot_script_path_has_no_estimate() -> None:
     """Which leaf will be spent is not something the psbt says."""
     psbt = bip371_psbt(3)

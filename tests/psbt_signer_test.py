@@ -19,13 +19,15 @@ from copy import deepcopy
 
 import pytest
 from btclib.alias import Octets
+from btclib.curves import bytes_from_point, mult
 from btclib.ecc import bms, dsa
-from btclib.exceptions import BTClibValueError, SignerError
-from btclib.key import PrvKeyData
+from btclib.exceptions import BTClibTypeError, BTClibValueError, SignerError
+from btclib.key import PrvKeyData, PubKeyData
+from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from typing_extensions import override
 
-from btclib_wallet.bip32 import fingerprint
+from btclib_wallet.bip32 import BIP32KeyData, fingerprint
 from btclib_wallet.bip32.bip32 import (
     derive,
     prv_keyinfo_from_xprv,
@@ -44,7 +46,10 @@ from btclib_wallet.descriptors import (
     wallet_policy_address,
 )
 from btclib_wallet.hwi import HwiDevice
+from btclib_wallet.psbt import silent_payments
 from btclib_wallet.psbt.psbt import Psbt, sign
+from btclib_wallet.psbt.psbt_in import PsbtIn
+from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
     MessageSigner,
@@ -130,6 +135,8 @@ class _Signer:
         self.xprv = xprv
         self.answer: Psbt | None = None
         self.closed = False
+        # how many times `sign_psbt` was called
+        self.asked = 0
 
     @property
     def master_fingerprint(self) -> bytes:
@@ -142,6 +149,7 @@ class _Signer:
 
     def sign_psbt(self, psbt: Psbt) -> Psbt:
         """Return the psbt signed, or whatever `answer` was set to."""
+        self.asked += 1
         if self.answer is not None:
             return self.answer
         return sign(psbt, _KeyManager(self.xprv))[0]
@@ -203,6 +211,46 @@ def test_a_signature_comes_back_checked_and_merged() -> None:
     assert signed.inputs[0].partial_sigs
     assert psbt == request
     assert not request.inputs[0].partial_sigs
+
+
+def test_a_silent_payment_is_checked_before_the_signer_sees_it() -> None:
+    """BIP375's Signer rules, asked by the caller and not left to a device.
+
+    An external signer need not know BIP375, and its signature commits the
+    funds to whatever script the output carries: the same refusal
+    `psbt.sign` makes is made before `sign_psbt` is called at all. Once the
+    share is written and the script derived, the psbt goes out as any
+    other does.
+    """
+    signer = _Signer()
+    path = f"{ACCOUNT}/0/0"
+    xprv = derive(signer.xprv, path)
+    prv_key = int.from_bytes(BIP32KeyData.b58decode(xprv).key[1:], "big")
+    sec = bytes_from_point(mult(prv_key))
+    psbt_in = PsbtIn(
+        witness_utxo=TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(sec))),
+        previous_tx_id=b"\x06" * 32,
+        output_index=0,
+        hd_key_paths={sec: BIP32KeyOrigin(signer.master_fingerprint, path)},
+    )
+    # scan key 2G, spend key 3G
+    sp_info = bytes_from_point(mult(2)) + bytes_from_point(mult(3))
+    psbt_out = PsbtOut(amount=90_000, sp_v0_info=sp_info)
+    psbt = Psbt(2, [psbt_in], [psbt_out], 2, {}, tx_modifiable=0b11)
+
+    with pytest.raises(BTClibValueError, match="Signer must not yet sign"):
+        request_signatures(signer, psbt)
+    assert signer.asked == 0
+
+    silent_payments.set_input_share(psbt, 0, prv_key)
+    silent_payments.set_output_scripts(psbt)
+    assert request_signatures(signer, psbt).inputs[0].partial_sigs
+    assert signer.asked == 1
+
+    # and a request that is no psbt is refused before it is read
+    with pytest.raises(BTClibTypeError, match="request"):
+        request_signatures(signer, "not a psbt")  # type: ignore[arg-type]
+    assert signer.asked == 1
 
 
 def test_an_answer_that_changed_anything_but_a_signature_is_refused() -> None:

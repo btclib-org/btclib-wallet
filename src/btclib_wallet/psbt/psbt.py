@@ -685,25 +685,45 @@ def _assert_valid_input_fields(psbt_in: PsbtIn, version: int, i: int) -> None:
 
 
 def _assert_valid_utxo(psbt_in: PsbtIn) -> None:
-    """Raise unless a non-witness utxo is the transaction the outpoint names.
+    """Raise unless the input's utxo fields are of the output it spends.
 
-    Two questions about one field, both of them about the input alone,
-    which is why a caller reading one input at a time can ask them --
-    `btclib_wallet.psbt.psbt_view` does, on the map it has just read.
+    Questions about the input alone, which is why a caller reading one
+    input at a time can ask them -- `btclib_wallet.psbt.psbt_view` does,
+    on the map it has just read.
 
     The transaction has to be the one the outpoint's tx_id names, and the
     outpoint has to name one of its outputs: an index past its vout is an
     IndexError to everything that reads the spent output --
     `_signable_payload`, the Finalizer's sig_hash -- where malformed
     input owes the caller a BTClibValueError.
+
+    A witness utxo beside it has to be that output, amount and script.
+    The transaction is vouched for by the outpoint's tx_id and the
+    witness utxo by nothing, so a disagreement means the witness utxo is
+    false. It is refused rather than read past: BIP174 allows both fields
+    on one input and names no winner, its own simple Signer reading the
+    witness utxo first and Bitcoin Core's `PSBTInput::GetUTXO` the
+    non-witness one, so two conforming readers of one such psbt would
+    sign against different outputs.
     """
     non_witness_utxo = psbt_in.non_witness_utxo
     if non_witness_utxo is None:
         return
     if non_witness_utxo.id != psbt_in.previous_tx_id:
         raise BTClibValueError("mismatched non-witness utxo / outpoint tx_id")
-    if (psbt_in.output_index or 0) >= len(non_witness_utxo.vout):
+    vout = psbt_in.output_index or 0
+    if vout >= len(non_witness_utxo.vout):
         raise BTClibValueError("outpoint vout out of range for the non-witness utxo")
+    witness_utxo = psbt_in.witness_utxo
+    spent = non_witness_utxo.vout[vout]
+    # the serialized fields and not TxOut equality, which also compares
+    # the network a ScriptPubKey was built for: that is in neither field
+    # and is not what a signature commits to
+    if witness_utxo is not None and (
+        witness_utxo.value != spent.value
+        or witness_utxo.script_pub_key.script != spent.script_pub_key.script
+    ):
+        raise BTClibValueError("mismatched witness utxo / non-witness utxo output")
 
 
 def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None:
@@ -745,13 +765,12 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
 def _signable_payload(psbt_in: PsbtIn) -> bytes:
     """Return the hash the input's script_pub_key commits to.
 
-    Which utxo the input carries is which kind of input it is. A
-    witness_utxo is the spent output itself, and it has to be a witness
-    one: p2sh is accepted only as the wrapper, so what is typed then is
-    the redeem script, while the payload stays the p2sh one -- the
-    hash160 the caller checks that redeem script against. A
-    non_witness_utxo is the whole previous transaction, and the output
-    being spent is the one the input's own outpoint names.
+    The script is read from the output `_prev_out` answers, the vouched
+    one where both utxo fields are there. A witness_utxo also says that
+    output is a witness one: p2sh is accepted only as the wrapper, so
+    what is typed then is the redeem script, while the payload stays the
+    p2sh one -- the hash160 the caller checks that redeem script
+    against. A non_witness_utxo alone leaves every kind open.
 
     p2tr is one of the three because it is a witness kind, which is the
     whole of the rule: BIP174 wrote the rule when witness v0 was the
@@ -760,23 +779,18 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     hash160 the caller checks next, 20 bytes never equalling the 32 of
     an output key.
     """
-    if witness_utxo := psbt_in.witness_utxo:
-        script_type, payload = type_and_payload(witness_utxo.script_pub_key.script)
+    prev_out = _prev_out(psbt_in)
+    if prev_out is None:
+        err_msg = "missing script_pub_key"
+        raise BTClibValueError(err_msg)
+
+    script_type, payload = type_and_payload(prev_out.script_pub_key.script)
+    if psbt_in.witness_utxo is not None:
         if script_type == "p2sh":
             script_type, _ = type_and_payload(psbt_in.redeem_script)
         if script_type not in {"p2wpkh", "p2wsh", "p2tr"}:
             raise BTClibValueError("script type not in ('p2wpkh', 'p2wsh', 'p2tr')")
-        return payload
-
-    if psbt_in.non_witness_utxo:
-        script_pub_key = psbt_in.non_witness_utxo.vout[
-            psbt_in.output_index or 0
-        ].script_pub_key
-        _, payload = type_and_payload(script_pub_key.script)
-        return payload
-
-    err_msg = "missing script_pub_key"
-    raise BTClibValueError(err_msg)
+    return payload
 
 
 def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
@@ -1659,6 +1673,45 @@ def _combine_musig2_participants(
         out.musig2_participant_pub_keys[key] = participants
 
 
+def _combine_sp_script(psbt_out: PsbtOut, out: PsbtOut) -> None:
+    """Take a silent payment output's script, refusing two different ones.
+
+    BIP375 identifies such an output by PSBT_OUT_SP_V0_INFO and not by its
+    script, so the script is not settled by the identifier check and one
+    copy may carry it while another does not yet. Taken when out has
+    none, as `_combine_field` would; two different scripts are refused
+    rather than picked between, for `_combine_musig2_participants`'s
+    reason: the script is derived from the rest of the psbt, so one of the
+    two is wrong and nothing in either psbt says which.
+
+    Asked after sp_v0_info is merged, so out's says whether either copy
+    pays a silent payment.
+    """
+    if not out.sp_v0_info or not psbt_out.script_pub_key:
+        return
+    if not out.script_pub_key:
+        out.script_pub_key = psbt_out.script_pub_key
+    elif out.script_pub_key != psbt_out.script_pub_key:
+        err_msg = "mismatched silent payment output script: "
+        err_msg += f"{psbt_out.script_pub_key.hex()} vs {out.script_pub_key.hex()}"
+        raise BTClibValueError(err_msg)
+
+
+def _assert_psbts(psbts: Sequence[Psbt], verb: str) -> None:
+    """Refuse a sequence of psbts `combine` or `join` cannot act on.
+
+    Asked before any psbt is read. An empty sequence has no psbt to hand
+    back, and a value of another type would leave as an IndexError or an
+    AttributeError about a field name rather than as the refusal a caller
+    catches. `verb` names the caller's act in the empty case's message.
+    """
+    assert_type(psbts, Sequence, "psbts")
+    if not psbts:
+        raise BTClibValueError(f"nothing to {verb}: no psbts")
+    for i, psbt in enumerate(psbts):
+        assert_type(psbt, Psbt, f"psbts[{i}]")
+
+
 def combine(psbts: Sequence[Psbt]) -> Psbt:
     """Merge the data of several psbts of one transaction: the Combiner.
 
@@ -1669,7 +1722,9 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     left out for one reason: `amount`, `script_pub_key`, `previous_tx_id`
     and `output_index` are part of what identifies the psbt, so the psbt
     being merged into carries them already and two psbts disagreeing
-    about one of them are two transactions, refused above.
+    about one of them are two transactions, refused above. The exception
+    is the `script_pub_key` of a silent payment output, which BIP375
+    leaves out of the identifier: `_combine_sp_script` merges it.
 
     Which psbts are of one transaction is a question the two versions
     answer differently, and each is asked its own: a version 0 psbt is
@@ -1696,7 +1751,19 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     it takes rather than copying them: a witness_utxo or a leaf script
     map that came from `psbts[1]` would otherwise be the very object
     `psbts[1]` still holds.
+
+    The psbt handed back is validated, as every copy handed in is. A
+    merge can break a rule no copy broke alone, because some rules
+    compare two fields of one map and a field is taken from whichever
+    copy carries it: a witness_utxo from one copy beside the
+    non_witness_utxo of another, which it contradicts, is the case that
+    reaches here. Refused, whichever order the copies come in, rather
+    than handed back to fail the next reader that validates it.
+
+    An empty sequence is refused, there being no psbt to hand back, and
+    so is an element that is not a Psbt.
     """
+    _assert_psbts(psbts, "combine")
     psbts = deepcopy(list(psbts))
     final_psbt = psbts[0]
     version = final_psbt.version
@@ -1714,9 +1781,10 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     # after the version and identifier checks and not before them: those
     # two are what makes these psbts one transaction's, and a caller
     # handing over two unrelated psbts is told that rather than whichever
-    # of them fails its own validation first. Nothing else here asks, so an
-    # invalid psbt in gave an invalid psbt out, presented as a combine that
-    # worked
+    # of them fails its own validation first. Each copy is asked before the
+    # merge as well as the result after it: a field that is one key-value
+    # pair is kept from the copy merged into, so an invalid one in a later
+    # copy is dropped by the merge and the result alone would pass it
     for psbt in psbts:
         psbt.assert_valid()
 
@@ -1790,6 +1858,7 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
             # is what a Combiner merging a Constructor's output does
             _combine_field(psbt.outputs[i], out, "sp_v0_info")
             _combine_optional_field(psbt.outputs[i], out, "sp_v0_label")
+            _combine_sp_script(psbt.outputs[i], out)
 
         _combine_field(psbt, final_psbt, "hd_key_paths")
         _combine_field(psbt, final_psbt, "unknown")
@@ -1807,6 +1876,7 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
         _combine_field(psbt, final_psbt, "sp_ecdh_shares")
         _combine_field(psbt, final_psbt, "sp_dleq_proofs")
 
+    final_psbt.assert_valid()
     return final_psbt
 
 
@@ -1818,18 +1888,22 @@ def _prev_out(psbt_in: PsbtIn) -> TxOut | None:
     the non_witness_utxo the whole transaction it belongs to, indexed by
     the outpoint.
 
+    Where both are there the non_witness_utxo is read, as Bitcoin Core's
+    `PSBTInput::GetUTXO` reads it: its tx_id is the outpoint's, and
+    nothing ties the witness_utxo to the outpoint at all.
+    `_assert_valid_utxo` refuses the two disagreeing, so on a psbt that
+    passed Psbt.assert_valid the choice changes nothing.
+
     The index is bound-checked rather than trusted. Psbt.assert_valid
     does check it against that transaction's vout, and every caller here
-    runs after it, so this is belt and braces -- but None is a answer both
-    callers already handle, and an IndexError out of a private helper is
-    not.
+    runs after it, so this is belt and braces -- but None is an answer
+    its callers handle, and an IndexError out of a private helper is not.
     """
-    if psbt_in.witness_utxo:
+    non_witness_utxo = psbt_in.non_witness_utxo
+    if non_witness_utxo is None:
         return psbt_in.witness_utxo
     vout = psbt_in.output_index or 0
-    if psbt_in.non_witness_utxo and vout < len(psbt_in.non_witness_utxo.vout):
-        return psbt_in.non_witness_utxo.vout[vout]
-    return None
+    return non_witness_utxo.vout[vout] if vout < len(non_witness_utxo.vout) else None
 
 
 def _spent_script(psbt_in: PsbtIn) -> bytes:
@@ -2577,9 +2651,22 @@ def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
     does not raise.
+
+    A psbt paying a silent payment is also asked BIP375's Signer rules,
+    `btclib_wallet.psbt.silent_payments._assert_signable`, before any
+    key is. A silent payment output with no script yet is refused rather
+    than left unsigned, so that "not yet" does not read as "nothing for
+    me" in the list of inputs signed.
     """
     psbt = deepcopy(psbt)
     psbt.assert_signable()
+    if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
+        # imported here: silent_payments imports this module
+        from btclib_wallet.psbt.silent_payments import (  # noqa: PLC0415
+            _assert_signable,
+        )
+
+        _assert_signable(psbt)
     signed_vins: list[int] = []
     for vin_i, psbt_in in enumerate(psbt.inputs):
         if is_p2tr(_spent_script(psbt_in)):
@@ -3275,9 +3362,22 @@ def extract_tx(psbt: Psbt, *, check_validity: bool = True) -> Tx:
     Extracting needs no script interpretation; an Extractor that can
     interpret scripts may also validate the transaction it extracts,
     as BIP174 allows.
+
+    A psbt paying a silent payment is also checked as BIP375 asks of the
+    Extractor, `btclib_wallet.psbt.silent_payments._assert_extractable`:
+    `assert_as_valid`, whose last check recomputes every script from the
+    ECDH shares, and a script on every silent payment output.
+    `check_validity=False` skips it with the rest.
     """
     if check_validity:
         psbt.assert_valid()
+        if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
+            # imported here: silent_payments imports this module
+            from btclib_wallet.psbt.silent_payments import (  # noqa: PLC0415
+                _assert_extractable,
+            )
+
+            _assert_extractable(psbt)
 
     # a copy, computed from the psbt's fields: the finalized scripts are
     # written into the transaction being extracted and not into the psbt,
@@ -3388,9 +3488,13 @@ def join(
     the first input's outpoint, which the join can move. A caller
     building a proof of funds this way sets the field on the result,
     where what it names is a transaction that exists.
+
+    An empty sequence is refused, there being no psbt to join, and so is
+    an element that is not a Psbt.
     """
     assert_type(shuffle_inp, bool, "shuffle_inp")
     assert_type(shuffle_out, bool, "shuffle_out")
+    _assert_psbts(psbts, "join")
 
     _ensure_consistency(psbts)
     psbts = deepcopy(list(psbts))

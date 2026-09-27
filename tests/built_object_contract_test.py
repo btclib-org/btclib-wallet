@@ -185,13 +185,26 @@ _CASES = (
     _Case(
         "tx_builder.build_psbt",
         build_psbt,
-        ([_PSBT_IN], [_TX_OUT], FeeRate(sats_per_kvbyte=1000)),
-        # an input carrying no utxo is worth nothing this can read, and a
-        # transaction with no output at all is one Core's CheckTransaction
-        # refuses: both are sequences of the declared type holding a value
-        # no valid call carries. The rate has no wrong value -- every
-        # FeeRate its own constructor admits is a price
-        {0: [PsbtIn()], 1: []},
+        # the change paid to the script the payment is, so that the fee is
+        # what the rate asks rather than the whole of the input's value
+        (
+            [_PSBT_IN],
+            [_TX_OUT],
+            FeeRate(sats_per_kvbyte=1000),
+            _TX_OUT.script_pub_key.script,
+        ),
+        # an input carrying no utxo is worth nothing this can read, and an
+        # output below its dust threshold is one Core's wallet refuses to
+        # pay: both are sequences of the declared type holding a value no
+        # valid call carries. The rate has no wrong value -- every FeeRate
+        # its own constructor admits is a price. A change script that is
+        # no hex is the wrong value of the octets it declares
+        {
+            0: [PsbtIn()],
+            1: [TxOut(1, _TX_OUT.script_pub_key)],
+            3: "not hex at all",
+        },
+        optional=frozenset({3}),
     ),
     # the two SolutionSizers, which take the same pair and owe a caller the
     # same check. Neither has a wrong *value*: "not mine" is what a sizer

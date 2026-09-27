@@ -48,7 +48,7 @@ from bitcoin_core_rpc import (
 )
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets
 from typing_extensions import override
@@ -142,6 +142,9 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         signet_challenge: str | bytes | None = None,
     ) -> None:
         super().__init__(network, verify_network=verify_network)
+        if not isinstance(client, BitcoinCoreRestClient):
+            err_msg = f"not a BitcoinCoreRestClient: {type(client).__name__}"  # type: ignore[unreachable]
+            raise BTClibTypeError(err_msg)
         if signet_challenge is not None:
             if chain_from_network(self.network) != "signet":
                 err_msg = f"a signet_challenge for {self.network},"

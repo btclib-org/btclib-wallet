@@ -12,6 +12,7 @@ constant is what it says, and nothing resolves it.
 from __future__ import annotations
 
 import json
+import traceback
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, HttpError
@@ -103,6 +104,110 @@ def test_an_unknown_network_is_refused() -> None:
     """Refuse a network name btclib does not know."""
     with pytest.raises(BTClibValueError, match="unknown network: 'liquid'"):
         EsploraFetcher(BASE, network="liquid")
+
+
+@pytest.mark.parametrize(
+    "base_url, name", [(123, "int"), (None, "NoneType"), (BASE.encode(), "bytes")]
+)
+def test_a_base_url_that_is_no_string_is_refused(base_url: object, name: str) -> None:
+    """A wrong type is refused at construction, named and not rendered."""
+    with pytest.raises(BTClibTypeError, match=f"^non-string base_url: {name}$"):
+        EsploraFetcher(base_url)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "base_url, match",
+    [
+        ("ftp://esplora.example/api", "scheme: 'ftp'"),
+        ("esplora.example/api", "scheme: ''"),
+        ("https:///api", "no host"),
+        ("https://esplora.example:port/api", "invalid base_url port"),
+        ("https://esplora.example:65536/api", "invalid base_url port"),
+        ("https://[::1/api", "invalid base_url: not a url"),
+    ],
+)
+def test_a_base_url_no_request_can_reach_is_refused(base_url: str, match: str) -> None:
+    """A url that cannot work is refused at construction."""
+    with pytest.raises(BTClibValueError, match=match):
+        EsploraFetcher(base_url)
+
+
+# a password the refusal must not echo, spliced into each url below:
+# `detect-secrets` reads a literal `user:password@` as a credential, and
+# this one line is then its only finding
+_PASSWORD = "s3cret"  # noqa: S105  # pragma: allowlist secret
+# a character NFKC folds into `#`, which `urlsplit` refuses in a netloc
+_FOLDS_TO_HASH = "\uff03"
+
+
+@pytest.mark.parametrize(
+    "base_url, match",
+    [
+        (f"https://user:{_PASSWORD}@esplora.example/api", "credentials"),
+        (f"https://:{_PASSWORD}@esplora.example/api", "credentials"),
+        (f"https://{_PASSWORD}@esplora.example/api", "credentials"),
+        ("https://@esplora.example/api", "credentials"),
+        # refused as credentials before the port is read
+        (f"https://user:{_PASSWORD}@esplora.example:port/api", "credentials"),
+        # `urlsplit` raises before the credentials can be read, the
+        # second with a message quoting them
+        (f"https://user:{_PASSWORD}@[::1/api", "not a url"),
+        (f"https://user:{_PASSWORD}{_FOLDS_TO_HASH}@esplora.example/api", "not a url"),
+    ],
+)
+def test_credentials_in_the_base_url_are_refused_unechoed(
+    base_url: str, match: str
+) -> None:
+    """Nothing of the url reaches the refusal, its traceback included."""
+    with pytest.raises(BTClibValueError, match=match) as excinfo:
+        EsploraFetcher(base_url)
+    assert _PASSWORD not in "".join(traceback.format_exception(excinfo.value))
+
+
+@pytest.mark.parametrize("timeout", ["soon", None, True])
+def test_a_timeout_that_is_no_number_is_refused(timeout: object) -> None:
+    """A bool is not a number of seconds, though `True` would be read as one."""
+    with pytest.raises(BTClibTypeError, match="non-numeric timeout"):
+        EsploraFetcher(BASE, timeout=timeout)  # type: ignore[arg-type]
+
+
+# the timeouts a constructor refuses as a value: none positive, none
+# finite, past what a socket waits for, or an int no float holds -- the
+# last past `str`'s digit limit too, which is why each carries an id
+# pytest need not render
+NO_TIMEOUTS = [
+    pytest.param(timeout, id=name)
+    for name, timeout in (
+        ("zero", 0),
+        ("negative-int", -1),
+        ("negative-float", -0.5),
+        ("inf", float("inf")),
+        ("nan", float("nan")),
+        ("10**10", 10**10),
+        ("10**400", 10**400),
+        ("10**5000", 10**5000),
+    )
+]
+
+
+@pytest.mark.parametrize("timeout", NO_TIMEOUTS)
+def test_a_timeout_that_is_no_positive_number_is_refused(timeout: float) -> None:
+    """Refuse a timeout no socket waits for, an int no float holds included."""
+    with pytest.raises(
+        BTClibValueError, match="timeout is not a positive number of seconds"
+    ):
+        EsploraFetcher(BASE, timeout=timeout)
+
+
+def test_an_integer_timeout_is_a_number_of_seconds() -> None:
+    """The refusal of a bool does not refuse the `int` it subclasses."""
+    assert EsploraFetcher(BASE, timeout=5).timeout == 5
+
+
+def test_a_transport_that_is_not_callable_is_refused() -> None:
+    """Refuse at construction what the first fetch would call."""
+    with pytest.raises(BTClibTypeError, match="not a callable transport"):
+        EsploraFetcher(BASE, transport=5)  # type: ignore[arg-type]
 
 
 def test_a_trailing_slash_does_not_double_up() -> None:

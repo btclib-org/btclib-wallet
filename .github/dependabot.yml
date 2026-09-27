@@ -1,5 +1,5 @@
 ---
-# two of the three ecosystems this repository has: the pre-commit hook
+# three of the four ecosystems this repository has: the pre-commit hook
 # revisions are left out because dependabot has no pre-commit ecosystem;
 # pre-commit.ci updates them instead, weekly, as configured in the ci:
 # block of .pre-commit-config.yaml -- except a hook whose repo: is local,
@@ -56,6 +56,21 @@ updates:
       day: thursday
     groups:
       dev-tooling:
+        patterns: ["*"]
+    cooldown:
+      default-days: 7
+
+  # the ClusterFuzzLite build container: base-builder-python and uv,
+  # both pinned by digest in .clusterfuzzlite/Dockerfile. Once a `FROM`
+  # line names a digest, dependabot's docker ecosystem is the only thing
+  # that moves it forward again.
+  - package-ecosystem: docker
+    directory: /.clusterfuzzlite
+    schedule:
+      interval: weekly
+      day: thursday
+    groups:
+      clusterfuzzlite:
         patterns: ["*"]
     cooldown:
       default-days: 7

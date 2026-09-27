@@ -112,6 +112,18 @@ def test_an_unknown_network_is_refused() -> None:
         BitcoinCoreRestFetcher(client(), network="nowhere")
 
 
+@pytest.mark.parametrize(
+    "not_a_client",
+    [5, None, URL, SessionTransport()],
+    # named, a transport's repr carrying its address and differing per worker
+    ids=["int", "None", "url", "transport"],
+)
+def test_a_client_of_another_type_is_refused(not_a_client: object) -> None:
+    """Refused at construction, not as an `AttributeError` when first used."""
+    with pytest.raises(BTClibTypeError, match="not a BitcoinCoreRestClient"):
+        BitcoinCoreRestFetcher(not_a_client)  # type: ignore[arg-type]
+
+
 def test_get_tx_parses_the_serialization_the_node_sent() -> None:
     """`.bin` returns the serialization, so the id is recomputed from it."""
     tx = fetcher((200, recorded_body("rest_tx.bin"))).get_tx(TX_ID)

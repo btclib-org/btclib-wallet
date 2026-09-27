@@ -451,7 +451,12 @@ def _search_mnemonic(int_entropy: int, version: str, lang: str) -> Mnemonic:
         candidate = int_entropy + nonce
         mnemonic = _mnemonic_from_int_entropy(candidate, lang)
         if candidate != int(_bin_str_entropy_from_mnemonic(mnemonic, lang), 2):
-            err_msg = f"cannot extract the same entropy from mnemonic: {mnemonic}"
+            # never the mnemonic itself, even though it is freshly
+            # generated here rather than caller input: it is a seed
+            # phrase like any other, and an exception message ends up in
+            # logs and crash reports
+            n_words = len(mnemonic.split())
+            err_msg = f"cannot extract the same entropy from mnemonic: {n_words} words"
             raise BTClibValueError(err_msg)
         # a pre-2.0 seed and a valid BIP39 mnemonic are both skipped, not
         # returned: electrum would read back what it had just written as
@@ -519,7 +524,11 @@ def lang_from_mnemonic(mnemonic: Mnemonic) -> str:
     assert_type(mnemonic, str, "mnemonic")
     candidates = ELECTRUM_WORDLISTS.langs_of_words(_decodable(mnemonic).split())
     if not candidates:
-        raise BTClibValueError(f"unknown language for mnemonic: '{mnemonic}'")
+        # never the sentence itself: a mnemonic one typo away from being
+        # valid is one typo away from being recovered, and an exception
+        # message ends up in logs and crash reports
+        n_words = len(_decodable(mnemonic).split())
+        raise BTClibValueError(f"unknown language for mnemonic: {n_words} words")
     if len(candidates) > 1:
         err_msg = f"ambiguous language for mnemonic: {candidates}"
         raise BTClibValueError(err_msg)

@@ -36,6 +36,15 @@ own validator publishes, in its order: the fields, then the share
 coverage and the proofs, then which inputs are allowed to be there at
 all, then the output scripts recomputed and compared.
 
+`btclib_wallet.psbt.psbt.sign` and `btclib_wallet.psbt.psbt.extract_tx`
+run the checks of their own role whenever an output carries
+PSBT_OUT_SP_V0_INFO: `_assert_signable` and `_assert_extractable` are
+what each asks. A psbt sent to a signer outside the process is asked
+`_assert_sendable` first, which is `_assert_signable` for a psbt paying a
+silent payment: `btclib_wallet.psbt_signer.request_signatures` asks it of
+every signer, and `btclib_wallet.hwi.HwiSigner.sign_psbt` asks it of a
+direct call.
+
 **What a psbt input's public key is, and why it needs its own reader.**
 `btclib_wallet.silent_payments.pub_key_from_input` reads it off a *signed*
 input, from the witness or the scriptSig. An unsigned input has neither,
@@ -45,6 +54,14 @@ the public key is available for creating the ecdh_shared_secret when the
 private key is not known". `input_pub_key` is that reader, and it answers
 None for an input BIP352 does not count -- a taproot NUMS internal key, a
 p2sh wrapping anything but p2wpkh, a script type off the list.
+
+**Which inputs count is decided by the script each one spends**, and not
+by whether a key was found: the recipient sums the key of every input its
+script type counts, so an input whose key the psbt does not carry is not
+left out of the sum but refused. And nothing the psbt says about an input
+is taken on its word -- a derivation key, a redeem script, a NUMS internal
+key, a final scriptSig or witness each count only once checked against the
+spent script, `_input_eligibility` saying how.
 
 **The share is not the shared secret**, which is the thing in BIP375
 easiest to get wrong: `a*B_scan` carries no input hash, and BIP352's
@@ -69,6 +86,7 @@ from btclib.alias import Integer, Octets, Point
 from btclib.curves import (
     bytes_from_point,
     mult,
+    point_from_octets,
     point_from_pub_key,
     scalar_from_prv_key,
     secp256k1,
@@ -76,6 +94,7 @@ from btclib.curves import (
 from btclib.ecc import dleq
 from btclib.ecc.ssa import point_from_bip340pub_key
 from btclib.exceptions import BTClibValueError
+from btclib.hashes import hash160
 from btclib.script import serialize
 from btclib.script.script_pub_key import (
     is_p2pkh,
@@ -84,6 +103,7 @@ from btclib.script.script_pub_key import (
     is_p2wpkh,
 )
 from btclib.script.sig_hash import ALL
+from btclib.script.taproot import check_output_pubkey, output_pubkey_from_merkle_root
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.psbt.psbt import (
@@ -120,6 +140,27 @@ _MAX_WITNESS_VERSION = 1
 # OP_1..OP_16 as 0x51..0x60, so a first byte above this is a version above 1
 _OP_1 = 0x51
 
+# the push opcodes of a scriptSig: OP_0 and the direct pushes run up to
+# OP_PUSHDATA4, the PUSHDATA ones reading a length of 1, 2 or 4 bytes
+_OP_PUSHDATA1 = 0x4C
+_OP_PUSHDATA4 = 0x4E
+# OP_1NEGATE, which with OP_1..OP_16 pushes a number and no data
+_OP_1NEGATE = 0x4F
+
+# BIP341's first byte of an annex, the witness element a spend may carry
+# above its control block
+_ANNEX_PREFIX = 0x50
+
+# the two sizes of a SEC public key: BIP352 counts the compressed one and
+# skips an input spent with the other
+_COMPRESSED_SIZE = 33
+_UNCOMPRESSED_SIZE = 65
+
+# whether BIP352 counts an input, and the key it counts it with where the
+# psbt carries one the spent script commits to
+_Eligibility = tuple[bool, Point | None]
+_INELIGIBLE: _Eligibility = (False, None)
+
 
 def _witness_version(script: bytes) -> int | None:
     """Return the witness version of a program, or None if it is none.
@@ -143,51 +184,229 @@ def _script_pub_key(psbt_in: PsbtIn) -> bytes:
     return b"" if prev_out is None else prev_out.script_pub_key.script
 
 
-def _is_eligible(psbt_in: PsbtIn) -> bool:
-    """Answer whether BIP352 counts this input, reading the psbt fields.
+def _witness_stack(psbt_in: PsbtIn) -> list[bytes]:
+    """Return the final witness stack, BIP341's annex popped if present."""
+    stack = list(psbt_in.final_script_witness.stack)
+    if len(stack) > 1 and stack[-1][:1] == bytes([_ANNEX_PREFIX]):
+        stack.pop()
+    return stack
 
-    The four eligible script types, minus the two exclusions that are not
-    the script type: a taproot input whose internal key is BIP341's NUMS
-    point has no key path to derive from, and a p2sh input is eligible
-    only for the one redeem script BIP352 lists, p2wpkh.
 
-    Both come from a field rather than from a witness, which is where a
-    psbt reader differs from `btclib_wallet.silent_payments`: an input that has
-    not been signed has no witness to read either out of.
+def _key_candidates(psbt_in: PsbtIn, *, script_sig_windows: bool) -> list[bytes]:
+    """Return every string the psbt offers as the key of a single-key input.
+
+    The key data of PSBT_IN_BIP32_DERIVATION, and the last element of the
+    final witness. With `script_sig_windows`, every 33- and 65-byte window
+    of the final scriptSig too, BIP352's own reading of a p2pkh spend,
+    whose scriptSig a third party can pad. None of them is trusted:
+    `_committed_key` keeps the one the spent script commits to.
+    """
+    candidates = list(psbt_in.hd_key_paths)
+    stack = _witness_stack(psbt_in)
+    if stack:
+        candidates.append(stack[-1])
+    if script_sig_windows:
+        script_sig = psbt_in.final_script_sig
+        for size in (_COMPRESSED_SIZE, _UNCOMPRESSED_SIZE):
+            candidates += [
+                script_sig[j : j + size] for j in range(len(script_sig) - size + 1)
+            ]
+    return candidates
+
+
+def _committed_key(key_hash: bytes, candidates: list[bytes]) -> _Eligibility:
+    """Return what the key a script commits to by its hash says of the input.
+
+    The candidate whose hash160 is the one in the script, and no other: a
+    key the psbt names but the script does not commit to is a key nothing
+    binds to the input, and a share proved against it proves nothing about
+    what the recipient will sum. A compressed key is the input's key; an
+    uncompressed one is an input BIP352 skips; none found is an input
+    BIP352 counts whose key this psbt does not carry.
+    """
+    committed = sorted(c for c in candidates if hash160(c) == key_hash)
+    for candidate in committed:
+        if len(candidate) == _COMPRESSED_SIZE:
+            try:
+                return True, point_from_octets(candidate, secp256k1)
+            except ValueError:
+                continue
+    if any(len(c) == _UNCOMPRESSED_SIZE for c in committed):
+        return _INELIGIBLE
+    return True, None
+
+
+def _last_push(script: bytes) -> bytes | None:
+    """Return the data of a push-only script's last push, or None.
+
+    BIP16's reading of a p2sh scriptSig: it must be push-only, and its last
+    push is the redeem script. A script with an opcode that is no push, or
+    one that ends inside a push, has no redeem script to read.
+    """
+    pushed = None
+    i = 0
+    while i < len(script):
+        op = script[i]
+        i += 1
+        if op <= _OP_PUSHDATA4:
+            if op < _OP_PUSHDATA1:
+                size = op
+            else:
+                width = 1 << (op - _OP_PUSHDATA1)
+                size = int.from_bytes(script[i : i + width], "little")
+                i += width
+            if i + size > len(script):
+                return None
+            pushed = script[i : i + size]
+            i += size
+        elif op == _OP_1NEGATE:
+            pushed = b"\x81"
+        elif _OP_1 <= op <= _OP_1 + 15:
+            pushed = bytes([op - _OP_1 + 1])
+        else:
+            return None
+    return pushed
+
+
+def _redeem_script(psbt_in: PsbtIn, script_hash: bytes) -> bytes | None:
+    """Return the redeem script a p2sh input spends, if the psbt carries it.
+
+    PSBT_IN_REDEEM_SCRIPT, or the last push of the final scriptSig, which
+    is where BIP16 puts it whatever it wraps; either only where it hashes
+    to the script_pub_key.
+    """
+    candidates = [psbt_in.redeem_script]
+    if psbt_in.final_script_sig:
+        last = _last_push(psbt_in.final_script_sig)
+        if last is not None:
+            candidates.append(last)
+    for candidate in candidates:
+        if candidate and hash160(candidate) == script_hash:
+            return candidate
+    return None
+
+
+def _is_proven_nums(psbt_in: PsbtIn, output_key: bytes) -> bool:
+    """Answer whether the output's internal key is proven to be NUMS_H.
+
+    BIP352 skips a taproot input whose internal key is BIP341's NUMS
+    point, which has no key path. The psbt's word for it is believed only
+    with a proof against the output key: PSBT_IN_TAP_INTERNAL_KEY tweaked
+    by PSBT_IN_TAP_MERKLE_ROOT, or a control block -- of a
+    PSBT_IN_TAP_LEAF_SCRIPT, or of the final witness -- that proves its
+    leaf. A claim without one proves nothing: the input is then counted,
+    and its key is the output key, which is bound to it by construction.
+    """
+    if psbt_in.taproot_internal_key == sp.NUMS_H:
+        tweaked, _ = output_pubkey_from_merkle_root(
+            sp.NUMS_H, psbt_in.taproot_merkle_root
+        )
+        if tweaked == output_key:
+            return True
+    leaves = [
+        (script, control)
+        for control, (script, _) in psbt_in.taproot_leaf_scripts.items()
+    ]
+    stack = _witness_stack(psbt_in)
+    if len(stack) > 1:
+        leaves.append((stack[-2], stack[-1]))
+    for script, control in leaves:
+        if control[1:33] != sp.NUMS_H:
+            continue
+        try:
+            if check_output_pubkey(output_key, script, control):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _input_eligibility(psbt_in: PsbtIn) -> _Eligibility:
+    """Return whether BIP352 counts one psbt input, and its key if found.
+
+    Decided by the script the input spends, BIP352's four types, and by
+    the two exclusions that are not the type: a taproot output whose
+    internal key is NUMS_H, and a p2sh that wraps anything but p2wpkh.
+    Every claim the psbt makes towards the answer -- a derivation key, a
+    redeem script, an internal key, the final scriptSig and witness -- is
+    checked against that script before it counts, so that a claim cannot
+    take a counted input out of the sum. A final scriptSig or witness most
+    of all: consensus has not checked it yet, and whoever wrote it can
+    replace it after the other Signers signed.
+
+    A p2sh input whose redeem script the psbt does not carry is counted
+    and has no key: BIP352 may count it, and the answer is the psbt's to
+    give, not a default's.
     """
     script = _script_pub_key(psbt_in)
     if is_p2tr(script):
-        return psbt_in.taproot_internal_key != sp.NUMS_H
+        return _taproot_eligibility(psbt_in, script[2:])
+    if is_p2pkh(script):
+        candidates = _key_candidates(psbt_in, script_sig_windows=True)
+        return _committed_key(script[3:23], candidates)
+    program = script
     if is_p2sh(script):
-        return is_p2wpkh(psbt_in.redeem_script)
-    return is_p2pkh(script) or is_p2wpkh(script)
+        redeem_script = _redeem_script(psbt_in, script[2:22])
+        if redeem_script is None:
+            return True, None
+        # counted only where it wraps a p2wpkh, and read as that p2wpkh
+        program = redeem_script
+    if is_p2wpkh(program):
+        candidates = _key_candidates(psbt_in, script_sig_windows=False)
+        return _committed_key(program[2:], candidates)
+    return _INELIGIBLE
+
+
+def _taproot_eligibility(psbt_in: PsbtIn, output_key: bytes) -> _Eligibility:
+    """Return what BIP352 makes of a taproot input: its output key, or skip.
+
+    Skipped only where NUMS_H is proven to be the internal key; an output
+    key that is no x coordinate is counted and keyless.
+    """
+    if _is_proven_nums(psbt_in, output_key):
+        return _INELIGIBLE
+    try:
+        return True, point_from_bip340pub_key(output_key, secp256k1)
+    except ValueError:
+        return True, None
+
+
+def _no_key_error(i: int) -> BTClibValueError:
+    """Return the refusal of a counted input whose key the psbt lacks."""
+    err_msg = f"input {i}: BIP352 counts it and the psbt carries no public key "
+    err_msg += "the script it spends commits to; BIP375 asks an Updater for "
+    err_msg += "PSBT_IN_BIP32_DERIVATION so that there is one"
+    return BTClibValueError(err_msg)
 
 
 def input_pub_key(psbt_in: PsbtIn) -> Point | None:
-    """Return the public key of one psbt input, or None if it does not count.
+    """Return the public key of one psbt input, or None if it has none.
 
     A taproot input's key is the output key the script_pub_key carries:
     it is what the recipient sums, script path or not, and the psbt need
     not say anything for it to be readable. Every other eligible kind
     keeps its key in the key data of PSBT_IN_BIP32_DERIVATION, which is
-    what BIP375 asks an Updater to add for exactly this.
+    what BIP375 asks an Updater to add for exactly this, or in the final
+    scripts of an input already finalized -- `PsbtIn.serialize` drops the
+    derivation then, so a psbt that crossed the wire after the Finalizer
+    carries the key there or nowhere.
 
-    The lowest such key where there is more than one, rather than an
-    arbitrary first: a dict's order is the order the psbt happened to be
-    parsed in, and an answer that depends on it is an answer two readers
-    of one psbt could disagree about. An eligible input has one key
-    anyway -- p2pkh, p2wpkh and p2sh-p2wpkh each commit to a single hash
-    -- so this decides nothing that a correct psbt leaves open.
+    Only a key the spent script commits to is answered, the lowest such
+    where there is more than one. None is both an input BIP352 does not
+    count and a counted one whose key the psbt does not carry;
+    `eligible_pub_keys` is what tells the two apart.
     """
-    if not _is_eligible(psbt_in):
-        return None
-    script = _script_pub_key(psbt_in)
-    if is_p2tr(script):
-        return point_from_bip340pub_key(script[2:34], secp256k1)
-    keys = sorted(k for k in psbt_in.hd_key_paths if len(k) == SP_SCAN_KEY_SIZE)
-    if not keys:
-        return None
-    return point_from_pub_key(keys[0])
+    return _input_eligibility(psbt_in)[1]
+
+
+def _eligible_keys(psbt: Psbt) -> dict[int, Point | None]:
+    """Return every input BIP352 counts, by index, with its key if found."""
+    eligible = {}
+    for i, psbt_in in enumerate(psbt.inputs):
+        counted, pub_key = _input_eligibility(psbt_in)
+        if counted:
+            eligible[i] = pub_key
+    return eligible
 
 
 def eligible_pub_keys(psbt: Psbt) -> dict[int, Point]:
@@ -196,12 +415,16 @@ def eligible_pub_keys(psbt: Psbt) -> dict[int, Point]:
     The index is kept because the per-input shares are filed per input: a
     coverage rule that answered "how many" rather than "which" could not
     name the input whose share is missing.
+
+    A counted input whose key the psbt does not carry is refused rather
+    than left out: the recipient sums every counted input's key, so a sum
+    of the others derives a script nobody scans for.
     """
     keys = {}
-    for i, psbt_in in enumerate(psbt.inputs):
-        pub_key = input_pub_key(psbt_in)
-        if pub_key is not None:
-            keys[i] = pub_key
+    for i, pub_key in _eligible_keys(psbt).items():
+        if pub_key is None:
+            raise _no_key_error(i)
+        keys[i] = pub_key
     return keys
 
 
@@ -224,26 +447,24 @@ def _share_and_sum(psbt: Psbt, scan_key: bytes) -> tuple[bytes, Point] | None:
     outputs as one whose single signer contributed the lot.
 
     None when there is nothing to derive from: no share at all, or no
-    eligible input to take a public key from.
+    eligible input to take a public key from. A counted input whose key
+    the psbt does not carry is refused, by `eligible_pub_keys`, once there
+    is a share to derive from.
     """
-    pub_keys = eligible_pub_keys(psbt)
-    if not pub_keys:
-        return None
-    A_sum = sp.pub_key_sum(list(pub_keys.values()))
-
+    eligible = _eligible_keys(psbt)
     share = psbt.sp_ecdh_shares.get(scan_key)
-    if share is not None:
-        return share, A_sum
-
-    shares = [
-        psbt.inputs[i].sp_ecdh_shares[scan_key]
-        for i in pub_keys
-        if scan_key in psbt.inputs[i].sp_ecdh_shares
-    ]
-    if not shares:
+    if share is None:
+        shares = [
+            psbt.inputs[i].sp_ecdh_shares[scan_key]
+            for i in eligible
+            if scan_key in psbt.inputs[i].sp_ecdh_shares
+        ]
+        if not shares:
+            return None
+        share = bytes_from_point(sp.pub_key_sum(shares), secp256k1)
+    if not eligible:
         return None
-    total = sp.pub_key_sum(shares)
-    return bytes_from_point(total, secp256k1), A_sum
+    return share, sp.pub_key_sum(list(eligible_pub_keys(psbt).values()))
 
 
 def shared_secret_from_share(psbt: Psbt, share: Octets, A_sum: Point) -> Point:
@@ -299,7 +520,9 @@ def output_scripts(psbt: Psbt) -> dict[int, bytes]:
     An output whose scan key has no share is absent from the answer rather
     than raising: a psbt under construction is allowed to have one, which
     is the "in progress" half of BIP375's own vectors, and what refuses
-    the ones that are not allowed is `assert_output_scripts_as_valid`.
+    the ones that are not allowed is `assert_output_scripts_as_valid`. A
+    counted input whose key the psbt does not carry raises instead, the
+    sum every script depends on being unknown.
     """
     scripts: dict[int, bytes] = {}
     counters: dict[bytes, int] = {}
@@ -342,7 +565,7 @@ def _assert_pair(
             raise BTClibValueError(err_msg)
 
 
-def _assert_global_shares(psbt: Psbt, A_sum: Point | None) -> None:
+def _assert_global_shares(psbt: Psbt) -> None:
     """Raise unless the global shares are proved against the input sum.
 
     A global share stands for every eligible input at once, so what proves
@@ -352,15 +575,19 @@ def _assert_global_shares(psbt: Psbt, A_sum: Point | None) -> None:
     verify.
     """
     _assert_pair(psbt.sp_ecdh_shares, psbt.sp_dleq_proofs, "global")
+    if not psbt.sp_ecdh_shares:
+        return
+    pub_keys = eligible_pub_keys(psbt)
+    if not pub_keys:
+        err_msg = "global ECDH share with no eligible input to prove it against"
+        raise BTClibValueError(err_msg)
+    A_sum = sp.pub_key_sum(list(pub_keys.values()))
     for scan_key, share in psbt.sp_ecdh_shares.items():
-        if A_sum is None:
-            err_msg = "global ECDH share with no eligible input to prove it against"
-            raise BTClibValueError(err_msg)
         if not dleq.verify_proof(A_sum, scan_key, share, psbt.sp_dleq_proofs[scan_key]):
             raise BTClibValueError(f"invalid global DLEQ proof for {scan_key.hex()}")
 
 
-def _assert_input_shares(psbt: Psbt, pub_keys: dict[int, Point]) -> None:
+def _assert_input_shares(psbt: Psbt, eligible: dict[int, Point | None]) -> None:
     """Raise unless every per-input share is proved against its own key.
 
     A share on an input BIP352 does not count is passed over rather than
@@ -371,11 +598,11 @@ def _assert_input_shares(psbt: Psbt, pub_keys: dict[int, Point]) -> None:
     is one, and one of its invalid vectors is that field missing.
     """
     for i, psbt_in in enumerate(psbt.inputs):
-        if psbt_in.sp_ecdh_shares and not _is_eligible(psbt_in):
+        if psbt_in.sp_ecdh_shares and i not in eligible:
             continue
         _assert_pair(psbt_in.sp_ecdh_shares, psbt_in.sp_dleq_proofs, f"input {i}")
         for scan_key, share in psbt_in.sp_ecdh_shares.items():
-            A = pub_keys.get(i)
+            A = eligible.get(i)
             if A is None:
                 err_msg = f"input {i}: ECDH share on an input with no public key to "
                 err_msg += "prove it against; BIP375 asks an Updater for "
@@ -396,28 +623,32 @@ def assert_shares_as_valid(psbt: Psbt) -> None:
     for a per-input one -- so a share can be trusted by a party holding
     none of the private keys.
     """
-    pub_keys = eligible_pub_keys(psbt)
-    A_sum = sp.pub_key_sum(list(pub_keys.values())) if pub_keys else None
-    _assert_global_shares(psbt, A_sum)
-    _assert_input_shares(psbt, pub_keys)
+    _assert_global_shares(psbt)
+    _assert_input_shares(psbt, _eligible_keys(psbt))
 
 
 def _assert_covered(psbt: Psbt, scan_key: bytes) -> None:
     """Raise unless every eligible input contributes to this scan key.
 
-    Asked only of a scan key whose output script is already set: before
-    that the psbt is under construction, and a share that has not arrived
-    is a signer that has not signed. Once the script is there it is a
-    claim about every eligible input, so a missing share means the script
-    was derived from fewer keys than the recipient will sum -- and the
-    recipient would find nothing.
+    Asked of a scan key whose output script is set, or about to be:
+    before that the psbt is under construction, and a share that has not
+    arrived is a signer that has not signed. A script is a claim about
+    every eligible input, so a missing share means the script was derived
+    from fewer keys than the recipient will sum -- and the recipient would
+    find nothing.
+
+    The walk is over the inputs BIP352 counts, whether or not their key
+    was found: an input whose key is missing is still summed by the
+    recipient, so it is refused for the key, which is what it lacks first.
     """
     if scan_key in psbt.sp_ecdh_shares:
         return
-    for i in eligible_pub_keys(psbt):
+    for i, pub_key in _eligible_keys(psbt).items():
+        if pub_key is None:
+            raise _no_key_error(i)
         if scan_key not in psbt.inputs[i].sp_ecdh_shares:
             err_msg = f"input {i}: no ECDH share for scan key {scan_key.hex()}, "
-            err_msg += "whose output script is already set"
+            err_msg += "which every counted input owes a script derived for it"
             raise BTClibValueError(err_msg)
 
 
@@ -457,15 +688,20 @@ def assert_output_scripts_as_valid(psbt: Psbt) -> None:
     -- that is a psbt still being built -- and one that carries a script
     without the shares to derive it is not.
     """
-    derived = output_scripts(psbt)
-    for i, psbt_out in enumerate(psbt.outputs):
-        if not psbt_out.sp_v0_info:
-            continue
+    scripted = [
+        (i, psbt_out)
+        for i, psbt_out in enumerate(psbt.outputs)
+        if psbt_out.sp_v0_info and psbt_out.script_pub_key
+    ]
+    # coverage before derivation: a script derived from fewer inputs than
+    # the recipient sums is the error to name, rather than whichever
+    # refusal deriving it would meet first
+    for _, psbt_out in scripted:
+        _assert_covered(psbt, psbt_out.sp_v0_info[:SP_SCAN_KEY_SIZE])
+    derived = output_scripts(psbt) if scripted else {}
+    for i, psbt_out in scripted:
         script = psbt_out.script_pub_key
         scan_key = psbt_out.sp_v0_info[:SP_SCAN_KEY_SIZE]
-        if not script:
-            continue
-        _assert_covered(psbt, scan_key)
         if i not in derived:
             err_msg = f"output {i}: PSBT_OUT_SCRIPT with no ECDH share to derive it "
             err_msg += f"from, for scan key {scan_key.hex()}"
@@ -515,6 +751,70 @@ def assert_as_valid(psbt: Psbt) -> None:
     assert_output_scripts_as_valid(psbt)
 
 
+def _assert_output_scripts_set(psbt: Psbt, what: str) -> None:
+    """Raise if a silent payment output has no PSBT_OUT_SCRIPT yet.
+
+    A refusal the checks above do not make, since a psbt under
+    construction may lack a script: signed or extracted, such an output
+    pays the empty script, which anybody can spend.
+    """
+    for i, psbt_out in enumerate(psbt.outputs):
+        if psbt_out.sp_v0_info and not psbt_out.script_pub_key:
+            err_msg = f"output {i}: silent payment output with no PSBT_OUT_SCRIPT, "
+            raise BTClibValueError(err_msg + what)
+
+
+def _assert_signable(psbt: Psbt) -> None:
+    """Raise unless BIP375 lets a Signer sign this psbt.
+
+    `btclib_wallet.psbt.psbt.sign` asks it whenever an output carries
+    PSBT_OUT_SP_V0_INFO. First the modifiable flags, whose violation
+    makes the psbt one of BIP375's invalid ones whatever the role; then
+    the two rules "the Signer must fail" on, an input spending a witness
+    version above 1 and a sighash type other than SIGHASH_ALL; then the
+    shares other Signers wrote, which the Signer "should verify". Each of
+    those says the psbt is wrong, where the missing script, next, says
+    only that it is early: "the Signer must not yet add a signature"
+    names a psbt waiting for `set_output_scripts`. Last, every
+    script present is the one the shares derive, a signature being what
+    commits the funds to it.
+    """
+    _assert_modifiable_cleared(psbt)
+    assert_eligibility_as_valid(psbt)
+    assert_shares_as_valid(psbt)
+    what = "and BIP375's Signer must not yet sign: set_output_scripts derives it"
+    _assert_output_scripts_set(psbt, what)
+    assert_output_scripts_as_valid(psbt)
+
+
+def _assert_extractable(psbt: Psbt) -> None:
+    """Raise unless BIP375 lets a Transaction Extractor extract this psbt.
+
+    `btclib_wallet.psbt.psbt.extract_tx` asks it whenever an output
+    carries PSBT_OUT_SP_V0_INFO: `assert_as_valid`, and a script on every
+    silent payment output, the Extractor being where a psbt stops being
+    under construction.
+    """
+    assert_as_valid(psbt)
+    what = "so the extracted transaction would pay the empty script"
+    _assert_output_scripts_set(psbt, what)
+
+
+def _assert_sendable(psbt: Psbt) -> None:
+    """Raise unless a psbt may go to a signer outside the process.
+
+    The Signer's checks, `_assert_signable`, asked before the psbt leaves
+    rather than left to whatever answers: a signer that does not know
+    BIP375 signs a silent payment output whatever script it carries, and
+    its signature commits the funds to that script. A psbt paying no
+    silent payment has nothing here to ask.
+    """
+    if not any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
+        return
+    psbt.assert_valid()
+    _assert_signable(psbt)
+
+
 def _share_for(a: int, scan_key: bytes, aux: Octets | None) -> tuple[bytes, bytes]:
     """Return the ECDH share for one scalar and scan key, and its proof."""
     B_scan = point_from_pub_key(scan_key)
@@ -537,10 +837,12 @@ def set_input_share(
     every verifier rejects, so it is refused here instead of written.
     """
     psbt_in = psbt.inputs[vin_i]
-    A = input_pub_key(psbt_in)
-    if A is None:
+    counted, A = _input_eligibility(psbt_in)
+    if not counted:
         err_msg = f"input {vin_i}: no public key, so no share BIP352 would count"
         raise BTClibValueError(err_msg)
+    if A is None:
+        raise _no_key_error(vin_i)
     a = scalar_from_prv_key(prv_key)
     if mult(a) != A:
         err_msg = f"input {vin_i}: the private key is not the one of its public key"
@@ -595,8 +897,13 @@ def set_output_scripts(psbt: Psbt) -> None:
 
     Every silent payment output must be derivable, or nothing is written:
     a psbt half-derived is one whose recipients each need the other's
-    signer to have finished.
+    signer to have finished. And derivable means BIP375's "if all
+    eligible inputs have an ECDH share or the global ECDH share is set":
+    a script summed from the shares that have arrived is one
+    `assert_output_scripts_as_valid` refuses.
     """
+    for scan_key in _scan_keys(psbt):
+        _assert_covered(psbt, scan_key)
     scripts = output_scripts(psbt)
     missing = [
         i for i, o in enumerate(psbt.outputs) if o.sp_v0_info and i not in scripts

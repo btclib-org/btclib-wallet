@@ -184,10 +184,15 @@ def test_lang_from_mnemonic() -> None:
         mnemonic = bip39.mnemonic_from_entropy(entropy, lang)
         assert bip39.lang_from_mnemonic(mnemonic) == lang
 
-    # a word in no word-list at all
-    err_msg = "unknown language for mnemonic: "
-    with pytest.raises(BTClibValueError, match=err_msg):
-        bip39.lang_from_mnemonic("btclib " * 11 + "btclib")
+    # a word in no word-list at all: the exception reports the word
+    # count, never the sentence -- a mistyped mnemonic is one guess away
+    # from the one it was meant to be (issue btclib-org/btclib-wallet#38)
+    typo = "btclib " * 11 + "btclib"
+    err_msg = "unknown language for mnemonic: 12 words"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        bip39.lang_from_mnemonic(typo)
+    assert typo not in str(excinfo.value)
+    assert "btclib" not in str(excinfo.value)
 
     # NFC in, NFKD word-list: the same mnemonic, and the same language
     spanish = bip39.mnemonic_from_entropy(entropy, "es")
@@ -262,11 +267,14 @@ def test_chinese_is_ambiguous_and_answerable() -> None:
 
 
 def test_mnemonic_from_entropy() -> None:
-    """Accept entropy with a leading zero bit, and none at all."""
+    """Accept entropy with a leading zero bit, and draw 128 bits for none."""
     # zero leading bit should not throw an error
     bip39.mnemonic_from_entropy(secrets.randbits(127), "en")
-    # random mnemonic
-    bip39.mnemonic_from_entropy()
+    # None and the empty string both ask for entropy drawn afresh, so a
+    # constant default is what would make these two mnemonics equal
+    mnemonic = bip39.mnemonic_from_entropy()
+    assert mnemonic != bip39.mnemonic_from_entropy("")
+    assert len(bip39.entropy_from_mnemonic(mnemonic)) == 128
 
 
 # BIP39's japanese vectors, from bip32JP/bip32JP.github.io's
