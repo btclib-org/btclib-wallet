@@ -333,6 +333,11 @@ contradicting another's `non_witness_utxo`, are a `BTClibValueError`
 An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
 or holds an element that is no `Psbt` a `BTClibTypeError` (closes #88).
 
+### `psbt.join` refuses no psbts and what is not a psbt
+
+An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
+or holds an element that is no `Psbt` a `BTClibTypeError` (closes #89).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

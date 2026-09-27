@@ -1697,16 +1697,17 @@ def _combine_sp_script(psbt_out: PsbtOut, out: PsbtOut) -> None:
         raise BTClibValueError(err_msg)
 
 
-def _assert_psbts_to_combine(psbts: Sequence[Psbt]) -> None:
-    """Refuse what `combine` cannot merge, before any psbt is read.
+def _assert_psbts(psbts: Sequence[Psbt], verb: str) -> None:
+    """Refuse a sequence of psbts `combine` or `join` cannot act on.
 
-    An empty sequence has no psbt to hand back, and a value of another
-    type would leave as an IndexError or an AttributeError about a field
-    name rather than as the refusal a caller catches.
+    Asked before any psbt is read. An empty sequence has no psbt to hand
+    back, and a value of another type would leave as an IndexError or an
+    AttributeError about a field name rather than as the refusal a caller
+    catches. `verb` names the caller's act in the empty case's message.
     """
     assert_type(psbts, Sequence, "psbts")
     if not psbts:
-        raise BTClibValueError("nothing to combine: no psbts")
+        raise BTClibValueError(f"nothing to {verb}: no psbts")
     for i, psbt in enumerate(psbts):
         assert_type(psbt, Psbt, f"psbts[{i}]")
 
@@ -1762,7 +1763,7 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     An empty sequence is refused, there being no psbt to hand back, and
     so is an element that is not a Psbt.
     """
-    _assert_psbts_to_combine(psbts)
+    _assert_psbts(psbts, "combine")
     psbts = deepcopy(list(psbts))
     final_psbt = psbts[0]
     version = final_psbt.version
@@ -3487,9 +3488,13 @@ def join(
     the first input's outpoint, which the join can move. A caller
     building a proof of funds this way sets the field on the result,
     where what it names is a transaction that exists.
+
+    An empty sequence is refused, there being no psbt to join, and so is
+    an element that is not a Psbt.
     """
     assert_type(shuffle_inp, bool, "shuffle_inp")
     assert_type(shuffle_out, bool, "shuffle_out")
+    _assert_psbts(psbts, "join")
 
     _ensure_consistency(psbts)
     psbts = deepcopy(list(psbts))

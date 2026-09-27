@@ -2788,6 +2788,24 @@ def test_the_combined_psbt_shares_no_object_with_what_was_combined() -> None:
     assert first.inputs[0].partial_sigs
 
 
+def test_joining_refuses_nothing_and_what_is_not_a_psbt() -> None:
+    """An empty sequence, a non-sequence, and an element of another type.
+
+    A generator is refused as not a sequence rather than read: the
+    consistency check would consume it before the copy that joins it.
+    """
+    empty: Sequence[Psbt]
+    for empty in ([], ()):
+        with pytest.raises(BTClibValueError, match="nothing to join"):
+            join(empty, False, False, False, False)
+
+    psbt, _ = _single_key_psbt("p2wpkh")
+    with pytest.raises(BTClibTypeError, match="invalid psbts type: generator"):
+        join((p for p in [psbt]), False, False, False, False)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match=r"invalid psbts\[1\] type: int"):
+        join([psbt, 1], False, False, False, False)  # type: ignore[list-item]
+
+
 def test_joining_leaves_every_psbt_it_was_given_alone() -> None:
     """The joined psbt shares no input or output with what was joined.
 

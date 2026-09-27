@@ -112,6 +112,10 @@ from another copy's `non_witness_utxo` output -- before combining.
 It refuses with a `BTClibTypeError` a `psbts` that is not a sequence -- a
 generator, an iterator -- where it read it; pass a `list` or a `tuple`.
 
+`psbt.join` refuses with a `BTClibTypeError` a `psbts` that is not a
+sequence -- a `dict` view, any container that is only iterable -- where it
+joined it; pass a `list` or a `tuple`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`
