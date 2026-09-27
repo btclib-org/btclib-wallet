@@ -142,7 +142,8 @@ _MAX_B85_LEN = 80
 # the least a die and a session of rolls can be. The BIP's own upper
 # bound of 2**32 - 1 for each is not reachable and is not written here:
 # both are hardened path levels, so what the derivation can spell stops
-# at 2**31 - 1, and `str_from_index_int` refuses the rest
+# at 2**31 - 1. Both are written into a path string, and
+# `indexes_from_der_path`, reading it back, refuses the rest
 _MIN_SIDES = 2
 _MIN_ROLLS = 1
 

@@ -446,6 +446,12 @@ them; `bip322.Sig.b64decode` does not quote a non-ASCII character (closes #114).
 btclib-org/btclib#2378, which refuses them as text. Too many decimals are
 refused quoting `Decimal`'s `1E-9`, not the URI's `0.000000001` (closes #122).
 
+### `bip85` names the path reader as what refuses too many sides or rolls
+
+The comment above `_MIN_SIDES` names `indexes_from_der_path`, not
+`str_from_index_int`, which neither value passes through, and the suite pins
+the refusal of `2**31` sides or rolls (closes #123).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
