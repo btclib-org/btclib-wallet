@@ -174,6 +174,26 @@ Do not use Fable unless explicitly instructed.
   before is a break in the protocol package's surface, and the question
   is asked of `btclib`'s `RELEASE_NOTES.md` before it is asked of this
   code.
+- **The union seam in `RELEASE_NOTES.md` is reported by nothing.**
+  `.gitattributes` has why a rebase eats the blank line above a branch's
+  block, and `check-changelog` names that line in `CHANGELOG.md`, where
+  the block opens with a heading. A release note is a bare paragraph, so
+  the seam joins it to the one above into a single paragraph that every
+  hook passes. After a rebase that replayed a release note, rebuild the
+  file as the new base's copy with the branch's block spliced before the
+  first released heading, and `cmp` it against the committed one.
+- **Two branches that each touched `.secrets.baseline` conflict on its
+  `generated_at`,** whatever else they changed. Keeping `main`'s value
+  resolves it, and the check is that the baseline then differs from
+  `main`'s by the branch's own changes alone. It is still a
+  conflict resolved, so `REVIEWING.md`'s *Re-review* sends the pull
+  request back for one more round on the resolution.
+- **macOS ships no `timeout`.** A gate wrapped in it exits 127
+  (`command not found`) without running, and an `echo $?` after it reads
+  as a failed gate rather than an absent one. The ceiling is the one
+  the tool running the gate provides, its own call timeout; a gate too
+  long for that runs in the background, which has no ceiling, and is
+  watched until its exit code is read.
 
 ## Conventions to match
 
