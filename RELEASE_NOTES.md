@@ -71,6 +71,11 @@ what that function refuses, and a silent payment output with no script;
 `check_validity=False` extracts as before. `psbt.combine` refuses two psbts
 carrying different scripts for one silent payment output.
 
+`tx_builder.build_psbt` also refuses with a `BTClibValueError` a fee above
+what `max_fee_rate`, 0.10 BTC/kvB unless raised, asks of the estimated
+virtual size, however far below `max_fee` it is; pass a higher
+`max_fee_rate` where such a fee is meant.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

@@ -276,6 +276,12 @@ payment output with no script (closes #35).
 The script is taken from whichever psbt carries it, and two different ones
 are refused with a `BTClibValueError` rather than one kept (closes #50).
 
+### `build_psbt` refuses a fee above what `max_fee_rate` asks
+
+The keyword defaults to `DEFAULT_MAX_FEE_RATE`, Bitcoin Core's
+`-maxfeerate` default of 0.10 BTC/kvB, applied to the estimated vsize;
+a larger fee is a `BTClibValueError` (closes #73).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

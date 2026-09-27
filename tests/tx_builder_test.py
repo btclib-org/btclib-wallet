@@ -41,7 +41,7 @@ from btclib_wallet.psbt.psbt import extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import SIG_SIZE
 from btclib_wallet.psbt_signer import SoftwareSigner, export_account, request_signatures
-from btclib_wallet.tx_builder import DEFAULT_MAX_FEE, build_psbt
+from btclib_wallet.tx_builder import DEFAULT_MAX_FEE, DEFAULT_MAX_FEE_RATE, build_psbt
 
 # BIP39's "abandon abandon ... about" root, which BIP84 publishes and
 # `tests/software_signer_test.py` signs with
@@ -63,6 +63,9 @@ CHANGE_SCRIPT = ScriptPubKey.p2wpkh(PubKeyData(CHANGE_KEY))
 # conversion in the head of whoever reads a failure here
 ONE_SAT_PER_VBYTE = FeeRate.from_sats_per_vbyte(1)
 TEN_SAT_PER_VBYTE = FeeRate.from_sats_per_vbyte(10)
+# a rate ceiling no fee below the absolute one reaches, for the tests of
+# that one: 0.10 BTC over a single virtual byte
+NO_RATE_CEILING = FeeRate.from_sats_per_vbyte(10_000_000)
 
 
 def spendable(
@@ -481,7 +484,9 @@ def test_a_fee_above_max_fee_is_refused() -> None:
     """Core's `-maxtxfee`, 0.10 BTC unless the caller says otherwise.
 
     Compared with the fee returned on both exits: the one a rate asks of
-    a transaction with change, and the whole leftover of a sweep.
+    a transaction with change, and the whole leftover of a sweep. The
+    rate ceiling is lifted here, a sweep leaving 0.10 BTC to the fee of a
+    transaction this small being far past it.
     """
     # Core's DEFAULT_TRANSACTION_MAXFEE, COIN / 10
     assert DEFAULT_MAX_FEE == 10_000_000
@@ -492,6 +497,7 @@ def test_a_fee_above_max_fee_is_refused() -> None:
         [TxOut(value - DEFAULT_MAX_FEE, PAY_SCRIPT)],
         TEN_SAT_PER_VBYTE,
         None,
+        max_fee_rate=NO_RATE_CEILING,
     )
     assert built.fee == DEFAULT_MAX_FEE
     with pytest.raises(BTClibValueError, match="a fee of 10000001 satoshi exceeds"):
@@ -500,6 +506,7 @@ def test_a_fee_above_max_fee_is_refused() -> None:
             [TxOut(value - DEFAULT_MAX_FEE - 1, PAY_SCRIPT)],
             TEN_SAT_PER_VBYTE,
             None,
+            max_fee_rate=NO_RATE_CEILING,
         )
     # the caller raises it where the fee is meant
     built = build_psbt(
@@ -508,6 +515,7 @@ def test_a_fee_above_max_fee_is_refused() -> None:
         TEN_SAT_PER_VBYTE,
         None,
         max_fee=DEFAULT_MAX_FEE + 1,
+        max_fee_rate=NO_RATE_CEILING,
     )
     assert built.fee == DEFAULT_MAX_FEE + 1
 
@@ -525,6 +533,88 @@ def test_a_fee_above_max_fee_is_refused() -> None:
             TEN_SAT_PER_VBYTE,
             CHANGE_SCRIPT.script,
             max_fee=with_change.fee - 1,
+        )
+
+
+def test_a_fee_above_what_max_fee_rate_asks_is_refused() -> None:
+    """Core's `-maxfeerate`, 0.10 BTC per kvB unless the caller says otherwise.
+
+    `CreateTransactionInternal` compares the fee with what the rate
+    ceiling asks of the transaction's virtual size, rounded up, which is
+    `fee_from_vsize` of the size the fee was priced on. Both exits, each
+    on both sides of the boundary; and a fee rate written in sat/kvB where
+    sat/vB was meant, whose fee stays below the absolute ceiling.
+    """
+    # Core's DEFAULT_MAX_TRANSACTION_FEERATE, COIN / 10 per kvB
+    assert FeeRate(sats_per_kvbyte=10_000_000) == DEFAULT_MAX_FEE_RATE
+
+    # the exit with change, where the fee is what `fee_rate` asks: at the
+    # ceiling it is paid, one sat/vB above it the fee outgrows the ceiling
+    built = build_psbt(
+        [spendable(100_000_000)],
+        [TxOut(60_000, PAY_SCRIPT)],
+        DEFAULT_MAX_FEE_RATE,
+        CHANGE_SCRIPT.script,
+    )
+    vsize = built.psbt.vsize_estimate()
+    assert built.fee == fee_from_vsize(vsize, DEFAULT_MAX_FEE_RATE)
+    with pytest.raises(BTClibValueError, match="exceeds max_fee_rate"):
+        build_psbt(
+            [spendable(100_000_000)],
+            [TxOut(60_000, PAY_SCRIPT)],
+            FeeRate(sats_per_kvbyte=10_000_000 + 1_000),
+            CHANGE_SCRIPT.script,
+        )
+
+    # the sweep exit, where the fee is the whole leftover
+    probe = build_psbt(
+        [spendable(100_000)], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None
+    )
+    ceiling = fee_from_vsize(probe.psbt.vsize_estimate(), DEFAULT_MAX_FEE_RATE)
+    built = build_psbt(
+        [spendable(60_000 + ceiling)],
+        [TxOut(60_000, PAY_SCRIPT)],
+        TEN_SAT_PER_VBYTE,
+        None,
+    )
+    assert built.fee == ceiling
+    with pytest.raises(BTClibValueError, match=f"which allows {ceiling} satoshi"):
+        build_psbt(
+            [spendable(60_000 + ceiling + 1)],
+            [TxOut(60_000, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            None,
+        )
+    # the caller raises it where the rate is meant
+    built = build_psbt(
+        [spendable(60_000 + ceiling + 1)],
+        [TxOut(60_000, PAY_SCRIPT)],
+        TEN_SAT_PER_VBYTE,
+        None,
+        max_fee_rate=FeeRate(sats_per_kvbyte=20_000_000),
+    )
+    assert built.fee == ceiling + 1
+
+    # 20 000 sat/vB: a fee well below 0.10 BTC, and still refused
+    with pytest.raises(BTClibValueError, match="exceeds max_fee_rate"):
+        build_psbt(
+            [spendable(100_000_000)],
+            [TxOut(10_000_000, PAY_SCRIPT)],
+            FeeRate.from_sats_per_vbyte(20_000),
+            CHANGE_SCRIPT.script,
+        )
+
+
+@pytest.mark.parametrize("wrong", [None, 1.5, 10_000_000])
+def test_a_max_fee_rate_that_is_no_fee_rate(wrong: object) -> None:
+    """A rate is a `FeeRate`: a number would leave its unit to be guessed."""
+    with pytest.raises(BTClibTypeError, match="max fee rate"):
+        build_psbt(
+            [spendable(100_000)],
+            [TxOut(60_000, PAY_SCRIPT)],
+            TEN_SAT_PER_VBYTE,
+            CHANGE_SCRIPT.script,
+            max_fee_rate=wrong,  # type: ignore[arg-type]
         )
 
 
