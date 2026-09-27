@@ -260,7 +260,7 @@ class Bip21:
         # a fragment is not part of BIP21 and is not a parameter either
         query = query.partition("#")[0]
 
-        amount: str | None = None
+        amount: Decimal | None = None
         label: str | None = None
         message: str | None = None
         lightning: str | None = None
@@ -307,8 +307,15 @@ class Bip21:
         )
 
 
-def _valid_amount_field(raw_value: str) -> str:
-    """Return the amount field, refused unless it is BIP21's own grammar."""
+def _valid_amount_field(raw_value: str) -> Decimal:
+    """Return the amount field as a Decimal, refused unless BIP21's grammar.
+
+    A Decimal and not the text, because "1.", ".5" and "01" are BIP21
+    amounts and not Bitcoin Core's: its `ParseFixedPoint` refuses all
+    three, and a btclib carrying issue btclib-org/btclib#2378 reads a
+    text amount through that grammar. `Decimal` reads what `_AMOUNT`
+    admits as the number BIP21 means, scale included.
+    """
     if not _AMOUNT.match(raw_value):
         raise BTClibValueError(f"invalid bip21 amount: {raw_value[:32]!r}")
-    return raw_value
+    return Decimal(raw_value)

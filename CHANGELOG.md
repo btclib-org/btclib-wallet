@@ -440,6 +440,12 @@ each was read as though that `/` were absent (closes #116).
 and PyPy 3.11 decoded, are refused as Bitcoin Core's `DecodeBase64` refuses
 them; `bip322.Sig.b64decode` does not quote a non-ASCII character (closes #114).
 
+### `Bip21.parse` hands the amount to btclib as a `Decimal`
+
+`amount=1.`, `amount=.5` and `amount=01` parse under a btclib carrying
+btclib-org/btclib#2378, which refuses them as text. Too many decimals are
+refused quoting `Decimal`'s `1E-9`, not the URI's `0.000000001` (closes #122).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

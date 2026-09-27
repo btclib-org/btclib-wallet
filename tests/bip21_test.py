@@ -25,7 +25,7 @@ from decimal import Decimal
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 
-from btclib_wallet.bip21 import Bip21
+from btclib_wallet.bip21 import Bip21, _valid_amount_field
 from btclib_wallet.bolt11 import Bolt11Invoice
 
 # BIP21's example address, with its last character corrected
@@ -119,6 +119,12 @@ def test_the_amount_is_decimal_btc() -> None:
     # trailing and leading zeros are the same request
     assert Bip21.parse(f"bitcoin:{ADDR}?amount=1.").amount == Decimal(1)
     assert Bip21.parse(f"bitcoin:{ADDR}?amount=.5").amount == Decimal("0.5")
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=0.").amount == Decimal(0)
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=21000000.").amount == Decimal(21000000)
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=.00000001").amount == Decimal("1e-8")
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=01").amount == Decimal(1)
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=00.5").amount == Decimal("0.5")
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=000").amount == Decimal(0)
 
     # satoshi are not the unit, so nine decimals is not an amount
     with pytest.raises(BTClibValueError, match="too many decimals"):
@@ -133,6 +139,21 @@ def test_the_amount_is_decimal_btc() -> None:
     for bad in ("1e5", "+1", "-1", " 1", "1 ", "Infinity", "NaN", "0x1", "", "."):
         with pytest.raises(BTClibValueError, match="invalid bip21 amount"):
             Bip21.parse(f"bitcoin:{ADDR}?amount={bad}")
+
+
+def test_the_amount_field_is_handed_on_as_a_decimal() -> None:
+    """Verify the field leaves the grammar check as a Decimal, not as text.
+
+    btclib may read a text amount through a narrower grammar than
+    BIP21's, so a field that left as text would be refused there for
+    being "1." or "01" rather than for being no amount.
+    """
+    for raw, value in (("1.", Decimal(1)), (".5", Decimal("0.5")), ("01", Decimal(1))):
+        amount = _valid_amount_field(raw)
+        assert isinstance(amount, Decimal)
+        assert amount == value
+    # the scale is the field's, so the value is the one the URI wrote
+    assert _valid_amount_field("0.10000000").as_tuple().exponent == -8
 
 
 def test_a_repeated_key_is_an_error() -> None:
@@ -279,6 +300,9 @@ def test_round_trip() -> None:
     )
     assert Bip21.parse(f"bitcoin:{ADDR}?amount=0.10000000").serialize() == (
         f"bitcoin:{ADDR}?amount=0.1"
+    )
+    assert Bip21.parse(f"bitcoin:{ADDR}?amount=00.5").serialize() == (
+        f"bitcoin:{ADDR}?amount=0.5"
     )
 
 
