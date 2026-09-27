@@ -892,3 +892,41 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     with pytest.raises(BTClibValueError, match="reports chain 'test', not the 'main'"):
         BitcoinCoreFetcher(endpoint, network="mainnet").estimate_fee(6)
     assert asked(endpoint) == ["getblockchaininfo"]
+
+
+@pytest.mark.parametrize(
+    "not_a_client",
+    [5, None, URL, rpc.BitcoinCoreRestClient(URL)],
+    # named, a client's repr carrying its address and differing per worker
+    ids=["int", "None", "url", "rest-client"],
+)
+def test_a_client_of_another_type_is_refused(not_a_client: object) -> None:
+    """Refused at construction, not as an `AttributeError` when first used."""
+    with pytest.raises(BTClibTypeError, match="not a BitcoinCoreRpcClient"):
+        BitcoinCoreFetcher(not_a_client)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("estimate_mode", [7, None, b"economical"])
+def test_an_estimate_mode_that_is_no_string_is_refused(estimate_mode: object) -> None:
+    """Refused at construction, before `estimatesmartfee` would carry it."""
+    with pytest.raises(BTClibTypeError, match="non-string estimate_mode"):
+        BitcoinCoreFetcher(client(), estimate_mode=estimate_mode)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    # the last folds to `conservative` under a Unicode upper, and not
+    # under the ASCII one Core applies
+    "estimate_mode",
+    ["", "fast", "economical ", "con\u017fervative"],
+)
+def test_an_estimate_mode_core_does_not_take_is_refused(estimate_mode: str) -> None:
+    """Refused at construction, before `estimatesmartfee` would refuse it."""
+    with pytest.raises(BTClibValueError, match="invalid estimate_mode"):
+        BitcoinCoreFetcher(client(), estimate_mode=estimate_mode)
+
+
+@pytest.mark.parametrize("estimate_mode", ["unset", "ECONOMICAL", "Conservative"])
+def test_an_estimate_mode_is_matched_as_core_matches_it(estimate_mode: str) -> None:
+    """Core's modes, in any ASCII case, are taken and forwarded as given."""
+    core = BitcoinCoreFetcher(client(), estimate_mode=estimate_mode)
+    assert core.estimate_mode == estimate_mode

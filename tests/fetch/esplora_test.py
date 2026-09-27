@@ -172,8 +172,9 @@ def test_a_timeout_that_is_no_number_is_refused(timeout: object) -> None:
 
 
 # the timeouts a constructor refuses as a value: none positive, none
-# finite, or an int no float holds -- the last past `str`'s digit limit
-# too, which is why each carries an id pytest need not render
+# finite, past what a socket waits for, or an int no float holds -- the
+# last past `str`'s digit limit too, which is why each carries an id
+# pytest need not render
 NO_TIMEOUTS = [
     pytest.param(timeout, id=name)
     for name, timeout in (
@@ -182,6 +183,7 @@ NO_TIMEOUTS = [
         ("negative-float", -0.5),
         ("inf", float("inf")),
         ("nan", float("nan")),
+        ("10**10", 10**10),
         ("10**400", 10**400),
         ("10**5000", 10**5000),
     )
@@ -191,7 +193,9 @@ NO_TIMEOUTS = [
 @pytest.mark.parametrize("timeout", NO_TIMEOUTS)
 def test_a_timeout_that_is_no_positive_number_is_refused(timeout: float) -> None:
     """Refuse a timeout no socket waits for, an int no float holds included."""
-    with pytest.raises(BTClibValueError, match="timeout is not a positive finite"):
+    with pytest.raises(
+        BTClibValueError, match="timeout is not a positive number of seconds"
+    ):
         EsploraFetcher(BASE, timeout=timeout)
 
 

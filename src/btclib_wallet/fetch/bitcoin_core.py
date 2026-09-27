@@ -63,6 +63,10 @@ __all__ = [
 # is not small, and it keeps the client's default.
 _MAX_SMALL_REPLY = 1024
 
+# the modes `estimatesmartfee` takes, which Core matches without regard to
+# ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
+_ESTIMATE_MODES = ("unset", "economical", "conservative")
+
 
 class BitcoinCoreFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, answered by a node over its RPC.
@@ -102,7 +106,8 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
     so a caller who cares chooses it once, the way `signet_challenge` is
     chosen once, rather than a signature every `estimate_fee` call would
     otherwise have to widen for one backend's option. Defaults to Core's
-    own default, `economical`.
+    own default, `economical`, and a string that is none of Core's modes
+    is refused here rather than by the node.
     """
 
     def __init__(
@@ -115,6 +120,15 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         estimate_mode: str = "economical",
     ) -> None:
         super().__init__(network, verify_network=verify_network)
+        if not isinstance(client, BitcoinCoreRpcClient):
+            raise BTClibTypeError(
+                f"not a BitcoinCoreRpcClient: {type(client).__name__}"
+            )
+        if not isinstance(estimate_mode, str):
+            err_msg = f"non-string estimate_mode: {type(estimate_mode).__name__}"  # type: ignore[unreachable]
+            raise BTClibTypeError(err_msg)
+        if not estimate_mode.isascii() or estimate_mode.lower() not in _ESTIMATE_MODES:
+            raise BTClibValueError(f"invalid estimate_mode: {estimate_mode!r}")
         if signet_challenge is not None:
             if chain_from_network(self.network) != "signet":
                 err_msg = f"a signet_challenge for {self.network},"

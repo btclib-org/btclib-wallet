@@ -51,8 +51,6 @@ backends' word for it, and the reason this backend exists.
 
 from __future__ import annotations
 
-from sys import float_info
-
 from btclib import electrum
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
@@ -72,7 +70,7 @@ from btclib_wallet.fetch.fetcher import (
     tx_from_raw,
     tx_id_hex,
 )
-from btclib_wallet.fetch.transport import DEFAULT_TIMEOUT, LineTransport
+from btclib_wallet.fetch.transport import DEFAULT_TIMEOUT, LineTransport, valid_timeout
 
 __all__ = [
     "ElectrumFetcher",
@@ -130,17 +128,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         if not callable(transport):
             raise BTClibTypeError(f"not a callable transport: {transport!r}")
         self.transport = transport
-        # checked here for a transport of the caller's that checks nothing.
-        # A bound and not `isfinite`, which raises an `OverflowError` for
-        # an int too large for a float rather than answering: comparing
-        # an int with a float is exact, and a nan passes no comparison. The
-        # value is not rendered, an int past `str`'s digit limit raising a
-        # `ValueError` of its own
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
-            raise BTClibTypeError(f"non-numeric timeout: {timeout!r}")
-        if not 0 < timeout <= float_info.max:
-            raise BTClibValueError("timeout is not a positive finite number")
-        self.timeout = timeout
+        # checked here for a transport of the caller's that checks nothing
+        self.timeout = valid_timeout(timeout)
         self._next_id = 0
 
     def _next_request_id(self) -> int:

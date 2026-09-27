@@ -15,7 +15,10 @@ the deadline, the bounded read, and what a failure becomes.
 from __future__ import annotations
 
 import json
+import socket
 import ssl
+from math import inf, nextafter
+from threading import TIMEOUT_MAX
 from typing import Any, Self
 
 import pytest
@@ -29,6 +32,7 @@ from btclib_wallet.fetch.transport import (
     DEFAULT_MAX_BODY_SIZE,
     DEFAULT_TIMEOUT,
     TlsLineTransport,
+    valid_timeout,
 )
 from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT
 
@@ -329,9 +333,33 @@ def test_construction_validates_its_arguments(
         (b"{}\n{}", 1.0, BTClibValueError, "one newline-terminated line"),
         (REQUEST, True, BTClibTypeError, "non-numeric timeout"),
         (REQUEST, "1", BTClibTypeError, "non-numeric timeout"),
-        (REQUEST, 0, BTClibValueError, "not a positive number"),
-        (REQUEST, float("nan"), BTClibValueError, "not a positive number"),
-        (REQUEST, float("inf"), BTClibValueError, "not a positive number"),
+        (REQUEST, 0, BTClibValueError, "not a positive number of seconds"),
+        (REQUEST, float("nan"), BTClibValueError, "not a positive number of seconds"),
+        (REQUEST, float("inf"), BTClibValueError, "not a positive number of seconds"),
+        # past what a socket waits for, and a float's next step past it
+        (REQUEST, 10**10, BTClibValueError, "not a positive number of seconds"),
+        (
+            REQUEST,
+            nextafter(TIMEOUT_MAX, inf),
+            BTClibValueError,
+            "not a positive number of seconds",
+        ),
+        # ints no float holds, the second past `str`'s digit limit too: ids
+        # of their own, pytest rendering neither otherwise
+        pytest.param(
+            REQUEST,
+            10**400,
+            BTClibValueError,
+            "not a positive number of seconds",
+            id="timeout-10**400",
+        ),
+        pytest.param(
+            REQUEST,
+            10**5000,
+            BTClibValueError,
+            "not a positive number of seconds",
+            id="timeout-10**5000",
+        ),
     ],
 )
 def test_a_call_validates_its_arguments_before_connecting(
@@ -342,3 +370,14 @@ def test_a_call_validates_its_arguments_before_connecting(
     with pytest.raises(error, match=match):
         transport(request_, timeout)
     assert not tcp
+
+
+def test_the_bound_is_a_timeout_a_socket_takes() -> None:
+    """`TIMEOUT_MAX` passes, and a real socket takes it: no refusal is late.
+
+    The step past it is refused above, as a `BTClibValueError`, where a
+    socket would raise an `OverflowError` of its own.
+    """
+    assert valid_timeout(TIMEOUT_MAX) == TIMEOUT_MAX
+    with socket.socket() as sock:
+        sock.settimeout(TIMEOUT_MAX)

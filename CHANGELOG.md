@@ -223,6 +223,18 @@ it, since the `HttpError` of a status other than 200 quotes the url
 type-checked, and `mxprv_from_mnemonics` reads only `None` as the empty
 passphrase, refusing a falsy value of another type (closes #63) (closes #66).
 
+### `BitcoinCoreFetcher` and `BitcoinCoreRestFetcher` check their client
+
+A `client` of another class is a `BTClibTypeError` at construction, and so
+is an `estimate_mode` that is no string; a string that is none of the modes
+Core takes, in any ASCII case, is a `BTClibValueError` (closes #64).
+
+### A timeout past `threading.TIMEOUT_MAX` is a `BTClibValueError`
+
+`TlsLineTransport`, `EsploraFetcher` and `ElectrumFetcher` share one check,
+`transport.valid_timeout`, bounded where a socket still waits; past it, a
+timeout left the transport's call as a bare `OverflowError` (closes #70).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

@@ -54,7 +54,6 @@ this expects text is not compatible in the way that matters.
 from __future__ import annotations
 
 import json
-from sys import float_info
 from urllib.parse import urlsplit
 
 from btclib.alias import Octets
@@ -82,6 +81,7 @@ from btclib_wallet.fetch.transport import (
     HttpTransport,
     http_request,
     urlopen_transport,
+    valid_timeout,
 )
 
 __all__ = [
@@ -196,13 +196,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
     ) -> None:
         super().__init__(network, verify_network=verify_network)
         self.base_url = _checked_base_url(base_url).rstrip("/")
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
-            raise BTClibTypeError(f"non-numeric timeout: {timeout!r}")
-        # a bound and not `isfinite`, and the value not rendered, for the
-        # reasons `ElectrumFetcher.__init__` gives
-        if not 0 < timeout <= float_info.max:
-            raise BTClibValueError("timeout is not a positive finite number")
-        self.timeout = timeout
+        self.timeout = valid_timeout(timeout)
         if not callable(transport):
             raise BTClibTypeError(f"not a callable transport: {transport!r}")
         self.transport = transport

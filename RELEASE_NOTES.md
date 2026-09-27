@@ -39,6 +39,17 @@ an `entropy_source` answering anything but `bytes` or a `bytearray` of
 the length asked -- a 1-of-1 backup read a list, a `memoryview` or a
 draw of another length; return exactly that.
 
+`fetch.BitcoinCoreFetcher` and `fetch.BitcoinCoreRestFetcher` refuse with a
+`BTClibTypeError` a `client` that is not a `BitcoinCoreRpcClient` or a
+`BitcoinCoreRestClient` respectively, where a stand-in answering the
+methods they call worked; pass an instance of that class or a subclass.
+`fetch.ElectrumFetcher` refuses a `timeout` that is no number, a bool,
+not positive, or above `threading.TIMEOUT_MAX`, which it handed as given
+to a transport of the caller's; pass a positive number of seconds. `fetch.EsploraFetcher`
+refuses a `base_url` carrying a user or a password, or without a host,
+which a transport of the caller's received; pass the url without them,
+and let that transport add the credentials.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`
