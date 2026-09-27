@@ -330,14 +330,12 @@ def _split_arguments(arguments: str) -> list[str]:
         elif char in ")}":
             depth -= 1
             if depth < 0:
-                raise BTClibValueError(
-                    f"unbalanced brackets at position {match.start()}"
-                )
+                raise BTClibValueError("unbalanced brackets")
         elif depth == 0:  # a comma, the only other character matched
             result.append(arguments[start : match.start()])
             start = match.end()
     if depth:
-        raise BTClibValueError(f"unbalanced brackets at position {len(arguments)}")
+        raise BTClibValueError("unbalanced brackets")
     result.append(arguments[start:])
     return result
 
@@ -359,7 +357,14 @@ def _der_path(path: str) -> list[int]:
     a step BIP380 allows. It also refuses 2**31 and above written
     unhardened, there being no such BIP32 index.
     """
-    return indexes_from_der_path(path, bip380_enforced=True) if path else []
+    try:
+        return indexes_from_der_path(path, bip380_enforced=True) if path else []
+    # btclib's message names the step it refused, and a step is caller text
+    # that can hold a key: one written after a path without the comma
+    # before it is read as the path's last step. What precedes the colon
+    # names the fault alone
+    except BTClibValueError as e:
+        raise BTClibValueError(str(e).partition(":")[0]) from None
 
 
 def _hardening(path: str) -> str:
@@ -388,7 +393,7 @@ def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
     """
     fingerprint, _, path = description.partition("/")
     if not _FINGERPRINT.fullmatch(fingerprint):
-        raise BTClibValueError(f"invalid key origin fingerprint: {fingerprint}")
+        raise BTClibValueError("invalid key origin fingerprint: 8 hex digits expected")
     return BIP32KeyOrigin(fingerprint, _der_path(path)), _hardening(path)
 
 
@@ -539,7 +544,7 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None]:
     if not suffix:
         return (), None
     if not suffix.startswith("/"):
-        raise BTClibValueError(f"not a musig() derivation path: {suffix}")
+        raise BTClibValueError("not a musig() derivation path: '/' expected")
     steps, wildcard, wildcard_hardening = _split_wildcard(suffix[1:].split("/"))
     if wildcard_hardening:
         raise BTClibValueError("musig() cannot have a hardened wildcard")
@@ -637,13 +642,15 @@ def _parse_key(
             path.split("/") if separator else []
         )
         der_path = "/".join(steps)
+        # refused by `_der_path` before `_hardening` reads the same path
+        indexes = tuple(_der_path(der_path))
         hardening = origin_hardening
         for symbol in (_hardening(der_path), wildcard_hardening):
             hardening = symbol or hardening
         return KeyExpression(
             origin=origin,
             xkey=_neutered(key, prv_keys),
-            der_path=tuple(_der_path(der_path)),
+            der_path=indexes,
             wildcard=wildcard,
             hardening=hardening or _HARDENING,
         )

@@ -338,10 +338,11 @@ or holds an element that is no `Psbt` a `BTClibTypeError` (closes #88).
 An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
 or holds an element that is no `Psbt` a `BTClibTypeError` (closes #89).
 
-### Malformed descriptors no longer echo key material in parse errors
+### A malformed descriptor's refusal no longer echoes its private keys
 
-Checksum, bracket and function-shape errors name the fault without copying
-the caller's descriptor into exceptions that may be logged (closes #49).
+`descriptors.parse` and `wallet_policy_descriptor` name what is wrong without
+quoting the descriptor text around it, a WIF or an xprv included (closes #49);
+btclib's bech32 decoder can still quote an `addr()` argument (issue #94).
 
 ## v2026.9.24
 

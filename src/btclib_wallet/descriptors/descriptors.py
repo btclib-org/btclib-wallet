@@ -325,8 +325,9 @@ def strip_checksum(descriptor: str) -> str:
     # INPUT_CHARSET, which is an error in a descriptor with no checksum
     expected = checksum(body)
     if separator and given_checksum != expected:
-        err_msg = f"invalid descriptor checksum: {given_checksum}, {expected} expected"
-        raise BTClibValueError(err_msg)
+        # what follows the '#' is not echoed: where the '#' is a stray one
+        # inside the descriptor, that is the rest of the descriptor
+        raise BTClibValueError(f"invalid descriptor checksum: {expected} expected")
     return body
 
 
@@ -2039,7 +2040,7 @@ def _parse_multi_a(name: str, args: list[str], prv_keys: dict[str, str]) -> Mult
     if len(args) < 2:
         raise BTClibValueError(f"{name}() takes a threshold and at least one key")
     if not _THRESHOLD.fullmatch(args[0]):
-        raise BTClibValueError(f"invalid {name}() threshold: {args[0]}")
+        raise BTClibValueError(f"invalid {name}() threshold: digits expected")
     keys = tuple(
         _parse_key(key, prv_keys, x_only=True, compressed=True, musig_allowed=True)
         for key in args[1:]
@@ -2082,7 +2083,7 @@ def _parse_tree(
         raise BTClibValueError(err_msg)
     if expression.startswith("{"):
         if not expression.endswith("}"):
-            raise BTClibValueError(f"unbalanced braces at position {len(expression)}")
+            raise BTClibValueError("unbalanced braces")
         branches = _split_arguments(expression[1:-1])
         if len(branches) != 2:
             err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
@@ -2206,7 +2207,7 @@ def _parse_multi(
     if len(args) < 2:
         raise BTClibValueError(f"{name}() takes a threshold and at least one key")
     if not _THRESHOLD.fullmatch(args[0]):
-        raise BTClibValueError(f"invalid {name}() threshold: {args[0]}")
+        raise BTClibValueError(f"invalid {name}() threshold: digits expected")
     keys = tuple(
         _parse_key(
             key,
@@ -2280,7 +2281,7 @@ def _parse_raw(
     # bytes.fromhex raises a plain ValueError, and every other way of
     # writing a descriptor wrong raises a BTClibValueError
     except ValueError as e:
-        raise BTClibValueError(f"raw() takes a hex script: {hex_script}") from e
+        raise BTClibValueError("raw() takes a hex script") from e
     return RawDescriptor(script, network=network)
 
 
@@ -2354,7 +2355,7 @@ def _parse_expression(
         return _parse_miniscript_expression(expression, context, network, prv_keys)
     name, arguments = _split_function(expression)
     if name not in _PARSERS:
-        raise BTClibValueError(f"unknown descriptor function: {name}()")
+        raise BTClibValueError("unknown descriptor function")
     allowed, parser = _PARSERS[name]
     _assert_position(name, context, allowed)
     return parser(_split_arguments(arguments), context, network, prv_keys)
@@ -3230,13 +3231,13 @@ def wallet_policy_descriptor(
         _assert_bare_key_info(key)
     for call in _POLICY_MUSIG_CALL.findall(template):
         if not _POLICY_MUSIG_GROUP.fullmatch(call):
-            raise BTClibValueError(f"not a wallet-policy musig() placeholder: {call}")
+            raise BTClibValueError("not a wallet-policy musig() placeholder")
     text, count = _POLICY_PLACEHOLDER.subn(
         lambda match: _resolved_placeholder(match, key_info, multipath_index),
         template,
     )
     if count == 0 or "@" in text:
-        raise BTClibValueError(f"not a BIP388 wallet-policy template: {template}")
+        raise BTClibValueError("not a BIP388 wallet-policy template")
     return parse(text, network)
 
 

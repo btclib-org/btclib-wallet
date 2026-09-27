@@ -32,6 +32,7 @@ the parser test asks is that each one expands and that every address it
 produces is the address of that very script.
 """
 
+import traceback
 from dataclasses import fields, is_dataclass
 from typing import get_args
 
@@ -3502,3 +3503,123 @@ def test_an_invalid_output_is_refused_and_not_answered_about() -> None:
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
         descriptor.index_of(bad)
+
+
+# a private key in hex: no descriptor spells one, and every character of
+# it is one a miniscript fragment name is read from
+HEX_PRV = "1f" * 32
+PRIVATE = (WIF, MUSIG_A_WIF, XPRV_ROOT, XPRV_SECOND, HEX_PRV)
+TWO_HASHES = f"wpkh({XPRV_ROOT}/0/*)#aaaaaaaa#bbbbbbbb"
+# one descriptor per refusal whose message could hold caller text, each
+# with a private key where that text would be taken from
+UNECHOED = [
+    (
+        TWO_HASHES,
+        f"^more than one '#' in the descriptor at position {len(TWO_HASHES) - 9}$",
+    ),
+    (f"wpkh(#{WIF})", r"^invalid descriptor checksum: \w{8} expected$"),
+    (f"wpkh({WIF}))", "^unbalanced brackets$"),
+    (f"sh(multi(1,({WIF}))", "^unbalanced brackets$"),
+    (f"wpkh({WIF}", r"^not a descriptor expression: expected name\(arguments\)$"),
+    (f"tr({XPRV_ROOT},{{pk({WIF}),pk({MUSIG_A_WIF})}}x)", "^unbalanced braces$"),
+    (
+        f"wpkh([{WIF}]{XPRV_ROOT})",
+        "^invalid key origin fingerprint: 8 hex digits expected$",
+    ),
+    (f"wpkh([deadbeef/{WIF}]{XPRV_ROOT})", "^invalid derivation index$"),
+    (f"wpkh({XPRV_ROOT}/0/*{WIF})", "^invalid derivation index$"),
+    (
+        f"tr(musig({XPRV_ROOT},{XPRV_SECOND}){WIF})",
+        r"^not a musig\(\) derivation path: '/' expected$",
+    ),
+    (
+        f"sh(multi({WIF},{MUSIG_A_WIF}))",
+        r"^invalid multi\(\) threshold: digits expected$",
+    ),
+    (
+        f"tr({XPRV_ROOT},multi_a({WIF},{MUSIG_A_WIF}))",
+        r"^invalid multi_a\(\) threshold: digits expected$",
+    ),
+    (f"raw({WIF})", r"^raw\(\) takes a hex script$"),
+    (f"{WIF}(0)", "^unknown descriptor function$"),
+    (f"wsh({WIF})", "^not a miniscript fragment: a name expected$"),
+    (
+        f"wsh(and_v(v:pk({WIF}),{HEX_PRV}))",
+        r"^not a miniscript fragment: '\(' expected after a name$",
+    ),
+    (f"wsh(and_v(v:pk({WIF}),{HEX_PRV}(1)))", "^unknown miniscript fragment$"),
+    (
+        f"wsh(and_v(v:pk({WIF}),multi({MUSIG_A_WIF},{XPRV_ROOT})))",
+        r"^invalid multi\(\) threshold: digits expected$",
+    ),
+    (
+        f"wsh(and_v(v:pk({WIF}),older({MUSIG_A_WIF})))",
+        r"^invalid older\(\) number: digits expected$",
+    ),
+    (
+        f"wsh(thresh({WIF},pk({MUSIG_A_WIF})))",
+        r"^invalid thresh\(\) number: digits expected$",
+    ),
+    (
+        f"wsh(and_v(v:pk({XPRV_ROOT}/0/*)x,older(1)))",
+        r"^unbalanced brackets in pk\(\)$",
+    ),
+    (
+        f"wsh(thresh(1,pk({WIF}),a:and_v(v:pk({MUSIG_A_WIF}),1)x,a:pk({XPRV_ROOT})))",
+        r"^unbalanced brackets in thresh\(\)$",
+    ),
+    (
+        f"wsh(and_v(v:older(10),pk({WIF}),pk({MUSIG_A_WIF})))",
+        r"^expected '\)' in the miniscript$",
+    ),
+    (
+        f"wsh(or_d(pk({WIF}),older(1))pk({MUSIG_A_WIF}))",
+        "^trailing characters after the miniscript$",
+    ),
+    (
+        f"tr({XPRV_ROOT},and_v(v:pk({WIF}),pk({MUSIG_A_WIF})x))",
+        r"^unbalanced brackets in pk\(\)$",
+    ),
+]
+
+
+def _assert_unechoed(error: BaseException) -> None:
+    """Assert no private key is in the error or the chain printed with it."""
+    rendered = "".join(traceback.format_exception(error))
+    for prv in PRIVATE:
+        assert prv not in rendered
+
+
+@pytest.mark.parametrize(
+    "descriptor, message",
+    [
+        pytest.param(descriptor, message, id=vector_id(index, message))
+        for index, (descriptor, message) in enumerate(UNECHOED)
+    ],
+)
+def test_a_refusal_echoes_no_private_key(descriptor: str, message: str) -> None:
+    """Name the fault without the descriptor text a private key sits in.
+
+    An error message ends up in logs and in bug reports, and a descriptor
+    holds WIFs and xprvs as often as public keys (issue #49).
+    """
+    with pytest.raises(BTClibValueError, match=message) as excinfo:
+        parse(descriptor)
+    _assert_unechoed(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        (f"wpkh({XPRV_ROOT}/0/*)", "^not a BIP388 wallet-policy template$"),
+        (
+            f"tr(musig({XPRV_ROOT},{XPRV_SECOND})/**)",
+            r"^not a wallet-policy musig\(\) placeholder$",
+        ),
+    ],
+)
+def test_a_template_refusal_echoes_no_private_key(template: str, message: str) -> None:
+    """A descriptor handed over as a template is not echoed either."""
+    with pytest.raises(BTClibValueError, match=message) as excinfo:
+        wallet_policy_descriptor(template, [])
+    _assert_unechoed(excinfo.value)

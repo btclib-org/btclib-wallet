@@ -1889,7 +1889,7 @@ def _read_name(expression: str, pos: int) -> tuple[str, int]:
     while end < len(expression) and expression[end] in _NAME_CHARACTERS:
         end += 1
     if end == pos:
-        raise BTClibValueError(f"not a miniscript fragment: {expression[pos:]}")
+        raise BTClibValueError("not a miniscript fragment: a name expected")
     return expression[pos:end], end
 
 
@@ -1933,7 +1933,7 @@ def _read_multi(
         raise BTClibValueError(err_msg)
     threshold, *keys = arguments
     if not _NUMBER.fullmatch(threshold):
-        raise BTClibValueError(f"invalid {name}() threshold: {threshold}")
+        raise BTClibValueError(f"invalid {name}() threshold: digits expected")
     tapscript = context == TAPSCRIPT
     return Miniscript(
         name,
@@ -1960,7 +1960,7 @@ def _read_number(name: str, argument: str) -> int:
     expression being text that has one spelling.
     """
     if not _NUMBER.fullmatch(argument):
-        raise BTClibValueError(f"invalid {name}() number: {argument}")
+        raise BTClibValueError(f"invalid {name}() number: digits expected")
     return int(argument)
 
 
@@ -1995,7 +1995,7 @@ def _read_fragment(
         built.append(Miniscript(name, context))
         return pos
     if expression[pos : pos + 1] != "(":
-        raise BTClibValueError(f"not a miniscript fragment: {name}")
+        raise BTClibValueError("not a miniscript fragment: '(' expected after a name")
     if name in _COMBINATORS:
         to_parse.append((name, 0, 0))
         to_parse.append((_CLOSE, 0, 0))
@@ -2015,10 +2015,10 @@ def _read_fragment(
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return end + 1
     if name not in _LEAVES:
-        raise BTClibValueError(f"unknown miniscript fragment: {name}()")
+        raise BTClibValueError("unknown miniscript fragment")
     end = _expression_end(expression, pos)
     if expression[end - 1 : end] != ")":
-        raise BTClibValueError(f"unbalanced brackets: {name}{expression[pos:]}")
+        raise BTClibValueError(f"unbalanced brackets in {name}()")
     built.append(
         _assert_typed(
             _read_leaf(name, expression[pos + 1 : end - 1], context, prv_keys)
@@ -2043,7 +2043,7 @@ def _read_more_thresh(
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
     if char != ")":
-        raise BTClibValueError(f"unbalanced brackets in thresh(): {expression[pos:]}")
+        raise BTClibValueError("unbalanced brackets in thresh()")
     arguments = tuple(built[len(built) - count :])
     del built[len(built) - count :]
     built.append(
@@ -2095,8 +2095,7 @@ def parse(
             pos = _read_fragment(expression, pos, to_parse, built, context, prv_keys)
         elif state in {_COMMA, _CLOSE}:
             if expression[pos : pos + 1] != state:
-                err_msg = f"expected {state!r} in the miniscript: {expression[pos:]}"
-                raise BTClibValueError(err_msg)
+                raise BTClibValueError(f"expected {state!r} in the miniscript")
             pos += 1
         elif state == _MORE_THRESH:
             pos = _read_more_thresh(
@@ -2105,8 +2104,7 @@ def parse(
         else:
             _built(state, built, context)
     if pos != len(expression):
-        err_msg = f"trailing characters after the miniscript: {expression[pos:]}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("trailing characters after the miniscript")
     node = built[0]
     if not _has(node.properties, "B"):
         basic = "".join(sorted(node.properties & _t("BVKW")))
