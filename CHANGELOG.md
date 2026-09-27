@@ -300,6 +300,12 @@ a size-capped argv (closes #51), and a NUL in an argument is refused.
 spent output is read from `non_witness_utxo` as Bitcoin Core reads it;
 `bip322` does both against an earlier input's transaction (closes #40).
 
+### `estimated_input_sizes` checks the utxo against the outpoint
+
+A `non_witness_utxo` not the transaction the `TxIn` names, or without the
+output it names, is a `BTClibValueError`, as is a `witness_utxo` differing
+from that output, no longer read in its place (closes #80).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

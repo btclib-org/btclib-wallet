@@ -84,6 +84,12 @@ every function validating the psbt, where it was accepted and the
 `bip322.assert_as_valid` refuses a proof of funds in which it contradicts
 the transaction an earlier input carries.
 
+`psbt.estimated_input_sizes` refuses with a `BTClibValueError` a
+`psbt_in` whose `non_witness_utxo` is not the transaction the `tx_in`'s
+outpoint names, and one whose `witness_utxo` differs from the output that
+outpoint names, where it answered an estimate; pass the
+`TxIn` the input is spent by, and a `witness_utxo` equal to that output.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

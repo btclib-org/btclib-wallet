@@ -96,17 +96,33 @@ def _script_pub_key(psbt_in: PsbtIn, tx_in: TxIn) -> bytes:
     script against, and refuses a witness utxo that is not a segwit
     output. Here every type is an answer, and the whole script is what
     the type is read from.
+
+    Where the input carries both utxo fields the non-witness one is read,
+    as `psbt._prev_out` reads it, the outpoint vouching for it and for
+    nothing else. It is checked against that outpoint here and the
+    witness utxo against it, as `Psbt.assert_valid` checks them: the pair
+    reaches this public function from the caller, and nothing need have
+    asked `assert_valid` about it first.
     """
-    if psbt_in.witness_utxo:
-        return psbt_in.witness_utxo.script_pub_key.script
+    non_witness_utxo = psbt_in.non_witness_utxo
+    witness_utxo = psbt_in.witness_utxo
+    if non_witness_utxo is None:
+        if witness_utxo is None:
+            raise BTClibValueError("no utxo")
+        return witness_utxo.script_pub_key.script
 
-    if psbt_in.non_witness_utxo:
-        script_pub_key = psbt_in.non_witness_utxo.vout[
-            tx_in.prev_out.vout
-        ].script_pub_key
-        return script_pub_key.script
-
-    raise BTClibValueError("no utxo")
+    prev_out = tx_in.prev_out
+    if non_witness_utxo.id != prev_out.tx_id:
+        raise BTClibValueError("mismatched non-witness utxo / outpoint tx_id")
+    if prev_out.vout >= len(non_witness_utxo.vout):
+        raise BTClibValueError("outpoint vout out of range for the non-witness utxo")
+    spent = non_witness_utxo.vout[prev_out.vout]
+    if witness_utxo is not None and (
+        witness_utxo.value != spent.value
+        or witness_utxo.script_pub_key.script != spent.script_pub_key.script
+    ):
+        raise BTClibValueError("mismatched witness utxo / non-witness utxo output")
+    return spent.script_pub_key.script
 
 
 def _pub_key_size(psbt_in: PsbtIn, payload: bytes) -> int:
