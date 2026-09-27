@@ -90,6 +90,17 @@ outpoint names, and one whose `witness_utxo` differs from the output that
 outpoint names, where it answered an estimate; pass the
 `TxIn` the input is spent by, and a `witness_utxo` equal to that output.
 
+`psbt_signer.request_signatures` refuses a psbt paying a silent payment that
+`psbt.sign` would refuse, before the signer is asked, where it sent it on.
+`psbt.silent_payments` counts an input by the script it spends, and refuses
+with a `BTClibValueError` a counted input whose key the psbt does not carry
+where it left the input out: give every p2wpkh, p2pkh and p2sh-p2wpkh input
+a `PSBT_IN_BIP32_DERIVATION` whose key the script commits to, and a p2sh
+input its redeem script. A taproot input whose internal key is BIP341's NUMS
+point is counted unless `PSBT_IN_TAP_MERKLE_ROOT` or a control block proves
+it. `set_output_scripts` refuses until every counted input has a share, where
+it derived the scripts from the shares there were.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

@@ -306,6 +306,16 @@ A `non_witness_utxo` not the transaction the `TxIn` names, or without the
 output it names, is a `BTClibValueError`, as is a `witness_utxo` differing
 from that output, no longer read in its place (closes #80).
 
+### `request_signatures` runs BIP375's Signer checks before a signer is asked
+
+A psbt paying a silent payment is refused as `psbt.sign` refuses it before
+`sign_psbt` is called, so a signer asked through it sees none (closes #74).
+
+### Which inputs a silent payment sums is decided by the script they spend
+
+A counted input without a key its script commits to is refused, not left out,
+and `set_output_scripts` waits for every counted input's share (closes #76).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
