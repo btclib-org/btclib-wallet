@@ -199,6 +199,12 @@ the package itself `--no-deps` (closes #33).
 tuple, and refuses with a `BTClibTypeError` what is no sequence of
 integers (closes #47).
 
+### `TlsLineTransport`'s default context sets TLS 1.2 as its floor
+
+The context it builds when given none has `minimum_version` set to
+`TLSv1_2`: PyPy's `ssl.create_default_context()` leaves it at
+`MINIMUM_SUPPORTED`, where CPython's already answers `TLSv1_2` (closes #46).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

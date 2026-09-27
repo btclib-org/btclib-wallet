@@ -171,13 +171,16 @@ class TlsLineTransport:
     - no proxy from the environment: `socket.create_connection` reads no
       proxy variable, so the connection goes to the host named here;
     - TLS verified by default: `context` defaults to
-      `ssl.create_default_context()`, which requires a certificate chaining
-      to the default CA certificates it loads and matching `host`.
+      `ssl.create_default_context()` with its `minimum_version` set to
+      TLS 1.2, a context requiring a certificate chaining to the default CA
+      certificates it loads and matching `host`.
 
     A server whose certificate those do not trust -- a server of
     one's own with a self-signed certificate, say -- is reached by passing
     a `context` that trusts that certificate,
-    `ssl.create_default_context(cafile=...)`, which keeps both checks on.
+    `ssl.create_default_context(cafile=...)`, which keeps both checks on;
+    the TLS 1.2 floor on it is that caller's to set, a supplied context
+    being used as given.
     No flag here turns verification off; what a context a caller supplies
     accepts is that caller's decision, as a transport of their own would
     be. Plain TCP is not offered: a caller who wants it writes that
@@ -218,9 +221,14 @@ class TlsLineTransport:
             raise BTClibTypeError(f"non-integer max_line_size: {max_line_size!r}")
         if max_line_size < 1:
             raise BTClibValueError(f"invalid max_line_size: {max_line_size}")
+        if context is None:
+            context = ssl.create_default_context()
+            # CPython's default context sets this floor itself and PyPy's
+            # leaves it to OpenSSL, so the transport states it
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
         self._host = host
         self._port = port
-        self._context = ssl.create_default_context() if context is None else context
+        self._context = context
         self._max_line_size = max_line_size
 
     @property

@@ -131,6 +131,26 @@ def test_the_default_context_verifies_the_certificate_and_the_host() -> None:
     context = TlsLineTransport(HOST, PORT).context
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+
+
+def test_the_transport_sets_the_default_context_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TLS 1.2 is the floor where the interpreter's default sets none.
+
+    PyPy's `create_default_context()` leaves `minimum_version` at
+    `MINIMUM_SUPPORTED`, which is what the replacement answers with here.
+    """
+
+    def create_default_context() -> ssl.SSLContext:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        return context
+
+    monkeypatch.setattr(ssl, "create_default_context", create_default_context)
+    context = TlsLineTransport(HOST, PORT).context
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
 
 
 def test_construction_keeps_what_it_was_given() -> None:
