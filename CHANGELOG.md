@@ -322,6 +322,17 @@ A psbt `psbt.sign` would refuse is refused on a direct call too, not only
 through `request_signatures`, and a request that is no psbt is a
 `BTClibTypeError` (closes #82).
 
+### `psbt.combine` validates the psbt it returns
+
+Copies valid alone whose merge is not, such as one's `witness_utxo`
+contradicting another's `non_witness_utxo`, are a `BTClibValueError`
+(closes #81).
+
+### `psbt.combine` refuses no psbts and what is not a psbt
+
+An empty sequence is a `BTClibValueError`, and a `psbts` that is no sequence
+or holds an element that is no `Psbt` a `BTClibTypeError` (closes #88).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

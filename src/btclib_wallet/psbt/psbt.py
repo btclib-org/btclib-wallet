@@ -1697,6 +1697,20 @@ def _combine_sp_script(psbt_out: PsbtOut, out: PsbtOut) -> None:
         raise BTClibValueError(err_msg)
 
 
+def _assert_psbts_to_combine(psbts: Sequence[Psbt]) -> None:
+    """Refuse what `combine` cannot merge, before any psbt is read.
+
+    An empty sequence has no psbt to hand back, and a value of another
+    type would leave as an IndexError or an AttributeError about a field
+    name rather than as the refusal a caller catches.
+    """
+    assert_type(psbts, Sequence, "psbts")
+    if not psbts:
+        raise BTClibValueError("nothing to combine: no psbts")
+    for i, psbt in enumerate(psbts):
+        assert_type(psbt, Psbt, f"psbts[{i}]")
+
+
 def combine(psbts: Sequence[Psbt]) -> Psbt:
     """Merge the data of several psbts of one transaction: the Combiner.
 
@@ -1736,7 +1750,19 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     it takes rather than copying them: a witness_utxo or a leaf script
     map that came from `psbts[1]` would otherwise be the very object
     `psbts[1]` still holds.
+
+    The psbt handed back is validated, as every copy handed in is. A
+    merge can break a rule no copy broke alone, because some rules
+    compare two fields of one map and a field is taken from whichever
+    copy carries it: a witness_utxo from one copy beside the
+    non_witness_utxo of another, which it contradicts, is the case that
+    reaches here. Refused, whichever order the copies come in, rather
+    than handed back to fail the next reader that validates it.
+
+    An empty sequence is refused, there being no psbt to hand back, and
+    so is an element that is not a Psbt.
     """
+    _assert_psbts_to_combine(psbts)
     psbts = deepcopy(list(psbts))
     final_psbt = psbts[0]
     version = final_psbt.version
@@ -1754,9 +1780,10 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     # after the version and identifier checks and not before them: those
     # two are what makes these psbts one transaction's, and a caller
     # handing over two unrelated psbts is told that rather than whichever
-    # of them fails its own validation first. Nothing else here asks, so an
-    # invalid psbt in gave an invalid psbt out, presented as a combine that
-    # worked
+    # of them fails its own validation first. Each copy is asked before the
+    # merge as well as the result after it: a field that is one key-value
+    # pair is kept from the copy merged into, so an invalid one in a later
+    # copy is dropped by the merge and the result alone would pass it
     for psbt in psbts:
         psbt.assert_valid()
 
@@ -1848,6 +1875,7 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
         _combine_field(psbt, final_psbt, "sp_ecdh_shares")
         _combine_field(psbt, final_psbt, "sp_dleq_proofs")
 
+    final_psbt.assert_valid()
     return final_psbt
 
 

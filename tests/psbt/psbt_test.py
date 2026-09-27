@@ -7,6 +7,7 @@
 import base64
 import dataclasses
 import inspect
+from collections.abc import Sequence
 from copy import deepcopy
 from io import BytesIO
 from typing import Any
@@ -15,7 +16,7 @@ import pytest
 from btclib import var_bytes, var_int
 from btclib.curves import sec_point
 from btclib.ecc import dsa, ssa
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, hash256, ripemd160, sha256, tagged_hash
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import (
@@ -3149,6 +3150,68 @@ def test_a_witness_utxo_has_to_be_the_output_the_outpoint_names() -> None:
             prevouts(psbt)
         with pytest.raises(BTClibValueError, match=err_msg):
             Psbt.parse(psbt.serialize(check_validity=False))
+
+
+def test_combining_refuses_a_result_no_copy_was() -> None:
+    """Two valid copies whose merge is invalid are refused by the Combiner.
+
+    Each copy carries one utxo field and is valid alone; merged, the
+    witness utxo of one sits beside the non-witness utxo of the other and
+    contradicts it. Either order, the second copy's field being the one
+    taken in both.
+    """
+    prev_out = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))
+    tx, prev_tx = _spending_tx(prev_out)
+    whole = Psbt.from_tx(tx)
+    whole.inputs[0].non_witness_utxo = prev_tx
+    spent = Psbt.from_tx(tx)
+    spent.inputs[0].witness_utxo = TxOut(100_000, prev_out.script_pub_key)
+    combined = combine([whole, spent])
+    assert combined.inputs[0].non_witness_utxo == prev_tx
+    assert combined.inputs[0].witness_utxo == prev_out
+
+    spent.inputs[0].witness_utxo = TxOut(1_000, prev_out.script_pub_key)
+    whole.assert_valid()
+    spent.assert_valid()
+    err_msg = "mismatched witness utxo / non-witness utxo output"
+    for psbts in ([whole, spent], [spent, whole]):
+        with pytest.raises(BTClibValueError, match=err_msg):
+            combine(psbts)
+
+
+def test_combining_refuses_an_invalid_copy_the_merge_would_drop() -> None:
+    """Each copy is validated, not only the psbt the merge produces.
+
+    A field of one key-value pair is kept from the copy merged into, so
+    an invalid one in a later copy never reaches the result, which alone
+    would pass.
+    """
+    prev_out = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))
+    tx, _ = _spending_tx(prev_out)
+    first = Psbt.from_tx(tx)
+    first.inputs[0].witness_utxo = prev_out
+    first.inputs[0].sig_hash_type = 1
+    later = deepcopy(first)
+    later.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
+    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+        later.assert_valid()
+
+    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+        combine([first, later])
+
+
+def test_combining_refuses_nothing_and_what_is_not_a_psbt() -> None:
+    """An empty sequence, a non-sequence, and an element of another type."""
+    empty: Sequence[Psbt]
+    for empty in ([], ()):
+        with pytest.raises(BTClibValueError, match="nothing to combine"):
+            combine(empty)
+
+    psbt = Psbt.b64decode(TO_BE_FINALIZED)
+    with pytest.raises(BTClibTypeError, match="invalid psbts type: generator"):
+        combine(p for p in [psbt])  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match=r"invalid psbts\[1\] type: str"):
+        combine([psbt, TO_BE_FINALIZED])  # type: ignore[list-item]
 
 
 def test_the_output_spent_is_read_from_the_non_witness_utxo() -> None:

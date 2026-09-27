@@ -105,6 +105,13 @@ it derived the scripts from the shares there were.
 before `hwi` runs, where it sent it to the device; and it refuses a request
 that is no `Psbt` with a `BTClibTypeError` rather than an `AttributeError`.
 
+`psbt.combine` refuses with a `BTClibValueError` psbts whose merge
+`Psbt.assert_valid` refuses, where it returned that psbt; drop from the
+copies the field that contradicts the others -- a `witness_utxo` differing
+from another copy's `non_witness_utxo` output -- before combining.
+It refuses with a `BTClibTypeError` a `psbts` that is not a sequence -- a
+generator, an iterator -- where it read it; pass a `list` or a `tuple`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`
