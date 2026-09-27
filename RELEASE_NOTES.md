@@ -169,6 +169,13 @@ a roll outside it: `invalid index: not in [0, 2048)`, `invalid roll: not in
 [1-6]`. Match `invalid entropy`, `negative entropy`, `invalid index` and
 `invalid roll` alone.
 
+`descriptors.parse` refuses with a `BTClibValueError` a bare `multi()` or
+`sortedmulti()` of more than three keys, one inside `sh()` whose redeem script
+is over 520 bytes -- sixteen compressed keys are 547 -- and one of more than
+twenty keys anywhere, where it parsed them; put the keys of the first two
+inside `wsh()` or `sh(wsh())` instead. `wallet_policy_descriptor` refuses the
+same, the descriptor it builds being read by `parse`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

@@ -153,6 +153,7 @@ from btclib.network import (
     normalized_network_name,
     validated_network_name,
 )
+from btclib.script.limits import MAX_PUBKEYS_PER_MULTISIG, MAX_SCRIPT_ELEMENT_SIZE
 from btclib.script.script import op_int, serialize
 from btclib.script.script import parse as _parse_script
 from btclib.script.script_pub_key import ScriptPubKey, script_from_script_pub_key
@@ -365,6 +366,11 @@ _MINISCRIPT_CONTEXTS = {_P2WSH: miniscript.P2WSH, _P2TR: miniscript.TAPSCRIPT}
 # stack element per key, and a script whose spend would push more than the
 # 1000 elements BIP342 allows is one nobody can spend
 _MAX_MULTI_A_KEYS = 999
+
+# the keys a multi() or sortedmulti() may hold as a bare output script:
+# Bitcoin Core's IsStandard refuses a bare multisig of more, and its
+# descriptor parser refuses a top-level multi() of more
+_MAX_BARE_MULTISIG_KEYS = 3
 
 # the two functions BIP387 allows inside tr() and nowhere else. Not in
 # _PARSERS with the SCRIPT expressions: what they parse to is a leaf of a
@@ -2218,9 +2224,37 @@ def _parse_multi(
         )
         for key in args[1:]
     )
+    _assert_multi_size(name, keys, context)
     return MultiDescriptor(
         int(args[0]), keys, sort=name == "sortedmulti", network=network
     )
+
+
+def _assert_multi_size(
+    name: str, keys: tuple[KeyExpression, ...], context: str
+) -> None:
+    """Refuse the keys of a ``multi()`` that Bitcoin Core refuses where it sits.
+
+    OP_CHECKMULTISIG's own bound first, which holds everywhere; then the
+    bare output IsStandard relays, and the redeem script a ``sh()`` has to
+    push in one element, which is what spending it takes. ``wsh()`` adds
+    nothing: twenty keys are a witness script well inside its bound. The
+    size is Core's own sum, a key and its push byte each, plus one byte
+    each for the threshold, the count and OP_CHECKMULTISIG: the script's
+    exact size up to sixteen keys, and over the limit past them anyway.
+    """
+    if len(keys) > MAX_PUBKEYS_PER_MULTISIG:
+        err_msg = f"{name}() takes at most {MAX_PUBKEYS_PER_MULTISIG} keys"
+        raise BTClibValueError(f"{err_msg}, {len(keys)} given")
+    if context == _TOP and len(keys) > _MAX_BARE_MULTISIG_KEYS:
+        err_msg = f"a bare {name}() takes at most {_MAX_BARE_MULTISIG_KEYS} keys"
+        raise BTClibValueError(f"{err_msg}, {len(keys)} given")
+    if context == _P2SH:
+        size = 3 + sum((33 if key.is_compressed else 65) + 1 for key in keys)
+        if size > MAX_SCRIPT_ELEMENT_SIZE:
+            err_msg = f"{name}() inside sh() is a {size}-byte redeem script"
+            limit = f"over the {MAX_SCRIPT_ELEMENT_SIZE}-byte push limit"
+            raise BTClibValueError(f"{err_msg}, {limit}")
 
 
 def _parse_ordered_multi(

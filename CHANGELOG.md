@@ -404,6 +404,12 @@ refuses non-ASCII text with `BTClibValueError`, not `ValueError` (closes #102).
 `collect_rolls` read `+2` and those digits, and a binary string took `-`, `0b`
 or `_`. No refusal quotes the entropy, an index or a roll (closes #103).
 
+### `descriptors.parse` refuses a multisig where Bitcoin Core refuses it
+
+A bare `multi()` of more than three keys, a redeem script inside `sh()` over
+520 bytes and more than twenty keys anywhere are refused, as Bitcoin Core
+refuses them; the `sh()` one gave an unspendable address (closes #109).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

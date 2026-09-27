@@ -3695,3 +3695,87 @@ def test_what_a_key_expression_xkey_holds() -> None:
             KeyExpression(xkey=near_miss)
     with pytest.raises(BTClibTypeError, match="^invalid xkey type: bytes$"):
         KeyExpression(xkey=xpubs[0].encode("ascii"))  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["multi", "sortedmulti"])
+@pytest.mark.parametrize(
+    "wrap",
+    ["{}", "sh({})", "wsh({})", "sh(wsh({}))"],
+    ids=["bare", "sh", "wsh", "sh-wsh"],
+)
+def test_a_multisig_of_more_than_twenty_keys_is_refused_at_parse(
+    name: str, wrap: str
+) -> None:
+    """OP_CHECKMULTISIG takes twenty keys at most, wherever it sits.
+
+    Checked before the bound of the position, as Bitcoin Core orders them,
+    so the refusal names the count in every position.
+    """
+    keys = ",".join([KEY] * 21)
+    err_msg = rf"^{name}\(\) takes at most 20 keys, 21 given$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(wrap.format(f"{name}(1,{keys})"))
+
+
+@pytest.mark.parametrize("wrap", ["wsh({})", "sh(wsh({}))"], ids=["wsh", "sh-wsh"])
+def test_a_witness_multisig_of_twenty_keys_parses(wrap: str) -> None:
+    """Twenty keys are a witness script Bitcoin Core reads, so parse does."""
+    parsed = parse(wrap.format(f"multi(1,{','.join([KEY] * 20)})"))
+    assert len(parsed.key_expressions) == 20
+
+
+@pytest.mark.parametrize("name", ["multi", "sortedmulti"])
+def test_a_bare_multisig_of_more_than_three_keys_is_refused(name: str) -> None:
+    """IsStandard relays a bare multisig of three keys at most."""
+    parsed = parse(f"{name}(1,{','.join([KEY] * 3)})")
+    assert len(parsed.key_expressions) == 3
+    err_msg = rf"^a bare {name}\(\) takes at most 3 keys, 4 given$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(f"{name}(1,{','.join([KEY] * 4)})")
+    # inside a script hash the same four keys are no bare output
+    assert len(parse(f"sh({name}(1,{','.join([KEY] * 4)}))").key_expressions) == 4
+
+
+@pytest.mark.parametrize("name", ["multi", "sortedmulti"])
+@pytest.mark.parametrize(
+    "compressed,uncompressed",
+    [(15, 0), (13, 1), (0, 7)],
+    ids=["513-bytes", "511-bytes", "465-bytes"],
+)
+def test_a_redeem_script_of_up_to_520_bytes_parses(
+    name: str, compressed: int, uncompressed: int
+) -> None:
+    """A key costs 34 bytes compressed and 66 uncompressed, plus three.
+
+    No mix of keys reaches 520 or 521 bytes, every size being three plus
+    a sum of 34s and 66s: 513 is the largest below the limit.
+    """
+    keys = ",".join([KEY] * compressed + [UNCOMPRESSED] * uncompressed)
+    parsed = parse(f"sh({name}(1,{keys}))")
+    assert isinstance(parsed, ShDescriptor)
+    size = 3 + 34 * compressed + 66 * uncompressed
+    assert len(parsed.inner.redeem_script()) == size
+
+
+@pytest.mark.parametrize("name", ["multi", "sortedmulti"])
+@pytest.mark.parametrize(
+    "compressed,uncompressed",
+    [(16, 0), (0, 8), (14, 1)],
+    ids=["547-bytes", "531-bytes", "545-bytes"],
+)
+def test_a_redeem_script_over_520_bytes_is_refused(
+    name: str, compressed: int, uncompressed: int
+) -> None:
+    """Spending a p2sh pushes its redeem script, and no push exceeds 520 bytes.
+
+    531 bytes is the smallest size over the limit that any mix of keys
+    reaches.
+    """
+    keys = ",".join([KEY] * compressed + [UNCOMPRESSED] * uncompressed)
+    size = 3 + 34 * compressed + 66 * uncompressed
+    err_msg = (
+        rf"^{name}\(\) inside sh\(\) is a {size}-byte redeem script,"
+        r" over the 520-byte push limit$"
+    )
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(f"sh({name}(1,{keys}))")
