@@ -1659,6 +1659,30 @@ def _combine_musig2_participants(
         out.musig2_participant_pub_keys[key] = participants
 
 
+def _combine_sp_script(psbt_out: PsbtOut, out: PsbtOut) -> None:
+    """Take a silent payment output's script, refusing two different ones.
+
+    BIP375 identifies such an output by PSBT_OUT_SP_V0_INFO and not by its
+    script, so the script is not settled by the identifier check and one
+    copy may carry it while another does not yet. Taken when out has
+    none, as `_combine_field` would; two different scripts are refused
+    rather than picked between, for `_combine_musig2_participants`'s
+    reason: the script is derived from the rest of the psbt, so one of the
+    two is wrong and nothing in either psbt says which.
+
+    Asked after sp_v0_info is merged, so out's says whether either copy
+    pays a silent payment.
+    """
+    if not out.sp_v0_info or not psbt_out.script_pub_key:
+        return
+    if not out.script_pub_key:
+        out.script_pub_key = psbt_out.script_pub_key
+    elif out.script_pub_key != psbt_out.script_pub_key:
+        err_msg = "mismatched silent payment output script: "
+        err_msg += f"{psbt_out.script_pub_key.hex()} vs {out.script_pub_key.hex()}"
+        raise BTClibValueError(err_msg)
+
+
 def combine(psbts: Sequence[Psbt]) -> Psbt:
     """Merge the data of several psbts of one transaction: the Combiner.
 
@@ -1669,7 +1693,9 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     left out for one reason: `amount`, `script_pub_key`, `previous_tx_id`
     and `output_index` are part of what identifies the psbt, so the psbt
     being merged into carries them already and two psbts disagreeing
-    about one of them are two transactions, refused above.
+    about one of them are two transactions, refused above. The exception
+    is the `script_pub_key` of a silent payment output, which BIP375
+    leaves out of the identifier: `_combine_sp_script` merges it.
 
     Which psbts are of one transaction is a question the two versions
     answer differently, and each is asked its own: a version 0 psbt is
@@ -1790,6 +1816,7 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
             # is what a Combiner merging a Constructor's output does
             _combine_field(psbt.outputs[i], out, "sp_v0_info")
             _combine_optional_field(psbt.outputs[i], out, "sp_v0_label")
+            _combine_sp_script(psbt.outputs[i], out)
 
         _combine_field(psbt, final_psbt, "hd_key_paths")
         _combine_field(psbt, final_psbt, "unknown")
@@ -2577,9 +2604,22 @@ def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
     does not raise.
+
+    A psbt paying a silent payment is also asked BIP375's Signer rules,
+    `btclib_wallet.psbt.silent_payments._assert_signable`, before any
+    key is. A silent payment output with no script yet is refused rather
+    than left unsigned, so that "not yet" does not read as "nothing for
+    me" in the list of inputs signed.
     """
     psbt = deepcopy(psbt)
     psbt.assert_signable()
+    if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
+        # imported here: silent_payments imports this module
+        from btclib_wallet.psbt.silent_payments import (  # noqa: PLC0415
+            _assert_signable,
+        )
+
+        _assert_signable(psbt)
     signed_vins: list[int] = []
     for vin_i, psbt_in in enumerate(psbt.inputs):
         if is_p2tr(_spent_script(psbt_in)):
@@ -3275,9 +3315,22 @@ def extract_tx(psbt: Psbt, *, check_validity: bool = True) -> Tx:
     Extracting needs no script interpretation; an Extractor that can
     interpret scripts may also validate the transaction it extracts,
     as BIP174 allows.
+
+    A psbt paying a silent payment is also checked as BIP375 asks of the
+    Extractor, `btclib_wallet.psbt.silent_payments._assert_extractable`:
+    `assert_as_valid`, whose last check recomputes every script from the
+    ECDH shares, and a script on every silent payment output.
+    `check_validity=False` skips it with the rest.
     """
     if check_validity:
         psbt.assert_valid()
+        if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
+            # imported here: silent_payments imports this module
+            from btclib_wallet.psbt.silent_payments import (  # noqa: PLC0415
+                _assert_extractable,
+            )
+
+            _assert_extractable(psbt)
 
     # a copy, computed from the psbt's fields: the finalized scripts are
     # written into the transaction being extracted and not into the psbt,

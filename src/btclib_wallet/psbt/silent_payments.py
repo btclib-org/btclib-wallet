@@ -36,6 +36,11 @@ own validator publishes, in its order: the fields, then the share
 coverage and the proofs, then which inputs are allowed to be there at
 all, then the output scripts recomputed and compared.
 
+`btclib_wallet.psbt.psbt.sign` and `btclib_wallet.psbt.psbt.extract_tx`
+run the checks of their own role whenever an output carries
+PSBT_OUT_SP_V0_INFO: `_assert_signable` and `_assert_extractable` are
+what each asks.
+
 **What a psbt input's public key is, and why it needs its own reader.**
 `btclib_wallet.silent_payments.pub_key_from_input` reads it off a *signed*
 input, from the witness or the scriptSig. An unsigned input has neither,
@@ -143,6 +148,28 @@ def _script_pub_key(psbt_in: PsbtIn) -> bytes:
     return b"" if prev_out is None else prev_out.script_pub_key.script
 
 
+def _finalized_pub_key(psbt_in: PsbtIn) -> Point | None:
+    """Return the public key a finalized input's own scripts carry.
+
+    `btclib_wallet.silent_payments.pub_key_from_input`, BIP352's reader of
+    a signed input. A finalized input is one: `PsbtIn.serialize` drops the
+    fields an unsigned input is read from -- PSBT_IN_BIP32_DERIVATION, the
+    redeem script, the taproot internal key -- once the final scripts are
+    there, so an Extractor handed a psbt that crossed the wire after the
+    Finalizer finds the key in those scripts or nowhere.
+    """
+    return sp.pub_key_from_input(
+        _script_pub_key(psbt_in),
+        psbt_in.final_script_sig,
+        psbt_in.final_script_witness,
+    )
+
+
+def _is_finalized(psbt_in: PsbtIn) -> bool:
+    """Answer whether the input carries its final scriptSig or witness."""
+    return bool(psbt_in.final_script_sig or psbt_in.final_script_witness)
+
+
 def _is_eligible(psbt_in: PsbtIn) -> bool:
     """Answer whether BIP352 counts this input, reading the psbt fields.
 
@@ -153,8 +180,11 @@ def _is_eligible(psbt_in: PsbtIn) -> bool:
 
     Both come from a field rather than from a witness, which is where a
     psbt reader differs from `btclib_wallet.silent_payments`: an input that has
-    not been signed has no witness to read either out of.
+    not been signed has no witness to read either out of. A finalized
+    input has one, and is read from it, `_finalized_pub_key` saying why.
     """
+    if _is_finalized(psbt_in):
+        return _finalized_pub_key(psbt_in) is not None
     script = _script_pub_key(psbt_in)
     if is_p2tr(script):
         return psbt_in.taproot_internal_key != sp.NUMS_H
@@ -178,7 +208,12 @@ def input_pub_key(psbt_in: PsbtIn) -> Point | None:
     of one psbt could disagree about. An eligible input has one key
     anyway -- p2pkh, p2wpkh and p2sh-p2wpkh each commit to a single hash
     -- so this decides nothing that a correct psbt leaves open.
+
+    A finalized input answers the key its final scripts carry instead,
+    for the reason `_finalized_pub_key` gives.
     """
+    if _is_finalized(psbt_in):
+        return _finalized_pub_key(psbt_in)
     if not _is_eligible(psbt_in):
         return None
     script = _script_pub_key(psbt_in)
@@ -513,6 +548,55 @@ def assert_as_valid(psbt: Psbt) -> None:
     assert_shares_as_valid(psbt)
     assert_eligibility_as_valid(psbt)
     assert_output_scripts_as_valid(psbt)
+
+
+def _assert_output_scripts_set(psbt: Psbt, what: str) -> None:
+    """Raise if a silent payment output has no PSBT_OUT_SCRIPT yet.
+
+    A refusal the checks above do not make, since a psbt under
+    construction may lack a script: signed or extracted, such an output
+    pays the empty script, which anybody can spend.
+    """
+    for i, psbt_out in enumerate(psbt.outputs):
+        if psbt_out.sp_v0_info and not psbt_out.script_pub_key:
+            err_msg = f"output {i}: silent payment output with no PSBT_OUT_SCRIPT, "
+            raise BTClibValueError(err_msg + what)
+
+
+def _assert_signable(psbt: Psbt) -> None:
+    """Raise unless BIP375 lets a Signer sign this psbt.
+
+    `btclib_wallet.psbt.psbt.sign` asks it whenever an output carries
+    PSBT_OUT_SP_V0_INFO. First the modifiable flags, whose violation
+    makes the psbt one of BIP375's invalid ones whatever the role; then
+    the two rules "the Signer must fail" on, an input spending a witness
+    version above 1 and a sighash type other than SIGHASH_ALL; then the
+    shares other Signers wrote, which the Signer "should verify". Each of
+    those says the psbt is wrong, where the missing script, next, says
+    only that it is early: "the Signer must not yet add a signature"
+    names a psbt waiting for `set_output_scripts`. Last, every
+    script present is the one the shares derive, a signature being what
+    commits the funds to it.
+    """
+    _assert_modifiable_cleared(psbt)
+    assert_eligibility_as_valid(psbt)
+    assert_shares_as_valid(psbt)
+    what = "and BIP375's Signer must not yet sign: set_output_scripts derives it"
+    _assert_output_scripts_set(psbt, what)
+    assert_output_scripts_as_valid(psbt)
+
+
+def _assert_extractable(psbt: Psbt) -> None:
+    """Raise unless BIP375 lets a Transaction Extractor extract this psbt.
+
+    `btclib_wallet.psbt.psbt.extract_tx` asks it whenever an output
+    carries PSBT_OUT_SP_V0_INFO: `assert_as_valid`, and a script on every
+    silent payment output, the Extractor being where a psbt stops being
+    under construction.
+    """
+    assert_as_valid(psbt)
+    what = "so the extracted transaction would pay the empty script"
+    _assert_output_scripts_set(psbt, what)
 
 
 def _share_for(a: int, scan_key: bytes, aux: Octets | None) -> tuple[bytes, bytes]:

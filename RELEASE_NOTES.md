@@ -61,6 +61,16 @@ dust threshold. It refuses a non-zero `lock_time` too when every input's
 sequence is final: set a non-final `PsbtIn.sequence`, such as
 `0xfffffffe`, on an input for the lock time to bind.
 
+`psbt.sign` refuses with a `BTClibValueError` a psbt paying a silent payment
+it used to sign: one whose silent payment output has no script yet -- run
+`psbt.silent_payments.set_input_share` or `set_global_share`, then
+`set_output_scripts`, before signing -- one with an input's sighash other
+than `SIGHASH_ALL`, and one whose shares, scripts or modifiable flags
+`psbt.silent_payments.assert_as_valid` refuses. `psbt.extract_tx` refuses
+what that function refuses, and a silent payment output with no script;
+`check_validity=False` extracts as before. `psbt.combine` refuses two psbts
+carrying different scripts for one silent payment output.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

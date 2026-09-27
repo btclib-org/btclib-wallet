@@ -37,11 +37,29 @@ import pytest
 from btclib.curves import bytes_from_point, mult, secp256k1
 from btclib.ecc import dleq
 from btclib.exceptions import BTClibValueError
-from btclib.script import serialize
+from btclib.key import PubKeyData
+from btclib.script import ScriptPubKey, Witness, serialize
+from btclib.tx import TxOut
 
 from btclib_wallet import silent_payments as sp
-from btclib_wallet.psbt import Psbt
+from btclib_wallet.bip32 import (
+    BIP32KeyData,
+    BIP32KeyOrigin,
+    derive,
+    pub_keyinfo_from_xkey,
+    rootxprv_from_seed,
+)
+from btclib_wallet.psbt import (
+    Psbt,
+    PsbtIn,
+    PsbtOut,
+    combine,
+    extract_tx,
+    finalize,
+    sign,
+)
 from btclib_wallet.psbt import silent_payments as role
+from btclib_wallet.psbt_signer import SoftwareSigner
 from tests import load, vector_id
 
 _VECTORS = load("psbt", "_data", "bip375_test_vectors.json", encoding="utf-8")
@@ -591,3 +609,198 @@ def test_private_keys_summing_to_zero_write_no_global_share() -> None:
     a = 0x0F694E068028A717F8AF6B9411F9A133DD3565258714CC226594B34DB90C1F2C
     with pytest.raises(BTClibValueError, match="sum to zero"):
         role.set_global_share(psbt, [a, secp256k1.n - a])
+
+
+# one p2wpkh input whose key `_SIGNER` holds, paying one silent payment
+# address: the smallest psbt each role below can be run over end to end
+_ROOT = rootxprv_from_seed(bytes(range(32)))
+_PATH = "m/84h/0h/0h/0/0"
+_SIGNER = SoftwareSigner(_ROOT)
+_XPRV = derive(_ROOT, _PATH)
+_PRV_KEY = BIP32KeyData.b58decode(_XPRV).key[1:]
+_SEC = pub_keyinfo_from_xkey(_XPRV)[0]
+# scan key 2G, spend key 3G
+_SP_INFO = bytes_from_point(mult(2)) + bytes_from_point(mult(3))
+# a taproot script no share derives
+_OTHER_SCRIPT = bytes.fromhex("5120" + "11" * 32)
+
+
+def _sp_psbt(*, script: bytes = b"") -> Psbt:
+    """Return the psbt above, its output script as given."""
+    psbt_in = PsbtIn(
+        witness_utxo=TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_SEC))),
+        previous_tx_id=b"\x06" * 32,
+        output_index=0,
+        hd_key_paths={_SEC: BIP32KeyOrigin(_SIGNER.master_fingerprint, _PATH)},
+    )
+    psbt_out = PsbtOut(amount=90_000, script_pub_key=script, sp_v0_info=_SP_INFO)
+    return Psbt(2, [psbt_in], [psbt_out], 2, {}, tx_modifiable=0b11)
+
+
+def _derived() -> Psbt:
+    """Return the psbt above with its share written and its script derived."""
+    psbt = _sp_psbt()
+    role.set_input_share(psbt, 0, _PRV_KEY, aux=bytes(32))
+    role.set_output_scripts(psbt)
+    return psbt
+
+
+def test_sign_waits_for_the_silent_payment_script() -> None:
+    """BIP375: "the Signer must not yet add a signature" without a script.
+
+    Refused rather than left unsigned, so that a caller is told which step
+    is missing instead of reading an empty list as "no key of mine here".
+    Once the share is written and the script derived, the same key signs.
+    """
+    psbt = _sp_psbt()
+    with pytest.raises(BTClibValueError, match="Signer must not yet sign"):
+        sign(psbt, _SIGNER)
+    _, signed_vins = sign(_derived(), _SIGNER)
+    assert signed_vins == [0]
+
+
+def test_sign_refuses_a_sighash_other_than_all() -> None:
+    """BIP375: "the signer must fail if the sighash type is not SIGHASH_ALL".
+
+    A script is set, so the refusal is the sighash's and not the missing
+    script's: the rule holds whatever else the psbt is ready for.
+    """
+    psbt = _derived()
+    psbt.inputs[0].sig_hash_type = 2
+    with pytest.raises(BTClibValueError, match="requires SIGHASH_ALL"):
+        sign(psbt, _SIGNER)
+
+
+def test_sign_refuses_a_script_or_a_share_that_does_not_verify() -> None:
+    """BIP375's "should verify": the proofs, and the scripts they derive.
+
+    A signature commits the funds to whatever script the output carries,
+    and a wrong one is consensus-valid, so this is the last point at which
+    a wrong script costs nothing.
+    """
+    # the flags cleared, as whoever wrote the script had to
+    no_share = _sp_psbt(script=_OTHER_SCRIPT)
+    no_share.tx_modifiable = 0
+    with pytest.raises(BTClibValueError, match="no ECDH share for scan key"):
+        sign(no_share, _SIGNER)
+    no_share.tx_modifiable = 0b11
+    with pytest.raises(BTClibValueError, match="still invites changes"):
+        sign(no_share, _SIGNER)
+
+    wrong_script = _derived()
+    wrong_script.outputs[0].script_pub_key = _OTHER_SCRIPT
+    with pytest.raises(BTClibValueError, match="not the silent payment script"):
+        sign(wrong_script, _SIGNER)
+
+    forged = _derived()
+    scan_key = _SP_INFO[:33]
+    forged.inputs[0].sp_ecdh_shares[scan_key] = bytes_from_point(mult(2))
+    with pytest.raises(BTClibValueError, match="invalid DLEQ proof"):
+        sign(forged, _SIGNER)
+
+
+def test_extract_tx_checks_the_silent_payment_outputs() -> None:
+    """BIP375's Extractor: every script present, and each one derived.
+
+    The finalized psbt is altered after the Finalizer, which is the psbt
+    an Extractor can be handed: a script dropped would pay the empty
+    script, and a script swapped would pay somebody no share derives.
+    `check_validity=False` skips the check with the rest.
+    """
+    finalized = finalize(sign(_derived(), _SIGNER)[0])
+    expected = finalized.outputs[0].script_pub_key
+    assert extract_tx(finalized).vout[0].script_pub_key.script == expected
+
+    dropped = deepcopy(finalized)
+    dropped.outputs[0].script_pub_key = b""
+    with pytest.raises(BTClibValueError, match="the extracted transaction would pay"):
+        extract_tx(dropped)
+    assert (
+        extract_tx(dropped, check_validity=False).vout[0].script_pub_key.script == b""
+    )
+
+    swapped = deepcopy(finalized)
+    swapped.outputs[0].script_pub_key = _OTHER_SCRIPT
+    with pytest.raises(BTClibValueError, match="not the silent payment script"):
+        extract_tx(swapped)
+
+
+def test_a_finalized_input_is_read_from_its_final_scripts() -> None:
+    """The key an Extractor sums survives the Finalizer and the wire.
+
+    `PsbtIn.serialize` drops PSBT_IN_BIP32_DERIVATION from a finalized
+    input, so a finalized psbt that is serialized and parsed again carries
+    the input's key only in its witness. Read from there, the shares still
+    prove and the script still derives; an input whose final witness
+    carries no key BIP352 counts is not eligible.
+    """
+    finalized = finalize(sign(_derived(), _SIGNER)[0])
+    parsed = Psbt.parse(finalized.serialize())
+    assert parsed.inputs[0].hd_key_paths == {}
+    pub_key = role.input_pub_key(parsed.inputs[0])
+    assert pub_key is not None
+    assert bytes_from_point(pub_key) == _SEC
+    role.assert_as_valid(parsed)
+    assert extract_tx(parsed) == extract_tx(finalized)
+
+    # an uncompressed key in the witness is one BIP352 skips
+    skipped = deepcopy(parsed)
+    skipped.inputs[0].final_script_witness = Witness([b"\x30", b"\x04" + b"\x11" * 64])
+    assert role.input_pub_key(skipped.inputs[0]) is None
+    assert role.eligible_pub_keys(skipped) == {}
+
+
+def test_combine_merges_a_silent_payment_script() -> None:
+    """BIP375 identifies the output by its address, not by its script.
+
+    So one copy may carry the derived script while another does not yet,
+    and the script is taken whichever copy comes first. Two different
+    scripts are refused: one of them is wrong and neither psbt says which.
+    """
+    derived = _derived()
+    script = derived.outputs[0].script_pub_key
+    without = _derived()
+    without.outputs[0].script_pub_key = b""
+    for psbts in ([without, derived], [derived, without], [derived, derived]):
+        assert combine(psbts).outputs[0].script_pub_key == script
+
+    other = _derived()
+    other.outputs[0].script_pub_key = _OTHER_SCRIPT
+    with pytest.raises(BTClibValueError, match="mismatched silent payment output"):
+        combine([derived, other])
+
+
+def test_the_signer_and_the_extractor_hold_the_vectors_to_their_roles() -> None:
+    """What `sign` and `extract_tx` ask, over BIP375's own psbts.
+
+    A valid psbt with every silent payment script derived passes both; one
+    still in progress is early for both, and says so. Every invalid psbt
+    that parses is refused by both, the modifiable flags included, which
+    `assert_as_valid` refuses and the Signer does too. A valid case naming
+    its own `checks` is incomplete for the others, and is left out.
+    """
+    for vector in _VALID:
+        if vector.get("checks") is not None:
+            continue
+        psbt = Psbt.b64decode(vector["psbt"])
+        if all(o.script_pub_key for o in psbt.outputs if o.sp_v0_info):
+            role._assert_signable(psbt)
+            role._assert_extractable(psbt)
+            continue
+        with pytest.raises(BTClibValueError, match="Signer must not yet sign"):
+            role._assert_signable(psbt)
+        with pytest.raises(BTClibValueError, match="extracted transaction would"):
+            role._assert_extractable(psbt)
+
+    refused = 0
+    for vector in _INVALID:
+        try:
+            psbt = Psbt.b64decode(vector["psbt"])
+        except BTClibValueError:
+            continue
+        with pytest.raises(BTClibValueError):
+            role._assert_signable(psbt)
+        with pytest.raises(BTClibValueError):
+            role._assert_extractable(psbt)
+        refused += 1
+    assert refused

@@ -259,6 +259,23 @@ The keyword defaults to `DEFAULT_MAX_FEE`, Bitcoin Core's `-maxtxfee`
 default of 0.10 BTC, and a larger fee is a `BTClibValueError`
 (closes #48).
 
+### `psbt.sign` runs BIP375's Signer checks on a silent payment
+
+Before any key is asked, it refuses what `psbt.silent_payments.assert_as_valid`
+refuses, a sighash other than `SIGHASH_ALL` among it, and a silent payment
+output with no script yet (closes #34).
+
+### `psbt.extract_tx` runs BIP375's Extractor check on a silent payment
+
+`check_validity` also runs `psbt.silent_payments.assert_as_valid`, which
+reads a finalized input's key from its final scripts, and refuses a silent
+payment output with no script (closes #35).
+
+### `psbt.combine` merges a silent payment output's script
+
+The script is taken from whichever psbt carries it, and two different ones
+are refused with a `BTClibValueError` rather than one kept (closes #50).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
