@@ -382,8 +382,14 @@ def _split_function(expression: str) -> tuple[str, str]:
     return expression[:open_bracket], expression[open_bracket + 1 : -1]
 
 
-def _der_path(path: str) -> list[int]:
-    """Return the indexes of a `/`-separated derivation path.
+def _der_path(steps: list[str]) -> list[int]:
+    """Return the indexes of the steps of a derivation path.
+
+    The steps and not the path string, because a `/` with nothing after
+    it is a step, the empty one, and joined back into a string it cannot
+    be told from no path at all. No steps is no path; an empty step is
+    refused as any other step that is no index, which is Bitcoin Core's
+    ``ParseKeyPathElement`` refusing an empty element.
 
     `bip380_enforced` is the whole of the difference from what a BIP32
     path may spell: an uppercase "H", a leading "m" and the spaces of
@@ -391,8 +397,10 @@ def _der_path(path: str) -> list[int]:
     BIP380 allows. Neither reading takes 2**31 or above written
     unhardened, there being no such BIP32 index.
     """
+    if not steps:
+        return []
     try:
-        return indexes_from_der_path(path, bip380_enforced=True) if path else []
+        return indexes_from_der_path("/".join(steps), bip380_enforced=True)
     # a step is caller text that can hold a key: one written after a path
     # without the comma before it is read as the path's last step. So the
     # refusal carries what precedes the colon, the fault alone, whatever
@@ -425,10 +433,11 @@ def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
     origins that differ in nothing else are the same origin, and equality
     and `serialize` both have to keep saying so.
     """
-    fingerprint, _, path = description.partition("/")
+    fingerprint, separator, path = description.partition("/")
     if not _FINGERPRINT.fullmatch(fingerprint):
         raise BTClibValueError("invalid key origin fingerprint: 8 hex digits expected")
-    return BIP32KeyOrigin(fingerprint, _der_path(path)), _hardening(path)
+    der_path = _der_path(path.split("/") if separator else [])
+    return BIP32KeyOrigin(fingerprint, der_path), _hardening(path)
 
 
 def _pub_key_from_hex(key: str, *, x_only: bool) -> tuple[bytes, bool]:
@@ -582,7 +591,7 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None]:
     steps, wildcard, wildcard_hardening = _split_wildcard(suffix[1:].split("/"))
     if wildcard_hardening:
         raise BTClibValueError("musig() cannot have a hardened wildcard")
-    der_path = _der_path("/".join(steps))
+    der_path = _der_path(steps)
     if any(index >= _HARDENED_OFFSET for index in der_path):
         raise BTClibValueError("musig() cannot have hardened derivation steps")
     return tuple(der_path), wildcard
@@ -675,11 +684,10 @@ def _parse_key(
         steps, wildcard, wildcard_hardening = _split_wildcard(
             path.split("/") if separator else []
         )
-        der_path = "/".join(steps)
         # refused by `_der_path` before `_hardening` reads the same path
-        indexes = tuple(_der_path(der_path))
+        indexes = tuple(_der_path(steps))
         hardening = origin_hardening
-        for symbol in (_hardening(der_path), wildcard_hardening):
+        for symbol in (_hardening("/".join(steps)), wildcard_hardening):
             hardening = symbol or hardening
         return KeyExpression(
             origin=origin,

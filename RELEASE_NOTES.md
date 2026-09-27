@@ -200,6 +200,14 @@ match those. `bip85`'s functions write their index into a path string, and
 refuse a negative one with the first and one of 2**31 or more with the
 second.
 
+`descriptors.parse` and `miniscript.parse` refuse with a `BTClibValueError`
+a `/` followed by no path step, in a key origin, after an extended key or
+after a `musig()` -- `[deadbeef/]`, `xpub.../`, `xpub...//*`,
+`musig(...)/` -- where they read the key expression as though that `/`
+were absent. Remove the `/`; the refusal reads `invalid derivation index`.
+`BIP32KeyOrigin.from_description`, whose reading of a path is the lenient
+one, reads `deadbeef/` as `deadbeef`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

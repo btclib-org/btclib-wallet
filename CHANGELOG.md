@@ -428,6 +428,12 @@ An unfinished `analyze` row is read again up to three times, 10 s apart, before
 it is accepted (issue btclib-org/.github#1416), and an `analyze` result other
 than `success` or `skipped` fails the check (issue btclib-org/.github#1424).
 
+### A `/` in a key expression is followed by a path step
+
+`descriptors.parse` and `miniscript.parse` refuse `[deadbeef/]`, `xpub.../`,
+`xpub...//*` and `musig(...)/`, as Bitcoin Core refuses the empty step, where
+each was read as though that `/` were absent (closes #116).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

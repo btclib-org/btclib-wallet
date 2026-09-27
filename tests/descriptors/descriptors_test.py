@@ -81,6 +81,7 @@ from btclib_wallet.descriptors import (
     at_index,
     checksum,
     from_address,
+    miniscript,
     multipath_descriptors,
     normalized,
     parse,
@@ -1284,6 +1285,41 @@ def test_a_path_step_holds_no_whitespace() -> None:
     assert key_expression.der_path == (0,)
     assert key_expression.origin is not None
     assert key_expression.origin.der_path == [0x80000000]
+
+
+def test_a_slash_introduces_a_path_step() -> None:
+    """A `/` with nothing after it is an empty step, not no path (issue #116).
+
+    Bitcoin Core's ``ParseKeyPathElement`` refuses the empty element in
+    the key origin, in the key's own path and in a ``musig()``'s, a
+    wildcard being split off before the path is read. Without the `/`
+    each is a path of no steps, which both read.
+    """
+    musig = f"musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})"
+    for descriptor in (
+        f"pkh([deadbeef/]{KEY})",
+        f"pkh([deadbeef/]{XPUB}/0)",
+        f"pkh({XPUB}/)",
+        f"pkh({XPUB}//*)",
+        f"tr({musig}/)",
+        f"tr({musig}//*)",
+    ):
+        with pytest.raises(BTClibValueError, match="^invalid derivation index$"):
+            parse(descriptor)
+    # a miniscript reads its keys with the same parser
+    with pytest.raises(BTClibValueError, match="^invalid derivation index$"):
+        miniscript.parse(f"pk({XPUB}/)")
+    for descriptor in (
+        f"pkh([deadbeef]{KEY})",
+        f"pkh({XPUB})",
+        f"pkh({XPUB}/*)",
+        f"tr({musig})",
+        f"tr({musig}/*)",
+    ):
+        assert str(parse(descriptor)).partition("#")[0] == descriptor
+    # the lenient reading of a key origin drops an empty step, where the
+    # descriptor parser holds the path to BIP380
+    assert BIP32KeyOrigin.from_description("deadbeef/").der_path == []
 
 
 def test_key_origin_is_kept() -> None:
