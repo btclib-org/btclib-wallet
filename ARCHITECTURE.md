@@ -8,7 +8,7 @@ crosses out of the process it runs in. What a user can expect of it in
 terms of security is [SECURITY](./SECURITY.md), and why those
 expectations hold is the [assurance case](./ASSURANCE_CASE.md).
 
-## The one dependency
+## The dependencies
 
 btclib is the protocol: the curve arithmetic, the signature schemes, the
 codecs, scripts and transactions. This package imports it and re-exports
@@ -34,6 +34,16 @@ working name `ellipticcurves` — because every package now declares every
 distribution whose names it imports rather than relying on btclib's
 re-export of them; `pyproject.toml`'s comment beside the dependency names
 what this package imports from it.
+
+It depends on `btclib-mnemonics` too, which holds the BIP39, SLIP39 and
+Electrum mnemonic schemes from the entropy to the seed and imports
+nothing of btclib or of this package. What stays here is where a seed
+meets BIP32, which only a package seeing both sides can hold: the
+functions of `mnemonic/` below. A module here reaches a name of
+`btclib_mnemonics` through that package,
+`btclib_mnemonics.bip39.seed_from_mnemonic`, and neither binds nor
+re-exports it, which `tests/all_test.py` holds: a caller reaches the
+schemes by that package's name.
 
 The line between this package and btclib is Bitcoin Core's between
 `src/consensus` and `src/wallet`: what places a module here is everything
@@ -62,10 +72,9 @@ submodule loads on first attribute access through the package's own
 - `bip32/` derives extended keys along a BIP32 path, and `bip32.der_path`
   and `bip32.key_origin` are its two notations — a `der_path` string and
   the fingerprint-plus-path pair a psbt or a descriptor carries.
-- `mnemonic/` turns entropy into a sentence and a sentence into a seed,
-  for BIP39, Electrum's own scheme and SLIP39, `mnemonic.dispatch`
-  answering which scheme a sentence belongs to and `mnemonic.entropy` and
-  `mnemonic.mnemonic` being the word-list codec every scheme is built on.
+- `mnemonic/` builds the BIP32 master key of a BIP39, SLIP39 or
+  Electrum mnemonic from the seed `btclib_mnemonics` recovers from it,
+  and the master public key of a pre-2.0 Electrum one.
 - `bip85.py` derives another wallet's entropy — a BIP39 sentence among
   other formats — from one BIP32 root, so one backup stands behind
   several keychains that share no key with each other.
@@ -176,13 +185,13 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's; this package does not reimplement any of
-it. What is here is the key-derivation and mnemonic schemes above
-btclib, the formats that cross a wallet's own boundary — descriptors,
-PSBTs, extended keys, mnemonics, payment URIs — the wallets that
-remember what they have handed out, the one contract an external signer
-answers to, and the clients that reach a node, an explorer or an
-Electrum server for what the chain currently holds.
+serialization — is btclib's, and a mnemonic up to its seed is
+btclib_mnemonics'; this package reimplements none of it. What is here is
+the key-derivation schemes above btclib, the formats that cross a
+wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
+— the wallets that remember what they have handed out, the one contract
+an external signer answers to, and the clients that reach a node, an
+explorer or an Electrum server for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
 and the harnesses under `fuzz/` hold every parser named here to one
 contract: it fails the way the library says it fails, whatever it is

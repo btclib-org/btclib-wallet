@@ -243,6 +243,106 @@ an integer of a type other than `int`, `numpy.int64` or an object with
 refuse a `lang` that is not a `str` with a `BTClibTypeError`, where they
 answered `""` and `[]`; pass the language code.
 
+The BIP39, SLIP39 and Electrum mnemonic schemes are
+[btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics)', a
+dependency of this package, and `btclib_wallet.mnemonic` keeps what
+builds a key from their seed: `bip39.mxprv_from_mnemonic`,
+`slip39.mxprv_from_mnemonics`, `electrum.mxprv_from_mnemonic` and
+`electrum.old_master_pub_key_from_mnemonic`. Every path below stops
+resolving, and nothing re-exports it; import the name from
+`btclib_mnemonics` instead. A refusal those four functions pass on from
+`btclib_mnemonics`, of a mnemonic, a share or a passphrase, is that
+package's own `BTClibMnemonicsTypeError` or `BTClibMnemonicsValueError`,
+a `TypeError` or a `ValueError` and no `BTClibException`, where it was a
+`BTClibTypeError` or a `BTClibValueError`; catch `TypeError` and
+`ValueError`. `electrum.mxprv_from_mnemonic` still refuses a `2fa`, a
+`2fa_segwit` or an `old` mnemonic with its own `BTClibValueError`, and for
+an `old` one that refusal now ends `use old_master_pub_key_from_mnemonic`,
+where it named `old_master_prv_key_from_mnemonic`. The paragraphs above
+that name a function that moved describe it as it is under
+`btclib_mnemonics`, where each `BTClibTypeError` or `BTClibValueError`
+they name for it is a `BTClibMnemonicsTypeError` or a
+`BTClibMnemonicsValueError`, and where the entropy conversions they name
+are private.
+
+- `btclib_wallet.mnemonic.dispatch` is `btclib_mnemonics.dispatch`.
+- `btclib_wallet.mnemonic.entropy` is `btclib_mnemonics.entropy`, less the
+  functions the bullets below make private.
+- `btclib_wallet.mnemonic.mnemonic` is `btclib_mnemonics.mnemonic`.
+- `btclib_wallet.mnemonic`'s `BinStr` is `btclib_mnemonics.entropy.BinStr`.
+- `btclib_wallet.mnemonic`'s `Entropy` is `btclib_mnemonics.entropy.Entropy`.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_random` is
+  `btclib_mnemonics.entropy.bin_str_entropy_from_random`.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_rolls` is
+  `btclib_mnemonics.entropy.bin_str_entropy_from_rolls`.
+- `btclib_wallet.mnemonic`'s `collect_rolls` is
+  `btclib_mnemonics.entropy.collect_rolls`.
+- `btclib_wallet.mnemonic`'s `Mnemonic` is
+  `btclib_mnemonics.mnemonic.Mnemonic`.
+- `btclib_wallet.mnemonic`'s `WORDLISTS` is
+  `btclib_mnemonics.mnemonic.WORDLISTS`.
+- `btclib_wallet.mnemonic`'s `indexes_from_mnemonic` is
+  `btclib_mnemonics.mnemonic.indexes_from_mnemonic`.
+- `btclib_wallet.mnemonic`'s `mnemonic_from_indexes` is
+  `btclib_mnemonics.mnemonic.mnemonic_from_indexes`.
+- `btclib_wallet.mnemonic`'s `normalize_mnemonic` is
+  `btclib_mnemonics.mnemonic.normalize_mnemonic`.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_bytes` is gone, private in
+  `btclib_mnemonics`: pass the bytes to the scheme's `mnemonic_from_entropy`,
+  which reads them.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_entropy` is gone, private
+  in `btclib_mnemonics`: pass the entropy to the scheme's
+  `mnemonic_from_entropy`, which reads it.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_int` is gone, private in
+  `btclib_mnemonics`: pass the integer to the scheme's
+  `mnemonic_from_entropy`, which reads it.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_str` is gone, private in
+  `btclib_mnemonics`: pass the binary string itself.
+- `btclib_wallet.mnemonic`'s `bin_str_entropy_from_wordlist_indexes` is gone,
+  private in `btclib_mnemonics`: use
+  `btclib_mnemonics.mnemonic.mnemonic_from_indexes` and the scheme's
+  `entropy_from_mnemonic`.
+- `btclib_wallet.mnemonic`'s `bytes_entropy_from_str` is gone, private in
+  `btclib_mnemonics`: `int(entropy, 2).to_bytes(len(entropy) // 8, "big")` is
+  the conversion.
+- `btclib_wallet.mnemonic`'s `wordlist_indexes_from_bin_str_entropy` is gone,
+  private in `btclib_mnemonics`: use the scheme's `mnemonic_from_entropy` and
+  `btclib_mnemonics.mnemonic.indexes_from_mnemonic`.
+- `btclib_wallet.mnemonic.bip39`'s `entropy_from_mnemonic` is
+  `btclib_mnemonics.bip39.entropy_from_mnemonic`.
+- `btclib_wallet.mnemonic.bip39`'s `lang_from_mnemonic` is
+  `btclib_mnemonics.bip39.lang_from_mnemonic`.
+- `btclib_wallet.mnemonic.bip39`'s `mnemonic_from_entropy` is
+  `btclib_mnemonics.bip39.mnemonic_from_entropy`.
+- `btclib_wallet.mnemonic.bip39`'s `seed_from_mnemonic` is
+  `btclib_mnemonics.bip39.seed_from_mnemonic`.
+- `btclib_wallet.mnemonic.electrum`'s `ELECTRUM_WORDLISTS` is
+  `btclib_mnemonics.electrum.ELECTRUM_WORDLISTS`.
+- `btclib_wallet.mnemonic.electrum`'s `entropy_from_mnemonic` is
+  `btclib_mnemonics.electrum.entropy_from_mnemonic`.
+- `btclib_wallet.mnemonic.electrum`'s `hex_seed_from_old_mnemonic` is
+  `btclib_mnemonics.electrum.hex_seed_from_old_mnemonic`.
+- `btclib_wallet.mnemonic.electrum`'s `lang_from_mnemonic` is
+  `btclib_mnemonics.electrum.lang_from_mnemonic`.
+- `btclib_wallet.mnemonic.electrum`'s `mnemonic_from_entropy` is
+  `btclib_mnemonics.electrum.mnemonic_from_entropy`.
+- `btclib_wallet.mnemonic.electrum`'s `old_master_prv_key_from_mnemonic` is
+  `btclib_mnemonics.electrum.old_master_prv_key_from_mnemonic`.
+- `btclib_wallet.mnemonic.electrum`'s `old_mnemonic_from_hex_seed` is
+  `btclib_mnemonics.electrum.old_mnemonic_from_hex_seed`.
+- `btclib_wallet.mnemonic.electrum`'s `version_from_mnemonic` is
+  `btclib_mnemonics.electrum.version_from_mnemonic`.
+- `btclib_wallet.mnemonic.slip39`'s `Share` is
+  `btclib_mnemonics.slip39.Share`.
+- `btclib_wallet.mnemonic.slip39`'s `master_secret_from_mnemonics` is
+  `btclib_mnemonics.slip39.master_secret_from_mnemonics`.
+- `btclib_wallet.mnemonic.slip39`'s `mnemonic_from_share` is
+  `btclib_mnemonics.slip39.mnemonic_from_share`.
+- `btclib_wallet.mnemonic.slip39`'s `mnemonics_from_master_secret` is
+  `btclib_mnemonics.slip39.mnemonics_from_master_secret`.
+- `btclib_wallet.mnemonic.slip39`'s `share_from_mnemonic` is
+  `btclib_mnemonics.slip39.share_from_mnemonic`.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

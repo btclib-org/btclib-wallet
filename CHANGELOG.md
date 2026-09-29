@@ -521,6 +521,12 @@ holds: `descriptors.parse` does not repeat a key written there (closes #94).
 `btclib-secp256k1`, named in the `secp256k1` extra and the `bindings` group,
 takes btclib's `>=0.8.0.9` (closes #105).
 
+### The mnemonic schemes are `btclib-mnemonics`', a new dependency
+
+`btclib_wallet.mnemonic` keeps what builds a key from a BIP39, SLIP39 or
+Electrum seed; the schemes up to the seed are `btclib_mnemonics`', and
+no module here re-exports them (closes #30).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

@@ -28,6 +28,10 @@ from pkgutil import iter_modules
 from types import ModuleType
 
 import bitcoin_core_rpc
+import btclib_mnemonics
+import btclib_mnemonics.bip39
+import btclib_mnemonics.exceptions
+import btclib_mnemonics.mnemonic
 import pytest
 
 import btclib_wallet
@@ -161,14 +165,7 @@ CHILD_MODULES = {
         ],
     },
     "btclib_wallet.mnemonic": {
-        "groups": [
-            "bip39",
-            "dispatch",
-            "electrum",
-            "entropy",
-            "mnemonic",
-            "slip39",
-        ],
+        "groups": ["bip39", "electrum", "slip39"],
         "unpublished": [],
     },
     "btclib_wallet.psbt": {
@@ -284,31 +281,6 @@ def test_mnemonic_exports_its_three_schemes() -> None:
     """Verify bip39, electrum and slip39 are exported and importable."""
     for name in ("bip39", "electrum", "slip39"):
         assert name in btclib_wallet.mnemonic.__all__
-        module = getattr(btclib_wallet.mnemonic, name)
-        assert module.__name__ == f"btclib_wallet.mnemonic.{name}"
-
-
-def test_mnemonic_names_every_submodule_it_has() -> None:
-    """The schemes, the entry point, and the two modules under all of them.
-
-    `entropy` and `mnemonic` were the two the list left out, so what those
-    hold and does not come out flat -- `WordLists` and `data_file` -- had no
-    named way in. The submodules are found rather than listed: one added to
-    the package is one this asks about.
-    """
-    submodules = sorted(
-        name for _, name, _ in iter_modules(btclib_wallet.mnemonic.__path__)
-    )
-    assert submodules == [
-        "bip39",
-        "dispatch",
-        "electrum",
-        "entropy",
-        "mnemonic",
-        "slip39",
-    ]
-    for name in submodules:
-        assert name in btclib_wallet.mnemonic.__all__, f"{name} is not exported"
         module = getattr(btclib_wallet.mnemonic, name)
         assert module.__name__ == f"btclib_wallet.mnemonic.{name}"
 
@@ -613,3 +585,124 @@ def test_nothing_becomes_public_by_accident() -> None:
             f"{module.__name__} defines public names that are neither"
             f" exported nor recorded in UNEXPORTED: {kept_out}"
         )
+
+
+def _owned_by_btclib_mnemonics(value: object) -> bool:
+    """Answer whether an object is one of btclib_mnemonics' own.
+
+    A module of that package, a function or a class it defines, or an
+    instance of a class it defines -- a word-list registry, say. The
+    package itself is not: `import btclib_mnemonics.bip39` binds it, and
+    the name it is bound by is the one a caller already has.
+    """
+    if isinstance(value, ModuleType):
+        return value.__name__.startswith("btclib_mnemonics.")
+    owner = getattr(value, "__module__", None)
+    if not isinstance(owner, str):
+        owner = type(value).__module__
+    return owner == "btclib_mnemonics" or owner.startswith("btclib_mnemonics.")
+
+
+def test_no_module_binds_a_name_btclib_mnemonics_owns() -> None:
+    """What moved to btclib_mnemonics is reached there and nowhere here.
+
+    The narrower `test_no_module_exports_a_name_it_imported` reads
+    `__all__`; this reads the namespace, where an imported name is bound
+    whether or not a list publishes it -- so a moved path such as
+    `btclib_wallet.mnemonic.bip39.seed_from_mnemonic` would still resolve
+    for a caller. A module of this package reaches that package's names
+    through the package, `btclib_mnemonics.bip39.seed_from_mnemonic`, and
+    binds none of them.
+    """
+    for module in library_modules():
+        bound = sorted(
+            name
+            for name, value in vars(module).items()
+            if not name.startswith("__") and _owned_by_btclib_mnemonics(value)
+        )
+        assert bound == [], f"{module.__name__} binds {bound} of btclib_mnemonics"
+
+
+def test_the_ownership_check_sees_each_kind_of_name() -> None:
+    """Each kind of name btclib_mnemonics owns is seen, and nothing else.
+
+    A module, a function, a class and an instance of one are; the package
+    itself, a module of ours, a built-in type and an integer are not. The
+    real tree binds none of them -- that is what the test above
+    measures -- so this is the only green run that crosses the branch
+    answering yes.
+    """
+    for owned in (
+        btclib_mnemonics.bip39,
+        btclib_mnemonics.bip39.seed_from_mnemonic,
+        btclib_mnemonics.exceptions.BTClibMnemonicsValueError,
+        btclib_mnemonics.mnemonic.WORDLISTS,
+    ):
+        assert _owned_by_btclib_mnemonics(owned)
+    for not_owned in (btclib_mnemonics, btclib_wallet.mnemonic.bip39, str, 1):
+        assert not _owned_by_btclib_mnemonics(not_owned)
+
+
+def _private_btclib_mnemonics_names_in(source: str) -> set[str]:
+    """Return every `_`-prefixed name of btclib_mnemonics a source reaches.
+
+    An import naming one -- `from btclib_mnemonics.electrum import
+    _normalize`, or a private module in the dotted path -- and an attribute
+    read off the package by its dotted name,
+    `btclib_mnemonics.electrum._normalize`.
+    """
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and (node.module or "").split(".")[0] == "btclib_mnemonics"
+        ):
+            module = str(node.module)
+            found |= {part for part in module.split(".") if part.startswith("_")}
+            found |= {a.name for a in node.names if a.name.startswith("_")}
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "btclib_mnemonics":
+                    found |= {p for p in alias.name.split(".") if p.startswith("_")}
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            root: ast.expr = node.value
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id == "btclib_mnemonics":
+                found.add(node.attr)
+    return found
+
+
+def test_the_private_name_scan_finds_each_spelling() -> None:
+    """Each way of reaching a private name is reported, and a public one is not.
+
+    The real tree has none -- that is what the test below measures -- so
+    this is the only green run that crosses the branch reporting one.
+    """
+    source = (
+        "from btclib_mnemonics.electrum import _normalize, version_from_mnemonic\n"
+        "from btclib_mnemonics._utils import assert_type\n"
+        "import btclib_mnemonics._data\n"
+        "import btclib_mnemonics.bip39\n"
+        "btclib_mnemonics.slip39._feistel\n"
+        "btclib_mnemonics.bip39.seed_from_mnemonic\n"
+        "from btclib_wallet.bip32.der_path import _HARDENED_OFFSET\n"
+    )
+    assert _private_btclib_mnemonics_names_in(source) == {
+        "_normalize",
+        "_utils",
+        "_data",
+        "_feistel",
+    }
+
+
+def test_no_module_imports_a_private_name_of_btclib_mnemonics() -> None:
+    """A private name of btclib_mnemonics is that package's to change.
+
+    Every module of this package, private ones included: what a private
+    module of ours reached would break at a btclib_mnemonics release as
+    surely as a public one.
+    """
+    for path in sorted(Path(str(btclib_wallet.__file__)).parent.rglob("*.py")):
+        found = _private_btclib_mnemonics_names_in(path.read_text(encoding="utf-8"))
+        assert not found, f"{path.name} reaches {sorted(found)} of btclib_mnemonics"

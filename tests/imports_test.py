@@ -25,7 +25,6 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -105,87 +104,6 @@ def test_the_tests_package_imports_no_submodule() -> None:
         cwd=Path(__file__).resolve().parents[1],
     ).stdout
     assert ast.literal_eval(loaded) == ["btclib_wallet"]
-
-
-# what is heavier than the stdlib basics. Not `socket`: the root of either
-# package reads `__version__` through `importlib.metadata`, which pulls in
-# `email.utils` and, through it, `socket`, on every interpreter before
-# 3.13, so asserting its absence would be a fact about the interpreter
-# rather than about the candidate
-_HEAVY_MODULES = ("urllib.request", "ssl", "http.client", "bitcoin_core_rpc")
-
-
-def _loaded_after_importing(module_name: str) -> list[str]:
-    """Import one module in a fresh interpreter and return sorted(sys.modules).
-
-    A fresh subprocess rather than `unimported`: that fixture only hides
-    the two packages' own modules from `sys.modules`, so a third-party
-    package an earlier test already imported -- `bitcoin_core_rpc`, most
-    concretely -- would still answer present, and the absence a lightness
-    check exists to prove would mean nothing.
-    """
-    probe = f"import {module_name}, sys; print(sorted(sys.modules))"
-    stdout = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", probe], check=True, capture_output=True, encoding="utf-8"
-    ).stdout
-    return cast("list[str]", ast.literal_eval(stdout))
-
-
-def test_mnemonic_stays_stdlib_light() -> None:
-    """`btclib_wallet.mnemonic` reaches `bip32` and btclib_ecc curves, no more.
-
-    BIP39, SLIP39 and Electrum stop at the seed, and a mnemonic package of
-    their own is the next cut: `btclib-org/btclib#2129` moves them out and
-    leaves the four functions that build a key from a seed here. Those
-    four are why this reaches `bip32`, `network` and `btclib_ecc.curves`
-    today -- `bip39.mxprv_from_mnemonic`, `slip39.mxprv_from_mnemonics` and
-    `electrum.mxprv_from_mnemonic` build an extended private key, and
-    `electrum.old_master_pub_key_from_mnemonic` a public-key point. What
-    this checks is that the reach, wherever it stops, never leaves
-    stdlib-light territory on the way, and never widens without an edit
-    here: subset rather than equal, because a removed edge is the next
-    cut's progress and a new one is the defect.
-    """
-    loaded = _loaded_after_importing("btclib_wallet.mnemonic")
-    assert {m for m in loaded if _is_ours(m)} <= {
-        "btclib_wallet",
-        "btclib_wallet.mnemonic",
-        "btclib_wallet.mnemonic.bip39",
-        "btclib_wallet.mnemonic.dispatch",
-        "btclib_wallet.mnemonic.electrum",
-        "btclib_wallet.mnemonic.entropy",
-        "btclib_wallet.mnemonic.mnemonic",
-        "btclib_wallet.mnemonic.slip39",
-        "btclib_wallet.bip32",
-        "btclib_wallet.bip32.bip32",
-        "btclib_wallet.bip32.der_path",
-        "btclib_wallet.bip32.key_origin",
-        "btclib",
-        "btclib.alias",
-        "btclib.exceptions",
-        "btclib.utils",
-        "btclib.base58",
-        "btclib.hashes",
-        "btclib._ripemd160",
-        "btclib.var_int",
-        "btclib.curves",
-        "btclib.network",
-        "btclib.consensus",
-        "btclib_ecc",
-        "btclib_ecc._libsecp256k1",
-        "btclib_ecc._utils",
-        "btclib_ecc.alias",
-        "btclib_ecc.curves",
-        "btclib_ecc.curves.curve",
-        "btclib_ecc.curves.curve_group",
-        "btclib_ecc.curves.curve_group_2",
-        "btclib_ecc.curves.curve_group_f",
-        "btclib_ecc.curves.sec_point",
-        "btclib_ecc.exceptions",
-        "btclib_ecc.hashes",
-        "btclib_ecc.number_theory",
-    }
-    assert not set(loaded) & set(_HEAVY_MODULES)
 
 
 # the top-level units of this package, which btclib also still carries

@@ -236,9 +236,11 @@ jobs:
         run: uv run --locked --only-group check pyroma --min 10 dist/*.tar.gz
       # install the wheel from an empty directory, so the import finds the
       # wheel and not the source tree, and use it: the address is BIP84's
-      # first for its mnemonic, and deriving it opens the english word list,
-      # a data file the wheel has to carry. The dependencies resolve from
-      # the index, which is what a user installing this wheel gets
+      # first for its mnemonic. Importing `bip44` opens its purposes table,
+      # a data file the wheel has to carry, and deriving the key reads the
+      # english word list btclib-mnemonics carries. The dependencies
+      # resolve from the index, which is what a user installing this wheel
+      # gets
       - name: Smoke-test the wheel, installed on its own
         run: |
           cd "$RUNNER_TEMP"

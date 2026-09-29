@@ -23,16 +23,20 @@ which holds the primitives — the curve arithmetic, the signature
 schemes, the codecs, scripts and transactions — and on
 [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), which
 is the client the Bitcoin Core backends of `btclib_wallet.fetch` talk
-through. secp256k1 arithmetic is delegated further down, through btclib,
+through, and on
+[btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics), which
+holds the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed.
+secp256k1 arithmetic is delegated further down, through btclib,
 to [btclib-secp256k1](https://github.com/btclib-org/btclib-secp256k1) and
 [libsecp256k1](https://github.com/bitcoin-core/secp256k1). A flaw in a
-signature, in the curve arithmetic or in how rpc credentials are handled
-most likely belongs to one of those, each with its own security policy.
+signature, in the curve arithmetic, in how rpc credentials are handled
+or in how a sentence becomes a seed most likely belongs to one of those,
+each with its own security policy.
 
 What belongs here is everything this package does on top of them:
 
-- the key derivation paths: BIP32, BIP39, Electrum mnemonics, SLIP132,
-    BIP85, BIP38
+- the key derivation paths: BIP32, the master key of a BIP39, SLIP39 or
+    Electrum seed, SLIP132, BIP85, BIP38
 - the parsing and serialization of what comes from outside — extended
     keys, output descriptors, PSBTs, payment requests — and the
     validation that decides what is accepted

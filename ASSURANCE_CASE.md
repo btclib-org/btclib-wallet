@@ -72,9 +72,9 @@ EOF
 ```
 
 Beside this package's imports of its own modules, its dependencies
-`btclib`, `bitcoin_core_rpc` and `typing_extensions`, and btclib's
-`btclib_secp256k1`, what it lists is the standard library: `subprocess`
-is `hwi.py`'s alone, `socket` and `ssl` are `fetch.transport`'s,
+`btclib`, `btclib_ecc`, `btclib_mnemonics`, `bitcoin_core_rpc` and
+`typing_extensions`, and btclib's `btclib_secp256k1`, what it lists is
+the standard library: `subprocess` is `hwi.py`'s alone, `socket` and `ssl` are `fetch.transport`'s,
 `urllib` is `bip21.py`'s percent-encoding of a payment URI, and `random`
 is `coin_selection.py`'s shuffle, marked `# noqa: S311` at both call
 sites because what it orders is which of the caller's own utxos is spent
@@ -181,10 +181,9 @@ for a BIP322 signature, and `tests/fuzz_corpus_test.py` checks that every
 seed in their corpora still parses.
 
 **Mnemonics and passwords.** A sentence or a password only the user holds
-crosses in through `mnemonic/` and `bip38.py`, against the module-level
-`WORDLISTS` this package ships; a wordlist for a language `WORDLISTS`
-does not carry is the one place *Files* below names a caller's own path
-crossing in instead.
+crosses in through `mnemonic/` and `bip38.py`. A sentence is read by
+`btclib_mnemonics`, against the word lists that package ships, before
+`mnemonic/` derives a key from its seed.
 
 **The signing boundary.** `psbt_signer.PsbtSigner` is where a signer's
 own answer crosses back in: a fingerprint, a derived key, a signed psbt
@@ -208,15 +207,10 @@ default. `Broadcaster.broadcast` checks that the backend named the txid
 this package computed and nothing checks that the transaction went on to
 propagate.
 
-**Files.** The one place a caller's own path crosses in is
-`mnemonic.WordLists`: its `language_files` constructor argument and its
-`load_lang` method let a caller point a language at any file, which is
-how `electrum.py` loads a wordlist that is not BIP39's — every other
-caller reaches the module-level `WORDLISTS` singleton, loaded from this
-package's own `_data/` files. Every other read under `src/` is this
-package's own package data (`bip44.py`'s purposes table,
-`mnemonic/electrum.py`'s old wordlist), and nothing under `src/` writes a
-file at all.
+**Files.** No caller's own path crosses in: every read under `src/` is
+this package's own package data, `bip44.py`'s purposes table. The one
+write under `src/` is `hwi.py`'s, into the anonymous temporary files that
+carry a child process's standard input, output and error.
 
 ## Secure design principles
 
@@ -287,13 +281,6 @@ to, and what counters each.
   every declared parser and by the harnesses under `fuzz/` running under
   ClusterFuzzLite. `tests/fuzz_corpus_test.py` checks that every seed of
   their corpus still parses.
-- **Race conditions on shared state (CWE-362).** The module-level
-  `WORDLISTS` singleton is reachable from any thread a caller runs, and
-  `WordLists`'s own lock is what keeps a second thread arriving mid-load
-  from reading the empty list the constructor put there before the words
-  landed — `tests/mnemonic/mnemonic_test.py`'s
-  `test_load_lang_is_not_a_race` forces that interleaving and asserts the
-  second reader waits rather than seeing zero words.
 - **Uncontrolled resource consumption (CWE-400, CWE-770).**
   `tests/parse_contract_test.py`'s bound, read before anything is built,
   covers a descriptor, a PSBT map and an extended key the same way

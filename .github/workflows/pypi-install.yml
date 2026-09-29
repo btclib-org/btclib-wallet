@@ -4,14 +4,15 @@ name: pypi-install
 # the sentinel on what users actually install. Every other workflow here
 # tests artifacts built in the same run, from the tree that triggered it:
 # nothing else says whether the wheel already on PyPI still installs, with
-# the btclib and bitcoin-core-rpc the index serves beside it, and still
-# works. What breaks it is not a change in this repository -- a new runner
-# image, a new interpreter, a sibling's release, a yanked dependency -- so
-# it runs on a schedule rather than on a pull request.
+# the dependencies the index serves beside it, and still works. What
+# breaks it is not a change in this repository -- a new runner image, a
+# new interpreter, a sibling's release, a yanked dependency -- so it runs
+# on a schedule rather than on a pull request.
 #
-# The check derives an address from a mnemonic, which opens a word list
-# the wheel carries: an import runs `__init__.py` alone, where a data file
-# missing from the wheel is opened only at the first call that needs it
+# The check derives an address from a mnemonic: importing `bip44` opens
+# the purposes table the wheel carries, and the derivation reads the
+# english word list btclib-mnemonics carries, where `import btclib_wallet`
+# alone runs `__init__.py` and opens neither
 
 on:
   # called by release.yml once PyPI has accepted the upload, with the tag,

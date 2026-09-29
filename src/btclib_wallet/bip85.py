@@ -21,9 +21,9 @@ other.
 
 The module sits at the top level, beside `bip44` and `slip132`, and for
 the same reason: the applications below need `b58` for a WIF, `b32` for
-a bech32-encoded key and `mnemonic.bip39` for a sentence, and all of
-those are above `bip32`, which `btclib/bip32/` may not import back.
-Nothing in the library imports this module.
+a bech32-encoded key and `btclib_mnemonics.bip39` for a sentence, and
+`bip32/` imports none of them. Nothing in the library imports this
+module.
 
 `entropy_from_der_path` is the derivation itself and answers for any
 path, the applications no function here formats included. Every
@@ -50,6 +50,7 @@ import hmac
 from base64 import b64encode, b85encode
 from hashlib import shake_256
 
+import btclib_mnemonics.bip39
 from btclib.alias import Octets
 from btclib.b32 import power_of_2_base_conversion
 from btclib.b58 import wif_from_prv_key
@@ -71,8 +72,6 @@ from btclib_wallet.bip32.der_path import (
     indexes_from_der_path,
     str_from_index_int,
 )
-from btclib_wallet.mnemonic.bip39 import mnemonic_from_entropy
-from btclib_wallet.mnemonic.mnemonic import Mnemonic
 
 __all__ = [
     "BIP85DRNG",
@@ -103,8 +102,8 @@ _PURPOSE = 83696968
 # reference implementation the BIP names, refuses a shorter one too
 _MIN_INDEXES = 3
 
-# BIP85's Language Table, as the codes `mnemonic.mnemonic` keys its
-# word-lists with: every BIP39 list this package ships but russian and
+# BIP85's Language Table, as the codes `btclib_mnemonics.mnemonic` keys its
+# word-lists with: every BIP39 list that package ships but russian and
 # turkish, which are trezor's rather than the BIP's, so BIP85 numbers
 # neither, and a path derived for one would be a path no other
 # implementation reads the same way
@@ -260,14 +259,14 @@ def drng_from_der_path(root_key: BIP32Key, der_path: DerPath) -> BIP85DRNG:
 
 def mnemonic_from_root_key(
     root_key: BIP32Key, words: int = 12, lang: str = "en", index: int = 0
-) -> Mnemonic:
+) -> str:
     """Return a BIP39 mnemonic, BIP85's application 39'.
 
     The path is `m/83696968h/39h/{language}h/{words}h/{index}h`: the
     entropy is truncated to what a sentence of that many words encodes
     and handed to BIP39, which appends its checksum. `words` is one of
     12, 15, 18, 21 and 24, and `lang` one of the ten of BIP85's Language
-    Table, which are ten of the twelve `mnemonic.bip39` writes.
+    Table, which are ten of the twelve `btclib_mnemonics.bip39` writes.
     """
     if words not in _ENTROPY_BYTES:
         err_msg = f"invalid number of words: {words}; "
@@ -283,7 +282,9 @@ def mnemonic_from_root_key(
 
     der_path = f"m/{_PURPOSE}h/39h/{_LANGUAGE_INDEXES[lang]}h/{words}h/{index}h"
     entropy = _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
-    return mnemonic_from_entropy(entropy[: _ENTROPY_BYTES[words]], lang)
+    return btclib_mnemonics.bip39.mnemonic_from_entropy(
+        entropy[: _ENTROPY_BYTES[words]], lang
+    )
 
 
 def wif_from_root_key(root_key: BIP32Key, index: int = 0) -> str:
@@ -457,9 +458,9 @@ def rolls_from_root_key(
     hold, and the wait is the caller's: a session is `rolls` reads of a
     stream and takes as long as it takes.
 
-    `mnemonic.entropy.bin_str_entropy_from_rolls` is the other direction,
-    dice into entropy for a wallet that does not exist yet; its docstring
-    says how the two number a die's faces.
+    `btclib_mnemonics.entropy.bin_str_entropy_from_rolls` is the other
+    direction, dice into entropy for a wallet that does not exist yet; its
+    docstring says how the two number a die's faces.
     """
     if rolls < _MIN_ROLLS:
         raise BTClibValueError(f"invalid number of rolls: {rolls}")

@@ -26,6 +26,8 @@ lets that package's refusal through, and its classes are
 `BTClibEccTypeError` and `BTClibEccException` (issue
 btclib-org/btclib#2282): each rule accepts the class of either package,
 `tests/exception_family_test.py` holding the pair, and nothing else.
+A function handing a mnemonic on to btclib_mnemonics lets that package's
+refusal through in the same way, and the families hold its classes too.
 
 ## How it calls what it calls
 
@@ -60,11 +62,6 @@ quietly running over less.
 
 A function answering a `bool` about a wrong value would answer `False`
 rather than refuse it; no function the walk reaches here answers one.
-
-A function whose answer is a reading of any value of its type, rather
-than a check of it, answers a wrong value too: `_ANSWERS_A_WRONG_VALUE`
-names each the walk reaches, with its reason, and the second rule is
-asserted of them the other way round.
 """
 
 from __future__ import annotations
@@ -83,12 +80,12 @@ from tests.exception_family_test import ECC_PACKAGE, EXCEPTIONS, TYPE_ERRORS
 
 _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
 # the libraries declaring the input types this package takes, the rest
-# being declared at module level in this package: btclib, and
-# `ECC_PACKAGE` wherever it is installed, btclib binding its curve types
-# from it (issue btclib-org/btclib#2282)
+# being declared at module level in this package: btclib, `ECC_PACKAGE`
+# wherever it is installed, btclib binding its curve types from it (issue
+# btclib-org/btclib#2282), and btclib_mnemonics, which declares `Mnemonic`
 _LIBRARIES = [
     Path(spec.origin).parent
-    for name in ("btclib", ECC_PACKAGE)
+    for name in ("btclib", ECC_PACKAGE, "btclib_mnemonics")
     if (spec := importlib.util.find_spec(name)) and spec.origin
 ]
 # where each of them declares its aliases
@@ -102,12 +99,8 @@ _ALIAS_PYS = {library / "alias.py" for library in _LIBRARIES}
 # about the tree
 _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
     "BIP32Key": (None, 1.5),
-    # bytes, which int(x, 2) reads as the digits they spell
-    "BinStr": (None, 1.5, 1, b"0101"),
     "BinaryData": (None, 1.5),
     "DerPath": (None, 1.5),
-    # an int is an Entropy
-    "Entropy": (None, 1.5),
     "Integer": (None, 1.5),
     # an Octets, beside None and 1.5: every Octets is itself iterable, so
     # a signature reading Sequence[Octets] or Iterable[Octets] accepts
@@ -145,13 +138,10 @@ _WRONG_TYPE: dict[str, tuple[Any, ...]] = {
 # call, which is the same line drawn twice
 _WRONG_VALUE: dict[str, tuple[Any, ...]] = {
     "BIP32Key": ("not an xkey",),
-    "BinStr": ("not binary",),
     "BinaryData": ("not hex at all",),
     # a string no path spelling reads, an index below zero, and one above
     # the four bytes a BIP32 index has
     "DerPath": ("m/x", -1, [2**32]),
-    # a string that is not 0/1 digits, and an int below zero
-    "Entropy": ("not binary", -1),
     "Integer": ("not hex at all",),
     # a hex string that is not hex, and one of odd length
     "Octets": ("not hex at all", "9"),
@@ -224,18 +214,6 @@ def _calls(
 
 _DRIVEN = sorted(_DRIVABLE)
 
-# what answers every wrong value of _WRONG_VALUE instead of refusing it,
-# by dotted name, with the reason that is its contract
-_ANSWERS_A_WRONG_VALUE = {
-    # a sentence no scheme claims: the empty list, and "", are the answers
-    # the two docstrings give for it
-    "btclib_wallet.mnemonic.dispatch.all_seed_types_from_mnemonic",
-    "btclib_wallet.mnemonic.dispatch.seed_type_from_mnemonic",
-    # a reading of the sentence that checks nothing of its value, so any
-    # str is normalized whether or not it is a mnemonic
-    "btclib_wallet.mnemonic.mnemonic.normalize_mnemonic",
-}
-
 
 @pytest.mark.parametrize("dotted", _DRIVEN)
 def test_a_wrong_type_leaves_as_a_btclib_type_error(dotted: str) -> None:
@@ -251,11 +229,9 @@ def test_a_wrong_type_leaves_as_a_btclib_type_error(dotted: str) -> None:
             call()
 
 
-@pytest.mark.parametrize(
-    "dotted", [d for d in _DRIVEN if d not in _ANSWERS_A_WRONG_VALUE]
-)
+@pytest.mark.parametrize("dotted", _DRIVEN)
 def test_a_wrong_value_leaves_as_a_btclib_exception(dotted: str) -> None:
-    """The second rule, over what the walk drives and does not answer.
+    """The second rule, over what the walk drives.
 
     `BTClibException` and not one of the three: which of them a malformed
     value deserves is the function's to decide -- a size is a
@@ -265,18 +241,6 @@ def test_a_wrong_value_leaves_as_a_btclib_exception(dotted: str) -> None:
     for call in _calls(dotted, _WRONG_VALUE):
         with pytest.raises(EXCEPTIONS):
             call()
-
-
-@pytest.mark.parametrize("dotted", sorted(_ANSWERS_A_WRONG_VALUE))
-def test_what_answers_a_wrong_value_answers_it(dotted: str) -> None:
-    """An exemption from the second rule holds, or it is one left behind.
-
-    A function in `_ANSWERS_A_WRONG_VALUE` that starts refusing, or that
-    the walk stops reaching, fails here.
-    """
-    assert dotted in _DRIVABLE
-    for call in _calls(dotted, _WRONG_VALUE):
-        call()
 
 
 def test_the_vocabulary_is_the_libraries_input_types() -> None:
@@ -343,7 +307,6 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
         "SolutionSizer",
         # behind a default wherever a public parameter takes it, and a
         # parameter with a default is never driven
-        "OneOrMoreInt",
         "PrvKeys",
     }
     covered = (in_alias_py | own) & annotated

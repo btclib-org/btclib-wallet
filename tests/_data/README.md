@@ -1,18 +1,9 @@
 # Vendored test vectors
 
 This file is about `tests/**/_data/`, plus the shipped data this package
-holds that nothing else pins: `src/btclib_wallet/mnemonic/_data/wordlist.txt`,
-SLIP-0039's word list, and `src/btclib_wallet/bolt9.py`, BOLT9's feature table
-transcribed into python mappings. A word list is the most load-bearing
-vendored file there is -- every share ever written with it decodes through
-it -- and unlike `english.txt` it has no byte-identical copy under `tests/`
-for an entry to name instead. The package's other word lists have no entry
-because each is already pinned somewhere else or not at all:
-`english.txt` through the test copy below, `electrum_old_english.txt` and
-`electrum_portuguese.txt` through the pins
-`src/btclib_wallet/mnemonic/electrum.py` carries beside the constants naming
-them, and the other BIP39 lists nowhere, which is a gap rather than a
-statement about them.
+holds that nothing else pins: `src/btclib_wallet/bolt9.py`, BOLT9's feature
+table transcribed into python mappings. The mnemonic word lists are
+btclib_mnemonics', and pinned there.
 
 The files of `tests/**/_generated_files/` are the opposite kind of thing
 and have no entry here: they are this package's own output, `to_dict()`
@@ -48,9 +39,8 @@ file whose name they could take, or because the upstream name is taken:
   keeps a name of its own anyway: `vectors.json` is taken in the very same
   directory, by SLIP-0039's own file of that name.
 - `descriptor_checksums.json` is composed from prose, and
-  `electrum_test_vectors.json`, `electrum_language_vectors.json`,
-  `btclib_test_vectors.json` and `fakeenglish.txt` are btclib's own: no
-  upstream file for any of them, so no upstream name to take.
+  `electrum_test_vectors.json` and `btclib_test_vectors.json` are
+  btclib's own: no upstream file for either, so no upstream name to take.
 - the files under `tests/fetch/_data/` are response bodies, and a
   response has no name at all. Each takes the rpc method or the endpoint
   path that produces it.
@@ -115,20 +105,6 @@ already carries, so nothing has to be downloaded, and `git hash-object`
 reproduces it locally.
 
 ## bitcoin/bips
-
-### `tests/mnemonic/_data/english.txt`
-
-```text
-repo    bitcoin/bips
-path    bip-0039/english.txt
-commit  ce1862ac6bcffa1dd20aad858380e51e66e949ea  2014-02-07
-blob    942040ed50f7205cafc465496229128ba4f78e75
-pulled  2018-06-01
-behind  0 revisions; that commit is the only one to touch the path
-```
-
-Verdict: **identical**. The BIP39 English wordlist has never been
-changed, so this is the one pin that cannot go stale.
 
 ### `tests/_data/send_and_receive_test_vectors.json`
 
@@ -915,12 +891,11 @@ gh api -H 'Accept: application/vnd.github.raw' \
 
 Upstream generates the file with its own `tools/generate_vectors.py`
 rather than maintaining it by hand, which is what makes that one command
-the whole of a refresh -- and why nothing of btclib's is inside it. The
-one case that is ours, the last English vector with tabs, newlines,
-doubled spaces and a form feed through the mnemonic, is a `pytest.param`
-in `tests/mnemonic/bip39_test.py` beside the ones the file feeds: in the
-array it would have to be re-added by hand at every refresh, and would
-go missing the once nobody remembered.
+the whole of a refresh -- and why nothing of btclib's is inside it.
+
+`tests/mnemonic/bip39_test.py` asserts the root extended private key of
+each vector, through `bip39.mxprv_from_mnemonic`; the entropy, sentence
+and seed columns are btclib_mnemonics' to assert.
 
 Two `pulled` dates because the `english` array was here on its own for
 as long as english was the only BIP39 language btclib read; that array
@@ -954,53 +929,8 @@ the reference implementation's, for the case that file does not cover:
 The passphrase is one string in NFC and another in NFKD, and the
 sentences are published composed against word-lists published
 decomposed, so these are the vectors that fail when normalisation is
-skipped anywhere.
-
-### `tests/mnemonic/_data/electrum_language_vectors.json`
-
-btclib's own, and the second file here cross-checked against an
-application rather than copied from a project. Electrum's `make_seed`
-run with `randrange` patched to a constant, once per language, which is
-the same starting point `mnemonic_from_entropy` takes: what it returned
-is the mnemonic, and `mnemonic_to_seed` of it is the seed. Electrum
-publishes no vector of that kind — its own `SEED_TEST_CASES` are
-sentences to read, not entropies to generate from — so there is nothing
-upstream to pin or to refresh against; regenerate them from electrum's
-`mnemonic.py` if they are ever doubted.
-
-The two Portuguese sentences beside them answer electrum's
-`bip39_is_checksum_valid` yes and no, over its own 1626-word list.
-
-In a file rather than inline like every other electrum vector in
-`tests/mnemonic/electrum_test.py`, and the reason is this directory: the
-lint gate's two spell checkers read a python source and skip `_data`, and
-`typos` runs with `--write-changes`. Measured, it corrected a word of the
-Portuguese sentence into the English word it is one letter away from.
-
-Pulled 2026-08-02.
-
-### `src/btclib_wallet/mnemonic/_data/wordlist.txt`
-
-```text
-repo    satoshilabs/slips
-path    slip-0039/wordlist.txt
-commit  1524583213f1392321109b0ff0a91330836ecb32  2019-03-02
-blob    5673e7ca7f20ed7a5e70b3a7fa5e6df277ee29ab
-pulled  2026-08-02
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **identical**. SLIP-0039's 1024 words, ten bits each, and the
-only word list it defines: the SLIP supports no localization, so there
-is no second language to leave out and no decision behind shipping one.
-
-`tests/mnemonic/slip39_test.py` re-checks the criteria the SLIP states
-for the list -- 1024 words, none shorter than four letters or longer
-than eight, and all 1024 four-letter prefixes distinct -- which is what
-turns a corrupted copy into a red test rather than into shares nobody
-can read. Not the whole of `slip-0039/test_wordlist.sh`, which also
-measures Damerau-Levenshtein distance: that is a property of the list
-upstream chose, not of our copy of it.
+skipped anywhere. `tests/mnemonic/bip39_test.py` asserts their
+`bip32_xprv`, the rest being btclib_mnemonics' to assert.
 
 ### `tests/mnemonic/_data/vectors.json`
 
@@ -1018,20 +948,15 @@ are that blob's 22,411 plus the `\n` the `end-of-file-fixer` hook added,
 so our blob is `2e6da291`. 45 quadruples -- description, mnemonics,
 master secret, BIP32 root extended private key -- of which 15 are valid
 and 30 have an empty master secret, meaning combining those mnemonics
-must fail. All 45 are exercised, the 30 included: an invalid vector left
-out is a check nobody makes.
+must fail. `tests/mnemonic/slip39_test.py` asserts the root extended
+private key of each valid one, through `slip39.mxprv_from_mnemonics`;
+the recovery itself, the invalid vectors included, is btclib_mnemonics'
+to assert.
 
 The reference implementation rather than the SLIP: SLIP-0039's own "Test
 vectors" section carries no file, it links to this one. The pin is the
 commit that added the extendable backup flag and the four vectors for
 it, which is also the tip of the path.
-
-Four of the 15 valid vectors are checked in both directions. They are
-the 1-of-1 shares, whose value is the encrypted master secret itself and
-therefore involves no randomness the vector does not record, so btclib
-regenerates each of the four mnemonics word for word from the master
-secret. The other 11 are recovery only, a 2-of-3 share being random by
-construction.
 
 ### `tests/_data/bolt11_test_vectors.json`
 
@@ -1217,42 +1142,18 @@ So they are btclib's, cross-checked against an application rather than
 copied from a project. Treat them as ours: nothing upstream will ever
 refresh them.
 
-They are no longer the only Electrum vectors, and that is what makes the
-paragraph above bearable: `tests/mnemonic/electrum_test.py` now carries
-spesmilo/electrum's own, inline — the `SEED_TEST_CASES` seeds and the
-`Test_seeds` seed-type table of its `tests/test_mnemonic.py`, and the
-`UNICODE_HORROR` passphrase of its `tests/test_wallet_vertical.py`. Not
-vendored as files here: each block is small enough to read, and a
+They are not the only Electrum vectors, and that is what makes the
+paragraph above bearable: btclib_mnemonics carries spesmilo/electrum's
+own seed vectors, and `tests/mnemonic/electrum_test.py` the pre-2.0
+master public keys below, inline. Not vendored as files here: each
+block is small enough to read, and a
 citation two lines above the values is one that gets checked.
 
-`SEED_VECTORS`' five passphrase-bearing rows each carry the
-`passphrase_hex` field upstream's own `SeedTestCase` publishes beside
-them where it publishes one — `spesmilo/electrum`'s
-`300b986782c754be462788a30e0355301683c0ed` (2024-06-10, the tip of
-`tests/test_mnemonic.py`) and, for the japanese row's
-`UNICODE_HORROR_HEX`, `b57327fb3e6d62941b833f8ce9b3b91c34c9ec76`
-(2026-07-01, the tip of `tests/test_wallet_vertical.py`) — and
-`test_seed_vectors` asserts `passphrase.encode("utf8") ==
-bytes.fromhex(passphrase_hex)` before either reaches the seed
-computation, the way upstream's own `test_mnemonic_to_seed` does.
-`english_with_passphrase` publishes no such field upstream, its
-passphrase being plain ASCII, so that row's stays `None`. The check
-found the spanish row's passphrase composed rather than decomposed — a
-precomposed ñ, í, ó, é and á where upstream's own literal holds the
-accent as a separate combining character — invisible to the seed
-assertion, since `_seed_from_mnemonic` normalizes either form to the
-same NFKD before hashing, and caught only by comparing raw bytes. The
-fix was to match upstream's bytes, not to drop the check.
+The pre-2.0 scheme is the same arrangement, added for issue
+btclib-org/btclib#208. The scheme has no specification — it predates the
+BIPs — so a vector btclib generated would be testing btclib against
+itself, and each of these is a value published by spesmilo/electrum:
 
-The pre-2.0 scheme is the same arrangement and four more of upstream's
-values, added for issue btclib-org/btclib#208. The scheme has no
-specification — it predates the BIPs — so a vector btclib generated
-would be testing btclib against itself, and each of these is a value
-published by spesmilo/electrum:
-
-- the mnemonic-to-hex pair of `Test_OldMnemonic.test`, in
-  `tests/test_mnemonic.py`, which is the only published pair and the only
-  thing that pins the encoder;
 - the mnemonic, hex seed and master public key of
   `test_electrum_seed_old`, and the mnemonic and master public key of
   `test_sending_offline_old_electrum_seed_online_mpk`, both in
@@ -1260,24 +1161,9 @@ published by spesmilo/electrum:
 - the hex seed and `master_public_key` of the pre-2.0 wallet file in
   `tests/test_storage_upgrade.py`.
 
-The word-list they run over has no entry here, and being outside
-`tests/` is not the reason -- `wordlist.txt` is outside it and has one.
-`src/btclib_wallet/mnemonic/_data/electrum_old_english.txt` is pinned where it is
-used: it is shipped code, transcribed from the `_words` tuple of
-`electrum/old_mnemonic.py`, and `src/btclib_wallet/mnemonic/electrum.py` carries
-that pin beside the constant that names the file.
+The word-list they run over is btclib_mnemonics', and pinned there.
 
 Pulled 2018-06-11; the pre-2.0 values 2026-08-02.
-
-### `tests/mnemonic/_data/fakeenglish.txt`
-
-Verdict: **composed locally**. btclib's own, and deliberately broken:
-`english.txt` with the first word,
-`abandon`, deleted — 2047 words, so that `WORDLISTS.load_lang` raises
-"invalid wordlist length". Not vendored, nothing to pin; regenerate it
-from `english.txt` if that ever changes, which it has not since 2014.
-
-Pulled 2018-06-01.
 
 ### `tests/psbt/_data/btclib_test_vectors.json`
 
@@ -1334,11 +1220,6 @@ Composed 2026-08-02.
 
 - **`tests/mnemonic/_data/electrum_test_vectors.json`** has no upstream.
   Stated above rather than guessed at.
-- **`tests/mnemonic/_data/electrum_language_vectors.json`** has none
-  either, and for a reason that will not change: electrum publishes no
-  vector for the sentence it *generates* from a given entropy. Ours were
-  produced by running its code, which is a procedure to repeat rather
-  than a revision to pin, and the entry above gives it.
 - **The transcribed files** are pinned to a prose revision, or, where the
   upstream is a source file rather than a document, to that file's blob;
   neither makes "identical" a claim that can be made about them. What was
@@ -1361,15 +1242,13 @@ lists *are* the fact the number summarized, and the tree answers
 whenever the number is wanted:
 
 ```shell
-git ls-files 'tests/_data/*' 'tests/*/_data/*' \
-    src/btclib_wallet/mnemonic/_data/wordlist.txt | grep -cv 'README.md'
+git ls-files 'tests/_data/*' 'tests/*/_data/*' | grep -cv 'README.md'
 ```
 
 Against a pinned upstream blob:
 
-- identical byte for byte: `english.txt`, `wordlist.txt`,
-  `bip39_test_vectors.json`, `send_and_receive_test_vectors.json` and
-  `bip375_test_vectors.json`.
+- identical byte for byte: `bip39_test_vectors.json`,
+  `send_and_receive_test_vectors.json` and `bip375_test_vectors.json`.
 - identical but for a trailing newline: `vectors.json`,
   `sign_verify_vectors.json` and the BIP322 vector files.
 - JSON-equal, reformatted: `test_JP_BIP39.json`.
@@ -1389,14 +1268,12 @@ Not checked byte for byte against one:
   composed from Core's and Esplora's own source and whose payload is
   chain data the entry above already holds.
 - not vendored: `electrum_test_vectors.json`,
-  `electrum_language_vectors.json`, `fakeenglish.txt`,
   `descriptor_checksums.json` and `btclib_test_vectors.json` (btclib's
-  own). `descriptor_checksums.json`, `fakeenglish.txt` and
-  `btclib_test_vectors.json` are composed rather than recorded:
-  `descriptor_checksums.json`'s checksums come from a third
-  implementation run over Core's own descriptors, `fakeenglish.txt` is
-  `english.txt` with one word deleted, and `btclib_test_vectors.json`'s
-  cases were built here, out of psbts BIP174 prints as prose.
+  own). `descriptor_checksums.json` and `btclib_test_vectors.json` are
+  composed rather than recorded: `descriptor_checksums.json`'s checksums
+  come from a third implementation run over Core's own descriptors, and
+  `btclib_test_vectors.json`'s cases were built here, out of psbts BIP174
+  prints as prose.
 
 ### Left for a maintainer to decide
 

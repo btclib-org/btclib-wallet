@@ -95,10 +95,12 @@ intersphinx_cache_limit = 0
 # - a name an annotation spells the way the module imported it --
 #   `Octets` from btclib.alias, `musig2.` for btclib_ecc.ecc.musig2 -- which
 #   btclib's own build resolves by searching its own objects, where an
-#   inventory answers the full name alone. autodoc_type_aliases is the
-#   rejected alternative: mapping `Octets` to its full name renders a
-#   class reference to what btclib's inventory lists as data, and every
-#   signature carrying it fails in its place
+#   inventory answers the full name alone. `Mnemonic`, which
+#   btclib_wallet.mnemonic imports from btclib_mnemonics.mnemonic under
+#   TYPE_CHECKING alone, reaches autodoc as that text.
+#   autodoc_type_aliases is the rejected alternative: mapping `Octets` to
+#   its full name renders a class reference to what btclib's inventory
+#   lists as data, and every signature carrying it fails in its place
 # - a subscripted generic written inline in a signature, where sphinx's
 #   own type-to-xref splitter stops at the first nested bracket and
 #   reports the truncated fragment as the unresolved class, rather than
@@ -111,6 +113,7 @@ intersphinx_cache_limit = 0
 #   signatures actually carry, not a blanket exemption for the package
 nitpick_ignore = [
     ("py:class", "Octets"),
+    ("py:class", "Mnemonic"),
     ("py:class", "musig2.KeyAggContext"),
     ("py:class", "musig2.SessionContext"),
     ("py:class", "collections.abc.Mapping[bytes"),

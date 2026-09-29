@@ -12,6 +12,11 @@ each beside the same built-in as btclib's of its kind and none of them a
 of the tuples below rather than btclib's class alone. A bare built-in is
 in none of them, which is what the first test asserts.
 
+btclib_mnemonics' classes are in them too, for a mnemonic this package
+hands on to that package. btclib binds none of them, so they are imported
+from `btclib_mnemonics.exceptions` itself; each is also a `TypeError` or
+a `ValueError`, and none a `BTClibException`.
+
 Where the installed btclib binds no btclib_ecc class, a btclib without
 issue btclib-org/btclib#2282, each name below stands for btclib's own
 class instead, and a tuple holds btclib's class twice: a test reads the
@@ -40,6 +45,11 @@ from btclib.exceptions import (
     BTClibValueError,
 )
 from btclib_ecc.curves import set_libsecp256k1_serving
+from btclib_mnemonics.exceptions import (
+    BTClibMnemonicsException,
+    BTClibMnemonicsTypeError,
+    BTClibMnemonicsValueError,
+)
 
 from btclib_wallet import bip322
 from tests import WALKED_PACKAGES
@@ -62,11 +72,16 @@ def _ecc(name: str) -> type[Exception]:
     return found
 
 
-VALUE_ERRORS = (BTClibValueError, _ecc("BTClibEccValueError"))
-TYPE_ERRORS = (BTClibTypeError, _ecc("BTClibEccTypeError"))
+VALUE_ERRORS = (
+    BTClibValueError,
+    _ecc("BTClibEccValueError"),
+    BTClibMnemonicsValueError,
+)
+TYPE_ERRORS = (BTClibTypeError, _ecc("BTClibEccTypeError"), BTClibMnemonicsTypeError)
+# btclib_mnemonics declares no runtime class
 RUNTIME_ERRORS = (BTClibRuntimeError, _ecc("BTClibEccRuntimeError"))
 # the base of each family, for a test whose contract is the base
-EXCEPTIONS = (BTClibException, _ecc("BTClibEccException"))
+EXCEPTIONS = (BTClibException, _ecc("BTClibEccException"), BTClibMnemonicsException)
 
 
 def unresolved_ecc_lookups(

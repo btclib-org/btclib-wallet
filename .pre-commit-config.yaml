@@ -73,22 +73,13 @@ repos:
         # lines, the same convention every repository of the organization
         # uses, which keeps the block's own comment true of what renders,
         # so a trailing space anywhere in this tree is an accident -- but
-        # for two exclusions. electrum's Portuguese word-list is
-        # Monero's, and the blank lines of the licence header it opens
-        # with end in a space upstream. Vendored data is not ours to
-        # reformat: our copy being byte for byte upstream's is a property
-        # that can be checked, and a stripped space voids it for nothing.
-        # The loader reads the words and treats the header as the comment
-        # it is.
-        #
-        # `fuzz/corpus/` is the second exclusion and a different reason: a
-        # fuzzing seed is one exact serialization of the object its
-        # harness parses, so an octet added to it or taken off it makes it
-        # a different input. `end-of-file-fixer` and `mixed-line-ending`
-        # below carry the same exclusion for the same reason; `codespell`
-        # and `typos` take theirs from pyproject.toml instead, where the
-        # corpus is named for both
-        exclude: ^(src/btclib_wallet/mnemonic/_data/electrum_portuguese\.txt$|fuzz/corpus/)
+        # for `fuzz/corpus/`: a fuzzing seed is one exact serialization of
+        # the object its harness parses, so an octet added to it or taken
+        # off it makes it a different input. `end-of-file-fixer` and
+        # `mixed-line-ending` below carry the same exclusion for the same
+        # reason; `codespell` and `typos` take theirs from pyproject.toml
+        # instead, where the corpus is named for both
+        exclude: ^fuzz/corpus/
       - id: end-of-file-fixer
         # the corpus, for the reason given on trailing-whitespace above:
         # this is the hook that rewrote a seed

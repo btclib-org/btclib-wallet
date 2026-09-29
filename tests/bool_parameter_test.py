@@ -105,12 +105,7 @@ from btclib_wallet.fetch.bitcoin_core_rest import (
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.hwi import HwiSigner, enumerate_devices
-from btclib_wallet.mnemonic import bip39, slip39
-from btclib_wallet.mnemonic.entropy import (
-    bin_str_entropy_from_random,
-    bin_str_entropy_from_rolls,
-)
-from btclib_wallet.mnemonic.mnemonic import WordLists
+from btclib_wallet.mnemonic import bip39
 from btclib_wallet.psbt import musig2 as psbt_musig2
 from btclib_wallet.psbt.psbt import Psbt, assert_signed
 from btclib_wallet.psbt.psbt import join as psbt_join
@@ -288,18 +283,6 @@ _KINDS = (
         valid=False,
     ),
     _Case(
-        "btclib_wallet.mnemonic.entropy.bin_str_entropy_from_rolls",
-        "shuffle",
-        bin_str_entropy_from_rolls,
-        {"bits": 8, "dice_sides": 6, "rolls": [1, 2, 3, 4, 5, 6, 1, 2]},
-    ),
-    _Case(
-        "btclib_wallet.mnemonic.entropy.bin_str_entropy_from_random",
-        "to_be_hashed",
-        bin_str_entropy_from_random,
-        {"bits": 128},
-    ),
-    _Case(
         "btclib_wallet.psbt.psbt.join",
         "shuffle_inp",
         psbt_join,
@@ -385,12 +368,6 @@ _KINDS = (
         {"receive": _DESCRIPTOR, "change": _DESCRIPTOR, "timestamp": 0},
     ),
     _Case(
-        "btclib_wallet.mnemonic.slip39.mnemonics_from_master_secret",
-        "extendable",
-        slip39.mnemonics_from_master_secret,
-        {"master_secret": "00" * 16},
-    ),
-    _Case(
         "btclib_wallet.wallet.script_wallet.KeyGroup.__init__",
         "verify",
         KeyGroup,
@@ -450,14 +427,6 @@ _TRUTHS = (
         slip132.p2wpkh_p2sh_xkey,
         {"xkey": _ROOT_XPRV},
         reason="whether the xkey is required to be a root one",
-    ),
-    _Case(
-        "btclib_wallet.mnemonic.bip39.seed_from_mnemonic",
-        "verify_checksum",
-        bip39.seed_from_mnemonic,
-        {"mnemonic": "abandon " * 11 + "about", "passphrase": ""},
-        reason="whether the mnemonic's checksum is checked; the seed is the"
-        " same either way, being a PBKDF2 of the words",
     ),
     _Case(
         "btclib_wallet.mnemonic.bip39.mxprv_from_mnemonic",
@@ -594,14 +563,6 @@ _TRUTHS = (
         {"mxkey": _ACCOUNT_XPRV, "branch": 0, "address_indexes": [0]},
         reason="the flag of `derive_from_account_range` above, in the"
         " spelling that answers the keys rather than their text",
-    ),
-    _Case(
-        "btclib_wallet.mnemonic.mnemonic.WordLists.__init__",
-        "power_of_two",
-        WordLists,
-        {},
-        reason="whether a word list whose length is not a power of two is"
-        " refused, which is what Electrum's 1626 words need off",
     ),
 )
 

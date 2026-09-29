@@ -4,71 +4,24 @@
 
 """Module btclib_wallet.mnemonic.
 
-bip39, electrum and slip39 are the three mnemonic schemes this package
-is for, and none is exported by importing the package alone: `import
-btclib_wallet.mnemonic` followed by
-`btclib_wallet.mnemonic.bip39.mnemonic_from_entropy(...)` raises
-AttributeError until something else in the process happens to import
-the submodule, which is why all three are named here.
-dispatch is exported beside them: it is the entry point that answers
-which scheme a sentence belongs to, and it is of no use to anyone who
-has to import it by name after already knowing.
+The master key of a BIP39, SLIP39 or Electrum mnemonic, one module per
+scheme. The schemes themselves -- entropy, sentence and seed -- are
+`btclib_mnemonics`', and what is here is where a seed meets BIP32:
+`bip39.mxprv_from_mnemonic`, `slip39.mxprv_from_mnemonics`,
+`electrum.mxprv_from_mnemonic` and
+`electrum.old_master_pub_key_from_mnemonic`.
 
-entropy and mnemonic are named too, being the two modules the three
-schemes are built on rather than schemes themselves: the first turns
-dice rolls, bytes, an int or a bit string into the entropy a sentence
-encodes, the second is the word list and the index codec over it. Their
-functions are also re-exported flat below, so naming the modules adds one
-thing -- what is *not* flat, WordLists and data_file among it, is reached
-as btclib_wallet.mnemonic.mnemonic, a module spelled like the package that holds
-it and easy to assume is the package.
+The modules are named here because none is exported by importing
+the package alone: `import btclib_wallet.mnemonic` followed by
+`btclib_wallet.mnemonic.bip39.mxprv_from_mnemonic(...)` raises
+AttributeError until something else in the process happens to import the
+submodule.
 """
 
-from btclib_wallet.mnemonic import bip39, dispatch, electrum, entropy, mnemonic, slip39
-from btclib_wallet.mnemonic.entropy import (
-    BinStr,
-    Entropy,
-    bin_str_entropy_from_bytes,
-    bin_str_entropy_from_entropy,
-    bin_str_entropy_from_int,
-    bin_str_entropy_from_random,
-    bin_str_entropy_from_rolls,
-    bin_str_entropy_from_str,
-    bin_str_entropy_from_wordlist_indexes,
-    bytes_entropy_from_str,
-    collect_rolls,
-    wordlist_indexes_from_bin_str_entropy,
-)
-from btclib_wallet.mnemonic.mnemonic import (
-    WORDLISTS,
-    Mnemonic,
-    indexes_from_mnemonic,
-    mnemonic_from_indexes,
-    normalize_mnemonic,
-)
+from btclib_wallet.mnemonic import bip39, electrum, slip39
 
 __all__ = [
-    "WORDLISTS",
-    "BinStr",
-    "Entropy",
-    "Mnemonic",
-    "bin_str_entropy_from_bytes",
-    "bin_str_entropy_from_entropy",
-    "bin_str_entropy_from_int",
-    "bin_str_entropy_from_random",
-    "bin_str_entropy_from_rolls",
-    "bin_str_entropy_from_str",
-    "bin_str_entropy_from_wordlist_indexes",
     "bip39",
-    "bytes_entropy_from_str",
-    "collect_rolls",
-    "dispatch",
     "electrum",
-    "entropy",
-    "indexes_from_mnemonic",
-    "mnemonic",
-    "mnemonic_from_indexes",
-    "normalize_mnemonic",
     "slip39",
-    "wordlist_indexes_from_bin_str_entropy",
 ]

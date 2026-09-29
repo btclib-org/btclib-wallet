@@ -73,8 +73,8 @@ jobs:
         "bip32.toml 45m"},
         {"profile": "BIP322 message signing", "slug": "signing", "ceiling": 30,
         "sessions": "bip322.toml 10m"},
-        {"profile": "fetch and the mnemonics", "slug": "fetch", "ceiling": 60,
-        "sessions": "fetch.toml 15m\nfetch_decorators.toml 10m\nmnemonic.toml 15m"},
+        {"profile": "fetch", "slug": "fetch", "ceiling": 60, "sessions":
+        "fetch.toml 15m\nfetch_decorators.toml 10m"},
         {"profile": "output descriptors and miniscript", "slug": "descriptors",
         "ceiling": 100, "sessions": "descriptors.toml 90m"},
         {"profile": "the psbt format", "slug": "psbt", "ceiling": 60, "sessions":

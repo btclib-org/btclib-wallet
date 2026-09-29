@@ -293,7 +293,10 @@ this one.
 names imports it from `btclib`. `tests/imports_test.py` is what reads the
 import graph. A name of `bitcoin_core_rpc` that `btclib_wallet.fetch`
 publishes is a re-export, and `tests/all_test.py`'s `REEXPORTED` records
-each such name.
+each such name. A name of `btclib_mnemonics` is reached through that
+package and neither bound nor re-exported by a module here, which
+`tests/all_test.py` holds too: a caller reaches the mnemonic schemes by
+that package's name.
 
 ### The public surface
 
@@ -338,6 +341,13 @@ names the runtime class of both libraries, which is `bip322`'s `_INVALID`.
 each kind, and a bare built-in is in none of them. A name btclib does not
 bind falls back to btclib's own class in silence, so that module also fails
 where btclib delegates to btclib_ecc and leaves one of those names unbound.
+
+**A refusal of btclib_mnemonics' own leaves as that package's class.** A
+mnemonic this package hands on is checked there, and
+`BTClibMnemonicsTypeError` and `BTClibMnemonicsValueError` are a
+`TypeError` and a `ValueError` and no `BTClibException`, so `except
+ValueError` is what catches a refusal of either library.
+`tests/exception_family_test.py` holds them in the same families.
 
 `tests/input_validation_test.py` drives that rule over every public
 function whose required parameters are all library input types;

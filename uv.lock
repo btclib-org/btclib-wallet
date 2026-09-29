@@ -342,6 +342,15 @@ secp256k1 = [
 ]
 
 [[package]]
+name = "btclib-mnemonics"
+version = "2026.9.29"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/8c/d607e8bb927910bf13e7f53d56f1d217196a4cdcbf2f3f50e7f212977b0c/btclib_mnemonics-2026.9.29.tar.gz", hash = "sha256:e216f130c5d340331dce48eb7de7bf675e4b7fec4acbcf8e5193a010b3eb4f42", size = 615662, upload-time = "2026-09-29T19:26:12.438Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/fd/90d6ec0a6b6b73ee6d68a3893bf3da95bbf4b1606d0ba9c5fddbdbdbc665/btclib_mnemonics-2026.9.29-py3-none-any.whl", hash = "sha256:f9a368e9845897adf23a3c27a88176ad1dacb2ecf6eb3de3d2615a9c2e8c6d6c", size = 156881, upload-time = "2026-09-29T19:26:11.057Z" },
+]
+
+[[package]]
 name = "btclib-secp256k1"
 version = "0.8.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -425,6 +434,7 @@ dependencies = [
     { name = "bitcoin-core-rpc" },
     { name = "btclib" },
     { name = "btclib-ecc" },
+    { name = "btclib-mnemonics" },
     { name = "typing-extensions" },
 ]
 
@@ -510,6 +520,7 @@ requires-dist = [
     { name = "btclib", specifier = ">=2026.9.29" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", specifier = ">=2026.9.29" },
     { name = "btclib-ecc", specifier = ">=2026.9.28" },
+    { name = "btclib-mnemonics", specifier = ">=2026.9.29" },
     { name = "btclib-secp256k1", marker = "extra == 'secp256k1'", specifier = ">=0.8.0.9" },
     { name = "typing-extensions", specifier = ">=4.10" },
 ]

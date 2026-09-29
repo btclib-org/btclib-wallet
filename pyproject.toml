@@ -42,6 +42,10 @@ dependencies = [
     # btclib's own pyproject.toml declares for it; the bindings stay
     # requested through `btclib[secp256k1]` below
     "btclib-ecc>=2026.9.28",
+    # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
+    # `bip85` and the four seed-to-key functions under
+    # `btclib_wallet.mnemonic` build on. The floor is its first release
+    "btclib-mnemonics>=2026.9.29",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
@@ -234,8 +238,8 @@ source-exclude = [
 # `src/btclib_wallet/`, file for file and in both directions (W101
 # missing, W102 extra): with no `package` given, check-wheel-contents
 # reads the wheel's own RECORD and asks nothing about the tree the wheel
-# was supposed to carry, so a dropped `py.typed` or `_data/*.txt` is
-# reported clean
+# was supposed to carry, so a dropped `py.typed` or
+# `_data/bip44_purposes.json` is reported clean
 package = ["src/btclib_wallet"]
 
 [tool.check-sdist]
@@ -289,10 +293,9 @@ markers = [
 filterwarnings = ["error"]
 
 [tool.codespell]
-# the vendored data is skipped rather than corrected: the BIP39 wordlists
-# are normative, and a test vector stays byte for byte what upstream
-# published. _generated_files holds committed output, and
-# .secrets.baseline and uv.lock are hashes.
+# the vendored data is skipped rather than corrected: a test vector stays
+# byte for byte what upstream published. _generated_files holds committed
+# output, and .secrets.baseline and uv.lock are hashes.
 #
 # fuzz/corpus/'s own seed files are wire-format bytes, not prose: a
 # fuzzing seed is one exact serialization of the object its harness
@@ -301,10 +304,8 @@ filterwarnings = ["error"]
 # which would also reach a hypothetical vendor/fuzz/corpus/
 skip = "*/_data/*.json,*/_data/*.csv,*/_data/*.txt,*/_data/*.bin,*/_generated_files/*,.secrets.baseline,uv.lock,fuzz/corpus/*"
 # identifiers, not misspellings: "nd" is the Neutered Derivation of the
-# bip32 docstrings, and "te" is what electrum's own NFD spelling of
-# "término" tokenizes into at the combining accent, a passphrase
-# tests/mnemonic/electrum_test.py needs in exactly that spelling
-ignore-words-list = "nd,te"
+# bip32 docstrings
+ignore-words-list = "nd"
 # a misspelling written on purpose goes in backticks, which hides it from
 # this hook: what is inside backticks is an identifier, typos' half of the
 # work and not this hook's
@@ -361,13 +362,6 @@ ful = "ful"
 # two spell checkers found
 extend-glob = ["CHANGELOG.md", "RELEASE_NOTES.md", ".pre-commit-config.yaml"]
 extend-ignore-re = ['`[^`]*`']
-
-[tool.typos.type.mixed-case-vectors]
-# electrum's seed-type table quotes several of its mnemonics a second time
-# in mIxEd CaSe, that being the normalization under test, and a checker
-# that splits camelCase reads the halves as words
-extend-glob = ["electrum_test.py"]
-extend-ignore-re = ['\w*[a-z][A-Z]\w*']
 
 [tool.coverage.run]
 # what the ratchet measures, named here rather than on the command line:
@@ -560,9 +554,6 @@ ignore = [
 # publishes its submodules; tests/all_test.py walks `__all__` with getattr
 # and fails on the same drift
 "src/btclib_wallet/__init__.py" = ["F822"]
-# collecting entropy from dice is a conversation: the module prompts with
-# input() and prints which rolls count, so its prints are the interface
-"src/btclib_wallet/mnemonic/entropy.py" = ["T201"]
 # a script whose caller is a workflow step: the vendored-vector checker,
 # whose BEHIND, SKIPPED and all-clear lines are what a weekly run's log
 # says happened

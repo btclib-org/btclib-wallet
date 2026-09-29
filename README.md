@@ -105,7 +105,8 @@ The address is the first one BIP84 lists for that mnemonic.
 - [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki),
   [Electrum](https://electrum.org/#home) and
   [SLIP39](https://github.com/satoshilabs/slips/blob/master/slip-0039.md)
-  mnemonics, and the seed-to-key functions over them
+  master keys from a mnemonic, whose scheme up to the seed is
+  [btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics)'
 - [BIP44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki)
   addresses from an extended key and a
   `m/purpose'/coin_type'/account'/change/address_index` path
@@ -139,7 +140,7 @@ The address is the first one BIP84 lists for that mnemonic.
 ## Architecture
 
 [ARCHITECTURE.md](./ARCHITECTURE.md) is the design: which module holds
-what, the one dependency on btclib, and every place a module crosses out
+what, the dependencies and why each, and every place a module crosses out
 of the process it runs in. [ASSURANCE_CASE.md](./ASSURANCE_CASE.md) is
 why the security section below holds.
 

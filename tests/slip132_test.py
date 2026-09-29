@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import btclib_mnemonics.bip39
 import pytest
 from btclib import b32, b58
 from btclib.exceptions import BTClibValueError
@@ -180,7 +181,7 @@ def test_addresses() -> None:
     # 128 bits
     raw_entr = bytes.fromhex("6" * 32)
     # 12 words
-    mnemonic = bip39.mnemonic_from_entropy(raw_entr, "en")
+    mnemonic = btclib_mnemonics.bip39.mnemonic_from_entropy(raw_entr, "en")
 
     # m / purpose h / coin_type h / account h / change / address_index
     test_vectors: list[tuple[str, str, str]] = [

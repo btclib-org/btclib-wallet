@@ -35,6 +35,7 @@ from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
 from btclib_ecc.curves import secp256k1 as ec
+from btclib_mnemonics.bip39 import entropy_from_mnemonic
 
 from btclib_wallet.bip32 import BIP32KeyData, derive, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip85 import (
@@ -53,7 +54,6 @@ from btclib_wallet.bip85 import (
     wif_from_root_key,
     xprv_from_root_key,
 )
-from btclib_wallet.mnemonic.bip39 import entropy_from_mnemonic
 from tests import load, vector_id
 from tests.exception_family_test import VALUE_ERRORS
 
