@@ -11,6 +11,8 @@ before upgrading, rather than a digit.
 
 ## v2026.10 (work in progress, not released yet)
 
+## v2026.9.30
+
 A binary-string entropy passed as `bytes` is refused with a
 `BTClibTypeError` by `mnemonic.entropy`'s functions taking one, which
 read it as the digits it spells; pass the `str` instead. A mnemonic that
@@ -346,6 +348,20 @@ are private.
 The bound on a `timeout` that `fetch.ElectrumFetcher` refuses is
 `fetch.transport.MAX_TIMEOUT`, 2147483 seconds, where the paragraph above
 names `threading.TIMEOUT_MAX`; pass at most that many seconds.
+
+`fetch.EsploraFetcher` refuses at construction, with a `BTClibTypeError`
+or a `BTClibValueError`, a `timeout` that is no number, a bool, not
+positive, or above `fetch.transport.MAX_TIMEOUT`, 2147483 seconds, where
+its first fetch raised a `FetchError` and a timeout above that bound
+reached a transport of the caller's. `fetch.transport.TlsLineTransport`
+refuses a timeout above that bound with a `BTClibValueError`, where it
+waited with one up to what the platform's socket took and failed past
+it, with an `OverflowError` or, where the socket's wait refused it, a
+`FetchError`; its refusals read `non-numeric timeout: <type>` and
+`timeout is not a positive number of seconds up to 2147483`, where they
+quoted the value. Pass a positive number of seconds up to that bound.
+
+`CHANGELOG.md`'s own `v2026.9.30` section has the rest.
 
 ## v2026.9.24
 
