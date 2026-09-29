@@ -306,14 +306,18 @@ def _indexes_from_mnemonic(mnemonic: Mnemonic) -> list[int]:
     """Return the 10-bit word indexes of a SLIP-0039 mnemonic."""
     try:
         return indexes_from_mnemonic(mnemonic, _LANG)
-    except ValueError as e:
-        # indexes_from_mnemonic reports an unknown word as a plain
-        # ValueError from list.index; the caller of a btclib function
-        # should not have to catch two exception types to learn that a
-        # word was misspelled
-        words = set(mnemonic.split()) - set(WORDLISTS.wordlist(_LANG))
-        err_msg = f"not in the SLIP-0039 word-list: {sorted(words)}"
-        raise BTClibValueError(err_msg) from e
+    except ValueError:
+        # by position and never by the word: a share is one typo away
+        # from the words that recover it, and an exception message ends
+        # up in logs and crash reports
+        wordlist = set(WORDLISTS.wordlist(_LANG))
+        positions = [
+            position
+            for position, word in enumerate(mnemonic.split(), 1)
+            if word not in wordlist
+        ]
+        err_msg = f"not in the SLIP-0039 word-list: words at positions {positions}"
+        raise BTClibValueError(err_msg) from None
 
 
 def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
@@ -351,8 +355,8 @@ def share_from_mnemonic(mnemonic: Mnemonic) -> Share:
         raise BTClibValueError(err_msg)
     value_bits = bits[_HEADER_BITS : len(bits) - _CHECKSUM_BITS]
     if value_bits[:padding] != "0" * padding:
-        err_msg = f"invalid padding: {value_bits[:padding]}, must be all zeros"
-        raise BTClibValueError(err_msg)
+        # the bits themselves are not quoted, being bits of the share
+        raise BTClibValueError("invalid padding: must be all zeros")
 
     value = int(value_bits[padding:], 2)
     field = _ID_BITS + _EXT_BITS + _E_BITS

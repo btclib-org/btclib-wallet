@@ -223,11 +223,17 @@ def test_extendable_flag_changes_the_secret() -> None:
 
 
 def test_unknown_word() -> None:
-    """Refuse a word outside the SLIP-0039 word-list, naming it."""
+    """Refuse a word outside the SLIP-0039 word-list by its position.
+
+    Never by the word: a share is one typo away from the words that
+    recover it (issue #135).
+    """
     mnemonic = _VECTORS[0][1][0].replace("duckling", "abandon", 1)
-    err_msg = r"not in the SLIP-0039 word-list: \['abandon'\]"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    position = mnemonic.split().index("abandon") + 1
+    err_msg = rf"not in the SLIP-0039 word-list: words at positions \[{position}\]$"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         slip39.share_from_mnemonic(mnemonic)
+    assert "abandon" not in str(excinfo.value)
 
 
 def test_invalid_checksum() -> None:

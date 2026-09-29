@@ -220,6 +220,29 @@ answered `False`. `tx_or_psbt.tx_or_psbt_from_any` refuses such a `str` as
 both were read as the psbt. Pass the text `base64.b64encode` writes, which
 is the text Bitcoin Core writes and the only text it reads.
 
+A refusal in `mnemonic` no longer quotes secret material, so its text
+changed: an unknown word reads `unknown '<lang>' word at position <n>`,
+where it was `unknown '<lang>' word: '<word>'`, and a SLIP-0039 one
+`not in the SLIP-0039 word-list: words at positions [<n>, ...]`. A BIP39
+checksum reads `invalid checksum: <n> words`, a SLIP-0039 padding
+`invalid padding: must be all zeros`, and an unrecognized Electrum
+sentence `unknown electrum mnemonic version; not in [...]`. Match the
+new text if you match these. `mnemonic.mnemonic_from_indexes` refuses an
+index outside the word-list, a negative one included, which read from
+the end of the list; pass indexes in `[0, len(wordlist))`.
+`WordLists.langs_of_words` refuses a lone `str`, which it read one
+character at a time; pass the list of words.
+
+`mnemonic.mnemonic_from_indexes` and `WordLists.langs_of_words` refuse
+with a `BTClibTypeError` an iterable that is not a sequence -- a
+generator, a set, an iterator -- where they read it; pass a `list` or a
+`tuple`. `mnemonic_from_indexes` refuses too an index that is a bool or
+an integer of a type other than `int`, `numpy.int64` or an object with
+`__index__` included, where it read it; pass `int`s.
+`dispatch.seed_type_from_mnemonic` and `all_seed_types_from_mnemonic`
+refuse a `lang` that is not a `str` with a `BTClibTypeError`, where they
+answered `""` and `[]`; pass the language code.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

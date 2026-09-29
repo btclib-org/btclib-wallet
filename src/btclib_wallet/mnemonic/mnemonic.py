@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
-from btclib.exceptions import BTClibValueError
-from btclib.utils import assert_type
+from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.utils import assert_type, is_integer
 
 __all__ = [
     "BIP39_LANGUAGE_FILES",
@@ -32,9 +33,22 @@ __all__ = [
 WordList = Sequence[str]
 
 
-def data_file(filename: str) -> str:
+def _filename(filename: object) -> str:
+    """Return a file name as a str, a path object included.
+
+    A `pathlib.Path` names a file as well as its str does, and is read
+    the same way, so it is taken rather than refused; anything else, a
+    path object of bytes included, is a type the parameter does not take.
+    """
+    name = os.fspath(filename) if isinstance(filename, os.PathLike) else filename
+    if not isinstance(name, str):
+        raise BTClibTypeError(f"invalid filename type: {type(name).__name__}")
+    return name
+
+
+def data_file(filename: str | os.PathLike[str]) -> str:
     """Return the path of a word-list this package ships."""
-    return str(Path(__file__).parent / "_data" / filename)
+    return str(Path(__file__).parent / "_data" / _filename(filename))
 
 
 # The word-lists of BIP39's reference implementation, keyed by ISO
@@ -169,23 +183,31 @@ class WordLists:
         zeros = len(self.languages) * [0]
         self._language_length = dict(zip(self.languages, zeros, strict=True))
 
-    def load_lang(self, lang: str, filename: str | None = None) -> None:
+    def load_lang(
+        self, lang: str, filename: str | os.PathLike[str] | None = None
+    ) -> None:
         """Load/add a language word-list if not loaded/added yet.
 
         The language file has to be provided for adding new languages
         beyond those already provided.
+
+        Every function taking a `lang` reaches it here, so this is where a
+        `lang` of another type is refused: unchecked, it would be a
+        language never seen and with no file, and refused as a missing file.
         """
+        assert_type(lang, str, "lang")
+        path = None if filename is None else _filename(filename)
         with self._lock:
             known = lang in self.languages
             # language has been loaded already
             if known and self._language_length[lang] != 0:
                 return
             if known:
-                filename = self.language_files[lang]
-            elif filename is None:
+                path = self.language_files[lang]
+            elif path is None:
                 raise BTClibValueError(f"Missing file for language '{lang}'")
 
-            words = self._read_wordlist(filename)
+            words = self._read_wordlist(path)
 
             # a language is registered once its file has been read and
             # accepted, and not before: one left behind by a load that
@@ -193,7 +215,7 @@ class WordLists:
             # asking each language in turn whether it holds a word
             if not known:
                 self.languages.append(lang)
-                self.language_files[lang] = filename
+                self.language_files[lang] = path
             # the words first and the count second: the count is what
             # marks the language loaded, so publishing it before the
             # words it counts is what let a concurrent reader see an
@@ -232,11 +254,18 @@ class WordLists:
         return self._language_length[lang]
 
     def index(self, word: str, lang: str) -> int:
-        """Return the index of a word into the language word-list."""
+        """Return the index of a word into the language word-list.
+
+        The refusal does not quote the word: it is one word of a sentence
+        that is somebody's secret, usually one or two letters from the
+        right one, and an exception message is what ends up in a log or a
+        crash report. indexes_from_mnemonic adds the word's position.
+        """
+        assert_type(word, str, "word")
         self.load_lang(lang)
         normalized = unicodedata.normalize("NFKD", word)
         if normalized not in self._index[lang]:
-            raise BTClibValueError(f"unknown '{lang}' word: '{word}'")
+            raise BTClibValueError(f"unknown '{lang}' word")
         return self._index[lang][normalized]
 
     def langs_of_words(self, words: Sequence[str]) -> list[str]:
@@ -245,6 +274,7 @@ class WordLists:
         Every language is read from disk, the question being about all of
         them; a caller that knows the language names it instead of asking.
         """
+        _assert_words(words)
         normalized = [unicodedata.normalize("NFKD", word) for word in words]
         langs = []
         for lang in self.languages:
@@ -255,6 +285,32 @@ class WordLists:
             if all(word in self._index[lang] for word in normalized):
                 langs.append(lang)
         return langs
+
+
+def _assert_words(words: object) -> None:
+    """Refuse anything but a sequence of str, a lone str included.
+
+    A str is itself a sequence of str, so a sentence passed where its
+    words were meant would be read one character at a time: slip39's
+    `_assert_mnemonic_sequence` refuses a lone mnemonic for that reason.
+    """
+    if isinstance(words, str) or not isinstance(words, Sequence):
+        raise BTClibTypeError(f"invalid words type: {type(words).__name__}")
+    for word in words:
+        assert_type(word, str, "word")
+
+
+def _assert_indexes(indexes: object) -> None:
+    """Refuse anything but a sequence of integers, a str and a bool included.
+
+    `object` and not `Sequence[int]`, which would leave mypy proving the
+    str case unreachable: it is reachable from any caller mypy never saw.
+    """
+    if isinstance(indexes, str) or not isinstance(indexes, Sequence):
+        raise BTClibTypeError(f"invalid indexes type: {type(indexes).__name__}")
+    for index in indexes:
+        if not is_integer(index):
+            raise BTClibTypeError(f"invalid index type: {type(index).__name__}")
 
 
 # singleton
@@ -319,10 +375,18 @@ def mnemonic_from_indexes(
 
     Return the mnemonic from a list of integer indexes into a given
     language word-list.
+
+    An index out of the word-list's range is refused by its position and
+    not by its value, which is a digit of the secret the sentence spells.
     """
+    _assert_indexes(indexes)
     wordlist = wordlists.wordlist(lang)
-    words = [wordlist[index] for index in indexes]
-    return separator.join(words)
+    for position, index in enumerate(indexes, 1):
+        if not 0 <= index < len(wordlist):
+            err_msg = f"invalid index at position {position}: "
+            err_msg += f"not in [0, {len(wordlist)})"
+            raise BTClibValueError(err_msg)
+    return separator.join(wordlist[index] for index in indexes)
 
 
 def indexes_from_mnemonic(
@@ -335,5 +399,14 @@ def indexes_from_mnemonic(
     ideographic space of a japanese mnemonic included.
     """
     assert_type(mnemonic, str, "mnemonic")
-    words = mnemonic.split()
-    return [wordlists.index(word, lang) for word in words]
+    # loaded first, so that an unknown language is refused as itself and
+    # not as the unknown word the loop below would call it
+    wordlists.load_lang(lang)
+    indexes = []
+    for position, word in enumerate(mnemonic.split(), 1):
+        try:
+            indexes.append(wordlists.index(word, lang))
+        except BTClibValueError:
+            err_msg = f"unknown '{lang}' word at position {position}"
+            raise BTClibValueError(err_msg) from None
+    return indexes

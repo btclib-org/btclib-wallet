@@ -32,7 +32,7 @@ from typing import Any
 
 import pytest
 from btclib import b58
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
 from btclib_ecc.curves import secp256k1 as ec
 
@@ -463,6 +463,11 @@ def test_an_application_parameter_outside_its_table() -> None:
 
     with pytest.raises(BTClibValueError, match="unnumbered bip85 language: 'ru'"):
         mnemonic_from_root_key(_ROOT, 12, "ru")
+
+    # a type before a value, hashable or not (issue #138)
+    for lang, name in ((1, "int"), ([], "list"), (None, "NoneType")):
+        with pytest.raises(BTClibTypeError, match=f"^invalid lang type: {name}$"):
+            mnemonic_from_root_key(_ROOT, 12, lang)  # type: ignore[arg-type]
 
     with pytest.raises(BTClibValueError, match="invalid number of bytes: 15"):
         bytes_entropy_from_root_key(_ROOT, 15)

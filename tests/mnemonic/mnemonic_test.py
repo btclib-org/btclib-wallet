@@ -248,7 +248,7 @@ def test_every_wordlist() -> None:
 
 
 def test_index() -> None:
-    """A word is looked up in any normalization, and named when unknown."""
+    """A word is looked up in any normalization, and not quoted when unknown."""
     word_lists = WordLists()
     assert word_lists.index("abandon", "en") == 0
     assert word_lists.index("zoo", "en") == 2047
@@ -256,7 +256,7 @@ def test_index() -> None:
     # that is in it
     assert word_lists.index(normalize("NFC", "ábaco"), "es") == 0
 
-    with pytest.raises(BTClibValueError, match="unknown 'en' word: 'abaco'"):
+    with pytest.raises(BTClibValueError, match="unknown 'en' word$"):
         word_lists.index("abaco", "en")
 
 

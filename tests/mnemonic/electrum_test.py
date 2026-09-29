@@ -387,14 +387,15 @@ def test_mnemonic() -> None:
     assert electrum.mxprv_from_mnemonic(mnemonic) == xprv
 
     mnemonic_type = "std"
-    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version: "):
+    err_msg = "unknown electrum mnemonic version: 'std'; "
+    with pytest.raises(BTClibValueError, match=err_msg):
         electrum.mnemonic_from_entropy(mnemonic_type, entropy, lang)
 
     unkn_ver = "ability awful fetch liberty company spatial panda hat then canal ball cross video"
-    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version: "):
+    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version; "):
         electrum.entropy_from_mnemonic(unkn_ver, lang)
 
-    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version: "):
+    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version; "):
         electrum.mxprv_from_mnemonic(unkn_ver)
 
     # a twelve-word entropy, which is what "2fa" needs: see test_2fa_words
@@ -450,7 +451,7 @@ def test_version_vectors(mnemonic: str, version: str) -> None:
     """Reproduce electrum's Test_seeds table, refusals included."""
     if not version:
         with pytest.raises(
-            BTClibValueError, match="unknown electrum mnemonic version: "
+            BTClibValueError, match="unknown electrum mnemonic version; "
         ):
             electrum.version_from_mnemonic(mnemonic)
     else:
@@ -477,7 +478,7 @@ def test_old_mnemonic() -> None:
     # eighteen words is not an old seed, whatever the words are
     for mnemonic in (" ".join(["like"] * 18), "not a seed"):
         with pytest.raises(
-            BTClibValueError, match="unknown electrum mnemonic version: "
+            BTClibValueError, match="unknown electrum mnemonic version; "
         ):
             electrum.version_from_mnemonic(mnemonic)
 
@@ -810,7 +811,7 @@ def test_2fa_words() -> None:
         "fetch awful ability"
     )
     assert electrum._seed_version(thirteen_words).startswith("101")
-    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version: "):
+    with pytest.raises(BTClibValueError, match="unknown electrum mnemonic version; "):
         electrum.version_from_mnemonic(thirteen_words)
 
 
@@ -893,7 +894,7 @@ def test_portuguese_word_count() -> None:
     # no other, which is what lets the language go unnamed
     assert electrum.lang_from_mnemonic(mnemonic) == "pt"
     # BIP39's portuguese is another word-list, and cannot read it
-    with pytest.raises(BTClibValueError, match="unknown 'pt' word: "):
+    with pytest.raises(BTClibValueError, match="unknown 'pt' word at position 1$"):
         bip39.entropy_from_mnemonic(mnemonic, "pt")
 
 

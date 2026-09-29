@@ -56,7 +56,7 @@ from btclib.b58 import wif_from_prv_key
 from btclib.bech32 import BECH32_1_CONST, encode
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name, network_from_xkeyversion
-from btclib.utils import bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets
 from btclib_ecc.curves import scalar_from_prv_key
 
 from btclib_wallet.bip32.bip32 import (
@@ -273,6 +273,9 @@ def mnemonic_from_root_key(
         err_msg = f"invalid number of words: {words}; "
         err_msg += f"expected: {sorted(_ENTROPY_BYTES)}"
         raise BTClibValueError(err_msg)
+    # a type check first: the membership test below would refuse a
+    # hashable one as a value and let an unhashable one leave as a builtin
+    assert_type(lang, str, "lang")
     if lang not in _LANGUAGE_INDEXES:
         err_msg = f"unnumbered bip85 language: '{lang}'; "
         err_msg += f"expected: {sorted(_LANGUAGE_INDEXES)}"

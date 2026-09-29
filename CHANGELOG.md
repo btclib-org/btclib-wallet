@@ -482,6 +482,28 @@ than raising or masking the bit away (closes #126).
 `uv/Dockerfile`: the old floor admitted a `uv` older than the one the updater
 writes `uv.lock` with (issue btclib-org/.github#1438).
 
+### The mnemonic calls that leaked a builtin `TypeError` refuse as btclib
+
+`bip39.seed_from_mnemonic`'s passphrase, `WordLists.index` and the other
+calls the issue lists refuse a wrong type by the parameter's name (closes #134).
+
+### A mnemonic `lang` of another type is refused as a type
+
+`WordLists.load_lang`, which every function taking a `lang` reaches,
+refuses one with a `BTClibTypeError`, and so does `dispatch`, which answered
+`""` for it (closes #136).
+
+### `bip85.mnemonic_from_root_key` refuses a `lang` of another type as a type
+
+A hashable one was refused as an unnumbered language, and an unhashable one
+left as a builtin `TypeError` from the table lookup (closes #138).
+
+### A mnemonic refusal quotes no word, checksum, padding or hash prefix
+
+An unknown word is named by its position, a word-list index out of range
+is refused by its position, and the rest by what they are (closes #135,
+closes #137).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

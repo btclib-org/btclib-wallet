@@ -467,6 +467,8 @@ def bin_str_entropy_from_random(
     - XOR-ed with CSPRNG system entropy
     - possibly hashed (if requested)
     """
+    if not is_integer(bits):
+        raise BTClibTypeError(f"invalid bits type: {type(bits).__name__}")
     assert_type(to_be_hashed, bool, "to_be_hashed")
     if entropy is not None:
         assert_type(entropy, str, "entropy")

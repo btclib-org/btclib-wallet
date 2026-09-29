@@ -123,9 +123,8 @@ def _slip39_seed_type(mnemonic: Mnemonic) -> str:
     try:
         slip39.share_from_mnemonic(mnemonic)
     except ValueError:
-        # BTClibValueError for a bad checksum, length or field, and a
-        # plain ValueError from list.index for a word that is not in the
-        # list; BTClibValueError is a ValueError, so this catches both
+        # BTClibValueError for a bad checksum, length or field, and for a
+        # word that is not in the list
         return ""
     return "slip39"
 
@@ -148,9 +147,8 @@ def _bip39_seed_type(mnemonic: Mnemonic, lang: str) -> str:
     try:
         indexes_from_mnemonic(mnemonic, lang)
     except ValueError:
-        # list.index raises a plain ValueError for a word that is not in
-        # the word-list, and BTClibValueError is one, so this catches the
-        # unknown word and the unknown language together
+        # BTClibValueError is a ValueError, so this catches the unknown
+        # word and the unknown language together
         return ""
     if len(words) not in _BIP39_WORD_COUNTS:
         return "bip39_wordlist"
@@ -173,6 +171,10 @@ def all_seed_types_from_mnemonic(mnemonic: Mnemonic, lang: str = "en") -> list[s
     The module docstring has the order and the measurements behind it.
     """
     assert_type(mnemonic, str, "mnemonic")
+    # checked here and not left to the word-list: _bip39_seed_type
+    # answers "" for any ValueError, and a lang of another type is the
+    # caller's mistake rather than a sentence no scheme claims
+    assert_type(lang, str, "lang")
     seed_types = []
 
     if slip39_seed_type := _slip39_seed_type(mnemonic):

@@ -253,8 +253,9 @@ def entropy_from_mnemonic(mnemonic: Mnemonic, lang: str | None = None) -> BinStr
     # the second part being the checksum, to be verified
     bin_str_entropy, checksum = _entropy_checksum(cs_entropy[:bits])
     if cs_entropy[bits:] != checksum:
-        err_msg = f"invalid checksum: {cs_entropy[bits:]}; expected: {checksum}"
-        raise BTClibValueError(err_msg)
+        # neither checksum is quoted: each is bits of the entropy, or of
+        # its hash, and an exception message ends up in logs
+        raise BTClibValueError(f"invalid checksum: {len(indexes)} words")
 
     return bin_str_entropy
 
@@ -283,6 +284,7 @@ def seed_from_mnemonic(
     normalize_mnemonic says why it is worth the difference.
     """
     mnemonic = normalize_mnemonic(mnemonic)
+    assert_type(passphrase, str, "passphrase")
 
     if verify_checksum:
         entropy_from_mnemonic(mnemonic)

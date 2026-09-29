@@ -367,8 +367,9 @@ def version_from_mnemonic(mnemonic: Mnemonic) -> tuple[str, str]:
     assert_type(mnemonic, str, "mnemonic")
     mnemonic_type = _mnemonic_type(mnemonic)
     if not mnemonic_type:
-        seed_version = _seed_version(mnemonic)
-        err_msg = f"unknown electrum mnemonic version: '{seed_version[:3]}'; "
+        # the prefix the sentence hashes to is not quoted: for a sentence
+        # that is no electrum one it is twelve bits of a hash of a secret
+        err_msg = "unknown electrum mnemonic version; "
         err_msg += f"not in {list(_MNEMONIC_VERSIONS.keys())}"
         raise BTClibValueError(err_msg)
     return mnemonic_type, _normalize(mnemonic)
@@ -611,6 +612,7 @@ def old_mnemonic_from_hex_seed(hex_seed: str) -> Mnemonic:
     Three words to a group is also why 1626 need not be a power of two,
     and so why the list is not a WORDLISTS language.
     """
+    assert_type(hex_seed, str, "hex_seed")
     if not _is_hex_str(hex_seed):
         raise BTClibValueError("pre-2.0 electrum seed is not a hex string")
     if len(hex_seed) % 8:
