@@ -25,6 +25,12 @@ driver that would keep both sides' numbers.
 
 ## v2026.10 (work in progress, not released yet)
 
+### `RELEASING.md`'s griffe step searches `src`
+
+`griffe check` takes `-s . -s src`, the pair `release.yml`'s `public-api`
+job passes, where it answered `ModuleNotFoundError` for the previous
+release (issue btclib-org/.github#1447).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

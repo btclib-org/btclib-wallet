@@ -264,8 +264,14 @@ result.
 
    ```shell
    uv run --locked --with griffe griffe check btclib_wallet \
-       -a v<previous version>
+       -s . -s src -a v<previous version>
    ```
+
+   griffe reads the `-a` revision from a temporary git worktree and
+   resolves each `-s` search path against that worktree's root, which is
+   the only path it searches when none is given, so without `-s src` it
+   answers `ModuleNotFoundError` for a package under `src/`. The pair is
+   the one `release.yml`'s `public-api` job passes.
 
    The first release has no previous tag, and there is nothing for this
    step to read; `release.yml`'s `public-api` job skips its check for the
