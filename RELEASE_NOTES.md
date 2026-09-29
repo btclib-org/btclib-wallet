@@ -11,6 +11,8 @@ before upgrading, rather than a digit.
 
 ## v2026.10 (work in progress, not released yet)
 
+## v2026.9.29
+
 A binary-string entropy passed as `bytes` is refused with a
 `BTClibTypeError` by `mnemonic.entropy`'s functions taking one, which
 read it as the digits it spells; pass the `str` instead. A mnemonic that
@@ -342,6 +344,14 @@ are private.
   `btclib_mnemonics.slip39.mnemonics_from_master_secret`.
 - `btclib_wallet.mnemonic.slip39`'s `share_from_mnemonic` is
   `btclib_mnemonics.slip39.share_from_mnemonic`.
+
+`fetch.EsploraFetcher` refuses at construction, with a `BTClibTypeError`
+or a `BTClibValueError`, a `timeout` that is no number, a bool, not
+positive, or above `threading.TIMEOUT_MAX`, where its first fetch raised
+a `FetchError` and a timeout above that bound reached a transport of the
+caller's; pass a positive number of seconds.
+
+`CHANGELOG.md`'s own `v2026.9.29` section has the rest.
 
 ## v2026.9.24
 

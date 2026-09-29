@@ -25,6 +25,8 @@ driver that would keep both sides' numbers.
 
 ## v2026.10 (work in progress, not released yet)
 
+## v2026.9.29
+
 ### `README.md` carries the OpenSSF Best Practices badge
 
 It follows the Scorecard badge, where section 2 of the organization
