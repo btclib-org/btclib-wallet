@@ -56,7 +56,7 @@ from btclib.b58 import wif_from_prv_key
 from btclib.bech32 import BECH32_1_CONST, encode
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name, network_from_xkeyversion
-from btclib.utils import bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets
 from btclib_ecc.curves import scalar_from_prv_key
 
 from btclib_wallet.bip32.bip32 import (
@@ -269,6 +269,7 @@ def mnemonic_from_root_key(
     12, 15, 18, 21 and 24, and `lang` one of the ten of BIP85's Language
     Table, which are ten of the twelve `mnemonic.bip39` writes.
     """
+    assert_type(lang, str, "lang")
     if words not in _ENTROPY_BYTES:
         err_msg = f"invalid number of words: {words}; "
         err_msg += f"expected: {sorted(_ENTROPY_BYTES)}"
