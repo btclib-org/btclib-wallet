@@ -20,8 +20,8 @@ from typing import Any
 import pytest
 from btclib.b32 import power_of_2_base_conversion
 from btclib.bech32 import encode as bech32_encode
-from btclib.ecc.dsa import Sig
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib_ecc.ecc.dsa import Sig
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
 from tests import load, vector_id

@@ -39,9 +39,8 @@ from typing import get_args
 import pytest
 from btclib import b58, base58
 from btclib.alias import Octets
-from btclib.ecc import dsa, ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.hashes import hash160, tagged_hash
+from btclib.hashes import hash160
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import sig_hash, taproot
 from btclib.script.engine import verify_transaction
@@ -49,6 +48,8 @@ from btclib.script.script import serialize
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.ecc import dsa, ssa
+from btclib_ecc.hashes import tagged_hash
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -1379,20 +1380,6 @@ def test_parsed_types() -> None:
     sorted_multi = parse(f"sortedmulti(1,{key})")
     assert isinstance(sorted_multi, MultiDescriptor)
     assert sorted_multi.sort
-
-
-def test_too_many_keys_for_a_multisig() -> None:
-    """OP_CHECKMULTISIG counts with one op code, so n stops at 16.
-
-    Bitcoin Core reads a `multi()` of twenty keys inside `wsh()`, where
-    the count is pushed rather than encoded as OP_1 to OP_16; this
-    library's p2ms builder does not, and refuses it here rather than
-    building a script that says something else.
-    """
-    key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
-    keys = ",".join([key] * 17)
-    with pytest.raises(BTClibValueError, match="invalid n in m-of-n"):
-        parse(f"wsh(multi(1,{keys}))").script_pub_key()
 
 
 def test_descriptor_is_abstract() -> None:

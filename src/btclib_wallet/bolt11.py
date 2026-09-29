@@ -87,12 +87,18 @@ from btclib.b32 import (
 from btclib.b58 import address_from_h160, h160_from_address
 from btclib.bech32 import decode as _bech32_decode
 from btclib.bech32 import encode as _bech32_encode
-from btclib.curves import bytes_from_point, secp256k1
-from btclib.ecc.dsa import Sig, gen_keys, recover_pub_key_, sign_recoverable_, verify_
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import sha256
 from btclib.network import normalized_network_name
 from btclib.utils import assert_type, bytes_from_octets, int_from_integer, is_integer
+from btclib_ecc.curves import bytes_from_point, secp256k1
+from btclib_ecc.ecc.dsa import (
+    Sig,
+    gen_keys,
+    recover_pub_key_,
+    sign_recoverable_,
+    verify_,
+)
 
 from btclib_wallet.bolt9 import FEATURE_NAMES, unknown_even_bits, unmet_dependencies
 

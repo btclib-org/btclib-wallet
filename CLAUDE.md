@@ -16,9 +16,9 @@ against.
 ## Architecture
 
 [ARCHITECTURE.md](./ARCHITECTURE.md) is the design: which module holds
-what, the one dependency on btclib, and every place a module crosses out
+what, the one dependency direction, and every place a module crosses out
 of the process it runs in. Read it before touching `src/btclib_wallet/`,
-where what this package signs, it signs through `btclib.ecc`, so the
+where what this package signs, it signs through `btclib_ecc.ecc`, so the
 dispatch to the libsecp256k1 bindings and where constant time ends are
 btclib's, read in its own
 [ARCHITECTURE.md](https://github.com/btclib-org/btclib/blob/main/ARCHITECTURE.md)

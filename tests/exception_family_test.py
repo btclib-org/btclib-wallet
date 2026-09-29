@@ -33,13 +33,13 @@ from collections.abc import Mapping
 
 import btclib.exceptions
 import pytest
-from btclib.curves import set_libsecp256k1_serving
 from btclib.exceptions import (
     BTClibException,
     BTClibRuntimeError,
     BTClibTypeError,
     BTClibValueError,
 )
+from btclib_ecc.curves import set_libsecp256k1_serving
 
 from btclib_wallet import bip322
 from tests import WALKED_PACKAGES

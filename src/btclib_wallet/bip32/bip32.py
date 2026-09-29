@@ -32,16 +32,6 @@ from typing import TYPE_CHECKING
 
 from btclib import base58
 from btclib.alias import BinaryData, Octets, Point, String
-from btclib.curves import (
-    Curve,
-    bytes_from_point,
-    bytes_from_prv_key_int,
-    is_libsecp256k1_serving,
-    is_x_coordinate_var,
-    mult,
-    point_from_octets,
-    secp256k1,
-)
 from btclib.exceptions import BTClibTypeError, BTClibValueError, InvalidPrvKeyError
 from btclib.hashes import hash160
 from btclib.network import (
@@ -62,6 +52,16 @@ from btclib.utils import (
     hex_string,
     int_from_json_number,
     is_integer,
+)
+from btclib_ecc.curves import (
+    Curve,
+    bytes_from_point,
+    bytes_from_prv_key_int,
+    is_libsecp256k1_serving,
+    is_x_coordinate_var,
+    mult,
+    point_from_octets,
+    secp256k1,
 )
 from typing_extensions import override
 

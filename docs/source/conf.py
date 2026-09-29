@@ -93,7 +93,7 @@ intersphinx_cache_limit = 0
 # than a nitpick_ignore_regex that would give the check up entirely:
 #
 # - a name an annotation spells the way the module imported it --
-#   `Octets` from btclib.alias, `musig2.` for btclib.ecc.musig2 -- which
+#   `Octets` from btclib.alias, `musig2.` for btclib_ecc.ecc.musig2 -- which
 #   btclib's own build resolves by searching its own objects, where an
 #   inventory answers the full name alone. autodoc_type_aliases is the
 #   rejected alternative: mapping `Octets` to its full name renders a
@@ -103,11 +103,25 @@ intersphinx_cache_limit = 0
 #   own type-to-xref splitter stops at the first nested bracket and
 #   reports the truncated fragment as the unresolved class, rather than
 #   resolving the pieces on either side of it
+# - a class btclib's 2026.9.29 split moved into btclib_ecc: its real
+#   `__module__` is `btclib_ecc.*` now (issue #127), and btclib_ecc has
+#   no Read the Docs project of its own yet for an inventory to answer
+#   from (btclib-ecc's own REPOSITORY.md tracks that as the
+#   maintainer's to import) -- each entry here is one this tree's own
+#   signatures actually carry, not a blanket exemption for the package
 nitpick_ignore = [
     ("py:class", "Octets"),
     ("py:class", "musig2.KeyAggContext"),
     ("py:class", "musig2.SessionContext"),
     ("py:class", "collections.abc.Mapping[bytes"),
+    ("py:class", "btclib_ecc.curves.curve.Curve"),
+    ("py:class", "btclib_ecc.curves.curve.PreparedPoint"),
+    ("py:class", "btclib_ecc.ecc.dsa.Sig"),
+    ("py:class", "btclib_ecc.ecc.ssa.Sig"),
+    ("py:class", "btclib_ecc.ecc.frost.SessionContext"),
+    ("py:class", "btclib_ecc.ecc.frost.ThresholdInfo"),
+    ("py:class", "btclib_ecc.ecc.musig2.KeyAggContext"),
+    ("py:class", "btclib_ecc.ecc.musig2.SessionContext"),
 ]
 
 source_suffix = [".rst", ".md"]

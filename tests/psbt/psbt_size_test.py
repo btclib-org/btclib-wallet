@@ -26,13 +26,13 @@ from itertools import starmap
 
 import pytest
 from btclib.block import Block
-from btclib.curves import mult
-from btclib.curves.sec_point import bytes_from_point
-from btclib.ecc import dsa
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 from btclib.script import ScriptPubKey, Witness, is_p2ms, parse, serialize
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.curves import mult
+from btclib_ecc.curves.sec_point import bytes_from_point
+from btclib_ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut, extract_tx

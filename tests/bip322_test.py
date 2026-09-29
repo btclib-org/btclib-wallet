@@ -26,14 +26,13 @@ import pytest
 from btclib import b58
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
-from btclib.curves import secp256k1
-from btclib.ecc import bms, dsa, ssa
+from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
     InconclusiveError,
 )
-from btclib.hashes import hash160, magic_message, reduce_to_hlen
+from btclib.hashes import hash160, magic_message
 from btclib.script import ScriptPubKey, address, serialize
 from btclib.script.engine import ALL_FLAGS, ScriptFlag
 from btclib.script.sig_hash import (
@@ -49,6 +48,9 @@ from btclib.script.sig_hash import taproot as taproot_sig_hash
 from btclib.script.taproot import output_prvkey, output_pubkey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.curves import secp256k1
+from btclib_ecc.ecc import dsa, ssa
+from btclib_ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
 from btclib_wallet.psbt import Psbt, finalize
@@ -532,7 +534,7 @@ def test_is_bms_is_the_exact_65_octets_and_nothing_shorter() -> None:
     """
     addr = _address(WIF, "p2pkh")
     short = base64.b64encode(b"x" * 40).decode()
-    with pytest.raises(BTClibRuntimeError, match="not enough binary data"):
+    with pytest.raises(BTClibValueError, match="not enough binary data"):
         bip322.assert_as_valid(b"hello", addr, short, legacy=True)
 
 

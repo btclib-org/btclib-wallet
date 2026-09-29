@@ -15,10 +15,8 @@ from typing import Any
 
 import pytest
 from btclib import var_bytes, var_int
-from btclib.curves import sec_point
-from btclib.ecc import dsa, ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.hashes import hash160, hash256, ripemd160, sha256, tagged_hash
+from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import (
     ScriptPubKey,
@@ -33,6 +31,9 @@ from btclib.script.engine import verify_transaction
 from btclib.script.taproot import input_script_sig, tree_helper
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
+from btclib_ecc.curves import sec_point
+from btclib_ecc.ecc import dsa, ssa
+from btclib_ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import (

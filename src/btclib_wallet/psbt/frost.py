@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""A FROST session carried through a psbt, over `btclib.ecc.frost`.
+"""A FROST session carried through a psbt, over `btclib_ecc.ecc.frost`.
 
 BIP445 specifies nonce generation, partial signing and aggregation, and
 says nothing about psbt transport; no psbt BIP assigns FROST type bytes.
@@ -106,7 +106,7 @@ is refused here instead of being derived to.
 
 **Where the secret nonce lives is the caller's business, and this module
 holds nothing.** `nonce_gen` hands back the `bytearray` that
-`btclib.ecc.frost.sign` consumes and `partial_sign` takes it back;
+`btclib_ecc.ecc.frost.sign` consumes and `partial_sign` takes it back;
 between the two rounds it is in the caller's hands and never in the
 psbt, which travels. `btclib_wallet.psbt.musig2`'s docstring gives the reason
 and it holds verbatim: a secnonce that signs twice hands out the secret
@@ -131,7 +131,7 @@ is where a threshold differs from MuSig2's *n*-of-*n*: `session_context`
 reads the identifiers out of the nonce records rather than out of the
 key material, and a nonce that arrives after a partial signature was
 made describes a different session -- exactly the state
-`btclib.ecc.frost.partial_sig_verify_` is for.
+`btclib_ecc.ecc.frost.partial_sig_verify_` is for.
 """
 
 from __future__ import annotations
@@ -140,19 +140,19 @@ from typing import NamedTuple
 
 from btclib import var_bytes, var_int
 from btclib.alias import Octets
-from btclib.ecc import frost, ssa
+from btclib.exceptions import BTClibValueError
+from btclib.script import type_and_payload
+from btclib.utils import bytes_from_octets
+from btclib_ecc.ecc import frost, ssa
 
-# the widths this module writes are the ones `btclib.ecc.frost` reads:
+# the widths this module writes are the ones `btclib_ecc.ecc.frost` names:
 # an identifier is `ID_SIZE` bytes big-endian there (`_serialize_ids`),
 # a public share and a threshold public key are compressed points, and
 # `MAX_PARTICIPANTS` is the security bound that module states. Imported
 # rather than restated, as `ecc.frost` itself imports `curves.curve`'s
 # `_sum_var`: a second copy of a width is a second thing to keep true
-from btclib.ecc.frost import ID_SIZE, MAX_PARTICIPANTS, PK_SIZE
-from btclib.exceptions import BTClibValueError
-from btclib.hashes import tagged_hash
-from btclib.script import type_and_payload
-from btclib.utils import bytes_from_octets
+from btclib_ecc.ecc.frost import ID_SIZE, MAX_PARTICIPANTS, PK_SIZE
+from btclib_ecc.hashes import tagged_hash
 
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -299,7 +299,7 @@ def _parse_threshold_info(value: bytes) -> tuple[int, int, dict[int, bytes]]:
     `n` is read before anything is built from it: a psbt is somebody
     else's input, and the four bytes the record spells `n` in reach past
     what any machine would allocate. The bound is the one
-    `btclib.ecc.frost` states, so key material this refuses is key
+    `btclib_ecc.ecc.frost` states, so key material this refuses is key
     material that module refuses too.
     """
     if len(value) < _COUNTS_SIZE or (len(value) - _COUNTS_SIZE) % _PAIR_SIZE:
@@ -523,13 +523,13 @@ def session_context(
     session, in identifier order, and the aggregate nonce is the sum of
     those nonces: a context built before the last nonce arrives is a
     different context, and the partial signatures made against the two
-    do not add up. `btclib.ecc.frost.partial_sig_verify_` is what catches
+    do not add up. `btclib_ecc.ecc.frost.partial_sig_verify_` is what catches
     that, and this is what it takes.
 
     A `SessionContext` is the whole of what a caller needs back, unlike
     `btclib_wallet.psbt.musig2`'s pair: nothing here aggregates a key list, so
     there is no second object to carry, and the tweaked key is
-    `btclib.ecc.frost.session_values`, memoized on the context.
+    `btclib_ecc.ecc.frost.session_values`, memoized on the context.
     """
     thresh_pk = bytes_from_octets(thresh_pk, PK_SIZE)
     leaf_hash = bytes_from_octets(leaf_hash)
@@ -577,8 +577,8 @@ def nonce_gen(
     public key of the session and the message -- because all four are
     here, and a nonce derived from fewer of them is one a faulty random
     source can repeat across sessions. The identifier is the caller's,
-    as it is everywhere in `btclib.ecc.frost`, and that it is this
-    secret share's identifier is what `btclib.ecc.frost.sign` checks in
+    as it is everywhere in `btclib_ecc.ecc.frost`, and that it is this
+    secret share's identifier is what `btclib_ecc.ecc.frost.sign` checks in
     round 2 against the public share this one names.
     """
     thresh_pk = bytes_from_octets(thresh_pk, PK_SIZE)
@@ -609,7 +609,7 @@ def partial_sign(
     """Write the partial signature of round 2, and return it.
 
     The Signer role, second half. The secnonce is consumed by
-    `btclib.ecc.frost.sign`, which zeroes it: this function cannot be
+    `btclib_ecc.ecc.frost.sign`, which zeroes it: this function cannot be
     called twice with one nonce, and that is the point.
 
     The signature is verified before it is written, against the session
@@ -649,7 +649,7 @@ def partial_sig_verify(
 ) -> bool:
     """Verify one participant's partial signature, as the psbt holds it.
 
-    `btclib.ecc.frost.partial_sig_verify_` over the psbt the partial
+    `btclib_ecc.ecc.frost.partial_sig_verify_` over the psbt the partial
     signature arrived in: the nonce it is checked against is the one the
     same input carries for the same participant, so a signature made
     against another session answers False here rather than at
@@ -685,7 +685,7 @@ def partial_sigs_agg(
     Every signer of the session must have signed. That is not the group:
     a FROST session is the subset that published nonces, and the
     threshold is what says whether such a subset can sign at all --
-    `btclib.ecc.frost.session_values` refuses a session of fewer than
+    `btclib_ecc.ecc.frost.session_values` refuses a session of fewer than
     `t` signers, so what is missing here is a partial signature from a
     participant that joined this one.
 

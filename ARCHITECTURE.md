@@ -28,15 +28,22 @@ row 6: dependencies point one way, down that table, so nothing in
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
+Since btclib-org/btclib#2404 this package also depends on `btclib-ecc`
+directly — row 2 of that table, released under that name rather than its
+working name `ellipticcurves` — because every package now declares every
+distribution whose names it imports rather than relying on btclib's
+re-export of them; `pyproject.toml`'s comment beside the dependency names
+what this package imports from it.
+
 The line between this package and btclib is Bitcoin Core's between
 `src/consensus` and `src/wallet`: what places a module here is everything
 from a seed to a signed, broadcast transaction, and every module with a
 counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol stays btclib's and opens nothing.
 
-What this package signs, it signs through `btclib.ecc`, so the dispatch
-to the libsecp256k1 bindings and where constant time ends are btclib's,
-read in its own
+What this package signs, it signs through `btclib_ecc.ecc`, so the
+dispatch to the libsecp256k1 bindings and where constant time ends are
+btclib's, read in its own
 [ARCHITECTURE](https://github.com/btclib-org/btclib/blob/main/ARCHITECTURE.md)
 and
 [SECURITY](https://github.com/btclib-org/btclib/blob/main/SECURITY.md).

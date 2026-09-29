@@ -35,7 +35,6 @@ from math import ceil
 from typing import Any, Protocol, TypeVar, cast
 
 from btclib.alias import BinaryData, Octets, ScriptList, String
-from btclib.ecc import dsa, ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, sha256
 from btclib.script import (
@@ -65,6 +64,7 @@ from btclib.utils import (
     list_from_json_array,
     str_from_string,
 )
+from btclib_ecc.ecc import dsa, ssa
 
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,

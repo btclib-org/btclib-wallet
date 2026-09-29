@@ -15,7 +15,6 @@ from typing import Any
 
 from btclib import var_bytes, var_int
 from btclib.alias import BinaryData, Octets
-from btclib.curves import sec_point
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.sig_hash import DEFAULT, SIG_HASH_TYPES
 from btclib.script.taproot import assert_valid_control_block
@@ -30,6 +29,7 @@ from btclib.utils import (
     list_from_json_array,
     read_exactly,
 )
+from btclib_ecc.curves import sec_point
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
@@ -578,9 +578,8 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str) -> None:
         raise BTClibValueError(err_msg)
     try:
         sec_point.point_from_octets(pub_key)
-    # ValueError: the parse may be btclib_ecc's, whose
-    # BTClibEccValueError is no BTClibValueError (issue
-    # btclib-org/btclib#2282)
+    # ValueError: the parse may be
+    # btclib_ecc.exceptions.BTClibEccValueError, no BTClibValueError
     except ValueError as e:
         raise BTClibValueError(f"invalid {what}: {pub_key.hex()}") from e
 
@@ -624,8 +623,8 @@ def assert_valid_sp_scan_key_map(
     claims to be could not have been computed against it.
 
     What is *not* checked here is that the value is the share it claims to
-    be. That is BIP374's answer, `btclib.ecc.dleq.verify_proof` over the
-    input keys, and asking it here would make a codec verify a proof.
+    be. That is BIP374's answer, `btclib_ecc.ecc.dleq.verify_proof` over
+    the input keys, and asking it here would make a codec verify a proof.
     """
     for scan_key, value in map_.items():
         assert_valid_musig2_pub_key(scan_key, f"{what} scan key")

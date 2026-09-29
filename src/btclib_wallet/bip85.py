@@ -54,10 +54,10 @@ from btclib.alias import Octets
 from btclib.b32 import power_of_2_base_conversion
 from btclib.b58 import wif_from_prv_key
 from btclib.bech32 import BECH32_1_CONST, encode
-from btclib.curves import scalar_from_prv_key
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name, network_from_xkeyversion
 from btclib.utils import bytes_from_octets
+from btclib_ecc.curves import scalar_from_prv_key
 
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,

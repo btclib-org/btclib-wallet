@@ -19,12 +19,13 @@ from copy import deepcopy
 
 import pytest
 from btclib.alias import Octets
-from btclib.curves import bytes_from_point, mult
-from btclib.ecc import bms, dsa
+from btclib.ecc import bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError, SignerError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.curves import bytes_from_point, mult
+from btclib_ecc.ecc import dsa
 from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData, fingerprint

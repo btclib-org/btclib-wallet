@@ -24,7 +24,7 @@ import subprocess
 import sys
 from typing import Any
 
-from btclib.curves import is_libsecp256k1_serving
+from btclib_ecc.curves import is_libsecp256k1_serving
 
 from btclib_wallet.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
 from tests import needs_bindings
@@ -45,13 +45,19 @@ import json, sys
 class RefuseTheBindings:
     def find_spec(self, name, path=None, target=None):
         if name == "btclib_secp256k1" or name.startswith("btclib_secp256k1."):
-            raise ImportError("btclib_secp256k1 is out of reach")
+            # `ModuleNotFoundError` with `name` set to the module the
+            # import system was looking for: what a genuinely-uninstalled
+            # `btclib_secp256k1` raises with no finder in the way at all,
+            # and what btclib_ecc's own `_libsecp256k1` except clause reads
+            # to tell this apart from an installed package too old for a
+            # name it asks for (btclib-org/btclib-ecc#25)
+            raise ModuleNotFoundError(f"{{name}} is out of reach", name=name)
         return None
 
 
 sys.meta_path.insert(0, RefuseTheBindings())
 
-from btclib.curves import is_libsecp256k1_serving
+from btclib_ecc.curves import is_libsecp256k1_serving
 from btclib_wallet.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
 
 assert "btclib_secp256k1" not in sys.modules, "the finder let the bindings in"

@@ -83,16 +83,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from btclib.alias import Integer, Octets, Point
-from btclib.curves import (
-    bytes_from_point,
-    mult,
-    point_from_octets,
-    point_from_pub_key,
-    scalar_from_prv_key,
-    secp256k1,
-)
-from btclib.ecc import dleq
-from btclib.ecc.ssa import point_from_bip340pub_key
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160
 from btclib.script import serialize
@@ -104,6 +94,16 @@ from btclib.script.script_pub_key import (
 )
 from btclib.script.sig_hash import ALL
 from btclib.script.taproot import check_output_pubkey, output_pubkey_from_merkle_root
+from btclib_ecc.curves import (
+    bytes_from_point,
+    mult,
+    point_from_octets,
+    point_from_pub_key,
+    scalar_from_prv_key,
+    secp256k1,
+)
+from btclib_ecc.ecc import dleq
+from btclib_ecc.ecc.ssa import point_from_bip340pub_key
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.psbt.psbt import (

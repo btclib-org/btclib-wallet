@@ -35,8 +35,6 @@ from typing import Any
 
 import pytest
 from btclib.alias import Octets
-from btclib.curves import bytes_from_point, mult, secp256k1
-from btclib.ecc import dleq
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160
 from btclib.key import PubKeyData
@@ -44,6 +42,8 @@ from btclib.script import ScriptPubKey, Witness, serialize, taproot
 from btclib.script.script_pub_key import is_p2wpkh
 from btclib.script.taproot import output_pubkey_from_merkle_root
 from btclib.tx import TxOut
+from btclib_ecc.curves import bytes_from_point, mult, secp256k1
+from btclib_ecc.ecc import dleq
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.bip32 import (

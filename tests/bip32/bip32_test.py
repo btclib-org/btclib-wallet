@@ -15,7 +15,11 @@ from typing import Any
 import pytest
 from btclib import base58
 from btclib.b58 import p2pkh
-from btclib.curves import (
+from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.hashes import hash160
+from btclib.key import PubKeyData
+from btclib.network import NETWORKS
+from btclib_ecc.curves import (
     # its module holds the `mod_sqrt_var` the lift calls, and patching it
     # to raise is how the test below pins that validating an xpub takes no
     # modular square root
@@ -25,12 +29,8 @@ from btclib.curves import (
     mult,
     point_from_octets,
 )
-from btclib.curves import secp256k1 as ec
-from btclib.ecc.musig2 import key_agg
-from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.hashes import hash160
-from btclib.key import PubKeyData
-from btclib.network import NETWORKS
+from btclib_ecc.curves import secp256k1 as ec
+from btclib_ecc.ecc.musig2 import key_agg
 
 from btclib_wallet.bip32 import (
     BIP328_CHAIN_CODE,

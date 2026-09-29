@@ -28,11 +28,20 @@ authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
 requires-python = ">=3.11"
 dependencies = [
     # the protocol package every module here is written against. The
-    # floor is the first btclib release carrying `ecc.frost` and the
-    # public names this tree imports in place of private ones
-    # (btclib-org/btclib#2242): an older one fails on the first import,
-    # and it is what an index resolves: nothing here overrides it
-    "btclib>=2026.9.24",
+    # floor is the first release whose `btclib.curves`, `btclib.ecc`
+    # (less `bms`), `btclib.kdf` and `btclib.number_theory` bind
+    # btclib-ecc's own objects rather than an independent implementation
+    # (issue btclib-org/btclib#2282): below it, a `Curve` or a `Sig` this
+    # tree builds through `btclib_ecc` is not the type btclib's own API
+    # returns
+    "btclib>=2026.9.29",
+    # the curve arithmetic and the signature schemes this tree imports
+    # directly: `btclib_ecc.curves`, `btclib_ecc.ecc` less `bms`, which
+    # stays btclib's own, `btclib_ecc.hashes`'s `tagged_hash` and
+    # `reduce_to_hlen`, and `btclib_ecc.exceptions`. The floor is the one
+    # btclib's own pyproject.toml declares for it; the bindings stay
+    # requested through `btclib[secp256k1]` below
+    "btclib-ecc>=2026.9.28",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
@@ -93,7 +102,7 @@ classifiers = [
 # rather than a dependency for btclib's reason: every delegation declines
 # where the bindings are absent, and the Python arithmetic answers
 # instead
-secp256k1 = ["btclib[secp256k1]>=2026.9.24", "btclib-secp256k1>=0.8.0.6"]
+secp256k1 = ["btclib[secp256k1]>=2026.9.29", "btclib-secp256k1>=0.8.0.6"]
 
 [project.urls]
 homepage = "https://btclib-wallet.readthedocs.io/"
@@ -114,7 +123,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.9.24", "btclib-secp256k1>=0.8.0.6"]
+bindings = ["btclib[secp256k1]>=2026.9.29", "btclib-secp256k1>=0.8.0.6"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was

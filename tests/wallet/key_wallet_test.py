@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 from btclib import b58
-from btclib.curves import bytes_from_prv_key_int, set_libsecp256k1_serving
 from btclib.ecc import bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
+from btclib_ecc.curves import bytes_from_prv_key_int, set_libsecp256k1_serving
 
 from btclib_wallet.bip32 import bip32
 from btclib_wallet.bip44 import BIP44ScriptType

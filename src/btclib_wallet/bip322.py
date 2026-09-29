@@ -58,12 +58,11 @@ btclib_ecc's, whatever failed being what it says; and *inconclusive*
 is `InconclusiveError`, which is the state for a signature that today's
 rules cannot judge -- a `to_sign` whose version is neither 0 nor 2, an
 upgradeable NOP, a witness program of a version this library does not
-know. Under a btclib carrying issue btclib-org/btclib#2282 the curve
-library's classes are no `BTClibException` -- a legacy signature whose
-recovered key is the point at infinity is its `BTClibEccRuntimeError`
--- so `_INVALID` names each class a single `except` has to catch.
-`verify` collapses all three states to a boolean, and an inconclusive
-signature is not a valid one.
+know. btclib_ecc's classes are no `BTClibException` -- a legacy
+signature whose recovered key is the point at infinity is its
+`BTClibEccRuntimeError` -- so `_INVALID` names each class a single
+`except` has to catch. `verify` collapses all three states to a
+boolean, and an inconclusive signature is not a valid one.
 
 What is enforced is BIP322's list, through the engine's own flags: the
 consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
@@ -98,16 +97,14 @@ import base64
 import string
 from dataclasses import dataclass
 
-import btclib.exceptions
 from btclib.alias import Octets, String
-from btclib.curves import bytes_from_prv_key_int
-from btclib.ecc import bms, dsa, ssa
+from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
     InconclusiveError,
 )
-from btclib.hashes import hash160, tagged_hash
+from btclib.hashes import hash160
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import serialize
 from btclib.script.engine import ALL_FLAGS, ScriptFlag, verify_transaction
@@ -118,6 +115,10 @@ from btclib.script.taproot import output_prvkey_from_merkle_root, output_pubkey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, bytes_from_octets, str_from_string
+from btclib_ecc.curves import bytes_from_prv_key_int
+from btclib_ecc.ecc import dsa, ssa
+from btclib_ecc.exceptions import BTClibEccRuntimeError
+from btclib_ecc.hashes import tagged_hash
 
 from btclib_wallet.psbt import Psbt, extract_tx
 from btclib_wallet.psbt.psbt import _b64decode
@@ -144,17 +145,13 @@ __all__ = [
 TAG = b"BIP0322-signed-message"
 
 # what an invalid signature raises: any ValueError, btclib's
-# BTClibRuntimeError, and btclib_ecc's BTClibEccRuntimeError where the
-# installed btclib binds it (issue btclib-org/btclib#2282), btclib's own
-# class standing in for it where it does not. The fallback is silent, and
-# tests/exception_family_test.py is what fails on a name btclib does not
-# bind where it delegates to btclib_ecc. Named and not
-# RuntimeError, which would read a RecursionError or a defect of the
-# library as a signature that failed
+# BTClibRuntimeError, and btclib_ecc's own BTClibEccRuntimeError. Named
+# and not RuntimeError, which would read a RecursionError or a defect of
+# the library as a signature that failed
 _INVALID: tuple[type[Exception], ...] = (
     ValueError,
     BTClibRuntimeError,
-    getattr(btclib.exceptions, "BTClibEccRuntimeError", BTClibRuntimeError),
+    BTClibEccRuntimeError,
 )
 
 SIMPLE = "smp"

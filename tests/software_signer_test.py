@@ -17,10 +17,10 @@ are the ones `tests/bip44_test.py` checks against the BIP.
 from __future__ import annotations
 
 import pytest
-from btclib.ecc import ssa
 from btclib.exceptions import BTClibValueError
 from btclib.script.engine import verify_transaction
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.ecc import ssa
 
 from btclib_wallet.bip32.bip32 import BIP32KeyData, derive, xpub_from_xprv
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin

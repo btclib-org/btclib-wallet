@@ -32,12 +32,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from btclib import b58
-from btclib.curves import point_from_pub_key, secp256k1
-from btclib.curves.sec_point import bytes_from_point
-from btclib.ecc.musig2 import key_agg, key_sort
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import network_from_name
 from btclib.utils import bytes_from_octets
+from btclib_ecc.curves import point_from_pub_key, secp256k1
+from btclib_ecc.curves.sec_point import bytes_from_point
+from btclib_ecc.ecc.musig2 import key_agg, key_sort
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
@@ -632,9 +632,9 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
     # which of several participants was wrong is half the answer, and the
     # inner message names neither the function nor the position. Bitcoin
     # Core prefixes its own the same way, "musig(): ...". ValueError: a
-    # participant that is no point is refused by btclib_ecc, whose
-    # BTClibEccValueError is no BTClibValueError (issue
-    # btclib-org/btclib#2282)
+    # participant that is no point is refused by
+    # btclib_ecc.exceptions.BTClibEccValueError, which is no
+    # BTClibValueError
     except ValueError as e:
         raise BTClibValueError(f"musig(): {e}") from e
     der_path, wildcard = _musig_der_path(expression[close + 1 :])

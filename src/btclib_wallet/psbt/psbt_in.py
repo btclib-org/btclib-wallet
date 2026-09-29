@@ -16,8 +16,6 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from btclib.alias import BinaryData, Octets
-from btclib.curves import sec_point
-from btclib.ecc import dsa
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.script import Witness, script_from_dict, script_to_dict
@@ -29,6 +27,8 @@ from btclib.utils import (
     bytesio_from_binarydata,
     fields_from_json_object,
 )
+from btclib_ecc.curves import sec_point
+from btclib_ecc.ecc import dsa
 
 from btclib_wallet.bip32.key_origin import (
     BIP32KeyOrigin,
@@ -203,10 +203,9 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
     """Raise an exception if the dataclass element is not valid.
 
     Each `except` names `ValueError` rather than `BTClibValueError`: a
-    parse may be btclib_ecc's, whose `BTClibEccValueError` is a
-    `ValueError` and no `BTClibValueError` (issue btclib-org/btclib#2282),
-    and what it refuses leaves here as this package's refusal naming the
-    field.
+    parse may be `btclib_ecc.exceptions.BTClibEccValueError`, a
+    `ValueError` and no `BTClibValueError`, and what it refuses leaves
+    here as this package's refusal naming the field.
     """
     for pub_key, sig in partial_sigs.items():
         try:

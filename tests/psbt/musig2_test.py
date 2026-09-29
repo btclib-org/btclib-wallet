@@ -8,11 +8,11 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
-from btclib.curves import bytes_from_point, mult, secp256k1
-from btclib.ecc import ssa
 from btclib.exceptions import BTClibValueError
 from btclib.script import type_and_payload
 from btclib.script.engine import verify_transaction
+from btclib_ecc.curves import bytes_from_point, mult, secp256k1
+from btclib_ecc.ecc import ssa
 
 from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, musig2
 from btclib_wallet.psbt.psbt import prevouts, taproot_sig_hash

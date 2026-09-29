@@ -28,7 +28,6 @@ import secrets
 import pytest
 from btclib.b58 import address_from_h160, prv_key_data_from_wif
 from btclib.base58 import decode as base58_decode
-from btclib.curves import bytes_from_point, mult, secp256k1
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -37,6 +36,7 @@ from btclib.exceptions import (
     NotAPrvKeyError,
 )
 from btclib.hashes import hash160
+from btclib_ecc.curves import bytes_from_point, mult, secp256k1
 
 from btclib_wallet import bip38
 from btclib_wallet.bip38 import BlockCipherF

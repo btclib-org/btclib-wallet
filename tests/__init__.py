@@ -210,7 +210,7 @@ needs_bindings = pytest.mark.bindings
 # --------------------------------------------------------------------------
 # The libsecp256k1 dispatch switched off, shared by the tests that ask the
 # Python arm of a function a question. The dispatch they switch off is the
-# one `btclib.curves.set_libsecp256k1_serving` sets, and this package
+# one `btclib_ecc.curves.set_libsecp256k1_serving` sets, and this package
 # reaches the bindings through it and through the names its own modules
 # import.
 # --------------------------------------------------------------------------
@@ -259,7 +259,7 @@ def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     written here, which package defines the dispatch being btclib's to
     decide.
     """
-    from btclib.curves import set_libsecp256k1_serving  # noqa: PLC0415
+    from btclib_ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     set_libsecp256k1_serving(serving=False)
     _refuse_bindings(monkeypatch, sys.modules[set_libsecp256k1_serving.__module__])
@@ -298,7 +298,7 @@ def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     produces. An arm this does not cover fails by calling through instead
     of passing by measuring the bindings against themselves.
     """
-    from btclib.curves import set_libsecp256k1_serving  # noqa: PLC0415
+    from btclib_ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     for mod_name, mod in list(sys.modules.items()):
         if mod_name.split(".")[0] in WALKED_PACKAGES:

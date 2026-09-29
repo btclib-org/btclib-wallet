@@ -34,7 +34,7 @@ WIF row landed: this module has no format of its own to hand back, `network` is
 always "mainnet" for it, since nothing in a BIP38 record names one.
 
 **Why the cipher is a parameter.** BIP38 encrypts with AES-256 in ECB --
-each 16-byte block on its own, no chaining -- and `btclib.ecc.ecies`'s
+each 16-byte block on its own, no chaining -- and `btclib_ecc.ecc.ecies`'s
 module docstring has the argument in full for why btclib ships none of
 its own: a table-driven block cipher leaks its key through cache timing,
 and shipping one anyway is a worse answer than shipping none. `encrypt`
@@ -80,8 +80,6 @@ from btclib.alias import Integer, Octets, String
 from btclib.b58 import address_from_h160
 from btclib.base58 import decode as base58_decode
 from btclib.base58 import encode as base58_encode
-from btclib.curves import bytes_from_point, mult, point_from_octets, secp256k1
-from btclib.curves import scalar_from_prv_key as _scalar
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -92,6 +90,8 @@ from btclib.exceptions import (
 from btclib.hashes import hash160, hash256
 from btclib.key import PrvKeyData
 from btclib.utils import assert_type, bytes_from_octets, is_integer
+from btclib_ecc.curves import bytes_from_point, mult, point_from_octets, secp256k1
+from btclib_ecc.curves import scalar_from_prv_key as _scalar
 
 __all__ = [
     "BlockCipherF",

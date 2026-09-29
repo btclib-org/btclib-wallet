@@ -203,7 +203,6 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "transport",
     ],
     "btclib_wallet.fetch:SessionTransport.__init__": [
-        "max_body_size",
         "connection_factory",
     ],
     "btclib_wallet.fetch:TlsLineTransport.__init__": ["context", "max_line_size"],

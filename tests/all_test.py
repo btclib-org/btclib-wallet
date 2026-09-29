@@ -346,7 +346,7 @@ def test_psbt_exports_the_format_not_its_plumbing() -> None:
         "taproot_sig_hash",
     ]
 
-    # BIP373 is a role, so the module is the name, as btclib.ecc.musig2 is
+    # BIP373 is a role, so the module is the name, as btclib_ecc.ecc.musig2 is
     assert btclib_wallet.psbt.musig2.__name__ == "btclib_wallet.psbt.musig2"
     # and the same for the roles over a BIP445 session, whose fields are
     # btclib's own proprietary records rather than assigned type bytes

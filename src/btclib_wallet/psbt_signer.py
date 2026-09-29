@@ -62,11 +62,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from btclib.alias import Octets, String
-from btclib.ecc import bms, dsa, ssa
+from btclib.ecc import bms
 from btclib.exceptions import BTClibValueError, SignerError
 from btclib.key import PrvKeyData
 from btclib.script.taproot import output_prvkey_from_merkle_root
 from btclib.utils import assert_type, bytes_from_octets
+from btclib_ecc.ecc import dsa, ssa
 
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,

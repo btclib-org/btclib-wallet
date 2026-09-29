@@ -34,20 +34,20 @@ from tests import module_names
 
 
 def _is_ours(name: str) -> bool:
-    """Answer whether a dotted name is this package's or btclib's.
+    """Answer whether a dotted name is this package's, btclib's or btclib_ecc's.
 
-    `btclib_secp256k1`, the bindings, is neither: reimporting a cffi
-    extension module is another matter entirely, so the boundary is the
-    two package names and their submodules, not a bare `startswith`.
+    `btclib_secp256k1`, the bindings, is none of the three: reimporting a
+    cffi extension module is another matter entirely, so the boundary is
+    the three package names and their submodules, not a bare `startswith`.
     """
     return any(
         name == root or name.startswith(f"{root}.")
-        for root in ("btclib", "btclib_wallet")
+        for root in ("btclib", "btclib_ecc", "btclib_wallet")
     )
 
 
 def loaded_modules() -> list[str]:
-    """Return the modules of this package and of btclib in sys.modules."""
+    """Return the modules of this package, of btclib and of btclib_ecc."""
     return [name for name in sys.modules if _is_ours(name)]
 
 
@@ -132,13 +132,13 @@ def _loaded_after_importing(module_name: str) -> list[str]:
 
 
 def test_mnemonic_stays_stdlib_light() -> None:
-    """`btclib_wallet.mnemonic` reaches `bip32` and btclib's curves, no more.
+    """`btclib_wallet.mnemonic` reaches `bip32` and btclib_ecc curves, no more.
 
     BIP39, SLIP39 and Electrum stop at the seed, and a mnemonic package of
     their own is the next cut: `btclib-org/btclib#2129` moves them out and
     leaves the four functions that build a key from a seed here. Those
-    four are why this reaches `bip32`, `network` and `curves` today --
-    `bip39.mxprv_from_mnemonic`, `slip39.mxprv_from_mnemonics` and
+    four are why this reaches `bip32`, `network` and `btclib_ecc.curves`
+    today -- `bip39.mxprv_from_mnemonic`, `slip39.mxprv_from_mnemonics` and
     `electrum.mxprv_from_mnemonic` build an extended private key, and
     `electrum.old_master_pub_key_from_mnemonic` a public-key point. What
     this checks is that the reach, wherever it stops, never leaves
@@ -169,15 +169,21 @@ def test_mnemonic_stays_stdlib_light() -> None:
         "btclib._ripemd160",
         "btclib.var_int",
         "btclib.curves",
-        "btclib.curves.curve",
-        "btclib.curves.curve_group",
-        "btclib.curves.curve_group_2",
-        "btclib.curves.curve_group_f",
-        "btclib.curves.sec_point",
-        "btclib.number_theory",
-        "btclib._libsecp256k1",
         "btclib.network",
         "btclib.consensus",
+        "btclib_ecc",
+        "btclib_ecc._libsecp256k1",
+        "btclib_ecc._utils",
+        "btclib_ecc.alias",
+        "btclib_ecc.curves",
+        "btclib_ecc.curves.curve",
+        "btclib_ecc.curves.curve_group",
+        "btclib_ecc.curves.curve_group_2",
+        "btclib_ecc.curves.curve_group_f",
+        "btclib_ecc.curves.sec_point",
+        "btclib_ecc.exceptions",
+        "btclib_ecc.hashes",
+        "btclib_ecc.number_theory",
     }
     assert not set(loaded) & set(_HEAVY_MODULES)
 

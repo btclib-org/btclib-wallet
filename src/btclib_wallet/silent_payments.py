@@ -58,7 +58,7 @@ secret is derived from. None of the three is a function here; the module
 docstring is where they are stated, and `btclib.script.sig_hash` is where
 the flags are.
 
-secp256k1 and sha256 are not parameters, as in `btclib.ecc.musig2`:
+secp256k1 and sha256 are not parameters, as in `btclib_ecc.ecc.musig2`:
 BIP352 is defined for that pair, and the 33-byte compressed points, the
 32-byte scalars and the three tags below are its serialization.
 """
@@ -72,7 +72,14 @@ from dataclasses import dataclass
 from btclib.alias import Integer, NetworkType, Octets, Point, String
 from btclib.b32 import power_of_2_base_conversion
 from btclib.bech32 import BECH32_M_CONST, decode, encode
-from btclib.curves import (
+from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.hashes import hash160
+from btclib.network import network_type_from_network
+from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
+from btclib.script.witness import Witness
+from btclib.tx.out_point import OutPoint
+from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_string
+from btclib_ecc.curves import (
     PubKey,
     TweakChain,
     bytes_from_point,
@@ -86,14 +93,8 @@ from btclib.curves import (
     sum_var,
     tweak_add_var,
 )
-from btclib.ecc.ssa import point_from_bip340pub_key
-from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.hashes import hash160, tagged_hash
-from btclib.network import network_type_from_network
-from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
-from btclib.script.witness import Witness
-from btclib.tx.out_point import OutPoint
-from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_string
+from btclib_ecc.ecc.ssa import point_from_bip340pub_key
+from btclib_ecc.hashes import tagged_hash
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -578,7 +579,7 @@ def shared_secret(scalar: Integer, point: PubKey) -> Point:
     without the round trip through one. The point itself is the answer,
     which is why `ecdh.shared_secret` of the bindings is no substitute --
     it hashes, and BIP352 tags this point with a counter of its own;
-    :mod:`btclib.ecc.dh` has that verdict for all four of the library's
+    `btclib_ecc.ecc.dh` has that verdict for all four of the library's
     ECDH-shaped computations.
 
     The octets arrive unproven, as `ecc.ecies.derive_keys` takes them:
@@ -994,7 +995,7 @@ def prv_key_from_tweak(b_spend: Integer, prv_key_tweak: int) -> int:
 
     b_spend plus the tweak `scan_outputs` reported, modulo n. The taproot
     output is x-only, so a signer negates this key if it has to; that is
-    BIP340's business and `btclib.ecc.ssa.sign` does it.
+    BIP340's business and `btclib_ecc.ecc.ssa.sign` does it.
     """
     d = (
         scalar_from_prv_key(b_spend) + scalar_from_prv_key(prv_key_tweak)

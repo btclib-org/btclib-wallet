@@ -32,9 +32,9 @@ from typing import Any
 
 import pytest
 from btclib import b58
-from btclib.curves import secp256k1 as ec
 from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
+from btclib_ecc.curves import secp256k1 as ec
 
 from btclib_wallet.bip32 import BIP32KeyData, derive, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip85 import (

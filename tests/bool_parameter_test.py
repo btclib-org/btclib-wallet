@@ -71,12 +71,12 @@ from typing import Any
 
 import pytest
 from btclib.b58 import p2pkh
-from btclib.curves import bytes_from_point, bytes_from_prv_key_int, mult
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
+from btclib_ecc.curves import bytes_from_point, bytes_from_prv_key_int, mult
 
 from btclib_wallet import bip38, bip322, core_import, slip132
 from btclib_wallet.bip32.bip32 import (

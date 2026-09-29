@@ -464,6 +464,12 @@ detect-secrets reads the pinned sha as a secret, and the baseline recorded
 only the previous one: a `# pragma: allowlist secret` on the `rev:` line
 holds for any sha, and the stale entry goes.
 
+### The curve arithmetic and the schemes are imported from `btclib_ecc` directly
+
+`btclib.curves`, `btclib.ecc` less `bms`, `btclib.kdf` and `btclib.number_theory`
+become `btclib_ecc`'s own modules; btclib's own floor moves to the release
+binding its own objects, and `btclib-ecc` joins `dependencies` (closes #127).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

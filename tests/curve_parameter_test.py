@@ -35,8 +35,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from btclib.curves import CURVES, CurveGroup, secp256k1
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib_ecc.curves import CURVES, CurveGroup, secp256k1
 
 from btclib_wallet.bip32.bip32 import (
     BIP32KeyData,

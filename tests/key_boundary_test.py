@@ -16,10 +16,11 @@ from __future__ import annotations
 import pytest
 from btclib import b58
 from btclib.b58 import wif_from_prv_key
-from btclib.curves import bytes_from_point, mult, scalar_from_prv_key
-from btclib.ecc import bms, dsa, ssa
+from btclib.ecc import bms
 from btclib.hashes import magic_message
 from btclib.key import PrvKeyData, PubKeyData
+from btclib_ecc.curves import bytes_from_point, mult, scalar_from_prv_key
+from btclib_ecc.ecc import dsa, ssa
 
 from btclib_wallet.bip32 import BIP32KeyData, bip32, rootxprv_from_seed
 from btclib_wallet.mnemonic import bip39

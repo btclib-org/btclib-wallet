@@ -30,12 +30,12 @@ from typing import Any, cast
 import pytest
 from btclib.b32 import power_of_2_base_conversion
 from btclib.bech32 import BECH32_M_CONST, encode
-from btclib.curves import bytes_from_point, mult, secp256k1
-from btclib.ecc import ssa
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
+from btclib_ecc.curves import bytes_from_point, mult, secp256k1
+from btclib_ecc.ecc import ssa
 
 from btclib_wallet import silent_payments
 from tests import NOT_STRIPPED, load, needs_bindings, vector_id
