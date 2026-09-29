@@ -226,8 +226,9 @@ upstream means refreshing the keys, never the messages.
 ```text
 repo    bitcoin/bips
 path    bip-0174.mediawiki
-commit  8c369ac8e60629ac6c032ffe21bb5ec5b35213d7  2026-07-16
-pulled  2020-11-15, extended 2021-08-03, refreshed 2026-07-30
+commit  722d01e5e0a2e0c82b0e3e77402ddc44a5bf6aaa  2026-09-23
+pulled  2020-11-15, extended 2021-08-03, refreshed 2026-07-30, re-pinned
+        to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -241,6 +242,11 @@ which are prose steps rather than cases. Five of them are the raw
 material of `btclib_test_vectors.json` below, which is a different claim:
 not that they are cases, but that a case can be built out of one.
 
+Re-checked against the tip on 2026-09-29: the 34 `* Case:` entries are
+byte for byte what they were at the previous pin. BIP174 1.4.3 and 1.4.4
+added a commutativity clarification and a new combiner test vector, both
+inside the walk-through this file does not vendor.
+
 The `description` and `encoded psbt` of each entry are upstream's. The
 `error message` of a signer check failure is **not**: the BIP says only
 that these four psbts must fail the check, so that field is btclib's own
@@ -252,8 +258,8 @@ correcting it here too.
 ```text
 repo    bitcoin/bips
 path    bip-0371.mediawiki
-commit  24e96e870fffaa257b465ce1f0370c14aac588e8  2026-01-12
-pulled  2023-07-07, re-pinned to the tip 2026-08-06
+commit  8629462a94d6b7fcfe8ef6251a5304da4c794cec  2026-09-23
+pulled  2023-07-07, re-pinned to the tip 2026-08-06, and again 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -265,13 +271,18 @@ tip. The two "PSBT_KEY_PATH_SIG" cases were renamed
 field's own name; the `description` of both is updated to match, the
 `encoded psbt` of every case unchanged throughout.
 
+Re-checked again on 2026-09-29: still the same 17, byte for byte. The
+only diff since the previous pin is a sentence removed from
+`PSBT_OUT_TAP_BIP32_DERIVATION`'s field description, unrelated to any
+vector.
+
 ### `tests/psbt/_data/bip370_test_vectors.json`
 
 ```text
 repo    bitcoin/bips
 path    bip-0370.mediawiki
-commit  e3874ca825bcd2d0975ffaffb97f1194b3661ad6  2026-04-07
-pulled  2026-08-03
+commit  1e431879afd53be71a3bafe29ddae93837337f40  2026-09-23
+pulled  2026-08-03, re-pinned to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -300,6 +311,14 @@ The valid ones are read and written back byte for byte, and the ten
 locktime cases are asserted against the value the algorithm publishes
 for each — the `null` one by the refusal it gets, its two kinds of
 locktime having no single `nLockTime` to agree on.
+
+Re-checked against the tip on 2026-09-29: the Test Vectors section is
+unchanged. The diff adds an Input Finalizer section naming the PSBTv2
+input fields a finalized input must keep —
+`PSBT_IN_PREVIOUS_TXID`, `PSBT_IN_OUTPUT_INDEX`, `PSBT_IN_SEQUENCE`,
+`PSBT_IN_REQUIRED_TIME_LOCKTIME` and `PSBT_IN_REQUIRED_HEIGHT_LOCKTIME` —
+none of which `btclib_wallet.psbt.psbt_in`'s `_DROPPED_ONCE_FINALIZED`
+names.
 
 ### `tests/psbt/_data/bip373_test_vectors.json`
 
@@ -344,9 +363,9 @@ one is.
 ```text
 repo    bitcoin/bips
 path    bip-0375/bip375_test_vectors.json
-commit  e726d13ade44e2184635935c84a83d4082da3a63  2026-08-13
-blob    38511f65b4f100c4f56ac12371ebe4d8888f1e0d
-pulled  2026-08-25
+commit  7ccde10a3c572b75d8fa5a584bf25463156cdcb3  2026-09-12
+blob    d08d943e46c1f00d891d046db070da192549d171
+pulled  2026-08-25, re-pinned to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -359,7 +378,7 @@ trailing newline" exception.
 The only psbt vector file here that has an upstream file at all -- the
 other five are transcribed from mediawiki prose -- so the `bip375_` prefix
 is upstream's own name and this repository's naming rule at once, which is
-the one place the two coincide. 42 psbts, 22 invalid and 20 valid, the
+the one place the two coincide. 43 psbts, 23 invalid and 20 valid, the
 valid ones split between "can finalize" and "in progress".
 
 Each case carries a `supplementary` object of private keys, public keys
@@ -378,9 +397,14 @@ level up: the maps read out of upstream's bytes and the maps read out of
 btclib's hold the same set of pairs, and btclib's own bytes are stable
 under a second parse. Measured on all 37 psbts that parse.
 
-All 22 invalid psbts are refused and all 20 valid ones pass, and it takes
+Re-pinned to the tip on 2026-09-29, adding one invalid case over the
+previous pin: "psbt structure: incorrect byte length for
+PSBT_OUT_SP_V0_LABEL field", a field-shape violation
+`tests/psbt/bip375_test.py`'s `_REFUSED` now names beside the others.
+
+All 23 invalid psbts are refused and all 20 valid ones pass, and it takes
 two test modules to say so: `tests/psbt/bip375_test.py` holds the codec to
-the file -- the field shapes, which is five of the six "PSBT Structure"
+the file -- the field shapes, which is six of the seven "PSBT Structure"
 cases -- and `tests/psbt/silent_payments_test.py` holds the two roles to
 it, which is the other seventeen. Each invalid case's category is read off
 its own description, so a psbt refused by the wrong check fails there
@@ -496,8 +520,8 @@ truncated to what the sentence encodes.
 ```text
 repo    bitcoin/bips
 path    bip-0387.mediawiki
-commit  24e96e870fffaa257b465ce1f0370c14aac588e8  2026-01-12
-pulled  2026-08-06
+commit  3ac7c77174780bea5aa8999b1cf205f98da2ab46  2026-09-17
+pulled  2026-08-06, re-pinned to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -511,13 +535,17 @@ refusals answering the uncompressed key before the threshold the BIP was
 illustrating, which the entries say. Each value was matched against the
 pinned text on 2026-08-06.
 
+Re-checked against the tip on 2026-09-29: the Test Vectors section is
+unchanged. The only diff is the BIP's own status line, `Type` moving from
+Informational to Specification.
+
 ### Not vendored as a file: BIP390's `musig()` vectors
 
 ```text
 repo    bitcoin/bips
 path    bip-0390.mediawiki
-commit  7517a8b2ac8fdb13e586d0e139a7f5b87ceab994  2026-08-06
-pulled  2026-08-06
+commit  2a20ce4e8e1c6b941d1a827a287d757a568750d8  2026-09-17
+pulled  2026-08-06, re-pinned to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -530,10 +558,15 @@ what the BIP states in prose rather than listing — no nesting, no key
 origin in front of one, at least one participant, no x-only participant,
 and a `musig()` where a tree leaf belongs.
 
-The pin is the tip and it is the day it was taken: that commit is
+The original pin was the tip on the day it was taken, and that commit was
 `bip390: fix missing parenthesis in test vector`, which closed the last
 invalid descriptor's brackets, so a copy taken a day earlier would hold a
-descriptor upstream no longer publishes. Ours is the fixed one.
+descriptor upstream no longer publishes. Ours was the fixed one.
+
+Re-pinned to the tip again on 2026-09-29: that commit,
+`bip390: Update to Specification type`, touches only the BIP's own status
+header, and the six valid and fourteen invalid descriptors are still the
+ones the 2026-08-06 pin held.
 
 One of the fourteen is refused for a reason of btclib's own rather than
 the BIP's, and the entry in the module says so: a multipath `musig()`
@@ -1258,7 +1291,7 @@ above deliberately leaves out. The starting psbts are five steps of the
 BIP's "2-of-3 Multisig Workflow" walk-through — prose steps rather than
 `* Case:` entries, which is why `bip174_test_vectors.json` does not
 vendor them — taken at the same pin as that file,
-`8c369ac8e60629ac6c032ffe21bb5ec5b35213d7` (2026-07-16), where all five
+`722d01e5e0a2e0c82b0e3e77402ddc44a5bf6aaa` (2026-09-23), where all five
 appear verbatim; the two version 2 cases start instead from the first
 valid psbt of `bip370_test_vectors.json`, at the pin recorded there.
 Every case is one of those plus one edit:

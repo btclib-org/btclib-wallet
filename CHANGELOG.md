@@ -452,6 +452,12 @@ The comment above `_MIN_SIDES` names `indexes_from_der_path`, not
 `str_from_index_int`, which neither value passes through, and the suite pins
 the refusal of `2**31` sides or rolls (closes #123).
 
+### The vendored psbt BIPs' pins move to upstream's tip
+
+BIP375's tip adds an invalid vector, a wrong-length
+`PSBT_OUT_SP_V0_LABEL` field, which `tests/psbt/bip375_test.py` now
+refuses beside the other field-shape rules (closes #128).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

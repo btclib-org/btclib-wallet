@@ -20,9 +20,9 @@ the format defines: the map read out of upstream's bytes and the map read
 out of btclib's are the same set of pairs, and btclib's own serialization
 is stable under a second parse.
 
-**What a codec answers and what it does not.** Five of BIP375's six
+**What a codec answers and what it does not.** Six of BIP375's seven
 "PSBT Structure" invalid vectors are field-shape rules and each is
-refused here. The sixth is not: "PSBT_GLOBAL_TX_MODIFIABLE field is
+refused here. The seventh is not: "PSBT_GLOBAL_TX_MODIFIABLE field is
 non-zero when PSBT_OUT_SCRIPT set for sp output" is an obligation on the
 Signer that computed that script, not a statement about a field's
 contents. Nor are the other sixteen invalid vectors -- ECDH coverage,
@@ -52,12 +52,15 @@ from tests import load, vector_id
 
 _VECTORS = load("psbt", "_data", "bip375_test_vectors.json", encoding="utf-8")
 
-# the five invalid vectors that are a field's shape rather than a role's
+# the six invalid vectors that are a field's shape rather than a role's
 # obligation, keyed on the description because the file's order is not a
 # contract, and each with the message btclib refuses it with
 _REFUSED = {
     "psbt structure: missing PSBT_OUT_SP_V0_INFO field when PSBT_OUT_SP_V0_LABEL set": (
         "PSBT_OUT_SP_V0_LABEL without PSBT_OUT_SP_V0_INFO"
+    ),
+    "psbt structure: incorrect byte length for PSBT_OUT_SP_V0_LABEL field": (
+        "invalid silent payment label length"
     ),
     "psbt structure: incorrect byte length for PSBT_OUT_SP_V0_INFO field": (
         "invalid silent payment info length"
