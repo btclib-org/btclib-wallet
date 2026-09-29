@@ -476,6 +476,12 @@ BIP341 makes a leaf version's low bit always 0; the Signer excludes such a
 record from what it proves and what it signs, matching Bitcoin Core, rather
 than raising or masking the bit away (closes #126).
 
+### `[tool.uv]`'s floor rises to the `uv` `dependabot-core` bundles
+
+`required-version` reads `>=0.12.19`, the pin in `dependabot-core`'s
+`uv/Dockerfile`: the old floor admitted a `uv` older than the one the updater
+writes `uv.lock` with (issue btclib-org/.github#1438).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
