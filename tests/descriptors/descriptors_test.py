@@ -3586,6 +3586,13 @@ UNECHOED = [
         f"tr({XPRV_ROOT},multi_a({WIF},{MUSIG_A_WIF}))",
         r"^invalid multi_a\(\) threshold: digits expected$",
     ),
+    # btclib's bech32 decoder, which an addr() argument behind a segwit
+    # prefix reaches (issue #94)
+    (f"addr(bc1{WIF})", "^too short checksum$"),
+    (f"addr(bc1{WIF}qqqqqqq)", "^mixed case$"),
+    (f"addr(bc1{HEX_PRV}bqqqqqq)", "^invalid data character$"),
+    (f"addr(bc1{HEX_PRV}qqqqqqb)", "^invalid character in checksum$"),
+    (f"addr(bc1{HEX_PRV}qqqqqq)", "^invalid checksum$"),
     (f"raw({WIF})", r"^raw\(\) takes a hex script$"),
     (f"{WIF}(0)", "^unknown descriptor function$"),
     (f"wsh({WIF})", "^not a miniscript fragment: a name expected$"),

@@ -510,6 +510,17 @@ The `--bundle` form of *Verify the provenance of an asset* passes
 `--signer-workflow "$signer"`, without which `gh attestation verify` refuses
 a good release (issue btclib-org/.github#1446).
 
+### An `addr()` argument is not echoed by btclib's bech32 refusals
+
+From 2026.9.29, the floor `dependencies` holds, btclib's bech32 decoder quotes
+nothing it refuses, so the `addr()` exception the `#49` entry makes no longer
+holds: `descriptors.parse` does not repeat a key written there (closes #94).
+
+### The bindings floor is the one btclib's `secp256k1` extra declares
+
+`btclib-secp256k1`, named in the `secp256k1` extra and the `bindings` group,
+takes btclib's `>=0.8.0.9` (closes #105).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
