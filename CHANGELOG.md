@@ -504,6 +504,12 @@ An unknown word is named by its position, a word-list index out of range
 is refused by its position, and the rest by what they are (closes #135,
 closes #137).
 
+### `RELEASING.md`'s bundle verification names the signer workflow
+
+The `--bundle` form of *Verify the provenance of an asset* passes
+`--signer-workflow "$signer"`, without which `gh attestation verify` refuses
+a good release (issue btclib-org/.github#1446).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

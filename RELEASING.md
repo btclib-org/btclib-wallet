@@ -627,7 +627,7 @@ result.
    gh attestation verify "$wheel" --repo "$repo" \
      --signer-workflow "$signer" &&
    gh attestation verify "$wheel" --repo "$repo" \
-     --bundle "v${version:?}.attestation.jsonl"
+     --signer-workflow "$signer" --bundle "v${version:?}.attestation.jsonl"
    ```
 
    the first asks the attestations API for the signed statement, the
@@ -637,12 +637,14 @@ result.
    given, so the sdist and the bill of materials verify against the same
    bundle.
 
-   `--signer-workflow` is the flag that makes the check say *which*
-   workflow signed: without it a valid attestation from any workflow in
-   the repository passes. The signing runs inside `btclib-org/.github`'s
+   `--signer-workflow` names the workflow that signed, and both forms
+   need it. The signing runs inside `btclib-org/.github`'s
    `reusable-attest.yml`, which `release.yml`'s `attest` job calls, so
    that is the workflow the certificate names, while `--repo` still names
-   this repository. Neither form is offline on its own — the
+   this repository. For a signer that is a reusable workflow,
+   `gh attestation verify --help` requires `--signer-workflow` or
+   `--signer-repo`, and without one either form refuses the release.
+   Neither form is offline on its own — the
    Sigstore trusted root comes over the network unless
    `gh attestation trusted-root > trusted_root.jsonl` fetched it earlier
    and `--custom-trusted-root` points at it.
