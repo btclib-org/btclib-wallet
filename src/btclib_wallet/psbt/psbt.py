@@ -825,6 +825,19 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     return payload
 
 
+def _is_valid_leaf_version(leaf_version: int) -> bool:
+    """Return whether a byte is BIP341's definition of a leaf version.
+
+    Even, and in `[0, 0xfe]`: the same domain `taproot.leaf_hash` refuses
+    rather than masking, and an odd one names no leaf any spend can
+    reveal -- Bitcoin Core's `InferTaprootTree` treats it the same way,
+    as one more shape a candidate leaf record structurally cannot be a
+    genuine leaf of the committed tree, skipping it rather than failing
+    the input it belongs to.
+    """
+    return 0 <= leaf_version <= 0xFE and not leaf_version & 1
+
+
 def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
     """Raise unless a taproot input's fields commit to the key being spent.
 
@@ -845,7 +858,10 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
     Absence is not refused, as it is not for a p2sh input carrying no
     redeem script: an input that says nothing about how it is spent has
     told the signer nothing that can be wrong. What is there must be
-    true.
+    true -- except a leaf version that fails `_is_valid_leaf_version`,
+    which is not a claim this proves or refutes: it names no leaf, so
+    it is skipped rather than raised on, matching Bitcoin Core's Signer
+    (issue #126).
 
     The leaf version is checked against the control block's because the
     two are read by different callers: `check_output_pubkey` folds the
@@ -869,7 +885,9 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
             raise BTClibValueError(err_msg)
 
     for control_block, (script, leaf_version) in psbt_in.taproot_leaf_scripts.items():
-        if control_block[0] & 0xFE != leaf_version & 0xFE:
+        if not _is_valid_leaf_version(leaf_version):
+            continue
+        if control_block[0] & 0xFE != leaf_version:
             err_msg = f"leaf version {hex(leaf_version)} is not the control "
             err_msg += f"block's {hex(control_block[0] & 0xFE)}"
             raise BTClibValueError(err_msg)
@@ -2227,9 +2245,15 @@ def leaf_script(psbt_in: PsbtIn, leaf_hash: Octets) -> tuple[bytes, bytes]:
     script and its leaf version, while every other taproot field names a
     leaf by its BIP341 hash: this is that lookup, and it computes the
     hashes rather than trusting a second index of them.
+
+    A record whose leaf version `_is_valid_leaf_version` refuses is
+    skipped rather than hashed: it names no leaf any tapleaf hash could
+    match, and `taproot.leaf_hash` raises on it rather than answering.
     """
     leaf_hash = bytes_from_octets(leaf_hash, LEAF_HASH_SIZE)
     for control_block, (script, leaf_version) in psbt_in.taproot_leaf_scripts.items():
+        if not _is_valid_leaf_version(leaf_version):
+            continue
         if taproot.leaf_hash(leaf_version, script) == leaf_hash:
             return script, control_block
     raise BTClibValueError(f"no leaf script for tapleaf hash {leaf_hash.hex()}")
@@ -2626,11 +2650,18 @@ def _sign_taproot_script_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -
     in a threshold of CHECKSIGADD signs its own line, the rest of the
     quorum being other signers' turn. Whether the leaf can then be
     finalized is `single_leaf_key`'s question, one role later.
+
+    A record whose leaf version `_is_valid_leaf_version` refuses is
+    excluded from the candidates: it is not a leaf any spend can reveal,
+    so no key is ever asked to sign under its hash, matching Bitcoin
+    Core's Signer skipping it rather than failing the whole input
+    (issue #126).
     """
     psbt_in = psbt.inputs[vin_i]
     leaf_hashes = {
         taproot.leaf_hash(leaf_version, script)
         for script, leaf_version in psbt_in.taproot_leaf_scripts.values()
+        if _is_valid_leaf_version(leaf_version)
     }
     signed = False
     for pub_key, (key_leaf_hashes, origin) in psbt_in.taproot_hd_key_paths.items():

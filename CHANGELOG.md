@@ -470,6 +470,12 @@ holds for any sha, and the stale entry goes.
 become `btclib_ecc`'s own modules; btclib's own floor moves to the release
 binding its own objects, and `btclib-ecc` joins `dependencies` (closes #127).
 
+### A `PSBT_IN_TAP_LEAF_SCRIPT` record with an odd leaf version is skipped
+
+BIP341 makes a leaf version's low bit always 0; the Signer excludes such a
+record from what it proves and what it signs, matching Bitcoin Core, rather
+than raising or masking the bit away (closes #126).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

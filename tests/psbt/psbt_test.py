@@ -3392,6 +3392,24 @@ def test_what_a_taproot_input_cannot_be_signed_from() -> None:
         psbt.assert_signable()
 
 
+def test_an_odd_leaf_version_is_skipped_rather_than_signed_from() -> None:
+    """BIP341 makes a leaf version's low bit always 0 -- an odd one names none.
+
+    Issue #126. Unlike the even-but-wrong version above, which is a claim
+    the psbt makes and fails to prove, an odd one is not a claim at all:
+    Bitcoin Core's Signer skips such a record rather than failing the
+    input over it, and `assert_signable` does the same -- the record is
+    excluded from what it proves, not raised on for being unprovable.
+    """
+    script_path = "one P2TR script path only input with dummy internal key"
+    psbt = _bip371_psbt(script_path)
+    control_block = next(iter(psbt.inputs[0].taproot_leaf_scripts))
+    psbt.inputs[0].taproot_leaf_scripts[b"\x00" * 33] = (b"\x51", 0xC1)
+
+    psbt.assert_signable()
+    assert control_block in psbt.inputs[0].taproot_leaf_scripts
+
+
 def test_a_taproot_input_is_checked_whichever_utxo_it_carries() -> None:
     """The non_witness_utxo path used to be the one that checked nothing.
 
@@ -3895,6 +3913,63 @@ def test_sign_appends_the_sig_hash_type_to_a_script_path_signature() -> None:
     assert signature[-1] == sig_hash.ALL
     assert_signatures_only(request, returned)
     verify_transaction(prevouts, extract_tx(finalize(returned), check_validity=False))
+
+
+def test_sign_skips_a_taproot_leaf_with_an_odd_version() -> None:
+    """An odd-leaf-version record signs nothing, and the real leaf still does.
+
+    Issue #126, matching Bitcoin Core: the record is excluded from the
+    candidates `_sign_taproot_script_path` builds rather than raised on,
+    which is what `taproot.leaf_hash` would do if it were asked to hash
+    the odd version. The real leaf is untouched by the poison record's
+    presence, so the input signs exactly as
+    `test_sign_writes_the_taproot_script_path_signature` does.
+    """
+    psbt, prevouts = _taproot_script_path_psbt()
+    psbt.inputs[0].taproot_leaf_scripts[b"\x00" * 33] = (b"\x51", 0xC1)
+    key_manager = _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
+
+    result, signed_vins = sign(psbt, key_manager)
+
+    assert signed_vins == [0]
+    signatures = result.inputs[0].taproot_script_spend_signatures
+    assert list(signatures) == [_LEAF_KEY + _LEAF_HASH]
+    verify_transaction(prevouts, extract_tx(finalize(result), check_validity=False))
+
+
+def test_leaf_script_skips_a_record_with_an_odd_version() -> None:
+    """`leaf_script`'s lookup never hashes an odd leaf version.
+
+    Issue #126. Inserted ahead of the real leaf so the loop reaches it
+    first: were it hashed, `taproot.leaf_hash` would raise
+    `BTClibValueError` for the odd version instead of `leaf_script`
+    reporting the lookup itself failed.
+    """
+    psbt, _ = _taproot_script_path_psbt()
+    control_block, value = next(iter(psbt.inputs[0].taproot_leaf_scripts.items()))
+    psbt.inputs[0].taproot_leaf_scripts = {
+        b"\x00" * 33: (b"\x51", 0xC1),
+        control_block: value,
+    }
+
+    script, found_control_block = leaf_script(psbt.inputs[0], _LEAF_HASH)
+
+    assert script == _LEAF_SCRIPT
+    assert found_control_block == control_block
+
+
+def test_leaf_script_reports_no_match_when_only_an_odd_version_remains() -> None:
+    """The friendly "no leaf script" message, not a raw `leaf_hash` refusal.
+
+    Issue #126: a lookup that can only reach a skipped record is a lookup
+    that finds nothing, which is `leaf_script`'s own error and not
+    `taproot.leaf_hash`'s "invalid leaf version".
+    """
+    psbt, _ = _taproot_script_path_psbt()
+    psbt.inputs[0].taproot_leaf_scripts = {b"\x00" * 33: (b"\x51", 0xC1)}
+
+    with pytest.raises(BTClibValueError, match="no leaf script for tapleaf hash"):
+        leaf_script(psbt.inputs[0], _LEAF_HASH)
 
 
 def test_sign_offers_a_taproot_input_both_of_its_paths() -> None:
