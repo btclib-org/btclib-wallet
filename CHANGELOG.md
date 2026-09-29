@@ -458,6 +458,12 @@ BIP375's tip adds an invalid vector, a wrong-length
 `PSBT_OUT_SP_V0_LABEL` field, which `tests/psbt/bip375_test.py` now
 refuses beside the other field-shape rules (closes #128).
 
+### The pinned `btclib-org/.github` rev is allowlisted inline
+
+detect-secrets reads the pinned sha as a secret, and the baseline recorded
+only the previous one: a `# pragma: allowlist secret` on the `rev:` line
+holds for any sha, and the stale entry goes.
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`
