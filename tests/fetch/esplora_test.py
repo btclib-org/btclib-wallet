@@ -21,7 +21,7 @@ from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
-from btclib_wallet.fetch.transport import SessionTransport
+from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
 from tests.fetch import (
     LATER_TX_ID,
     SEGWIT_TX_RAW,
@@ -183,7 +183,7 @@ NO_TIMEOUTS = [
         ("negative-float", -0.5),
         ("inf", float("inf")),
         ("nan", float("nan")),
-        ("10**10", 10**10),
+        ("past-MAX_TIMEOUT", MAX_TIMEOUT + 1),
         ("10**400", 10**400),
         ("10**5000", 10**5000),
     )

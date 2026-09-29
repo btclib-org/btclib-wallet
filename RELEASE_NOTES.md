@@ -343,6 +343,10 @@ are private.
 - `btclib_wallet.mnemonic.slip39`'s `share_from_mnemonic` is
   `btclib_mnemonics.slip39.share_from_mnemonic`.
 
+The bound on a `timeout` that `fetch.ElectrumFetcher` refuses is
+`fetch.transport.MAX_TIMEOUT`, 2147483 seconds, where the paragraph above
+names `threading.TIMEOUT_MAX`; pass at most that many seconds.
+
 ## v2026.9.24
 
 The first release of `btclib-wallet`, whose modules leave `btclib`

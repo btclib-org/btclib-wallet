@@ -26,6 +26,7 @@ from btclib.network import NETWORKS
 from btclib.tx import OutPoint
 
 from btclib_wallet.fetch.electrum import ElectrumFetcher
+from btclib_wallet.fetch.transport import MAX_TIMEOUT
 from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT, TIP_ID, TX_ID
 
 # block 481824's transaction at index 1 -- btclib's own
@@ -189,7 +190,7 @@ NO_TIMEOUTS = [
         ("negative-float", -0.5),
         ("inf", float("inf")),
         ("nan", float("nan")),
-        ("10**10", 10**10),
+        ("past-MAX_TIMEOUT", MAX_TIMEOUT + 1),
         ("10**400", 10**400),
         ("10**5000", 10**5000),
     )

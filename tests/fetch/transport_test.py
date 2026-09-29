@@ -17,8 +17,8 @@ from __future__ import annotations
 import json
 import socket
 import ssl
+import threading
 from math import inf, nextafter
-from threading import TIMEOUT_MAX
 from typing import Any, Self
 
 import pytest
@@ -31,6 +31,7 @@ from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.transport import (
     DEFAULT_MAX_BODY_SIZE,
     DEFAULT_TIMEOUT,
+    MAX_TIMEOUT,
     TlsLineTransport,
     valid_timeout,
 )
@@ -337,10 +338,15 @@ def test_construction_validates_its_arguments(
         (REQUEST, float("nan"), BTClibValueError, "not a positive number of seconds"),
         (REQUEST, float("inf"), BTClibValueError, "not a positive number of seconds"),
         # past what a socket waits for, and a float's next step past it
-        (REQUEST, 10**10, BTClibValueError, "not a positive number of seconds"),
         (
             REQUEST,
-            nextafter(TIMEOUT_MAX, inf),
+            MAX_TIMEOUT + 1,
+            BTClibValueError,
+            "not a positive number of seconds",
+        ),
+        (
+            REQUEST,
+            nextafter(MAX_TIMEOUT, inf),
             BTClibValueError,
             "not a positive number of seconds",
         ),
@@ -373,11 +379,18 @@ def test_a_call_validates_its_arguments_before_connecting(
 
 
 def test_the_bound_is_a_timeout_a_socket_takes() -> None:
-    """`TIMEOUT_MAX` passes, and a real socket takes it: no refusal is late.
+    """`MAX_TIMEOUT` passes, and a socket waits with it: no refusal is late.
 
     The step past it is refused above, as a `BTClibValueError`, where a
-    socket would raise an `OverflowError` of its own.
+    socket would raise an `OverflowError` or an `OSError` of its own. A
+    socket that takes the timeout can still refuse it when it waits, as
+    PyPy's select() does on macOS, so a read is made with it too.
+    `threading`'s own bound is no lower on any platform.
     """
-    assert valid_timeout(TIMEOUT_MAX) == TIMEOUT_MAX
-    with socket.socket() as sock:
-        sock.settimeout(TIMEOUT_MAX)
+    assert valid_timeout(MAX_TIMEOUT) == MAX_TIMEOUT
+    assert MAX_TIMEOUT <= threading.TIMEOUT_MAX
+    reader, writer = socket.socketpair()
+    with reader, writer:
+        reader.settimeout(MAX_TIMEOUT)
+        writer.sendall(b"x")
+        assert reader.recv(1) == b"x"

@@ -527,6 +527,12 @@ takes btclib's `>=0.8.0.9` (closes #105).
 Electrum seed; the schemes up to the seed are `btclib_mnemonics`', and
 no module here re-exports them (closes #30).
 
+### A timeout is bounded by what a socket waits for on every platform
+
+`transport.MAX_TIMEOUT`, the whole seconds within `INT_MAX` milliseconds,
+bounds `valid_timeout`, where `threading.TIMEOUT_MAX` let through one a
+Windows socket or a PyPy one refuses (closes #146).
+
 ## v2026.9.24
 
 ### The wallet layer is a package of its own, `btclib-wallet`

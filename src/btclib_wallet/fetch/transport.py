@@ -63,7 +63,6 @@ from __future__ import annotations
 import ssl
 from collections.abc import Callable
 from socket import create_connection
-from threading import TIMEOUT_MAX
 from time import monotonic
 
 from bitcoin_core_rpc import (
@@ -85,6 +84,7 @@ __all__ = [
     "DEFAULT_MAX_BODY_SIZE",
     "DEFAULT_TIMEOUT",
     "MAX_ERROR_BODY_SIZE",
+    "MAX_TIMEOUT",
     "HttpTransport",
     "LineTransport",
     "SessionTransport",
@@ -100,6 +100,17 @@ _READ_CHUNK = 64 * 1024
 
 _MAX_PORT = 65535
 
+# the longest timeout, in seconds, a socket waits for on every platform
+# this package supports. CPython on Windows builds without poll(), and its
+# socket module refuses a timeout past INT_MAX milliseconds with an
+# OverflowError. PyPy's rsocket hands poll() the timeout as a C int of
+# milliseconds, and on macOS, where it takes select() instead, a timeval
+# that select() refuses past 10**8 seconds with EINVAL. The whole seconds
+# within INT_MAX milliseconds are the bound, the same on every platform,
+# so a timeout one of them takes is not refused by another; it is over
+# 24 days
+MAX_TIMEOUT = 2_147_483
+
 
 def valid_timeout(timeout: float) -> float:
     """Return `timeout`, refusing what no socket will wait for.
@@ -108,20 +119,19 @@ def valid_timeout(timeout: float) -> float:
     make of the timeout they take. A bool is not a duration,
     `timeout=True` being one second.
 
-    The bound is `threading.TIMEOUT_MAX`, the largest timeout `threading`
-    takes for a blocking call: `socket.settimeout` takes it too,
-    and raises an `OverflowError`, which is no `OSError`, for seconds
-    past what the interpreter's clock type holds. Compared rather than
-    asked of
-    `isfinite`, which raises that same `OverflowError` for an int too
-    large for a float: comparing an int with a float is exact, and a nan
-    passes no comparison. The value is not rendered, an int past `str`'s
-    digit limit raising a `ValueError` of its own.
+    The bound is `MAX_TIMEOUT`, a timeout a socket takes on every
+    platform: past it, a socket raises an `OverflowError`, which is no
+    `OSError`, or an `OSError` its caller reads as the connection failing.
+    Compared rather than asked of `isfinite`, which raises that same
+    `OverflowError` for an int too large for a float: comparing an int
+    with a float is exact, and a nan passes no comparison. The value is
+    not rendered, an int past `str`'s digit limit raising a `ValueError`
+    of its own.
     """
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
         raise BTClibTypeError(f"non-numeric timeout: {type(timeout).__name__}")
-    if not 0 < timeout <= TIMEOUT_MAX:
-        err_msg = f"timeout is not a positive number of seconds up to {TIMEOUT_MAX}"
+    if not 0 < timeout <= MAX_TIMEOUT:
+        err_msg = f"timeout is not a positive number of seconds up to {MAX_TIMEOUT}"
         raise BTClibValueError(err_msg)
     return timeout
 
