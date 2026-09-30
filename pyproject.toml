@@ -215,7 +215,6 @@ source-exclude = [
     # reader finds reaching .github or fuzz/ is named here
     "/tests/check_vendored_vectors_test.py",
     "/tests/fuzz_corpus_test.py",
-    "/tests/generate_sbom_test.py",
     "/tests/interpreters_test.py",
     "/tests/normalize_sdist_test.py",
     "/tests/wait_for_hwi_device_test.py",

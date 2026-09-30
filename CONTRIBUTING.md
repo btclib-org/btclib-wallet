@@ -486,14 +486,21 @@ stands; `sha256sum` after it is the digest a rebuild from the tag is
 compared against, per RELEASING.md's
 [Rebuild a release from its tag](./RELEASING.md#rebuild-a-release-from-its-tag).
 `generate_sbom.py` writes the CycloneDX bill of materials into `sbom/`,
-which `release.yml`'s `attest` job signs beside the two files:
+which `release.yml`'s `attest` job signs beside the two files. It is
+btclib-org/.github's, served from `main`, and reads this tree from the
+working directory, so the commands fetch it first:
 
 ```shell
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 uv build
 uv run --no-project --python 3.15 .github/scripts/normalize_sdist.py dist/
 sha256sum dist/*
-uv run --no-project --python 3.15 .github/scripts/generate_sbom.py dist/ sbom/
+served=$(mktemp -d)
+git clone --depth 1 --filter=blob:none --sparse \
+    https://github.com/btclib-org/.github "$served"
+git -C "$served" sparse-checkout set .github/scripts
+uv run --no-project --python 3.15 \
+    "$served"/.github/scripts/generate_sbom.py dist/ sbom/
 uv run --locked --only-group check twine check --strict dist/*
 uv run --locked --only-group check check-wheel-contents dist/*.whl
 uv run --locked --only-group check pyroma --min 10 dist/*.tar.gz

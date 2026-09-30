@@ -715,8 +715,12 @@ uv_version=$(unzip -p "$wheels"/*.whl '*.dist-info/WHEEL' |
 uvx "uv@$uv_version" build &&
 uv run --no-project --python "$python" \
   .github/scripts/normalize_sdist.py dist/ &&
+served=$(mktemp -d) &&
+git clone --depth 1 --filter=blob:none --sparse \
+  https://github.com/btclib-org/.github "$served" &&
+git -C "$served" sparse-checkout set .github/scripts &&
 uv run --no-project --python "$python" \
-  .github/scripts/generate_sbom.py dist/ sbom/ &&
+  "$served"/.github/scripts/generate_sbom.py dist/ sbom/ &&
 gh attestation verify "dist/btclib_wallet-${version:?}.tar.gz" \
   --repo "$repo" --signer-workflow "$signer" &&
 gh attestation verify "dist/btclib_wallet-${version:?}-py3-none-any.whl" \
@@ -751,6 +755,9 @@ the only reason a third `gh attestation verify` can pass at all. It is
 no steadier than the files, though: any of the bounds below that moves a
 distribution file's digest moves this document's serial number with it,
 so the third command fails wherever the first two do.
+`generate_sbom.py` comes from btclib-org/.github's `main`, not from
+the tag, so once `main` changes what it writes the third command fails
+with the files unchanged.
 
 Three things bound that guarantee, and each is worth knowing before
 reading a mismatch as tampering:
