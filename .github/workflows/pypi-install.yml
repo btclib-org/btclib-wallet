@@ -102,6 +102,28 @@ jobs:
           # an X.Y with no final release out matches its release candidate
           # only with this set, and matches the final once there is one
           allow-prereleases: true
+      # the install runs through btclib-org/.github's
+      # install_published_release.py, which runs it again after a pause
+      # while the installer says the pinned requirement is not resolvable
+      # (btclib-org/.github#1458): the wait above asks the index from one
+      # runner and each cell reads it through an edge of its own, which can
+      # still hold the page from before the upload. This sparse checkout of
+      # the organization's scripts is the one checkout of this job, and its
+      # `path:` keeps the root files that cone mode adds with the scripts
+      # out of the directory the cell runs in; no source of the tree under
+      # test lands
+      - name: Check out the install script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/.github
+          ref: main
+          path: btclib-org-github
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # `--no-cache-dir` stays here and not in the script: the index sends
+      # `Cache-Control: max-age` on its pages, and neither pip nor uv asks
+      # again for a page it holds for that long, so a retry with the cache
+      # on would read back the page it failed on
       - name: Install the published package
         shell: bash
         env:
@@ -113,13 +135,11 @@ jobs:
           TAG: ${{ inputs.version }}
         run: |
           python -m pip install -U pip
-          requirement=btclib-wallet
-          if [ -n "$TAG" ]; then requirement="btclib-wallet==${TAG#v}"; fi
-          if [ "$NO_BINARY" = "true" ]; then
-            python -m pip install --verbose --no-binary btclib-wallet "$requirement"
-          else
-            python -m pip install --verbose --only-binary btclib-wallet "$requirement"
-          fi
+          package=btclib-wallet
+          if [ "$NO_BINARY" = "true" ]; then binary=--no-binary; else binary=--only-binary; fi
+          python btclib-org-github/.github/scripts/install_published_release.py \
+            "$package" "$TAG" -- \
+            python -m pip install --no-cache-dir --verbose "$binary" "$package"
       - name: Derive BIP84's first address from its mnemonic
         shell: bash
         run: |
