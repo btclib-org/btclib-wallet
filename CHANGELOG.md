@@ -102,6 +102,12 @@ The `dist` job writes the bill of materials with btclib-org/.github's
 `generate_sbom.py`, served from `main`, and the tree keeps no copy of it
 (issue btclib-org/.github#1478).
 
+### `CLAUDE.md` carries the organization's shared section on the primary checkout
+
+Its section *The primary checkout is the maintainer's* is the organization's
+shared text, and `ARCHITECTURE.md` points the libsecp256k1 dispatch at
+btclib-ecc's `SECURITY.md` (issue btclib-org/.github#1494).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

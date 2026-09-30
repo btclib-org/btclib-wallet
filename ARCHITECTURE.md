@@ -52,11 +52,11 @@ counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol stays btclib's and opens nothing.
 
 What this package signs, it signs through `btclib_ecc.ecc`, so the
-dispatch to the libsecp256k1 bindings and where constant time ends are
-btclib's, read in its own
-[ARCHITECTURE](https://github.com/btclib-org/btclib/blob/main/ARCHITECTURE.md)
-and
-[SECURITY](https://github.com/btclib-org/btclib/blob/main/SECURITY.md).
+dispatch to the libsecp256k1 bindings
+(`btclib_ecc.curves.curve._libsecp256k1_serves`) and where constant time
+ends are btclib-ecc's, stated in its
+[SECURITY](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
+under *Limitations, not vulnerabilities*.
 `src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
 are the two modules that reach past that dispatch and call the
 `btclib_secp256k1` bindings directly, for a private-key tweak and a
