@@ -1610,8 +1610,7 @@ def test_bip387_vector(descriptor: str, scripts: list[str]) -> None:
 
 
 # BIP387's invalid descriptors, and what each is refused with. The
-# threshold bounds are checked where the script is built, so for those the
-# refusal comes from `script_pub_key` and for the rest from `parse`
+# threshold bounds are refused by `parse`, as the rest are
 BIP387_INVALID = [
     (f"multi_a(1,{KEY})", "not allowed inside top level"),
     (f"sh(multi_a(1,{KEY}))", "not allowed inside sh"),
@@ -1639,7 +1638,7 @@ BIP387_INVALID = [
 def test_bip387_invalid(descriptor: str, message: str) -> None:
     """Refuse each of BIP387's invalid descriptors, with the reason named."""
     with pytest.raises(BTClibValueError, match=message):
-        parse(descriptor).script_pub_key()
+        parse(descriptor)
 
 
 # BIP390's own test vectors: a valid descriptor and the scriptPubKey it
@@ -1952,15 +1951,38 @@ def test_a_multi_a_threshold_above_sixteen_is_pushed_as_a_number() -> None:
 def test_too_many_keys_for_a_multi_a() -> None:
     """BIP387 stops at 999 keys, a satisfaction being one element per key.
 
-    Built rather than parsed: a thousand key expressions is a descriptor
-    nobody writes, and the bound is on what the leaf holds.
+    Refused by `parse`, and by the build of a leaf made by hand.
     """
+    keys = ",".join([XONLY] * 1000)
+    for name in ("multi_a", "sortedmulti_a"):
+        err_msg = rf"^invalid n in k-of-n {name}: 1000$"
+        with pytest.raises(BTClibValueError, match=err_msg):
+            parse(f"tr({XONLY},{name}(1,{keys}))")
+    allowed_keys = ",".join([XONLY] * 999)
+    parsed = parse(f"tr({XONLY},multi_a(1,{allowed_keys}))")
+    assert len(parsed.key_expressions) == 1000
     (key,) = parse(f"tr({XONLY})").key_expressions
     with pytest.raises(BTClibValueError, match="invalid n in k-of-n multi_a"):
         TrDescriptor(key, MultiA(1, (key,) * 1000)).script_pub_key()
     # and the last count BIP387 allows is a script this builds
     allowed = TrDescriptor(key, MultiA(1, (key,) * 999))
     assert allowed.script_pub_key().script
+
+
+@pytest.mark.parametrize("name", ["multi_a", "sortedmulti_a"])
+@pytest.mark.parametrize("threshold", [0, 3], ids=["zero", "above-key-count"])
+def test_an_impossible_multi_a_threshold_is_refused_at_parse_and_at_build(
+    name: str, threshold: int
+) -> None:
+    """BIP387 lists both as invalid; a leaf built by hand is refused too."""
+    err_msg = rf"^invalid k in k-of-n {name}: {threshold}$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(f"tr({XONLY},{name}({threshold},{XONLY},{XONLY}))")
+    (key,) = parse(f"tr({XONLY})").key_expressions
+    leaf = MultiA(threshold, (key, key), sort=name == "sortedmulti_a")
+    err_msg = rf"^invalid k in k-of-n multi_a: {threshold}$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        TrDescriptor(key, leaf).script_pub_key()
 
 
 # three keys and a signature made with each. Real DER signatures rather

@@ -84,6 +84,12 @@ published advisory within 90 (issue btclib-org/.github#1460).
 or more than its key count, instead of storing a descriptor that cannot
 produce a script (closes #160).
 
+### `parse` refuses an impossible `multi_a()`
+
+`descriptors.parse` refuses a `multi_a()` or `sortedmulti_a()` threshold of
+zero or more than its key count (closes #172), and more than 999 keys
+(closes #173).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

@@ -432,9 +432,10 @@ class MultiA:
         it and as the number itself above that, which is what BIP387 says
         and the one place the two spellings differ.
 
-        The bounds are checked here, and not in the parser: a threshold of
-        none or of more keys than there are describes a script nobody can
-        spend, and a descriptor built by hand reaches this and not the parser.
+        The bounds are checked here too, for a descriptor built by hand: a
+        threshold of none or of more keys than there are, or more keys than
+        BIP387 allows, describes a script nobody can spend, and the parser
+        refuses it before it gets here.
         """
         pub_keys = self._pub_keys(index, network, prv_keys)
         if not 1 <= self.threshold <= len(pub_keys):
@@ -2050,7 +2051,12 @@ def _parse_multi_a(name: str, args: list[str], prv_keys: dict[str, str]) -> Mult
         _parse_key(key, prv_keys, x_only=True, compressed=True, musig_allowed=True)
         for key in args[1:]
     )
-    return MultiA(int(args[0]), keys, sort=name == "sortedmulti_a")
+    threshold = int(args[0])
+    if not 1 <= threshold <= len(keys):
+        raise BTClibValueError(f"invalid k in k-of-n {name}: {threshold}")
+    if len(keys) > _MAX_MULTI_A_KEYS:
+        raise BTClibValueError(f"invalid n in k-of-n {name}: {len(keys)}")
+    return MultiA(threshold, keys, sort=name == "sortedmulti_a")
 
 
 def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscript:
