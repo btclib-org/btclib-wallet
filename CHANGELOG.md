@@ -73,6 +73,11 @@ listing again up to a deadline while a row of `analyze` is unfinished
 vulnerabilities its release is not affected by, into the document's
 `vulnerabilities`; no list, no key (issue btclib-org/.github#1469).
 
+### `SECURITY.md` promises a response time
+
+`SECURITY.md` says a report is acknowledged within 7 days, and a fix or a
+published advisory within 90 (issue btclib-org/.github#1460).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
