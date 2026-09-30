@@ -61,6 +61,12 @@ the installer says the pin is not resolvable (issue btclib-org/.github#1458).
 `<tag>.intoto.jsonl`, the name `reusable-github-release.yml` attaches it under
 (issue btclib-org/.github#1468).
 
+### `codeql.yml`'s aggregate runs `check_run_jobs.py`
+
+The aggregate's step runs `check_run_jobs.py`, which reads the run's jobs
+listing again up to a deadline while a row of `analyze` is unfinished
+(issue btclib-org/.github#1463).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
