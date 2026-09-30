@@ -305,7 +305,11 @@ filterwarnings = ["error"]
 skip = "*/_data/*.json,*/_data/*.csv,*/_data/*.txt,*/_data/*.bin,*/_generated_files/*,.secrets.baseline,uv.lock,fuzz/corpus/*"
 # identifiers, not misspellings: "nd" is the Neutered Derivation of the
 # bip32 docstrings
-ignore-words-list = "nd"
+# Also `intoto`, in-toto's own spelling in the bundle's name
+# `<tag>.intoto.jsonl`. RELEASING.md writes it in fenced commands, outside
+# the backticks `ignore-regex` below hides, and the dictionary offers
+# "into" for it, which --write-changes applies
+ignore-words-list = "nd,intoto"
 # a misspelling written on purpose goes in backticks, which hides it from
 # this hook: what is inside backticks is an identifier, typos' half of the
 # work and not this hook's
@@ -351,6 +355,9 @@ var_onion_optin = "var_onion_optin"
 # "nd" is the Neutered Derivation of the bip32 docstrings, as for
 # codespell above
 nd = "nd"
+# `intoto` in the bundle's name `<tag>.intoto.jsonl`, as for codespell above:
+# typos' dictionary offers "into" for it too
+intoto = "intoto"
 # BIP322's prefix for the full variant of a signature, three characters as
 # the other two are: `full` in its place is a signature every other
 # implementation refuses
