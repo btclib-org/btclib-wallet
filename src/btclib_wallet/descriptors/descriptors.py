@@ -432,10 +432,9 @@ class MultiA:
         it and as the number itself above that, which is what BIP387 says
         and the one place the two spellings differ.
 
-        The bounds are checked here, and not in the parser, for the reason
-        `multi()` has them in `ScriptPubKey.p2ms`: a threshold of none or
-        of more keys than there are describes a script nobody can spend,
-        and a descriptor built by hand reaches this and not the parser.
+        The bounds are checked here, and not in the parser: a threshold of
+        none or of more keys than there are describes a script nobody can
+        spend, and a descriptor built by hand reaches this and not the parser.
         """
         pub_keys = self._pub_keys(index, network, prv_keys)
         if not 1 <= self.threshold <= len(pub_keys):
