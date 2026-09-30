@@ -52,6 +52,7 @@ says how the choice is enforced.
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/btclib-org/btclib-wallet/badge)](https://scorecard.dev/viewer/?uri=github.com/btclib-org/btclib-wallet)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14813/badge)](https://www.bestpractices.dev/projects/14813)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/14813/baseline)](https://www.bestpractices.dev/projects/14813)
 
 [btclib](https://github.com/btclib-org/btclib) is the protocol: the
 encodings, the scripts, the transactions and the signature schemes, what
