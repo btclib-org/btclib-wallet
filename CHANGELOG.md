@@ -78,6 +78,12 @@ vulnerabilities its release is not affected by, into the document's
 `SECURITY.md` says a report is acknowledged within 7 days, and a fix or a
 published advisory within 90 (issue btclib-org/.github#1460).
 
+### `parse` refuses impossible multisignature thresholds
+
+`descriptors.parse` refuses a `multi()` or `sortedmulti()` threshold of zero
+or more than its key count, instead of storing a descriptor that cannot
+produce a script (closes #160).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

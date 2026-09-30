@@ -2224,10 +2224,11 @@ def _parse_multi(
         )
         for key in args[1:]
     )
+    threshold = int(args[0])
+    if not 1 <= threshold <= len(keys):
+        raise BTClibValueError(f"invalid k in k-of-n {name}: {threshold}")
     _assert_multi_size(name, keys, context)
-    return MultiDescriptor(
-        int(args[0]), keys, sort=name == "sortedmulti", network=network
-    )
+    return MultiDescriptor(threshold, keys, sort=name == "sortedmulti", network=network)
 
 
 def _assert_multi_size(

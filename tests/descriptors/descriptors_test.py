@@ -3769,6 +3769,25 @@ def test_a_multisig_of_more_than_twenty_keys_is_refused_at_parse(
         parse(wrap.format(f"{name}(1,{keys})"))
 
 
+@pytest.mark.parametrize("threshold", [0, 2], ids=["zero", "above-key-count"])
+@pytest.mark.parametrize(
+    "name,wrap",
+    [
+        ("multi", "sh({})"),
+        ("multi", "wsh({})"),
+        ("sortedmulti", "wsh({})"),
+    ],
+    ids=["sh-multi", "wsh-multi", "wsh-sortedmulti"],
+)
+def test_an_impossible_multisig_threshold_is_refused_at_parse(
+    threshold: int, name: str, wrap: str
+) -> None:
+    """BIP380 and BIP383 require one through the number of keys at parse."""
+    err_msg = rf"^invalid k in k-of-n {name}: {threshold}$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(wrap.format(f"{name}({threshold},{KEY})"))
+
+
 @pytest.mark.parametrize("wrap", ["wsh({})", "sh(wsh({}))"], ids=["wsh", "sh-wsh"])
 def test_a_witness_multisig_of_twenty_keys_parses(wrap: str) -> None:
     """Twenty keys are a witness script Bitcoin Core reads, so parse does."""
