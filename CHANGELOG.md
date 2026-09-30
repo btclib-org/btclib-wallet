@@ -90,6 +90,12 @@ produce a script (closes #160).
 zero or more than its key count (closes #172), and more than 999 keys
 (closes #173).
 
+### `release.yml` audits the lock before it publishes
+
+The `audit` job calls btclib-org/.github's `reusable-audit.yml`, which runs
+`uv audit` over what the wheel declares, and both publish jobs wait for its
+success (issue btclib-org/.github#1466).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
