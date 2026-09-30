@@ -67,6 +67,12 @@ The aggregate's step runs `check_run_jobs.py`, which reads the run's jobs
 listing again up to a deadline while a row of `analyze` is unfinished
 (issue btclib-org/.github#1463).
 
+### `generate_sbom.py` carries a not-affected list into the bill of materials
+
+`generate_sbom.py` reads `.github/vex.toml`, where the tree lists the
+vulnerabilities its release is not affected by, into the document's
+`vulnerabilities`; no list, no key (issue btclib-org/.github#1469).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
