@@ -108,6 +108,11 @@ Its section *The primary checkout is the maintainer's* is the organization's
 shared text, and `ARCHITECTURE.md` points the libsecp256k1 dispatch at
 btclib-ecc's `SECURITY.md` (issue btclib-org/.github#1494).
 
+### `Dependency review` is a required check
+
+- **`REPOSITORY.md` reads `lint / Dependency review` back with the other
+  required checks** (issue btclib-org/.github#1465).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

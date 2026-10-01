@@ -98,6 +98,7 @@ nothing.
 | `docs / Build the documentation` | `docs.yml`, calling `reusable-docs.yml` |
 | `lint / Lint and type-check` | `lint.yml`, calling `reusable-lint.yml` |
 | `regtest / Regtest against Bitcoin Core` | `integration-bitcoind.yml` |
+| `lint / Dependency review` | `lint.yml`, calling `reusable-lint.yml` |
 
 A job whose whole body is a call to a reusable workflow contributes no
 name of its own: the context joins the calling job's id to the called
@@ -136,7 +137,8 @@ gh api -X PUT repos/btclib-org/btclib-wallet/branches/main/protection \
    {"context": "test: every job passed", "app_id": 15368},
    {"context": "docs / Build the documentation", "app_id": 15368},
    {"context": "lint / Lint and type-check", "app_id": 15368},
-   {"context": "regtest / Regtest against Bitcoin Core", "app_id": 15368}]},
+   {"context": "regtest / Regtest against Bitcoin Core", "app_id": 15368},
+   {"context": "lint / Dependency review", "app_id": 15368}]},
  "enforce_admins": false,
  "required_pull_request_reviews": {"dismiss_stale_reviews": true,
    "require_code_owner_reviews": false,
@@ -166,7 +168,8 @@ gh api repos/btclib-org/btclib-wallet/branches/main/protection \
 # {"checks":[["test: every job passed",15368],
 #   ["docs / Build the documentation",15368],
 #   ["lint / Lint and type-check",15368],
-#   ["regtest / Regtest against Bitcoin Core",15368]],
+#   ["regtest / Regtest against Bitcoin Core",15368],
+#   ["lint / Dependency review",15368]],
 #  "conversation":true,"enforce_admins":false,"linear":true,
 #  "reviews":{"dismiss_stale_reviews":true,
 #   "required_approving_review_count":1},
