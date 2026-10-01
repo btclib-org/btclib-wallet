@@ -136,9 +136,9 @@ jobs:
     needs:
       [public-api, audit, test, lint, docs, ubuntu, macos, windows, integration]
     # public-api is a need for the ordering -- its reading arrives before
-    # the upload -- and not for its result: it exits 1 on any break in the
-    # public surface since the last tag, which a cycle with breaking changes
-    # produces by design. `always()` opts back in past it, and the
+    # the upload -- and not for its result: it exits 1 on a break in the
+    # public surface that RELEASE_NOTES.md does not name. `always()` opts
+    # back in past it, and the
     # `.result` checks keep every other listed job the gate it is
     # (section 12 of the organization's standard)
     if: >-

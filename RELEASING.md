@@ -291,8 +291,8 @@ result.
    means to break nothing — making it a gate is one line.
 
    `release.yml` asks the same question again as its `public-api` job,
-   and a red one there is the expected shape of a cycle with breaking
-   changes in it: the job gates nothing, its own comment saying why, and
+   and a red one there is a break `RELEASE_NOTES.md` does not name: the
+   job gates nothing, its own comment saying why, and
    every job behind it opens its `if:` with `always()` and names the
    results it does require, so a red `public-api` costs the release
    nothing. What it costs is the run's own badge, red while every job
@@ -530,8 +530,8 @@ result.
    ```
 
    On a tag `Publish to TestPyPI` is `skipped`, its trigger being the
-   dispatch, and `public-api` is red on any cycle with breaking changes
-   in it, being the griffe step above run again. Every other job reads
+   dispatch, and `public-api` is red for a break `RELEASE_NOTES.md` does not
+   name, being the griffe step above run again. Every other job reads
    `success`, the ones behind `public-api` included: each of them opens
    its `if:` with `always()` and names the results it does require, so a
    red `public-api` costs the release nothing, and a `skipped` among them
