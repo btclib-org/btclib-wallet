@@ -52,6 +52,13 @@ Report it wherever you found it, though: routing a report is the
 maintainers' job, not the reporter's, and a doubt about which project
 owns a flaw is not a reason to keep it to yourself.
 
+## Security review
+
+The latest security review is dated 2026-09-30.
+[pmazzocchi](https://github.com/pmazzocchi) did it against the
+[assurance case](./ASSURANCE_CASE.md), and
+[issue 169](https://github.com/btclib-org/btclib-wallet/issues/169) records it.
+
 ## Supported versions
 
 Only the latest release is supported. Versions are calendar-based
