@@ -113,6 +113,12 @@ btclib-ecc's `SECURITY.md` (issue btclib-org/.github#1494).
 - **`REPOSITORY.md` reads `lint / Dependency review` back with the other
   required checks** (issue btclib-org/.github#1465).
 
+### `[tool.uv] required-version` is `>=0.12.18`
+
+- **`required-version` reads `>=0.12.18`, not `>=0.12.19`** (issue
+  btclib-org/.github#1482): the Dependabot service refused `0.12.19` with
+  `tool_version_not_supported`.
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
