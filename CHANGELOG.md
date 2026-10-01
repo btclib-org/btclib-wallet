@@ -136,6 +136,12 @@ btclib-org/.github#1467).
   what `<scratchpad>` is and names the pull** (issue
   btclib-org/.github#1500).
 
+### The `python` inventory has a copy kept in the tree
+
+`docs/source/_inventories/python.inv` is read when `docs.python.org` fails,
+so an outage of that site no longer fails the `-n -W` docs build (issue
+btclib-org/.github#1508).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
