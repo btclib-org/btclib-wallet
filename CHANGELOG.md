@@ -130,6 +130,12 @@ that records it (issue btclib-org/.github#1362).
 `Signed-off-by:` trailer, and how to add it (issue
 btclib-org/.github#1467).
 
+### The primary-checkout section uses one form for the checkout
+
+- **The section writes the checkout as `"${checkout:?}"` throughout, says
+  what `<scratchpad>` is and names the pull** (issue
+  btclib-org/.github#1500).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
