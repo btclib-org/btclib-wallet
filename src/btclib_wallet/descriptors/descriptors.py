@@ -195,6 +195,7 @@ from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
     PrvKeys,
     _assert_musig_allowed,
+    _assert_network,
     _expression,
     _offered_signature,
     _parse_key,
@@ -693,8 +694,10 @@ def _taproot_derivations(
     `_aggregate_origin` computes, and each participant that carries an
     origin of its own -- the second being how a signer finds out that one
     of the keys it holds is in this group at all. A participant is in no
-    leaf, so its leaf hashes are empty; what says which leaves the group
-    signs for is the aggregate's own entry.
+    leaf of its own as a participant, so its leaf hashes are empty unless
+    the same key is also a plain key of the tree, whose entry it does not
+    replace; what says which leaves the group signs for is the aggregate's
+    own entry.
     """
     derivations: dict[bytes, tuple[list[bytes], BIP32KeyOrigin]] = {}
     for key in keys:
@@ -711,7 +714,7 @@ def _taproot_derivations(
             if participant_origin is None:
                 continue
             x_only = participant.sec(index, network, prv_keys)[1:]
-            derivations[x_only] = ([], participant_origin)
+            derivations.setdefault(x_only, ([], participant_origin))
     return derivations
 
 
@@ -2420,6 +2423,10 @@ def parse(
     wrong. Normalized as well, so that what the object holds is the name
     `network_from_name` would answer to.
 
+    A WIF or an extended key of another network is refused here too, as
+    Bitcoin Core's parser does: the prefix of the one and the version of
+    the other are the network's own, and the test networks share both.
+
     `prv_keys` is a mapping, and what is not one was walked anyway: the
     lookups below are `in` and `[]`, so a list of pairs answered "not
     found" for every key rather than saying it is not a mapping. `None`
@@ -2433,7 +2440,10 @@ def parse(
 
     if prv_keys is None:
         prv_keys = {}
-    return _parse_expression(strip_checksum(descriptor), _TOP, network, prv_keys)
+    parsed = _parse_expression(strip_checksum(descriptor), _TOP, network, prv_keys)
+    for key in parsed.key_expressions:
+        _assert_network(key, network)
+    return parsed
 
 
 def _normalized_key(key: KeyExpression, prv_keys: PrvKeys | None) -> KeyExpression:

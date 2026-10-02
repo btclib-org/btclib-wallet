@@ -29,11 +29,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from btclib import b58
+from btclib.base58 import decode as base58_decode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.network import network_from_name
+from btclib.network import NETWORKS, network_from_name, xpubversions_from_network
 from btclib.utils import bytes_from_octets
 from btclib_ecc.curves import point_from_pub_key, secp256k1
 from btclib_ecc.curves.sec_point import bytes_from_point
@@ -98,6 +99,9 @@ class KeyExpression:
     bytes mean, so that everything downstream sees one representation of a
     public key.
 
+    `wif_prefix` is the version byte of the WIF a fixed key was read from,
+    the key itself being public by then; it is empty for any other spelling.
+
     `origin` never changes the script. It says which master key and which
     path the key came from, which is what a hardware signer needs and
     what BIP174 carries in a PSBT.
@@ -134,6 +138,9 @@ class KeyExpression:
     # ways -- BIP380's own valid `[deadbeef/0'/0h/0']` -- is read and
     # written back in the symbol its last hardened step used
     hardening: str = _HARDENING
+    # the version byte of the WIF the key was read from, b"" for any other
+    # spelling; `parse` checks it against the network. Not compared.
+    wif_prefix: bytes = field(default=b"", compare=False, repr=False)
 
     def __post_init__(self) -> None:
         """Refuse an `xkey` that is no xpub or placeholder, quoting none of it.
@@ -577,6 +584,23 @@ def _fixed_pub_key(key: str, *, x_only: bool) -> tuple[bytes, bool]:
         raise BTClibValueError("invalid key expression") from e
 
 
+def _assert_network(key: KeyExpression, network: str) -> None:
+    """Refuse a key spelled for another network, as Bitcoin Core's parser does.
+
+    A WIF by its version byte and an extended key by its version, against
+    the network's own; the test networks share both. The refusal quotes
+    none of the key.
+    """
+    for participant in key.participants:
+        _assert_network(participant, network)
+    if key.wif_prefix and key.wif_prefix != NETWORKS[network].wif:
+        raise BTClibValueError(f"not a {network} key: WIF prefix")
+    if key.xkey and not _PLACEHOLDER.fullmatch(key.xkey):
+        version = BIP32KeyData.b58decode(key.xkey).version
+        if version not in xpubversions_from_network(network):
+            raise BTClibValueError(f"not a {network} key: version 0x{version.hex()}")
+
+
 def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None]:
     """Return the path and wildcard a ``musig()`` derives the aggregate by.
 
@@ -704,6 +728,7 @@ def _parse_key(
         pub_key=pub_key,
         x_only=was_x_only,
         hardening=origin_hardening or _HARDENING,
+        wif_prefix=b"" if _HEX.fullmatch(key) else base58_decode(key)[:1],
     )
     if compressed and not key_expression.is_compressed:
         raise BTClibValueError("uncompressed public keys are not allowed here")

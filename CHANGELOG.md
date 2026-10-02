@@ -158,6 +158,18 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### `descriptors.parse` refuses a key of another network
+
+`parse` raises `BTClibValueError` for a WIF or an extended key of another
+network, as Core does; `KeyExpression.wif_prefix` holds the WIF's version
+byte for it (closes #180).
+
+### A `musig()` participant that is also a plain taproot key keeps its leaf hashes
+
+`TrDescriptor`'s taproot derivations list every leaf of such a key whichever
+order the tree writes them in, where a participant written after the plain
+key replaced its entry with an empty list (closes #185).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
