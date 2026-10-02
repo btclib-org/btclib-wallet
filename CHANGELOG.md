@@ -164,6 +164,12 @@ stands in (issue btclib-org/.github#1527).
 which btclib 2026.9.30 does not bind them in, and `btclib` is capped below
 2026.11 until #196 lands (closes #166).
 
+### `integration-hwi.yml` installs HWI and Speculos from hashed locks
+
+`.github/integration-hwi/` holds hashed locks of both, installed with
+`--require-hashes`, and the Ledger app is fetched by the commit that tag
+2.5.0 names (closes #167).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
