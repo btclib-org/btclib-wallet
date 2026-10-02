@@ -11,6 +11,10 @@ before upgrading, rather than a digit.
 
 ## v2026.10 (work in progress, not released yet)
 
+- **`bip39.mxprv_from_mnemonic` and `electrum.mxprv_from_mnemonic` refuse
+  a falsy passphrase other than `None`.** An empty `bytes`, `0`, `False` or
+  `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
+
 - **Verifying a release's attestation names a new signer and the tag.**
   `gh attestation verify` takes
   `--signer-workflow btclib-org/.github/.github/workflows/reusable-build.yml@refs/heads/main`

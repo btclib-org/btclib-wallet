@@ -42,8 +42,9 @@ def mxprv_from_mnemonic(
     the empty passphrase, and a refusal of that function's leaves as
     `btclib_mnemonics`' own class.
     """
+    passphrase = "" if passphrase is None else passphrase
     seed = btclib_mnemonics.bip39.seed_from_mnemonic(
-        mnemonic, passphrase or "", verify_checksum
+        mnemonic, passphrase, verify_checksum
     )
     version = network_from_name(network).bip32_prv
     return rootxprv_from_seed(seed, version)

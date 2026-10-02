@@ -67,7 +67,7 @@ from __future__ import annotations
 
 import string
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from btclib.alias import Integer, NetworkType, Octets, Point, String
 from btclib.b32 import power_of_2_base_conversion
@@ -746,11 +746,12 @@ class SilentPaymentOutput:
       transaction carries and what identifies the output
     - prv_key_tweak is the scalar to add to the spend private key,
       t_k plus the label tweak where a label was used:
-      `prv_key_from_tweak` does that addition
+      `prv_key_from_tweak` does that addition; it is a secret, so the
+      repr leaves it out
     """
 
     pub_key: bytes
-    prv_key_tweak: int
+    prv_key_tweak: int = field(repr=False)
 
 
 def _labelled(

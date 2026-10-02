@@ -25,6 +25,16 @@ driver that would keep both sides' numbers.
 
 ## v2026.10 (work in progress, not released yet)
 
+### `SilentPaymentOutput`'s repr leaves out `prv_key_tweak`
+
+The tweak is a secret, so a logged output does not carry it (closes #161).
+
+### `mxprv_from_mnemonic` takes only `None` as the empty passphrase
+
+In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
+`btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
+where they derived the wallet without a passphrase (closes #162).
+
 ### `RELEASING.md`'s griffe step searches `src`
 
 `griffe check` takes `-s . -s src`, the pair `release.yml`'s `public-api`

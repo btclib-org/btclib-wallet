@@ -911,3 +911,12 @@ def test_only_ascii_whitespace_is_stripped_from_an_address() -> None:
         for spelling in (address, address.upper()):
             with pytest.raises(BTClibValueError):
                 silent_payments.keys_from_address(pad + spelling + pad)
+
+
+def test_repr_leaves_out_the_tweak() -> None:
+    """The tweak is a secret: with one output key it gives the spend key."""
+    tweak = 0xDEADBEEF1234
+    output = silent_payments.SilentPaymentOutput(b"\x11" * 32, tweak)
+    assert str(tweak) not in repr(output)
+    assert "prv_key_tweak" not in repr(output)
+    assert output.prv_key_tweak == tweak
