@@ -180,6 +180,7 @@ from btclib_wallet.bip32.der_path import (
     _HARDENED_OFFSET,
     _HARDENING,
     DerPath,
+    _int_from_digits,
     indexes_from_der_path,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
@@ -2051,7 +2052,7 @@ def _parse_multi_a(name: str, args: list[str], prv_keys: dict[str, str]) -> Mult
         _parse_key(key, prv_keys, x_only=True, compressed=True, musig_allowed=True)
         for key in args[1:]
     )
-    threshold = int(args[0])
+    threshold = _int_from_digits(args[0], f"{name}() threshold")
     if not 1 <= threshold <= len(keys):
         raise BTClibValueError(f"invalid k in k-of-n {name}: {threshold}")
     if len(keys) > _MAX_MULTI_A_KEYS:
@@ -2229,7 +2230,7 @@ def _parse_multi(
         )
         for key in args[1:]
     )
-    threshold = int(args[0])
+    threshold = _int_from_digits(args[0], f"{name}() threshold")
     if not 1 <= threshold <= len(keys):
         raise BTClibValueError(f"invalid k in k-of-n {name}: {threshold}")
     _assert_multi_size(name, keys, context)
@@ -3177,8 +3178,9 @@ def wallet_policy(
 
 # BIP388's KI index: a non-negative decimal integer, no leading zero
 # unless the integer is 0 itself -- so `@0` and `@10` are indexes and
-# `@00` is not one, the same digit string BIP388's own grammar spells
-_POLICY_INDEX = r"@(?:0|[1-9]\d*)"
+# `@00` is not one, the same digit string BIP388's own grammar spells.
+# At most ten digits, so that `int()` never meets more than 4300
+_POLICY_INDEX = r"@(?:0|[1-9]\d{0,9})"
 # a lone placeholder or a musig() group of them, immediately followed by
 # the one trailing wildcard BIP388 allows: the canonical `/**` shorthand,
 # BIP389's own `/<M;N>/*` it stands for, or the plain `/*` a `Descriptor`
@@ -3186,8 +3188,8 @@ _POLICY_INDEX = r"@(?:0|[1-9]\d*)"
 # left over
 _POLICY_PLACEHOLDER = re.compile(
     rf"(?:musig\((?P<musig>{_POLICY_INDEX}(?:,{_POLICY_INDEX})*)\)"
-    rf"|@(?P<index>0|[1-9]\d*))"
-    r"(?P<suffix>/\*\*|/<(?P<recv>\d+);(?P<chg>\d+)>/\*|/\*)"
+    rf"|@(?P<index>0|[1-9]\d{{0,9}}))"
+    r"(?P<suffix>/\*\*|/<(?P<recv>\d{1,10});(?P<chg>\d{1,10})>/\*|/\*)"
 )
 # every musig() call the template holds, checked before substitution: the
 # placeholder grammar allows nothing inside but comma-separated indexes,

@@ -93,6 +93,7 @@ from btclib.utils import assert_type, bytes_from_octets, decode_num, encode_num
 from btclib.var_int import serialize as var_int_serialize
 from typing_extensions import override
 
+from btclib_wallet.bip32.der_path import _int_from_digits
 from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
     PrvKeys,
@@ -158,6 +159,13 @@ _MAX_TAPSCRIPT_SIZE = _TAPSCRIPT_WEIGHT_LEFT - len(
 # BIP342 puts no bound of its own on the keys of a multi_a(), so the bound
 # is the stack: one element per key, and no more than 1000 elements
 _MAX_PUBKEYS_PER_MULTI_A = 999
+
+# the arguments of a thresh() a parse reads: a bound on the cost of parsing,
+# a limit of this library and not of the protocol. The stack analysis takes
+# time quadratic in them and the size of a tapscript alone allows thousands;
+# a thresh() of keys over this many is unsatisfiable anyway, its witness
+# holding one element per key. It refuses some thresh() Bitcoin Core parses
+_MAX_THRESH_ARGUMENTS = MAX_STACK_SIZE
 
 # 1 <= n < 2**31 for older() and after(): a script number is signed, so
 # 2**31 is the first value CHECKSEQUENCEVERIFY cannot be handed, and zero
@@ -1948,7 +1956,7 @@ def _read_multi(
             )
             for key in keys
         ),
-        threshold=int(threshold),
+        threshold=_int_from_digits(threshold, f"{name}() threshold"),
     )
 
 
@@ -1961,7 +1969,7 @@ def _read_number(name: str, argument: str) -> int:
     """
     if not _NUMBER.fullmatch(argument):
         raise BTClibValueError(f"invalid {name}() number: digits expected")
-    return int(argument)
+    return _int_from_digits(argument, f"{name}() number")
 
 
 def _read_leaf(
@@ -2039,6 +2047,9 @@ def _read_more_thresh(
     """Read another thresh() argument, or close the thresh() and build it."""
     char = expression[pos : pos + 1]
     if char == ",":
+        if count == _MAX_THRESH_ARGUMENTS:
+            err_msg = f"thresh() takes at most {_MAX_THRESH_ARGUMENTS} arguments"
+            raise BTClibValueError(err_msg)
         to_parse.append((_MORE_THRESH, count + 1, threshold))
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
@@ -2046,6 +2057,12 @@ def _read_more_thresh(
         raise BTClibValueError("unbalanced brackets in thresh()")
     arguments = tuple(built[len(built) - count :])
     del built[len(built) - count :]
+    # before the node, whose stack analysis is quadratic in the arguments
+    # and which holds at least their scripts
+    size = sum(sub.script_size for sub in arguments)
+    if size > _max_script_size(context):
+        err_msg = f"miniscript too large for {context}: at least {size} bytes of script"
+        raise BTClibValueError(err_msg)
     built.append(
         _assert_typed(Miniscript("thresh", context, arguments, threshold=threshold))
     )

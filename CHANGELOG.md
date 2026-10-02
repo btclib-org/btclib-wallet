@@ -158,6 +158,23 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### The parsers refuse a long number as a `BTClibValueError`
+
+A derivation index, a multisignature or `thresh()` threshold, an `older()` or
+`after()` number and a wallet-policy `@N` of more than ten digits are refused,
+where `int()` raised the built-in `ValueError` past 4300 (closes #158).
+
+### `thresh()` is refused by its size or its argument count before it is analysed
+
+A `thresh()` over the context's script size, or of more than 1000 arguments (a
+limit of this library, not of the protocol), is refused before its quadratic
+stack analysis (closes #159).
+
+### `Bolt11Invoice.from_invoice` refuses a long amount as a `BTClibValueError`
+
+An amount of more than 20 digits, leading zeros apart, is refused, where
+`int()` raised the built-in `ValueError` past 4300 (closes #205).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
