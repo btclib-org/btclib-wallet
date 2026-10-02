@@ -158,6 +158,24 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### `sign` updates `PSBT_GLOBAL_TX_MODIFIABLE` of a version 2 psbt
+
+Each signature added clears Inputs Modifiable unless it is ANYONECANPAY,
+clears Outputs Modifiable unless it is NONE, and sets Has SIGHASH_SINGLE
+where it is SINGLE, as BIP370 asks of the Signer (closes #194).
+
+### `join` clears the signatures of a version 0 psbt's inputs
+
+`partial_sigs`, the final scriptSig and witness, and the taproot and MuSig2
+signature fields are emptied, so the joined psbt can be signed again
+(closes #195).
+
+### `extract_tx` takes `verify_scripts`
+
+`extract_tx(psbt, verify_scripts=True)` runs every input's scripts under
+the consensus rules and raises on a bad final signature. `check_validity`
+runs no script, and its docstring says so (closes #191).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from btclib import var_bytes, var_int
-from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError, ScriptError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import (
@@ -1888,6 +1888,20 @@ def test_invalid_hash256_preimage() -> None:
         psbt.assert_valid()
 
 
+def _unsigned(psbt_in: PsbtIn) -> PsbtIn:
+    """Return the input with every signature field emptied."""
+    return dataclasses.replace(
+        psbt_in,
+        partial_sigs={},
+        final_script_sig=b"",
+        final_script_witness=Witness(),
+        taproot_key_spend_signature=b"",
+        taproot_script_spend_signatures={},
+        musig2_pub_nonces={},
+        musig2_partial_sigs={},
+    )
+
+
 def test_join() -> None:
     """Join psbts, shuffled or not; refuse conflicting ones."""
     psbt1_str = "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAAiAgKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgf0cwRAIgdAGK1BgAl7hzMjwAFXILNoTMgSOJEEjn282bVa1nnJkCIHPTabdA4+tT3O+jOCPIBwUUylWn3ZVE8VfBZ5EyYRGMASICAtq2H/SaFNtqfQKwzR+7ePxLGDErW05U2uTbovv+9TbXSDBFAiEA9hA4swjcHahlo0hSdG8BV3KTQgjG0kRUOTzZm98iF3cCIAVuZ1pnWm0KArhbFOXikHTYolqbV2C+ooFvZhkQoAbqAQEDBAEAAAABBEdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSriIGApWDvzmuCmCXR60Zmt3WNPphCFWdbFzTm0whg/GrluB/ENkMak8AAACAAAAAgAAAAIAiBgLath/0mhTban0CsM0fu3j8SxgxK1tOVNrk26L7/vU21xDZDGpPAAAAgAAAAIABAACAAAEBIADC6wsAAAAAF6kUt/X69A49QKWkWbHbNTXyty+pIeiHIgIDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtxHMEQCIGLrelVhB6fHP0WsSrWh3d9vcHX7EnWWmn84Pv/3hLyyAiAMBdu3Rw2/LwhVfdNWxzJcHtMJE+mWzThAlF2xIijaXwEiAgI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc0cwRAIgZfRbpZmLWaJ//hp77QFq8fH5DVSzqo90UKpfVqJRA70CIH9yRwOtHtuWaAsoS1bU/8uI9/t1nqu+CKow8puFE4PSAQEDBAEAAAABBCIAIIwjUxc3Q7WV37Sge3K6jkLjeX2nTof+fZ10l+OyAokDAQVHUiEDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwhAjrdkE89bc9Z3bkGsN7iNSm3/7ntUOXoYVGSaGAiHw5zUq4iBgI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8OcxDZDGpPAAAAgAAAAIADAACAIgYDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwQ2QxqTwAAAIAAAACAAgAAgAAiAgOppMN/WZbTqiXbrGtXCvBlA5RJKUJGCzVHU+2e7KWHcRDZDGpPAAAAgAAAAIAEAACAACICAn9jmXV9Lv9VoTatAsaEsYOLZVbl8bazQoKpS2tQBRCWENkMak8AAACAAAAAgAUAAIAA"
@@ -1905,7 +1919,8 @@ def test_join() -> None:
     )
 
     joint_psbt.assert_valid()
-    assert all(i in joint_psbt.inputs for i in psbt1.inputs + psbt2.inputs)
+    # the signatures are not carried over, and nothing else of an input is lost
+    assert [_unsigned(inp) for inp in psbt1.inputs + psbt2.inputs] == joint_psbt.inputs
     assert all(i in joint_psbt.outputs for i in psbt1.outputs + psbt2.outputs)
 
     # non-shuffled join is deterministic
@@ -5275,3 +5290,241 @@ def test_b64decode_refuses_excess_padding(excess: str) -> None:
     """
     with pytest.raises(BTClibValueError, match=EXCESS_PADDING):
         Psbt.b64decode(excess)
+
+
+_ECDSA_TYPES = [
+    None,
+    sig_hash.ALL,
+    sig_hash.NONE | sig_hash.ANYONECANPAY,
+    sig_hash.SINGLE,
+]
+_TAPROOT_TYPES = [*_ECDSA_TYPES, sig_hash.DEFAULT]
+# BIP370: not ANYONECANPAY clears Inputs Modifiable, not NONE clears
+# Outputs Modifiable, SINGLE sets Has SIGHASH_SINGLE
+_BIP370_FLAGS = {
+    None: 0,
+    sig_hash.DEFAULT: 0,
+    sig_hash.ALL: 0,
+    sig_hash.NONE | sig_hash.ANYONECANPAY: INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE,
+    sig_hash.SINGLE: HAS_SIG_HASH_SINGLE,
+}
+
+
+def _unsigned_ecdsa_psbt() -> tuple[Psbt, _KeyManager]:
+    psbt, _ = _single_key_psbt("p2wpkh")
+    psbt.inputs[0].partial_sigs = {}
+    psbt.inputs[0].hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+    return psbt, _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+
+
+@pytest.mark.parametrize("hash_type", _ECDSA_TYPES)
+def test_sign_records_an_ecdsa_signature_in_tx_modifiable(
+    hash_type: Any,
+) -> None:
+    """A v2 Signer clears the flags its signature makes untrue (BIP370)."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt = psbt.to_v2()
+    psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    psbt.inputs[0].sig_hash_type = hash_type
+
+    signed, signed_vins = sign(psbt, key_manager)
+
+    assert signed_vins == [0]
+    assert signed.tx_modifiable == _BIP370_FLAGS[hash_type]
+
+
+@pytest.mark.parametrize("hash_type", _TAPROOT_TYPES)
+@pytest.mark.parametrize("path", ["key", "script"])
+def test_sign_records_a_taproot_signature_in_tx_modifiable(
+    path: str, hash_type: Any
+) -> None:
+    """Both taproot paths record what the signature commits to."""
+    if path == "key":
+        psbt, _ = _taproot_key_path_psbt()
+        key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+    else:
+        psbt, _ = _taproot_script_path_psbt()
+        key_manager = _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
+    psbt = psbt.to_v2()
+    psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    psbt.inputs[0].sig_hash_type = hash_type
+
+    signed, signed_vins = sign(psbt, key_manager)
+
+    assert signed_vins == [0]
+    assert signed.tx_modifiable == _BIP370_FLAGS[hash_type]
+
+
+def test_sign_creates_tx_modifiable_only_for_sighash_single() -> None:
+    """A v2 psbt without the field says nothing may change: ALL leaves it so."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt = psbt.to_v2()
+    psbt.tx_modifiable = None
+
+    assert sign(psbt, key_manager)[0].tx_modifiable is None
+
+    psbt.inputs[0].sig_hash_type = 3  # SINGLE
+    assert sign(psbt, key_manager)[0].tx_modifiable == HAS_SIG_HASH_SINGLE
+
+
+def test_sign_keeps_the_flags_of_a_version_0_psbt() -> None:
+    """A version 0 psbt has no field to update."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+
+    assert sign(psbt, key_manager)[0].tx_modifiable is None
+
+
+def test_sign_keeps_undefined_flag_bits_and_earlier_clears() -> None:
+    """Only the bits a signature decides change."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt = psbt.to_v2()
+    psbt.tx_modifiable = 0b1000_0010
+
+    signed, _ = sign(psbt, key_manager)
+
+    assert signed.tx_modifiable == 0b1000_0000
+
+
+def _signed_v0_pair(taproot: bool) -> tuple[Psbt, Psbt]:
+    """Two one-input v0 psbts, each signed by `sign`."""
+    psbts = []
+    for i in range(2):
+        if taproot:
+            psbt, _ = _taproot_key_path_psbt()
+            key_manager = _KeyManager(
+                by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY}
+            )
+        else:
+            psbt, key_manager = _unsigned_ecdsa_psbt()
+        psbt.inputs[0].previous_tx_id = bytes([i + 1]) * 32
+        psbts.append(sign(psbt, key_manager)[0])
+    return psbts[0], psbts[1]
+
+
+@pytest.mark.parametrize("taproot", [False, True])
+@pytest.mark.parametrize("finalized", [False, True])
+def test_join_of_version_0_keeps_no_signature_and_can_be_signed_again(
+    taproot: bool, finalized: bool
+) -> None:
+    """The joined transaction is not the one the signatures were made over."""
+    first, second = _signed_v0_pair(taproot)
+    if finalized:
+        first, second = finalize(first), finalize(second)
+
+    joined = join([first, second], False, False, False, False)
+
+    assert joined.inputs == [_unsigned(inp) for inp in first.inputs + second.inputs]
+    assert len(joined.inputs) == 2
+
+    # the keys and utxos stay, so the same key manager signs both inputs
+    key_manager = (
+        _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+        if taproot
+        else _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+    )
+    resigned, signed_vins = sign(joined, key_manager)
+    assert signed_vins == [0, 1]
+    assert_signed(resigned)
+
+
+def test_join_clears_every_signature_field_and_only_those() -> None:
+    """Each of the seven fields, filled in, comes out empty."""
+    psbt, _ = _single_key_psbt("p2wpkh")
+    inp = psbt.inputs[0]
+    inp.final_script_sig = b"\x01"
+    inp.final_script_witness = Witness([b"\x01"])
+    inp.taproot_key_spend_signature = b"\x01" * 64
+    inp.taproot_script_spend_signatures = {b"\x02" * 64: b"\x01" * 64}
+    inp.musig2_pub_nonces = {_PUB_KEY * 2: b"\x04" * 66}
+    inp.musig2_partial_sigs = {_PUB_KEY * 2: b"\x06" * 32}
+    other = deepcopy(psbt)
+    other.inputs[0].previous_tx_id = b"\x07" * 32
+
+    joined = join([psbt, other], False, False, False, False)
+
+    originals = [psbt.inputs[0], other.inputs[0]]
+    for joined_in, original in zip(joined.inputs, originals, strict=True):
+        assert joined_in == _unsigned(original)
+        assert joined_in.witness_utxo == original.witness_utxo
+
+
+def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
+    """NONE|ANYONECANPAY is the one signature a join cannot break."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt = psbt.to_v2()
+    psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    psbt.inputs[0].sig_hash_type = 130  # NONE|ANYONECANPAY
+    signed, _ = sign(psbt, key_manager)
+    other = deepcopy(psbt)
+    other.inputs[0].previous_tx_id = b"\x07" * 32
+    other_signed, _ = sign(other, key_manager)
+
+    joined = join([signed, other_signed], False, False, False, False)
+
+    assert joined.inputs == signed.inputs + other_signed.inputs
+    assert all(inp.partial_sigs for inp in joined.inputs)
+
+    # signed with any other type, the join is refused
+    psbt.inputs[0].sig_hash_type = 1  # ALL
+    all_signed, _ = sign(psbt, key_manager)
+    with pytest.raises(BTClibValueError, match="the inputs are not modifiable"):
+        join([signed, all_signed], False, False, False, False)
+
+
+def _flip_signature_byte(psbt: Psbt) -> None:
+    """Corrupt the first signature of the finalized input."""
+    psbt_in = psbt.inputs[0]
+    if psbt_in.final_script_witness:
+        stack = [bytearray(item) for item in psbt_in.final_script_witness.stack]
+        stack[0][10] ^= 1
+        psbt_in.final_script_witness = Witness([bytes(item) for item in stack])
+    else:
+        script_sig = bytearray(psbt_in.final_script_sig)
+        script_sig[10] ^= 1
+        psbt_in.final_script_sig = bytes(script_sig)
+
+
+def _finalized_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
+    if kind == "taproot key path":
+        psbt, prevouts_ = _taproot_key_path_psbt()
+        key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+        return finalize(sign(psbt, key_manager)[0]), prevouts_
+    if kind == "taproot script path":
+        psbt, prevouts_ = _taproot_script_path_psbt()
+        key_manager = _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
+        return finalize(sign(psbt, key_manager)[0]), prevouts_
+    psbt, prevouts_ = _single_key_psbt(kind)
+    return finalize(psbt), prevouts_
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "p2pkh",
+        "p2sh-p2wpkh",
+        "p2wpkh",
+        "p2wsh",
+        "p2sh-p2wsh",
+        "taproot key path",
+        "taproot script path",
+    ],
+)
+def test_extract_tx_runs_the_final_scripts_when_asked(kind: str) -> None:
+    """`check_validity` runs no script; `verify_scripts` does."""
+    psbt, _ = _finalized_psbt(kind)
+    assert extract_tx(psbt, verify_scripts=True) == extract_tx(psbt)
+
+    _flip_signature_byte(psbt)
+    # a bad signature passes check_validity
+    assert extract_tx(psbt) is not None
+    with pytest.raises(ScriptError):
+        extract_tx(psbt, verify_scripts=True)
+
+
+def test_extract_tx_verify_scripts_needs_every_utxo() -> None:
+    """An input with no utxo raises, as `prevouts` does."""
+    psbt, _ = _finalized_psbt("p2wpkh")
+    psbt.inputs[0].witness_utxo = None
+
+    with pytest.raises(BTClibValueError, match="no utxo for input 0"):
+        extract_tx(psbt, check_validity=False, verify_scripts=True)

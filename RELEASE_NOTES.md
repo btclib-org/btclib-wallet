@@ -16,6 +16,9 @@ before upgrading, rather than a digit.
   `--signer-workflow btclib-org/.github/.github/workflows/reusable-build.yml@refs/heads/main`
   and `--source-ref refs/tags/v<version>`; SECURITY.md has the command.
   Earlier releases keep `reusable-attest.yml`.
+- **`join` empties the signatures of a version 0 psbt, and `sign` updates a
+  version 2 psbt's modifiable flags.** Sign the joined psbt again. A version 2
+  psbt signed with anything but SIGHASH_NONE|ANYONECANPAY refuses a join.
 
 ## v2026.9.30
 
