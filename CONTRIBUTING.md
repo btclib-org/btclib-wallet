@@ -485,18 +485,19 @@ uv run --locked --no-default-groups --group test pytest
 ```
 
 `test.yml`, the `dist` job — build the distribution files, check them and
-install one. `release.yml`'s `test` job calls this workflow, and its
-publish jobs download the `dist` artifact this job uploads, so what the
-checks below judge is what an index ends up serving. `normalize_sdist.py`
-is what puts the commit's own time into every member of the sdist, and
-its docstring says why the backend's archive is not published as it
-stands; `sha256sum` after it is the digest a rebuild from the tag is
-compared against, per RELEASING.md's
-[Rebuild a release from its tag](./RELEASING.md#rebuild-a-release-from-its-tag).
-`generate_sbom.py` writes the CycloneDX bill of materials into `sbom/`,
-which `release.yml`'s `attest` job signs beside the two files. It is
-btclib-org/.github's, served from `main`, and reads this tree from the
-working directory, so the commands fetch it first:
+install one. `release.yml`'s `test` job calls this workflow, which then checks
+the files `reusable-build.yml` built and uploaded instead of building its own.
+`release.yml`'s publish jobs download that `dist` artifact, so what the checks
+below judge is what an index ends up serving. `normalize_sdist.py` is what puts
+the commit's own time into every member of the sdist, and its docstring says
+why the backend's archive is not published as it stands; `sha256sum` after it
+is the digest a rebuild from the tag is compared against, per RELEASING.md's
+[Rebuild a release from its
+tag](./RELEASING.md#rebuild-a-release-from-its-tag). `generate_sbom.py` writes
+the CycloneDX bill of materials into `sbom/`, which `reusable-build.yml`'s
+`attest` job signs beside the two files on a release. It is
+btclib-org/.github's, served from `main`, and reads this tree from the working
+directory, so the commands fetch it first:
 
 ```shell
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)

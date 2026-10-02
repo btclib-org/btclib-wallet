@@ -3,9 +3,9 @@ name: release
 
 # one pipeline, two targets:
 # - pushing a v<version> tag runs the gates and the platform sweeps,
-#   publishes the distribution files test.yml's dist job built to PyPI,
-#   and turns the tag into a GitHub release whose notes come from
-#   RELEASE_NOTES.md
+#   publishes the distribution files btclib-org/.github's
+#   reusable-build.yml built and signed to PyPI, and turns the tag into a
+#   GitHub release whose notes come from RELEASE_NOTES.md
 # - workflow_dispatch is the rehearsal: the same pipeline from any branch,
 #   publishing to TestPyPI under a unique .dev<N> version. A rehearsal is
 #   never tagged
@@ -34,7 +34,7 @@ jobs:
   # tag, and the retitling check on RELEASE_NOTES.md and CHANGELOG.md are
   # btclib-org/.github's, called at @main (section 10 of its README.md).
   # This tree is calendar-versioned, so tag-requires-day stays at its
-  # default; test below consumes version-suffix, the rehearsal output
+  # default; build below consumes version-suffix, the rehearsal output
   version-check:
     uses: btclib-org/.github/.github/workflows/reusable-version-check.yml@main
 
@@ -56,18 +56,42 @@ jobs:
   # below name it in `needs:` and in their `if:`, `always()` there being
   # what would otherwise let them run past a red one. The callee asks only
   # for the `contents: read` this workflow grants, as the calls above do.
-  # attest and github-release do not name it: neither runs without a publish
-  # job's success
+  # github-release does not name it: it runs only after publish-pypi
+  # succeeds
   audit:
     uses: btclib-org/.github/.github/workflows/reusable-audit.yml@main
 
-  # the whole gate, exactly as a pull request runs it, and the build:
-  # test.yml's dist job builds the distribution files, checks them and
-  # uploads them, so this call is what makes them exist for the publish
-  # jobs below to download
+  # the build and its signature: btclib-org/.github's reusable-build.yml,
+  # called at @main (section 10 of its README.md). It builds the
+  # distribution files and the bill of materials, uploads them as `dist`
+  # and `sbom`, and signs them before any publish job waits for its
+  # environment's approval, which is how the signer is a workflow this
+  # tree's own steps cannot alter (SLSA Build L3). It uploads the bundle
+  # as `attestation` for github-release. The version-suffix output is
+  # empty on the tag path, where version-check skips the step that writes
+  # it: a release ships the version the tree declares
+  build:
+    name: Build and sign the distribution files
+    needs: version-check
+    # a caller's permissions: block bounds the called workflow and refuses
+    # rather than trims, so every scope the callee declares is named here
+    # (btclib-org/.github#912): contents: read at its workflow level, the
+    # two writes on its attest job
+    permissions:
+      contents: read
+      id-token: write # the OIDC token the callee's attest job mints
+      attestations: write # the build provenance attestation it writes
+    uses: btclib-org/.github/.github/workflows/reusable-build.yml@main
+    with:
+      python: "3.15"
+      version-suffix: ${{ needs.version-check.outputs.version-suffix }}
+
+  # the whole gate, exactly as a pull request runs it: test.yml's dist job
+  # checks the files the build job uploaded, and its other jobs read the
+  # tree
   test:
     name: Run the test workflow
-    needs: version-check
+    needs: [version-check, build]
     # a caller's permissions: block bounds the called workflow and refuses
     # rather than trims, so the scope test.yml's changes job declares is
     # named here too
@@ -79,12 +103,8 @@ jobs:
       # what keeps this run out of the branch concurrency groups: see the
       # group in test.yml
       concurrency-suffix: "-release"
-      # empty on the tag path, where version-check skips the step that
-      # writes it: a release ships the version the tree declares
-      version-suffix: ${{ needs.version-check.outputs.version-suffix }}
-      # this is the run whose dist job builds what is published, so its
-      # Setup uv step must not trust a cache another run wrote
-      disable-dist-cache: true
+      # the files the dist job checks are the ones the build job signed
+      use-signed-dist: true
 
   # the checks a pull request lints with: without this a tag push could
   # publish code the pre-commit hooks reject
@@ -218,39 +238,16 @@ jobs:
     with:
       version: ${{ github.ref_name }}
 
-  # the build provenance attestation over the files test.yml's dist job
-  # built and the bill of materials beside them: btclib-org/.github's
-  # reusable-attest.yml, called at @main. After a publish and not after the
-  # build, so that a run reaching here is one the environment approval
-  # already let through; always(), the other publish job being skipped
-  # rather than run
-  attest:
-    needs: [publish-pypi, publish-testpypi]
-    if: >-
-      always() && (needs.publish-pypi.result == 'success' ||
-      needs.publish-testpypi.result == 'success')
-    # a caller's permissions: block bounds the called workflow and refuses
-    # rather than trims, so every scope the callee declares is named here
-    # (btclib-org/.github#912): contents: read at its workflow level, the
-    # two writes on its job
-    permissions:
-      contents: read
-      id-token: write # the OIDC token the callee's signing step mints
-      attestations: write # the build provenance attestation the callee writes
-    uses: btclib-org/.github/.github/workflows/reusable-attest.yml@main
-    with:
-      dist-artifact: dist
-
   # the GitHub release: btclib-org/.github's reusable-github-release.yml,
-  # called at @main. needs: names attest beside publish-pypi, attest
+  # called at @main. needs: names build beside publish-pypi, build
   # producing the bundle the callee attaches; the if asks about those two
   # alone, a failure of the published job beside this one bearing on
   # nothing an announcement says
   github-release:
-    needs: [publish-pypi, attest]
+    needs: [publish-pypi, build]
     if: >-
       always() && needs.publish-pypi.result == 'success' &&
-      needs.attest.result == 'success'
+      needs.build.result == 'success'
     permissions:
       contents: write # the callee creates the GitHub release with it
     uses: btclib-org/.github/.github/workflows/reusable-github-release.yml@main

@@ -5,7 +5,9 @@ name: sdist-rebuild
 # reproduces from its tag, and this is where that is asked: the latest
 # release's sdist rebuilt from the commit its tag names, by the steps
 # RELEASING.md's "Rebuild a release from its tag" lists, and `gh
-# attestation verify` over the rebuilt file -- the attestation's digests
+# attestation verify` over the rebuilt file, against the signer
+# btclib-org/.github's reusable-build.yml (reusable-attest.yml for a
+# release made before this tree called it) -- the attestation's digests
 # and not PyPI's, which say what the index holds rather than what was
 # signed. Weekly rather than in the release, where it would compare a
 # build with itself.
