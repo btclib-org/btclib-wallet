@@ -158,6 +158,12 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### The suite imports btclib_ecc's exception classes from `btclib_ecc`
+
+`tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
+which btclib 2026.9.30 does not bind them in, and `btclib` is capped below
+2026.11 until #196 lands (closes #166).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
