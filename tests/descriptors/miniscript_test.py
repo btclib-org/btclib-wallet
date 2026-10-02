@@ -57,6 +57,7 @@ from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from btclib_ecc.ecc import dsa, ssa
 
+from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import (
     TrDescriptor,
@@ -155,7 +156,11 @@ def test_core_fixed_vector(vector: dict[str, Any], context: str) -> None:
     # file is upstream's and says `needs_signature`, which is what that
     # property was called before issue btclib-org/btclib#814 gave every bool a
     # prefix
-    assert node.is_signature_required == vector["needs_signature"]
+    # BIP379 says "s" tells nothing about a malleable expression, and
+    # Core's vector says `needs_signature` for some of them
+    assert node.is_signature_required == (
+        vector["needs_signature"] and vector["non_malleable"]
+    )
     assert node.mixes_timelocks == vector["mixed_timelocks"]
     witness = "witness_size" if context == P2WSH else "tapscript_witness_size"
     for name, bound in (
@@ -400,7 +405,7 @@ def test_a_composite_inherits_a_property_from_either_branch() -> None:
     union it sits in becomes a symmetric difference.
     """
     assert parse("and_v(v:older(1),older(2))").properties == frozenset("Bfhkmxz")
-    assert parse("or_i(older(1),older(2))").properties == frozenset("Bfhkox")
+    assert parse("or_i(older(1),older(2))").properties == frozenset("Bhkox")
     assert parse("or_b(0,a:0)").properties == frozenset("Bdekmsux")
     assert parse(
         f"c:or_i(pk_k({KEY}),pk_k({CUSTODY_KEYS[1]}))"
@@ -577,6 +582,87 @@ def test_a_repeated_key_is_not_sane() -> None:
     assert not node.is_sane
     assert len(node.key_expressions) == 2
     assert not parse(f"and_v(v:pk({KEY}),pk({CUSTODY_KEYS[1]}))").has_duplicate_keys
+
+
+XPRV = (
+    "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJ"
+    "xWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi"
+)
+XPUB = xpub_from_xprv(XPRV)
+# the public key of XPUB/1, spelled as a key, as an xpub and as an x-only key
+CHILD = parse(f"pk({XPUB}/1)").key_expressions[0].sec().hex()
+CHILD_XPUB = derive(XPUB, "m/1")
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        (f"{XPUB}/1", f"[deadbeef]{XPUB}/1"),
+        (f"{XPUB}/1", CHILD),
+        (f"{XPUB}/1", CHILD_XPUB),
+        (f"{XPRV}/1h", f"{XPRV}/1'"),
+        (f"{XPUB}/*", f"{XPUB}/0"),
+    ],
+)
+def test_two_spellings_of_a_key_are_a_repeated_key(keys: tuple[str, str]) -> None:
+    """Compare the keys the expressions derive at index 0, as Core does."""
+    expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
+    assert parse(expression).has_duplicate_keys
+    with pytest.raises(BTClibValueError, match="repeats a public key"):
+        parse_descriptor(f"wsh({expression})")
+
+
+@pytest.mark.parametrize(
+    "keys, repeated",
+    [
+        ((CHILD[2:], "02" + CHILD[2:]), True),
+        ((CHILD[2:], "03" + CHILD[2:]), False),
+        (("02" + CHILD[2:], "03" + CHILD[2:]), False),
+        ((f"{XPUB}/1", f"{XPUB}/2"), False),
+        ((f"{XPRV}/1h", f"{XPRV}/2h"), False),
+    ],
+)
+def test_a_tapscript_key_counts_as_its_even_y_form(
+    keys: tuple[str, str], *, repeated: bool
+) -> None:
+    """Compare 33-byte keys, parity included, as Core does."""
+    expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
+    assert parse(expression, TAPSCRIPT).has_duplicate_keys == repeated
+
+
+def test_a_repeated_musig_key_is_a_repeated_key() -> None:
+    """Compare the aggregates, whatever the order the participants are in."""
+    first, second = CUSTODY_KEYS[:2]
+    same = f"or_i(pk(musig({first},{second})),pk(musig({second},{first})))"
+    assert parse(same, TAPSCRIPT).has_duplicate_keys
+    hardened = f"musig({XPRV}/0h,{first})"
+    twice = f"or_i(pk({hardened}),pk({hardened}))"
+    assert parse(twice, TAPSCRIPT).has_duplicate_keys
+    once = f"or_i(pk({hardened}),pk(musig({XPRV}/1h,{first})))"
+    assert not parse(once, TAPSCRIPT).has_duplicate_keys
+
+
+@pytest.mark.parametrize(
+    "expression, properties",
+    [
+        ("or_d(jc:pk_h(A),c:pk_h(B))", "Bdu"),
+        (
+            "thresh(2,multi(2,A,B,C),a:multi(2,D,E,F),aj:multi(2,G,I,J))",
+            "Bdu",
+        ),
+        ("and_v(or_c(j:multi(2,A,B,C),v:multi(2,D,E,F)),1)", "Bu"),
+    ],
+)
+def test_a_malleable_expression_keeps_neither_s_nor_f_nor_e(
+    expression: str, properties: str
+) -> None:
+    """Return them false, as BIP379 asks, for a malleable expression."""
+    for letter, key in zip("ABCDEFGIJ", KEYS, strict=False):
+        expression = expression.replace(letter, key)
+    node = parse(expression)
+    assert node.properties & frozenset("BVKWudsfemo") == frozenset(properties)
+    assert not node.is_non_malleable
+    assert not node.is_signature_required
 
 
 def test_the_insane_subexpression_is_the_deepest_one() -> None:

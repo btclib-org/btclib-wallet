@@ -158,6 +158,17 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### A malleable miniscript keeps neither `s`, `f` nor `e`
+
+`Miniscript.properties` and `is_signature_required` answer without "s", "f"
+and "e" for an expression without "m", as BIP379 asks (closes #190).
+
+### The duplicate-key check compares derived public keys
+
+`Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
+derive at index 0, as Bitcoin Core does, except for a hardened step whose
+private key is absent (issue #193).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

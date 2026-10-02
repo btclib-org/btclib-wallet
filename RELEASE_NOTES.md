@@ -17,6 +17,12 @@ before upgrading, rather than a digit.
   and `--source-ref refs/tags/v<version>`; SECURITY.md has the command.
   Earlier releases keep `reusable-attest.yml`.
 
+- **A miniscript repeating a public key is refused under different
+  spellings of it.** `descriptors.parse` does so as Bitcoin Core does, except
+  for a hardened step whose private key is absent.
+  `Miniscript.properties` and `is_signature_required` drop "s", "f" and "e"
+  on a malleable expression.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a
