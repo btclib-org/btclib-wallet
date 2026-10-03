@@ -181,6 +181,45 @@ byte for it (closes #180).
 spelling has an origin, in either order; a participant written after the plain
 key replaced its entry with an empty list (closes #185).
 
+### `SilentPaymentOutput`'s repr leaves out `prv_key_tweak`
+
+The tweak is a secret, so a logged output does not carry it (closes #161).
+
+### `mxprv_from_mnemonic` takes only `None` or `""` as the empty passphrase
+
+In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
+`btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
+where they derived the wallet without a passphrase (closes #162).
+
+### A malleable miniscript keeps neither `s`, `f` nor `e`
+
+`Miniscript.properties` drops "s", "f" and "e" from an expression without "m",
+as BIP379 asks, and `is_signature_required` is false there (closes #190).
+
+### The duplicate-key check compares derived public keys
+
+`Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
+derive at index 0, as Bitcoin Core does. A key with a hardened step is
+compared by its extended key and its path (issue #193).
+
+### The `Sign-off` check is required
+
+`CONTRIBUTING.md`'s shared half says a pull request whose commits lack the
+`Signed-off-by:` trailer cannot merge, and `REPOSITORY.md` lists
+`lint / Sign-off` among the required checks (issue btclib-org/.github#1550).
+
+### The suite imports btclib_ecc's exception classes from `btclib_ecc`
+
+`tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
+since `btclib.exceptions` binds them only up to btclib 2026.9.29
+(closes #166).
+
+### `integration-hwi.yml` installs HWI and Speculos from hashed locks
+
+`.github/integration-hwi/` holds hashed locks of both, installed with
+`--require-hashes`, and the Ledger app is fetched by the commit that tag
+2.5.0 names (closes #167).
+
 ### The assurance case names every direct call into libsecp256k1
 
 `ASSURANCE_CASE.md` also says `verify_network` runs before a fetcher's first

@@ -16,7 +16,10 @@ import btclib_mnemonics.electrum
 import pytest
 from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
-from btclib_mnemonics.exceptions import BTClibMnemonicsValueError
+from btclib_mnemonics.exceptions import (
+    BTClibMnemonicsTypeError,
+    BTClibMnemonicsValueError,
+)
 
 from btclib_wallet import slip132
 from btclib_wallet.bip32 import bip32
@@ -189,3 +192,20 @@ def test_p2wpkh_p2sh() -> None:
         # finally, verify the first receiving address
         xpub = bip32.derive_from_account(mxpub, 0, 0)
         assert p2wpkh_p2sh_address == slip132.address_from_xkey(xpub)
+
+
+@pytest.mark.parametrize("passphrase", [0, False, [], b""])
+def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) -> None:
+    """None and "" are the empty passphrase, and no other falsy value is.
+
+    A value of another type is refused whether or not it is empty, and
+    the refusal is `btclib_mnemonics`' own class, a `TypeError`.
+    """
+    mnemonic = ELECTRUM_VECTORS[0].values[0]
+    assert isinstance(mnemonic, str)
+    xprv = electrum.mxprv_from_mnemonic(mnemonic)
+    assert electrum.mxprv_from_mnemonic(mnemonic, None) == xprv
+    assert electrum.mxprv_from_mnemonic(mnemonic, "") == xprv
+    err_msg = f"invalid passphrase type: {type(passphrase).__name__}"
+    with pytest.raises(BTClibMnemonicsTypeError, match=err_msg):
+        electrum.mxprv_from_mnemonic(mnemonic, passphrase)  # type: ignore[arg-type]

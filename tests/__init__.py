@@ -265,10 +265,7 @@ def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     _refuse_bindings(monkeypatch, sys.modules[set_libsecp256k1_serving.__module__])
 
 
-# the packages `no_bindings_anywhere` walks. `btclib_ecc` is a name a
-# lookup falls back from in silence, so `tests/exception_family_test.py`
-# asserts that the package defining the dispatch, and the package any
-# exception class btclib binds comes from, is one of these
+# the packages `no_bindings_anywhere` walks
 WALKED_PACKAGES = frozenset(
     {"btclib", "btclib_ecc", "btclib_wallet", "btclib_secp256k1"}
 )
