@@ -35,7 +35,7 @@ from typing import Any
 
 import pytest
 from btclib.alias import Octets
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibValueError, ScriptError
 from btclib.hashes import hash160
 from btclib.key import PubKeyData
 from btclib.script import ScriptPubKey, Witness, serialize, taproot
@@ -756,7 +756,8 @@ def test_extract_tx_checks_the_silent_payment_outputs() -> None:
     The finalized psbt is altered after the Finalizer, which is the psbt
     an Extractor can be handed: a script dropped would pay the empty
     script, and a script swapped would pay somebody no share derives.
-    `check_validity=False` skips the check with the rest.
+    `check_validity=False` skips the check with the rest; the signature no
+    longer covers the altered output, so `verify_scripts=False` goes with it.
     """
     finalized = finalize(sign(_derived(), _SIGNER)[0])
     expected = finalized.outputs[0].script_pub_key
@@ -766,9 +767,10 @@ def test_extract_tx_checks_the_silent_payment_outputs() -> None:
     dropped.outputs[0].script_pub_key = b""
     with pytest.raises(BTClibValueError, match="the extracted transaction would pay"):
         extract_tx(dropped)
-    assert (
-        extract_tx(dropped, check_validity=False).vout[0].script_pub_key.script == b""
-    )
+    extracted = extract_tx(dropped, check_validity=False, verify_scripts=False)
+    assert extracted.vout[0].script_pub_key.script == b""
+    with pytest.raises(ScriptError):
+        extract_tx(dropped, check_validity=False)
 
     swapped = deepcopy(finalized)
     swapped.outputs[0].script_pub_key = _OTHER_SCRIPT
@@ -1166,7 +1168,10 @@ def test_a_finalized_p2sh_multisig_input_is_read_from_its_last_push() -> None:
     assert not parsed.inputs[multisig_i].redeem_script
     assert role.eligible_pub_keys(parsed) == eligible
     role.assert_as_valid(parsed)
-    assert extract_tx(parsed) == extract_tx(psbt)
+    # the signatures are placeholders, so the scripts are not run
+    assert extract_tx(parsed, verify_scripts=False) == extract_tx(
+        psbt, verify_scripts=False
+    )
 
 
 def test_the_last_push_of_a_scriptsig() -> None:

@@ -181,11 +181,13 @@ where it is SINGLE, as BIP370 asks of the Signer (closes #194).
 signature fields are emptied, so the joined psbt can be signed again
 (closes #195).
 
-### `extract_tx` takes `verify_scripts`
+### `extract_tx` verifies the scripts and the amounts by default
 
-`extract_tx(psbt, verify_scripts=True)` runs every input's scripts under
-the consensus rules and raises on a bad final signature. `check_validity`
-runs no script, and its docstring says so (closes #191).
+`extract_tx` runs every input's scripts under the consensus rules and checks
+that the outputs do not exceed the inputs, and raises where either fails.
+`verify_scripts=False` extracts without them. `check_validity` runs no
+script, and its docstring says so. `bip322` passes `verify_scripts=False`,
+having its own script check (closes #191).
 
 ## v2026.9.30
 

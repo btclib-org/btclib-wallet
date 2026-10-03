@@ -3441,7 +3441,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 
 
 def extract_tx(
-    psbt: Psbt, *, check_validity: bool = True, verify_scripts: bool = False
+    psbt: Psbt, *, check_validity: bool = True, verify_scripts: bool = True
 ) -> Tx:
     """Extract the Tx fro the Psbt.
 
@@ -3470,13 +3470,14 @@ def extract_tx(
 
     `check_validity` runs no script, so it does not say that the
     transaction will be accepted: a final scriptSig or witness holding a
-    bad signature passes it. `verify_scripts=True` runs every input's
-    scripts against the output it spends, under the consensus rules of
-    `btclib.script.engine.verify_transaction`, and raises where one
-    fails, and checks that the outputs do not exceed the inputs. A
-    signature that is valid under consensus and not standard (high-S)
-    passes it. It needs every input's utxo, and an input
-    without one raises as `prevouts` does.
+    bad signature passes it. `verify_scripts`, true by default, runs
+    every input's scripts against the output it spends, under the
+    consensus rules of `btclib.script.engine.verify_transaction`, and
+    raises where one fails. It also raises where the outputs exceed the
+    inputs. A signature that is valid under consensus and not standard
+    (high-S) passes it. It needs every input's utxo, and an input
+    without one raises as `prevouts` does. `verify_scripts=False`
+    extracts without these checks.
     """
     if check_validity:
         psbt.assert_valid()
@@ -3617,10 +3618,11 @@ def join(
     no longer verifies would also make `sign` skip its key. Every
     input's `partial_sigs`, final scripts and taproot and MuSig2
     signature fields are cleared, and its keys, scripts, origins and
-    utxo kept. A version 2 psbt keeps its signatures: one that passes
-    the modifiable flags was signed SIGHASH_NONE|ANYONECANPAY or not at
-    all. Such a signature still commits to the version and lock time, and
-    stops verifying where the join changes either.
+    utxo kept. A version 2 psbt keeps its signatures. Under BIP370's
+    Signer rules, one that passes the modifiable flags was signed
+    SIGHASH_NONE|ANYONECANPAY or not at all. Such a signature still
+    commits to the version and lock time, and stops verifying where the
+    join changes either.
 
     A signed message is not carried over, and that is not an omission:
     it says which challenge *this* transaction answers, and joining

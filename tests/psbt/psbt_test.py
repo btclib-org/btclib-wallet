@@ -5510,15 +5510,15 @@ def _finalized_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
     ],
 )
 def test_extract_tx_runs_the_final_scripts_when_asked(kind: str) -> None:
-    """`check_validity` runs no script; `verify_scripts` does."""
+    """`check_validity` runs no script; `verify_scripts`, on by default, does."""
     psbt, _ = _finalized_psbt(kind)
-    assert extract_tx(psbt, verify_scripts=True) == extract_tx(psbt)
+    assert extract_tx(psbt) == extract_tx(psbt, verify_scripts=False)
 
     _flip_signature_byte(psbt)
     # a bad signature passes check_validity
-    assert extract_tx(psbt) is not None
+    assert extract_tx(psbt, verify_scripts=False) is not None
     with pytest.raises(ScriptError):
-        extract_tx(psbt, verify_scripts=True)
+        extract_tx(psbt)
 
 
 def test_extract_tx_verify_scripts_issue_191_vector() -> None:
@@ -5533,7 +5533,7 @@ def test_extract_tx_verify_scripts_issue_191_vector() -> None:
     )
     psbt = finalize(Psbt.b64decode(b64))
     with pytest.raises(ScriptError, match="invalid signature for the taproot key"):
-        extract_tx(psbt, verify_scripts=True)
+        extract_tx(psbt)
 
     witness = psbt.inputs[0].final_script_witness
     assert witness is not None
@@ -5541,7 +5541,19 @@ def test_extract_tx_verify_scripts_issue_191_vector() -> None:
     assert sig[-2] == 0x6B
     sig[-2] = 0x6A
     psbt.inputs[0].final_script_witness = Witness([bytes(sig)])
-    assert extract_tx(psbt, verify_scripts=True) is not None
+    assert extract_tx(psbt) is not None
+
+
+def test_extract_tx_checks_the_amounts_by_default() -> None:
+    """Outputs exceeding the inputs are refused, unless `verify_scripts` is off."""
+    psbt, _ = _finalized_psbt("p2wpkh")
+    psbt.inputs[0].witness_utxo = dataclasses.replace(
+        psbt.inputs[0].witness_utxo, value=1
+    )
+
+    with pytest.raises(BTClibValueError, match="Invalid transaction amounts"):
+        extract_tx(psbt, check_validity=False)
+    assert extract_tx(psbt, check_validity=False, verify_scripts=False) is not None
 
 
 def test_extract_tx_verify_scripts_needs_every_utxo() -> None:
@@ -5550,4 +5562,4 @@ def test_extract_tx_verify_scripts_needs_every_utxo() -> None:
     psbt.inputs[0].witness_utxo = None
 
     with pytest.raises(BTClibValueError, match="no utxo for input 0"):
-        extract_tx(psbt, check_validity=False, verify_scripts=True)
+        extract_tx(psbt, check_validity=False)
