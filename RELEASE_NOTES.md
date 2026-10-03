@@ -46,13 +46,14 @@ before upgrading, rather than a digit.
 - **`join` refuses to change the lock time or the tx version of a signed
   version 2 psbt.** The signatures would stop verifying. Join the psbts before
   they are signed, or give them the same lock time and tx version.
+
 - **`Miniscript.has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and
   `insane_sub` are methods.** Call them with parentheses; without them,
   `if node.is_sane:` is always true, and mypy reports it as `truthy-function`.
   Pass `prv_keys`, the mapping `parse` fills, to derive a hardened step:
   `descriptors.parse` refuses `wsh(or_i(pk(XPRV/1h),pk(<the key it derives>)))`.
-  A key with a hardened step is excepted only where the descriptor does not
-  hold its private key.
+  Without its private key, a key with a hardened step is still compared as
+  written.
 
 ## v2026.9.30
 

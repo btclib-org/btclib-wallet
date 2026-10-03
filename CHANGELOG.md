@@ -288,16 +288,6 @@ the bypass is for emergencies (issue btclib-org/.github#1362).
 Entries above that have the maintainer landing without another person's approval
 describe the rule before issue btclib-org/.github#1362 (issue
 btclib-org/.github#1569).
-### `Miniscript`'s duplicate-key and sanity checks are methods
-
-`has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and `insane_sub`
-were properties. They are methods taking `prv_keys` (issue #199).
-
-### The duplicate-key check derives a hardened step
-
-A hardened step is derived where the descriptor holds its private key, and a
-key it cannot derive is compared by its expression. This replaces comparing a
-hardened step by extended key and path (closes #199) (closes #193).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
@@ -316,6 +306,17 @@ has the origin (closes #198).
 `join` refuses to change the lock time or the tx version of a version 2 psbt
 with a signed input, whose signatures commit to both. It kept signatures that
 no longer verified (closes #211).
+
+### `Miniscript`'s duplicate-key and sanity checks are methods
+
+`has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and `insane_sub`
+were properties. They are methods taking `prv_keys` (issue #199).
+
+### The duplicate-key check derives a hardened step
+
+A key with a hardened step is compared by the public key it derives where
+the descriptor holds its private key, not by its extended key and path. A
+key not derived is compared as written (closes #199) (closes #193).
 
 ## v2026.9.30
 
