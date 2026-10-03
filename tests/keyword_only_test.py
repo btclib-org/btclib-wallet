@@ -262,7 +262,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.psbt:assert_signed": ["allow_partial"],
     "btclib_wallet.psbt:ecdsa_sig_hash": ["hash_type"],
     "btclib_wallet.psbt:estimated_input_sizes": ["sizer"],
-    "btclib_wallet.psbt:extract_tx": ["check_validity"],
+    "btclib_wallet.psbt:extract_tx": ["check_validity", "verify_scripts"],
     "btclib_wallet.psbt:finalize": ["solver"],
     "btclib_wallet.psbt:taproot_sig_hash": ["leaf_hash", "hash_type"],
     "btclib_wallet.psbt_signer:SoftwareSigner.__init__": ["musig2"],

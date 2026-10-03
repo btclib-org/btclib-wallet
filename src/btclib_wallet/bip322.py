@@ -553,7 +553,8 @@ def assert_as_valid(
     elif isinstance(payload, Tx):
         tx = payload
     else:
-        tx = extract_tx(payload)
+        # the scripts are run by _assert_scripts, against `prevouts`
+        tx = extract_tx(payload, verify_scripts=False)
         prevouts += _psbt_prevouts(payload)[1:]
 
     _assert_shape(tx, spend, prevouts)

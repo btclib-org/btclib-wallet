@@ -108,6 +108,7 @@ from btclib_wallet.hwi import HwiSigner, enumerate_devices
 from btclib_wallet.mnemonic import bip39
 from btclib_wallet.psbt import musig2 as psbt_musig2
 from btclib_wallet.psbt.psbt import Psbt, assert_signed
+from btclib_wallet.psbt.psbt import extract_tx as psbt_extract_tx
 from btclib_wallet.psbt.psbt import join as psbt_join
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_utils import (
@@ -177,6 +178,11 @@ _TX = Tx(vin=[TxIn(OutPoint(b"\x00" * 32, 0))], vout=[TxOut(1000, b"\x51")])
 # transactions with an input in common, so one twice is no fixture
 _TX_2 = Tx(vin=[TxIn(OutPoint(b"\x11" * 32, 1))], vout=[TxOut(900, b"\x51")])
 _PSBTS = [Psbt.from_tx(_TX), Psbt.from_tx(_TX_2)]
+
+# an input spending an output anyone can spend, so that its empty scripts
+# are what the script engine accepts
+_SPENDABLE_PSBT = Psbt.from_tx(_TX)
+_SPENDABLE_PSBT.inputs[0].witness_utxo = TxOut(2000, b"\x51")
 _TX_BYTES = _TX.serialize(include_witness=False, check_validity=False)
 
 # the first BIP174 vector that is signed through, which is what makes
@@ -407,6 +413,14 @@ _KINDS = (
 )
 
 _TRUTHS = (
+    _Case(
+        "btclib_wallet.psbt.psbt.extract_tx",
+        "verify_scripts",
+        psbt_extract_tx,
+        {"psbt": _SPENDABLE_PSBT},
+        reason="whether the final scripts are run; a transaction they accept"
+        " is the same one",
+    ),
     _Case(
         "btclib_wallet.slip132.p2pkh_xkey",
         "check_root_xkey",
