@@ -55,6 +55,12 @@ before upgrading, rather than a digit.
   Without its private key, a key with a hardened step is still compared as
   written.
 
+- **btclib-wallet requires btclib 2026.10.4 and btclib-secp256k1 0.8.0.10.**
+  btclib 2026.10.4 fixes GHSA-9fr5-46w5-5f9r, which made `bip322.verify` run
+  for minutes on a crafted signature; 0.8.0.10 fixes GHSA-8h6f-34jj-7p6c.
+  Upgrading btclib-wallet installs btclib; the `secp256k1` extra installs
+  the bindings.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a

@@ -33,8 +33,12 @@ dependencies = [
     # #196). Below 2026.9.29, `btclib.curves`, `btclib.ecc` (less `bms`),
     # `btclib.kdf` and `btclib.number_theory` do not bind btclib-ecc's own
     # objects (issue btclib-org/btclib#2282), so a `Curve` or a `Sig` built
-    # through `btclib_ecc` is not the type btclib's own API returns
-    "btclib>=2026.10.3",
+    # through `btclib_ecc` is not the type btclib's own API returns.
+    # 2026.10.4 is the floor because it fixes GHSA-9fr5-46w5-5f9r, a
+    # tapscript script-path spend that made `script.engine.verify_transaction`
+    # run for minutes. `bip322.verify` runs that engine on a witness it was
+    # given, so it is reached
+    "btclib>=2026.10.4",
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `btclib_ecc.curves`, `btclib_ecc.ecc` less `bms`, which
     # stays btclib's own, `btclib_ecc.hashes`'s `tagged_hash` and
@@ -102,11 +106,14 @@ classifiers = [
 # the libsecp256k1 bindings, named twice. btclib's own extra states the
 # floor btclib's delegation needs; `btclib-secp256k1` is named directly
 # as well because `bip32.bip32` and `silent_payments` import it
-# themselves, and its floor is the one btclib's extra carries. An extra
+# themselves, and its floor is the one btclib's extra carries; 0.8.0.10
+# fixes GHSA-8h6f-34jj-7p6c, an invalid-curve oracle in
+# `silentpayments.scan_outputs`. `silent_payments` calls it on a summary
+# it computes in the same call, never on one it was given. An extra
 # rather than a dependency for btclib's reason: every delegation declines
 # where the bindings are absent, and the Python arithmetic answers
 # instead. The btclib floor is the one of `dependencies`
-secp256k1 = ["btclib[secp256k1]>=2026.10.3", "btclib-secp256k1>=0.8.0.9"]
+secp256k1 = ["btclib[secp256k1]>=2026.10.4", "btclib-secp256k1>=0.8.0.10"]
 
 [project.urls]
 homepage = "https://btclib-wallet.readthedocs.io/"
@@ -127,7 +134,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.10.3", "btclib-secp256k1>=0.8.0.9"]
+bindings = ["btclib[secp256k1]>=2026.10.4", "btclib-secp256k1>=0.8.0.10"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was

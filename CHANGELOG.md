@@ -341,6 +341,11 @@ The methods taking `prv_keys` and `descriptors.normalized` check it as `parse`
 does, where a string left as an `AttributeError`; a test finds every such
 callable (closes #215).
 
+### btclib 2026.10.4 and btclib-secp256k1 0.8.0.10 are the floors
+
+They fix GHSA-9fr5-46w5-5f9r, which stalled `bip322.verify` on a crafted
+tapscript witness, and GHSA-8h6f-34jj-7p6c, in `silentpayments.scan_outputs`.
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

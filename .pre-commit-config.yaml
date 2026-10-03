@@ -262,7 +262,7 @@ repos:
       - id: typos
         name: typos
         language: python
-        additional_dependencies: [typos==1.49.0]
+        additional_dependencies: [typos==1.50.3]
         entry: typos
         args: [--write-changes, --force-exclude]
         types: [text]
@@ -274,7 +274,7 @@ repos:
   # reports: the pragma survives autoupdate, which keeps a trailing
   # comment, where a baseline entry would match only the one sha
   - repo: https://github.com/btclib-org/.github
-    rev: 1c3cb979a34a31b5cfa3b7abfc924e4962a2b963 # pragma: allowlist secret
+    rev: 3e01d5d7d54d3f34fd8ea12cdcb99f272ad02804 # pragma: allowlist secret
     hooks:
       - id: check-changelog
         args: [--grandfathered, "0"]
@@ -545,7 +545,7 @@ repos:
         # having changed nothing
         additional_dependencies:
           - shellcheck-py==0.11.0.1
-          - pyflakes==3.4.0
+          - pyflakes==4.0.1
   # actionlint asks whether a workflow is correct, zizmor whether it is
   # safe: a token persisted where a later step can read it, a cache
   # restored into the job that builds what gets published, an expression
