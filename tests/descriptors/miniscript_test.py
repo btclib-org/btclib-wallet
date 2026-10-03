@@ -58,7 +58,12 @@ from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from btclib_ecc.ecc import dsa, ssa
 
-from btclib_wallet.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
+from btclib_wallet.bip32.bip32 import (
+    derive,
+    pub_keyinfo_from_xkey,
+    rootxprv_from_seed,
+    xpub_from_xprv,
+)
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import (
     TrDescriptor,
@@ -290,7 +295,7 @@ def test_the_authorization_gate_maps_opcode_for_opcode() -> None:
     )
     node = parse(AUTHORIZATION_GATE)
     assert node.script() == written
-    assert node.is_sane
+    assert node.is_sane()
     # and the script is recognized as the very expression it came from
     assert str(from_script(written)) == AUTHORIZATION_GATE
 
@@ -423,7 +428,7 @@ def test_a_thresh_may_hold_a_dup_if_under_tapscript_alone() -> None:
     expression = (
         f"thresh(2,dv:older(42),s:pk({CUSTODY_KEYS[4]}),s:pk({CUSTODY_KEYS[5]}))"
     )
-    assert parse(expression, TAPSCRIPT).is_sane
+    assert parse(expression, TAPSCRIPT).is_sane()
     with pytest.raises(BTClibValueError, match="ill-typed"):
         parse(expression, P2WSH)
 
@@ -579,10 +584,10 @@ def test_an_unsatisfiable_expression_has_no_bounds() -> None:
 def test_a_repeated_key_is_not_sane() -> None:
     """Find the same key twice, whatever the fragments that hold it."""
     node = parse(f"and_v(v:pk({KEY}),pk({KEY}))")
-    assert node.has_duplicate_keys
-    assert not node.is_sane
+    assert node.has_duplicate_keys()
+    assert not node.is_sane()
     assert len(node.key_expressions) == 2
-    assert not parse(f"and_v(v:pk({KEY}),pk({CUSTODY_KEYS[1]}))").has_duplicate_keys
+    assert not parse(f"and_v(v:pk({KEY}),pk({CUSTODY_KEYS[1]}))").has_duplicate_keys()
 
 
 XPRV = (
@@ -608,9 +613,73 @@ CHILD_XPUB = derive(XPUB, "m/1")
 def test_two_spellings_of_a_key_are_a_repeated_key(keys: tuple[str, str]) -> None:
     """Compare the keys the expressions derive at index 0, as Core does."""
     expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
-    assert parse(expression).has_duplicate_keys
+    prv_keys: dict[str, str] = {}
+    assert parse(expression, prv_keys=prv_keys).has_duplicate_keys(prv_keys)
     with pytest.raises(BTClibValueError, match="repeats a public key"):
         parse_descriptor(f"wsh({expression})")
+
+
+def _hardened_child(xprv: str, path: str, network: str) -> str:
+    """Return the hex of the public key `path` derives from `xprv`."""
+    return pub_keyinfo_from_xkey(derive(xprv, path), network)[0].hex()
+
+
+TESTNET_XPRV = rootxprv_from_seed(b"\x00" * 32, NETWORKS["testnet"].bip32_prv)
+
+
+@pytest.mark.parametrize(
+    "network, xprv, keys",
+    [
+        ("mainnet", XPRV, (f"{XPRV}/1h", _hardened_child(XPRV, "m/1h", "mainnet"))),
+        ("mainnet", XPRV, (f"{XPRV}/*h", _hardened_child(XPRV, "m/0h", "mainnet"))),
+        (
+            "mainnet",
+            XPRV,
+            (f"{XPRV}/1h/*", _hardened_child(XPRV, "m/1h/0", "mainnet")),
+        ),
+        (
+            "testnet",
+            TESTNET_XPRV,
+            (
+                f"{TESTNET_XPRV}/1h",
+                _hardened_child(TESTNET_XPRV, "m/1h", "testnet"),
+            ),
+        ),
+    ],
+)
+def test_a_hardened_key_is_derived_where_the_descriptor_holds_its_private_key(
+    network: str, xprv: str, keys: tuple[str, str]
+) -> None:
+    """Refuse a key repeated as the public key its hardened step derives."""
+    expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
+    for descriptor in (
+        f"wsh({expression})",
+        f"tr({xpub_from_xprv(xprv)}/5,{expression})",
+    ):
+        with pytest.raises(BTClibValueError, match="repeats a public key"):
+            parse_descriptor(descriptor, network)
+    prv_keys: dict[str, str] = {}
+    node = parse(expression, prv_keys=prv_keys)
+    assert not node.has_duplicate_keys()
+    assert node.has_duplicate_keys(prv_keys)
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        (f"{XPUB}/1h", f"[deadbeef]{XPUB}/1h"),
+        (f"{XPUB}/1h", f"{XPUB}/1'"),
+    ],
+)
+def test_a_hardened_key_without_its_private_key_is_compared_as_written(
+    keys: tuple[str, str],
+) -> None:
+    """Take two spellings for two keys, as Core does where it cannot derive."""
+    expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
+    parse_descriptor(f"wsh({expression})")
+    assert not parse(expression).has_duplicate_keys()
+    twice = f"or_i(pk({keys[0]}),pk({keys[0]}))"
+    assert parse(twice).has_duplicate_keys()
 
 
 @pytest.mark.parametrize(
@@ -628,19 +697,19 @@ def test_a_tapscript_key_counts_as_its_even_y_form(
 ) -> None:
     """Compare 33-byte keys, parity included, as Core does."""
     expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
-    assert parse(expression, TAPSCRIPT).has_duplicate_keys == repeated
+    assert parse(expression, TAPSCRIPT).has_duplicate_keys() == repeated
 
 
 def test_a_repeated_musig_key_is_a_repeated_key() -> None:
     """Compare the aggregates, whatever the order the participants are in."""
     first, second = CUSTODY_KEYS[:2]
     same = f"or_i(pk(musig({first},{second})),pk(musig({second},{first})))"
-    assert parse(same, TAPSCRIPT).has_duplicate_keys
+    assert parse(same, TAPSCRIPT).has_duplicate_keys()
     hardened = f"musig({XPRV}/0h,{first})"
     twice = f"or_i(pk({hardened}),pk({hardened}))"
-    assert parse(twice, TAPSCRIPT).has_duplicate_keys
+    assert parse(twice, TAPSCRIPT).has_duplicate_keys()
     once = f"or_i(pk({hardened}),pk(musig({XPRV}/1h,{first})))"
-    assert not parse(once, TAPSCRIPT).has_duplicate_keys
+    assert not parse(once, TAPSCRIPT).has_duplicate_keys()
 
 
 def test_a_repeated_musig_key_is_found_on_a_test_network() -> None:
@@ -652,7 +721,7 @@ def test_a_repeated_musig_key_is_found_on_a_test_network() -> None:
     for participants in ((KEY, child), (child, KEY)):
         first, second = participants, participants[::-1]
         both = f"or_i(pk(musig({','.join(first)})),pk(musig({','.join(second)})))"
-        assert parse(both, TAPSCRIPT).has_duplicate_keys
+        assert parse(both, TAPSCRIPT).has_duplicate_keys()
 
 
 @pytest.mark.parametrize(
@@ -682,11 +751,11 @@ def test_the_insane_subexpression_is_the_deepest_one() -> None:
     """Name the part at fault rather than the whole that shows it."""
     node = parse(f"or_i(and_b(after(1),a:after(1000000000)),pk({KEY}))")
     assert node.is_valid_top_level
-    assert not node.is_sane
-    insane = node.insane_sub
+    assert not node.is_sane()
+    insane = node.insane_sub()
     assert insane is not None
     assert str(insane) == "and_b(after(1),a:after(1000000000))"
-    assert parse(f"pk({KEY})").insane_sub is None
+    assert parse(f"pk({KEY})").insane_sub() is None
 
 
 REFUSED_SCRIPTS = [
@@ -1144,7 +1213,7 @@ def test_a_satisfaction_is_a_witness_the_engine_accepts(
     """
     node = parse(vector["miniscript"])
     satisfied = [spendable(node, locktime, sequence) for locktime, sequence in SPENDS]
-    if node.is_sane and node.is_satisfiable:
+    if node.is_sane() and node.is_satisfiable:
         assert any(stack is not None for stack in satisfied)
     # and the bound the analysis promised is one no satisfaction passes
     for stack in satisfied:
@@ -1533,7 +1602,7 @@ def test_the_estimate_is_the_largest_branch_and_not_the_cheapest() -> None:
         f",pk_k({KEYS[2]}))"
     )
     node = parse(expression)
-    assert node.is_sane
+    assert node.is_sane()
     signatures: dict[Octets, Octets] = dict.fromkeys(KEYS[:3], "30" * 71 + "01")
     spend = SpendContext(ripemd160_preimages={ripemd160(PRV_KEYS[3]): PRV_KEYS[3]})
     built = node.satisfy(signatures, spend)

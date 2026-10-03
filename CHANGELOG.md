@@ -199,8 +199,7 @@ as BIP379 asks, and `is_signature_required` is false there (closes #190).
 ### The duplicate-key check compares derived public keys
 
 `Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
-derive at index 0, as Bitcoin Core does. A key with a hardened step is
-compared by its extended key and its path (issue #193).
+derive at index 0, as Bitcoin Core does (issue #193).
 
 ### The `Sign-off` check is required
 
@@ -288,6 +287,11 @@ the bypass is for emergencies (issue btclib-org/.github#1362).
 Entries above that have the maintainer landing without another person's approval
 describe the rule before issue btclib-org/.github#1362 (issue
 btclib-org/.github#1569).
+### The duplicate-key check derives a hardened step
+
+`has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and `insane_sub` of
+`Miniscript` are methods taking `prv_keys`, and a hardened step is derived
+where the descriptor holds its private key (closes #199) (issue #193).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 

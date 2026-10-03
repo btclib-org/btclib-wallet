@@ -2077,7 +2077,7 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     this one is unspendable or unsafe.
     """
     node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
-    _assert_sane(node)
+    _assert_sane(node, prv_keys)
     return node
 
 
@@ -2367,7 +2367,7 @@ def _parse_miniscript_expression(
     language and leaves the judgement to the caller.
     """
     node = _parse_miniscript(expression, _MINISCRIPT_CONTEXTS[context], prv_keys)
-    _assert_sane(node)
+    _assert_sane(node, prv_keys)
     return MiniscriptDescriptor(node, network=network)
 
 
