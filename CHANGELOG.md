@@ -177,10 +177,9 @@ byte for it (closes #180).
 
 ### A `musig()` participant that is also a plain taproot key keeps its leaf hashes
 
-`TrDescriptor`'s taproot derivations list every leaf of such a key whose
-plain spelling carries an origin, whichever order the tree writes them in; a
-participant written after the plain key replaced its entry with an empty list
-(closes #185).
+`TrDescriptor`'s taproot derivations list every leaf of such a key whose plain
+spelling has an origin, in either order; a participant written after the plain
+key replaced its entry with an empty list (closes #185).
 
 ## v2026.9.30
 
