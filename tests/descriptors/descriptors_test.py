@@ -3927,11 +3927,10 @@ def test_a_participant_that_is_also_a_leaf_key_keeps_its_leaf_hashes() -> None:
     """
     key_a, key_b, key_c = (f"[d34db33f/{i}h]{sec}" for i, sec in enumerate(SEC_KEYS))
     plain, group = f"pk({key_c})", f"pk(musig({key_a},{key_c}))"
-    leaf_hashes = []
     for tree in (f"{{{plain},{group}}}", f"{{{group},{plain}}}"):
         descriptor = parse(f"tr(musig({key_a},{key_b}),{tree})")
         psbt_in = descriptor.update_psbt_input(psbt_spending(descriptor), 0).inputs[0]
         hashes, origin = psbt_in.taproot_hd_key_paths[bytes.fromhex(SEC_KEYS[2])[1:]]
         assert origin.description == "d34db33f/2h"
-        leaf_hashes.append(hashes)
-    assert [len(hashes) for hashes in leaf_hashes] == [1, 1]
+        script = taproot_leaf_of(psbt_in, SEC_KEYS[2][2:])[0]
+        assert hashes == [taproot.leaf_hash(0xC0, script)]

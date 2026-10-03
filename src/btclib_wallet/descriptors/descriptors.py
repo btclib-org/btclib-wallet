@@ -695,9 +695,9 @@ def _taproot_derivations(
     origin of its own -- the second being how a signer finds out that one
     of the keys it holds is in this group at all. A participant is in no
     leaf of its own as a participant, so its leaf hashes are empty unless
-    the same key is also a plain key of the tree, whose entry it does not
-    replace; what says which leaves the group signs for is the aggregate's
-    own entry.
+    the same key is also a plain key with an origin, whose entry it does
+    not replace; what says which leaves the group signs for is the
+    aggregate's own entry.
     """
     derivations: dict[bytes, tuple[list[bytes], BIP32KeyOrigin]] = {}
     for key in keys:
@@ -2424,8 +2424,8 @@ def parse(
     `network_from_name` would answer to.
 
     A WIF or an extended key of another network is refused here too, as
-    Bitcoin Core's parser does: the prefix of the one and the version of
-    the other are the network's own, and the test networks share both.
+    Bitcoin Core's parser does. The test networks share one WIF prefix and
+    one extended-key version.
 
     `prv_keys` is a mapping, and what is not one was walked anyway: the
     lookups below are `in` and `[]`, so a list of pairs answered "not

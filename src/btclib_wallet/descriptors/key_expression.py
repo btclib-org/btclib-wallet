@@ -138,8 +138,7 @@ class KeyExpression:
     # ways -- BIP380's own valid `[deadbeef/0'/0h/0']` -- is read and
     # written back in the symbol its last hardened step used
     hardening: str = _HARDENING
-    # the version byte of the WIF the key was read from, b"" for any other
-    # spelling; `parse` checks it against the network. Not compared.
+    # checked by `parse` against the network; not compared
     wif_prefix: bytes = field(default=b"", compare=False, repr=False)
 
     def __post_init__(self) -> None:
