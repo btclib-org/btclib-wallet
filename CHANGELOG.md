@@ -202,6 +202,12 @@ as BIP379 asks, and `is_signature_required` is false there (closes #190).
 derive at index 0, as Bitcoin Core does. A key with a hardened step is
 compared by its extended key and its path (issue #193).
 
+### The `Sign-off` check is required
+
+`CONTRIBUTING.md`'s shared half says a pull request whose commits lack the
+`Signed-off-by:` trailer cannot merge, and `REPOSITORY.md` lists
+`lint / Sign-off` among the required checks (issue btclib-org/.github#1550).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
