@@ -609,6 +609,7 @@ CHILD_XPUB = derive(XPUB, "m/1")
         (f"{XPUB}/1", CHILD_XPUB),
         (f"{XPRV}/1h", f"{XPRV}/1'"),
         (f"{XPUB}/*", f"{XPUB}/0"),
+        (f"{XPRV}/1", f"{XPUB}/1"),
     ],
 )
 def test_two_spellings_of_a_key_are_a_repeated_key(keys: tuple[str, str]) -> None:

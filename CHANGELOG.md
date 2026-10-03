@@ -278,9 +278,9 @@ were properties. They are methods taking `prv_keys` (issue #199).
 
 ### The duplicate-key check derives a hardened step
 
-A hardened step is derived where the descriptor holds its private key, and a
-key it cannot derive is compared by its expression. This replaces comparing a
-hardened step by extended key and path (closes #199) (closes #193).
+A key with a hardened step is compared by the public key it derives where
+the descriptor holds its private key, not by its extended key and path. A
+key not derived is compared as written (closes #199) (closes #193).
 
 ## v2026.9.30
 
