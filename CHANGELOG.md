@@ -335,6 +335,12 @@ took no `--source-ref`; it takes the tag (issue #168).
 `tests/_data/README.md` records, and that blob against upstream's at the
 pinned commit, failing the run on a mismatch (issue #168).
 
+### A non-mapping `prv_keys` is a `BTClibTypeError`
+
+The methods taking `prv_keys` and `descriptors.normalized` check it as `parse`
+does, where a string left as an `AttributeError`; a test finds every such
+callable (closes #215).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

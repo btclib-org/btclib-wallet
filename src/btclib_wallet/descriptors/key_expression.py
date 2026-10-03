@@ -35,7 +35,7 @@ from btclib import b58
 from btclib.base58 import decode as base58_decode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS, network_from_name, xpubversions_from_network
-from btclib.utils import bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets
 from btclib_ecc.curves import point_from_pub_key, secp256k1
 from btclib_ecc.curves.sec_point import bytes_from_point
 from btclib_ecc.ecc.musig2 import key_agg, key_sort
@@ -84,6 +84,16 @@ _DELIMITERS = re.compile(r"[(){},]")
 # `FlatSigningProvider` is keyed too -- by the key id there, by the xpub
 # here, an extended key being what a descriptor derives from
 PrvKeys = Mapping[str, str]
+
+
+def _assert_prv_keys(prv_keys: object) -> None:
+    """Refuse a `prv_keys` that is neither a mapping nor None.
+
+    The check `descriptors.parse` makes, written once for the methods that
+    take the mapping back: without it a string leaves as the
+    `AttributeError` of its missing `get`.
+    """
+    assert_type(prv_keys, (Mapping, type(None)), "prv_keys")
 
 
 @dataclass(frozen=True)
@@ -214,6 +224,7 @@ class KeyExpression:
         take one with. The index derives the participants or the aggregate
         and never both, BIP390 allowing a wildcard on one side only.
         """
+        _assert_prv_keys(prv_keys)
         if self.participants:
             aggregate = self.aggregate(index, network, prv_keys)
             musig_path = list(self.der_path)
@@ -260,6 +271,7 @@ class KeyExpression:
         of a psbt in aggregation order too, which is what makes this the
         list that goes into `PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS`.
         """
+        _assert_prv_keys(prv_keys)
         derived = [key.sec(index, network, prv_keys) for key in self.participants]
         return key_sort(derived)
 
@@ -279,6 +291,7 @@ class KeyExpression:
         participants make, and a derivation of it is a key the same group
         answers for.
         """
+        _assert_prv_keys(prv_keys)
         return bytes_from_point(
             key_agg(self.participant_keys(index, network, prv_keys)).Q, secp256k1
         )

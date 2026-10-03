@@ -197,6 +197,7 @@ from btclib_wallet.descriptors.key_expression import (
     PrvKeys,
     _assert_musig_allowed,
     _assert_network,
+    _assert_prv_keys,
     _expression,
     _offered_signature,
     _parse_key,
@@ -825,6 +826,7 @@ class Descriptor(ABC):
         A list because ``combo()`` is a set of scripts and not one
         script; every other fragment answers with exactly one.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         return [
             ScriptPubKey(script, self.network)
@@ -910,6 +912,7 @@ class Descriptor(ABC):
         it says so: without one it refuses the fragments that would have
         read it.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         return self._satisfy(
             {
@@ -978,6 +981,7 @@ class Descriptor(ABC):
         to look is a policy this module has no view on. A descriptor that
         is not ranged has one script and answers 0 or None.
         """
+        _assert_prv_keys(prv_keys)
         script = script_from_script_pub_key(script_pub_key)
         last = last_index if self.is_ranged else 0
         for index in range(last + 1):
@@ -1019,6 +1023,7 @@ class Descriptor(ABC):
         and `Psbt.assert_signable` asks that question for every input at
         once, being the role after this one.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         # an IndexError out of a public method is not an answer, and a
         # negative index would quietly update the input at the other end
@@ -1060,6 +1065,7 @@ class Descriptor(ABC):
         it publishes is every leaf, each with its depth, which is what lets
         a reader rebuild the tree and check the output key for itself.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         # an IndexError out of a public method is not an answer, and a
         # negative index would quietly update the output at the other end
@@ -1732,6 +1738,7 @@ class TrDescriptor(Descriptor):
         says "key path only": a ``tr(KEY)`` tweaks its internal key with
         no tree, which is not the same as tweaking it with an empty one.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         if self.tree is None:
             return b""
@@ -1750,6 +1757,7 @@ class TrDescriptor(Descriptor):
         whole tree seen from that leaf, and a psbt carrying one leaf's
         script has no way to compute another's.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         if self.tree is None:
             return {}
@@ -1867,6 +1875,7 @@ class TrDescriptor(Descriptor):
         Empty for a ``tr(KEY)``, whose output key commits to no script at
         all, and which BIP371 says so about by leaving the field out.
         """
+        _assert_prv_keys(prv_keys)
         self._assert_index(index)
         if self.tree is None:
             return []
@@ -2580,6 +2589,7 @@ def normalized(descriptor: Descriptor, prv_keys: PrvKeys | None = None) -> Descr
     that came in, which is Core's rule -- "always use h for hardened
     derivation" is how its own interface states it.
     """
+    _assert_prv_keys(prv_keys)
     return _mapped_keys(descriptor, lambda key: _normalized_key(key, prv_keys))
 
 

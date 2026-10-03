@@ -99,6 +99,7 @@ from btclib_wallet.bip32.der_path import _int_from_digits
 from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
     PrvKeys,
+    _assert_prv_keys,
     _offered_signature,
     _parse_key,
     _split_arguments,
@@ -1223,6 +1224,7 @@ class Miniscript:
         a key that can be derived: Bitcoin Core does the same since
         bitcoin/bitcoin@7b15e2cb44.
         """
+        _assert_prv_keys(prv_keys)
         keys = [_key_identity(key, prv_keys) for key in self.key_expressions]
         return len(set(keys)) != len(keys)
 
@@ -1331,6 +1333,7 @@ class Miniscript:
 
         `prv_keys` is `has_duplicate_keys`'s.
         """
+        _assert_prv_keys(prv_keys)
         return (
             self.is_within_resource_limits
             and self.is_non_malleable
@@ -1348,6 +1351,7 @@ class Miniscript:
         the timelocks were checked against, and to rewrite the witness.
         `prv_keys` is `has_duplicate_keys`'s.
         """
+        _assert_prv_keys(prv_keys)
         return (
             self.is_valid_top_level
             and self.is_sane_subexpression(prv_keys)
@@ -1361,6 +1365,7 @@ class Miniscript:
         insane where one of its parts is, so the part is the answer and
         the whole is the symptom. `prv_keys` is `has_duplicate_keys`'s.
         """
+        _assert_prv_keys(prv_keys)
 
         def up(
             _state: None, node: Miniscript, subs: list[Miniscript | None]
@@ -1384,6 +1389,7 @@ class Miniscript:
         ranged key, a network for the extended keys, and the private
         material that a hardened step needs and an xpub cannot take.
         """
+        _assert_prv_keys(prv_keys)
         if not self.is_valid:
             raise BTClibValueError(f"invalid miniscript: {self}")
 
@@ -1426,6 +1432,7 @@ class Miniscript:
         turn a non-malleable one malleable, which is why the two are
         separate messages.
         """
+        _assert_prv_keys(prv_keys)
         offered = (
             {}
             if signatures is None
