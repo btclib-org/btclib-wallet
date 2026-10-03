@@ -169,6 +169,18 @@ or install a hash-pinned export (issue btclib-org/.github#1538).
 `REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
 setting section 11 of the standard states (issue btclib-org/.github#1540).
 
+### `descriptors.parse` refuses a key of another network
+
+`parse` raises `BTClibValueError` for a WIF or an extended key of another
+network, as Core does; `KeyExpression.wif_prefix` holds the WIF's version
+byte for it (closes #180).
+
+### A `musig()` participant that is also a plain taproot key keeps its leaf hashes
+
+`TrDescriptor`'s taproot derivations list every leaf of such a key whose plain
+spelling has an origin, in either order; a participant written after the plain
+key replaced its entry with an empty list (closes #185).
+
 ### The assurance case names every direct call into libsecp256k1
 
 `ASSURANCE_CASE.md` also says `verify_network` runs before a fetcher's first

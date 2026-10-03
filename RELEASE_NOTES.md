@@ -16,6 +16,11 @@ before upgrading, rather than a digit.
   `--signer-workflow btclib-org/.github/.github/workflows/reusable-build.yml@refs/heads/main`
   and `--source-ref refs/tags/v<version>`; SECURITY.md has the command.
   Earlier releases keep `reusable-attest.yml`.
+- **`descriptors.parse` refuses a key of another network.** A WIF or an
+  extended key whose prefix is not the `network`'s raises
+  `BTClibValueError` there, where the WIF was accepted and the extended key
+  was refused only by `script_pub_keys()`. A caller that parses a descriptor
+  for a network its keys are not of has to pass the right `network`.
 
 ## v2026.9.30
 

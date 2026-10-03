@@ -60,6 +60,8 @@ _FINGERPRINT = "73c5da0a"
 _XPUB = "xpub6BosfCnifzxcFwrSzQiqu2DBVTshkCXacvNsWGYJVVhhawA7d4R5WSWGFNbi8Aw6ZRc1brxMyWMzG3DSSSSoekkudhUd9yLb6qx39T9nMdj"
 _ACCOUNT_XPUB = "xpub6CatWdiZiodmUeTDp8LT5or8nmbKNcuyvz7WyksVFkKB4RHwCD3XyuvPEbvqAQY3rAPshWcMLoP2fMFMKHPJ4ZeZXYVUhLv1VMrjPC7PW6V"
 _XPUB_OTHER = "xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL"
+# Bitcoin Core's, from the multipath example of doc/descriptors.md
+_TPUB = "tpubDDjsCRDQ9YzyaAq9rspCfq8RZFrWoBpYnLxK6sS2hS2yukqSczgcYiur8Scx4Hd5AZatxTuzMtJQJhchufv1FRFanLqUP7JHwusSSpfcEp2"
 
 # a p2wsh address of nobody's wallet here: BIP173's own vector
 _ELSEWHERE = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
@@ -153,7 +155,7 @@ def test_a_branch_is_a_label_and_labels_are_not_negative() -> None:
 def test_the_chains_must_be_of_one_network() -> None:
     """A wallet is on a chain, and a network is what a chain is."""
     mainnet = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
-    testnet = parse(_descriptor(f"wpkh({_XPUB}/1/*)"), "testnet")
+    testnet = parse(_descriptor(f"wpkh({_TPUB}/1/*)"), "testnet")
     err_msg = r"descriptors of different networks: \['mainnet', 'testnet'\]"
     with pytest.raises(BTClibValueError, match=err_msg):
         DescriptorWallet([mainnet, testnet])
