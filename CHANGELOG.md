@@ -277,6 +277,12 @@ An amount of more than 20 digits, leading zeros apart, is refused, where
 bypass, and that the OpenSSF criterion `two_person_review` is unmet because
 the ack of record is a bot's (issue btclib-org/.github#452).
 
+### A `musig()` participant with an origin keeps the leaf hashes of its plain key
+
+`TrDescriptor`'s taproot derivations give a key that is a plain leaf key and a
+`musig()` participant the leaf hashes of its plain leaves, whichever spelling
+has the origin (closes #198).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

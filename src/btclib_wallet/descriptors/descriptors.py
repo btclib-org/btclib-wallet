@@ -694,11 +694,11 @@ def _taproot_derivations(
     the Updater for: the key in the script, under the synthetic origin
     `_aggregate_origin` computes, and each participant that carries an
     origin of its own -- the second being how a signer finds out that one
-    of the keys it holds is in this group at all. A participant is in no
-    leaf of its own as a participant, so its leaf hashes are empty unless
-    the same key is also a plain key with an origin, whose entry it does
-    not replace; what says which leaves the group signs for is the
-    aggregate's own entry.
+    of the keys it holds is in this group at all. A participant's entry
+    carries the leaf hashes of the leaves where its key is a plain key, and
+    none for its group's leaf: the aggregate's own entry says which leaves
+    the group signs for. Where the plain key has an origin, that origin is
+    the entry's.
     """
     derivations: dict[bytes, tuple[list[bytes], BIP32KeyOrigin]] = {}
     for key in keys:
@@ -715,7 +715,9 @@ def _taproot_derivations(
             if participant_origin is None:
                 continue
             x_only = participant.sec(index, network, prv_keys)[1:]
-            derivations.setdefault(x_only, ([], participant_origin))
+            derivations.setdefault(
+                x_only, (list(leaf_hashes.get(x_only, [])), participant_origin)
+            )
     return derivations
 
 
