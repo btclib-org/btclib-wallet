@@ -238,9 +238,9 @@ rests on coverage alone (closes #165).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
-It is read as `TX_NO_WITNESS`, so Core's `createpsbt` output with no input
-is read. The floors are `btclib` 2026.10.3, the first release with
-`Tx.parse_without_witness`, and its `btclib-ecc` 2026.10.2 (closes #196).
+It is read as `TX_NO_WITNESS`, so a PSBT with no input is read. The floors are
+`btclib` 2026.10.3, the first release with `Tx.parse_without_witness`, and
+`btclib-ecc` 2026.10.2, the one that release declares (closes #196).
 
 ## v2026.9.30
 
