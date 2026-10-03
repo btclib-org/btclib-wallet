@@ -180,9 +180,10 @@ answer, `EsploraFetcher.text` excepted, and names btclib-ecc's dispatch
 `tests/fuzz_test.py` drives the BOLT11, silent-payment address, BIP38,
 minikey, derivation-path and transaction-or-PSBT parsers (closes #164).
 
-### The assurance case names the modules under mutation testing
+### The assurance case states the scope of mutation testing
 
-`ASSURANCE_CASE.md` says the others rest on coverage alone (closes #165).
+`ASSURANCE_CASE.md` says a module no `.github/mutation/` profile lists
+rests on coverage alone (closes #165).
 
 ## v2026.9.30
 

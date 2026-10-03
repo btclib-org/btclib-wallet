@@ -37,10 +37,9 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   or `OverflowError` (`tests/fuzz_test.py`).
 - **Where a secret meets the curve, the protection is the one
   SECURITY.md's *Where constant time ends* states, and no more.** Signing
-  and verification run where btclib-ecc runs them; BIP32's private and
-  public derivation and BIP352's output creation, prevouts summary and
-  output scan are the calls this package makes into the libsecp256k1
-  bindings directly; the sum this package
+  and verification run where btclib-ecc runs them; `bip32/bip32.py` and
+  `silent_payments.py` also call the libsecp256k1 bindings directly, as the
+  section on btclib-ecc's dispatch below says; the sum this package
   builds for BIP352 and the EC-multiply factor BIP38 builds are Python
   integer arithmetic, variable in time with the operands, whichever
   install is in use.
@@ -228,11 +227,10 @@ describes.
   a module's own import graph is what `tests/imports_test.py` walks
   rather than whatever the package root happened to pull in first.
 - **Fail-safe defaults.** `fetch`'s `verify_network` runs by default,
-  before a backend's first answer rather than at construction, so a
-  caller who does not choose gets the check; `EsploraFetcher.text`, a
-  plain GET of a path, answers without it; `check_validity` defaults to
-  `True` the same way btclib's own dataclasses do
-  (`tests/check_validity_test.py`). A hardware device is
+  before a backend's first answer, so a caller who does not choose gets
+  the check. `EsploraFetcher.text`, a plain GET of a path, answers
+  without it. `check_validity` defaults to `True` the same way btclib's
+  own dataclasses do (`tests/check_validity_test.py`). A hardware device is
   selected by fingerprint, never by "the first one found"
   (`hwi.py`'s own argument against HWI's `--device-type`).
 - **Complete mediation.** Every public function validates its inputs,
@@ -261,12 +259,12 @@ describes.
   only the ones before them; `fetch`'s own codec sits in `btclib.p2p`
   and `btclib.electrum`, outside this package, for the reason above.
 
-**Where this package reaches past btclib's own dispatch, it says so.**
+**Where this package reaches past btclib-ecc's own dispatch, it says so.**
 `bip32/bip32.py` and `silent_payments.py` are the two modules calling the
 libsecp256k1 bindings directly rather than through btclib-ecc's general
-dispatch. Each call is for one fixed operation, behind
-`is_libsecp256k1_serving`, rather than a copy of the dispatch logic
-itself: `prvkey_tweak_add` and `PubkeyTweakChain` in `bip32.py`;
+dispatch. Each call is one fixed operation behind
+`is_libsecp256k1_serving`, not a copy of the dispatch logic:
+`prvkey_tweak_add` and `PubkeyTweakChain` in `bip32.py`;
 `create_outputs`, `prevouts_summary` and `scan_outputs` in
 `silent_payments.py`. That keeps the one place a caller has to read for
 "does this call reach the bindings" to
@@ -327,10 +325,10 @@ to, and what counters each.
   lint gate in `.pre-commit-config.yaml`.
 - **Code that is wrong and still passes.** Line and branch coverage of
   the package and of the suite is held at 100% by `fail_under` in
-  `pyproject.toml`, and mutation testing, whose scope is the
-  `module-path` of each file under `.github/mutation/`, run by
-  `.github/workflows/mutation.yml`, asks whether the suite notices a
-  wrong line there. A module no `module-path` lists rests on coverage
+  `pyproject.toml`, and mutation testing, run by
+  `.github/workflows/mutation.yml` on the modules each `.github/mutation/`
+  file's `module-path` names, asks whether the suite notices a wrong line
+  there. A module no `module-path` lists rests on coverage
   alone.
   `signer.toml`'s own header states why the signing boundary is mutated
   apart from parsing or encoding: a wrong decision there is a signature

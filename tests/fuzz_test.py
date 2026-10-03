@@ -119,18 +119,14 @@ TEXT_PARSERS: dict[str, Callable[[str], Any]] = {
 # A class-level decoder is one of these: `parse` for octets, `b64decode`
 # and `b58decode` for the two text encodings a class reads on its own, and
 # `from_invoice` for BOLT11's bech32 text. `serialization_boundary_test.py`
-# walks the first three alone: it holds each to a contract of its own, and
-# `from_invoice` is held to that one here
+# walks the first three only
 _CLASS_DECODER_METHODS = ("parse", "b64decode", "b58decode", "from_invoice")
 
-# And the module-function side of the same family: a bare function takes the
-# same roles under different names, `descriptors.checksum` being the one
-# member with no class to read a `b64decode` or a `b58decode` off, and the
-# rest the names of a parser of text that is not a serialization of a class:
-# an address, a minikey, a derivation path, an encrypted key, a transaction
-# or a PSBT in whichever encoding. What this tuple does not reach is a decoder
-# named otherwise -- the `psbt_utils` entries above are such -- whose coverage
-# rests on the dicts, by hand, not on this walk
+# And the module-function side of the same family: the names a bare
+# function decodes under, `descriptors.checksum` being the one member
+# with no class to read a `b64decode` or a `b58decode` off. A decoder
+# named otherwise -- the `psbt_utils` entries above are such -- rests
+# on the dicts, by hand, not on this walk
 _MODULE_DECODER_NAMES = (
     "parse",
     "decode",
@@ -151,7 +147,7 @@ def _classes_driven_here() -> set[str]:
     names: `GetCFilters` inherits `_FilterRangeRequest.parse`, and
     `__qualname__` answers with a private base the walk below never
     returns. The method name is part of the key, since a class offering
-    two of the three would otherwise collide.
+    two of them would otherwise collide.
     """
     driven = set()
     for entry_point in (*BINARY_PARSERS.values(), *TEXT_PARSERS.values()):

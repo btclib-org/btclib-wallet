@@ -59,9 +59,8 @@ ends are btclib-ecc's, stated in its
 under *Limitations, not vulnerabilities*.
 `src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
 are the two modules that reach past that dispatch and call the
-`btclib_secp256k1` bindings directly, for private-key and public-key
-tweaks and for BIP352's output creation, prevouts summary and output
-scan, none of which the general dispatch covers.
+`btclib_secp256k1` bindings directly, for operations the general dispatch
+does not cover; ASSURANCE_CASE.md names each call.
 
 `btclib_wallet/__init__.py`'s `__all__` is the root of the public tree,
 written out rather than discovered; nothing is imported eagerly, and a
