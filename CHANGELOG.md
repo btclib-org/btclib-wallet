@@ -177,11 +177,10 @@ where `int()` raised the built-in `ValueError` past 4300 digits (closes #158).
 
 ### `thresh()` is refused by its size or its argument count before it is analysed
 
-A parse refuses a script as soon as the fragments it has finished are over the
-context's script size, which bounds nested `thresh()` as well, and a `thresh()`
-of more than 1000 arguments (a limit of this library, not of the protocol).
-Both refuse before the quadratic stack analysis of the `thresh()` they stop
-(closes #159).
+A parse refuses once the fragments it has built pass the context's script
+size, nested `thresh()` included, and a `thresh()` of more than 1000 arguments
+(a limit of this library, not of the protocol), both before the quadratic
+analysis (closes #159).
 
 ### `Bolt11Invoice.from_invoice` refuses a long amount as a `BTClibValueError`
 

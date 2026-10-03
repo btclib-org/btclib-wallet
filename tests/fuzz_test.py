@@ -233,9 +233,7 @@ _MINISCRIPT_TEXTS = (
     f"thresh({{n}},pk({_KEY}),s:pk({_KEY}))",
     f"multi({{n}},{_KEY})",
 )
-LONG_NUMBER_TEXTS = [
-    (miniscript.parse, text) for text in _MINISCRIPT_TEXTS
-] + [
+LONG_NUMBER_TEXTS = [(miniscript.parse, text) for text in _MINISCRIPT_TEXTS] + [
     (descriptors.parse, f"wsh(and_v(v:pk({_KEY}),{_MINISCRIPT_TEXTS[0]}))"),
     (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[1]})"),
     (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[2]})"),

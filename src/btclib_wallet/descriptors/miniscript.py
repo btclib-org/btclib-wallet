@@ -1807,7 +1807,7 @@ def _expression_end(text: str, pos: int) -> int:
 
 
 class _Built(list[Miniscript]):
-    """The fragments a parse has finished, refusing them once they are too large.
+    """The fragments a parse has finished, refused once their sum is too large.
 
     Every fragment held ends up in the script the parse returns, so their
     sizes added are a lower bound of its size. Keeping the sum, and

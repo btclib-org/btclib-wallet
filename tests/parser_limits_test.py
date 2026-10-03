@@ -12,6 +12,7 @@ to refuse an over-limit one before that analysis starts.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -191,7 +192,7 @@ def _count_the_quadratic_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 def _nested_thresh(count: int, inner: str) -> str:
     """Return a `thresh()` of `count` arguments, each the `inner` one."""
-    return "thresh(1," + inner + (",s:" + inner) * (count - 1) + ")"
+    return "thresh(1," + inner + (",a:" + inner) * (count - 1) + ")"
 
 
 def test_nested_thresh_is_refused_by_the_running_total_of_size(
@@ -227,3 +228,17 @@ def test_nested_thresh_is_refused_by_the_running_total_in_tapscript(
     with pytest.raises(BTClibValueError, match="too large for tapscript"):
         descriptors.parse(f"tr({_XONLY},{_nested_thresh(50, inner)})")
     assert calls == ["_thresh_ops", "_thresh_stack"]
+
+
+def test_a_wide_and_nested_thresh_is_refused_quickly() -> None:
+    """Refuse a `thresh()` of 60 of 60 of 60 `thresh()` quickly.
+
+    It takes 0.5 s to refuse, and 12 s without the running total, which lets
+    the analysis of every `thresh()` run before the size is checked. The
+    bound is ten times the first, so that a loaded machine does not fail it.
+    """
+    text = _nested_thresh(60, _nested_thresh(60, _thresh(60, _XONLY)))
+    start = time.perf_counter()
+    with pytest.raises(BTClibValueError, match="too large for tapscript"):
+        miniscript.parse(text, miniscript.TAPSCRIPT)
+    assert time.perf_counter() - start < 5
