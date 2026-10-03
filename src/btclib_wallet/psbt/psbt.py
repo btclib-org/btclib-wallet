@@ -3577,6 +3577,18 @@ def _joined_inputs(psbts: Sequence[Psbt]) -> list[PsbtIn]:
     return inputs
 
 
+def _has_signature(psbt_in: PsbtIn) -> bool:
+    """Return whether the input carries a signature, finalized or not."""
+    return bool(
+        psbt_in.partial_sigs
+        or psbt_in.final_script_sig
+        or psbt_in.final_script_witness
+        or psbt_in.taproot_key_spend_signature
+        or psbt_in.taproot_script_spend_signatures
+        or psbt_in.musig2_partial_sigs
+    )
+
+
 def join(
     psbts: Sequence[Psbt],
     enforce_same_tx_version: bool,
@@ -3623,6 +3635,14 @@ def join(
     SIGHASH_NONE|ANYONECANPAY or not at all. Such a signature still
     commits to the version and lock time, and stops verifying where the
     join changes either.
+
+    BIP370's Constructor must not add an input that changes the lock
+    time where an input has a signature, so the join is refused where a
+    version 2 psbt with a signed input would have another lock time in
+    the result. The lock time is the one BIP370's "Determining Lock
+    Time" gives, which the inputs' required lock times and the fallback
+    decide, and not only the fallback. The version a signature commits
+    to is not checked.
 
     A signed message is not carried over, and that is not an omission:
     it says which challenge *this* transaction answers, and joining
@@ -3699,4 +3719,12 @@ def join(
         psbt.sort_outputs(sort_out)
 
     psbt.assert_valid()
+    if version != PSBT_V0:
+        for original in psbts:
+            if any(map(_has_signature, original.inputs)) and (
+                original.lock_time != psbt.lock_time
+            ):
+                err_msg = "the join changes the lock time of a signed psbt: "
+                err_msg += f"{original.lock_time} to {psbt.lock_time}"
+                raise BTClibValueError(err_msg)
     return psbt
