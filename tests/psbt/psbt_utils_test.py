@@ -145,12 +145,10 @@ def test_deserialize_map_unterminated() -> None:
 
 
 def test_deserialize_tx_reads_include_witness_for_its_truth() -> None:
-    """`True` accepts either encoding, `False` demands the round trip.
+    """`True` reads either encoding, `False` reads Core's `TX_NO_WITNESS`.
 
     Two values and two behaviours, which is what issue btclib-org/btclib#1190
-    settled: `True` reads either encoding and `False` reads Core's
-    `TX_NO_WITNESS`, so it refuses a witness serialization. `None` is a
-    `BTClibTypeError` like any other non-bool.
+    settled. `None` is a `BTClibTypeError` like any other non-bool.
 
     Asserted rather than described, and asserted on octets that tell the
     two encodings apart: a legacy serialization is accepted by every
@@ -179,6 +177,6 @@ def test_deserialize_tx_reads_include_witness_for_its_truth() -> None:
     with pytest.raises(BTClibValueError, match="bytes after the transaction"):
         deserialize_tx(b"\x00", witness, "tx", False)
 
-    # None is no longer a third spelling of False; it is a wrong type
+    # None is a wrong type, not a third spelling of False
     with pytest.raises(BTClibTypeError):
         deserialize_tx(b"\x00", legacy, "tx", None)  # type: ignore[arg-type]

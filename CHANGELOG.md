@@ -222,9 +222,9 @@ since `btclib.exceptions` binds them only up to btclib 2026.9.29
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
-The field is read as `TX_NO_WITNESS`, so Core's `createpsbt` output with no
-input is read, and `btclib>=2026.10.3` is the floor, the first release with
-`Tx.parse_without_witness` (closes #196).
+It is read as `TX_NO_WITNESS`, so Core's `createpsbt` output with no input
+is read. The floors are `btclib` 2026.10.3, the first release with
+`Tx.parse_without_witness`, and its `btclib-ecc` 2026.10.2 (closes #196).
 
 ## v2026.9.30
 
