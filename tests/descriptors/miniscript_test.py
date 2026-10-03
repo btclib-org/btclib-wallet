@@ -70,6 +70,7 @@ from btclib_wallet.descriptors import (
     WshDescriptor,
     miniscript_sizer,
     miniscript_solver,
+    multipath_descriptors,
     satisfaction_sizer,
 )
 from btclib_wallet.descriptors import parse as parse_descriptor
@@ -664,6 +665,16 @@ def test_a_hardened_key_is_derived_where_the_descriptor_holds_its_private_key(
     assert node.has_duplicate_keys(prv_keys)
 
 
+def test_a_multipath_descriptor_repeats_a_key_in_its_second_branch() -> None:
+    """Refuse the branch where the hardened steps meet, and only that one."""
+    key = TESTNET_XPRV
+    multipath = f"wsh(or_i(pk({key}/<0;1h>),pk([deadbeef]{key}/<2;1h>)))"
+    first, second = multipath_descriptors(multipath)
+    parse_descriptor(first, "testnet")
+    with pytest.raises(BTClibValueError, match="repeats a public key"):
+        parse_descriptor(second, "testnet")
+
+
 @pytest.mark.parametrize(
     "keys",
     [
@@ -674,7 +685,10 @@ def test_a_hardened_key_is_derived_where_the_descriptor_holds_its_private_key(
 def test_a_hardened_key_without_its_private_key_is_compared_as_written(
     keys: tuple[str, str],
 ) -> None:
-    """Take two spellings for two keys, as Core does where it cannot derive."""
+    """Take two spellings for two keys where none can be derived.
+
+    Bitcoin Core does the same since bitcoin/bitcoin@7b15e2cb44.
+    """
     expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
     parse_descriptor(f"wsh({expression})")
     assert not parse(expression).has_duplicate_keys()
