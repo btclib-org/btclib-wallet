@@ -32,6 +32,8 @@ _XPUB = (
     "JoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8"  # pragma: allowlist secret
 )
 
+_KEY_INFO = descriptors.parse(f"pk({_XPUB})").key_expressions[0]
+
 # more than the 4300 digits int() takes, which a bound of ten digits
 # refuses long before
 _LONG = "9" * 5000
@@ -73,7 +75,7 @@ LONG_NUMBER_CASES: dict[str, Callable[[], Any]] = {
         f"tr(musig(@0,@{'1' * 5000})/**)", (), 0
     ),
     "wallet policy multipath": lambda: descriptors.wallet_policy_address(
-        f"wpkh(@0/<{_LONG};1>/*)", (), 0
+        f"wpkh(@0/<{_LONG};1>/*)", (_KEY_INFO,), 0
     ),
 }
 
@@ -81,7 +83,7 @@ LONG_NUMBER_CASES: dict[str, Callable[[], Any]] = {
 @pytest.mark.parametrize(
     "parse", LONG_NUMBER_CASES.values(), ids=list(LONG_NUMBER_CASES.keys())
 )
-def test_a_number_over_4300_digits_is_this_libraries_refusal(
+def test_a_number_over_4300_digits_is_refused_as_btclib_value_error(
     parse: Callable[[], Any],
 ) -> None:
     """Refuse as `BTClibValueError`, and never as the built-in `ValueError`."""
@@ -167,3 +169,61 @@ def test_an_over_limit_thresh_is_refused_before_it_is_analysed(
     with pytest.raises(BTClibValueError, match=message):
         parse()
     assert calls == []
+
+
+def _count_the_quadratic_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Wrap the quadratic analyses of a `thresh()`, noting each call."""
+    calls: list[str] = []
+
+    def counted(name: str) -> Callable[[Any], Any]:
+        original = getattr(miniscript, name)
+
+        def called(node: Any) -> Any:
+            calls.append(name)
+            return original(node)
+
+        return called
+
+    monkeypatch.setattr(miniscript, "_thresh_stack", counted("_thresh_stack"))
+    monkeypatch.setattr(miniscript, "_thresh_ops", counted("_thresh_ops"))
+    return calls
+
+
+def _nested_thresh(count: int, inner: str) -> str:
+    """Return a `thresh()` of `count` arguments, each the `inner` one."""
+    return "thresh(1," + inner + (",s:" + inner) * (count - 1) + ")"
+
+
+def test_nested_thresh_is_refused_by_the_running_total_of_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refuse many `thresh()` each below the limit once their sum passes it.
+
+    Each of these is analysed in quadratic time, and only the sum of their
+    sizes passes the limit: the first is analysed, and the second is
+    refused as it is added, however many follow.
+    """
+    calls = _count_the_quadratic_step(monkeypatch)
+    inner = _thresh(60, _KEY)
+    miniscript.parse(inner)  # one alone is within the limit
+    calls.clear()
+    with pytest.raises(BTClibValueError, match="too large for P2WSH"):
+        descriptors.parse(f"wsh({_nested_thresh(200, inner)})")
+    assert calls == ["_thresh_ops", "_thresh_stack"]
+
+
+def test_nested_thresh_is_refused_by_the_running_total_in_tapscript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hold a tapscript to its limit as a p2wsh is, the limit lowered for speed.
+
+    The limit of a tapscript is so large that a test of it as it is would
+    analyse a hundred `thresh()`.
+    """
+    monkeypatch.setattr(miniscript, "_MAX_TAPSCRIPT_SIZE", 15_000)
+    inner = _thresh(300, _XONLY)
+    assert miniscript.parse(inner, miniscript.TAPSCRIPT).script_size < 15_000
+    calls = _count_the_quadratic_step(monkeypatch)
+    with pytest.raises(BTClibValueError, match="too large for tapscript"):
+        descriptors.parse(f"tr({_XONLY},{_nested_thresh(50, inner)})")
+    assert calls == ["_thresh_ops", "_thresh_stack"]

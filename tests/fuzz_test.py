@@ -224,13 +224,23 @@ def test_text_parser_honors_the_exception_contract(
 # `int()` takes, so the strategy above cannot stumble on it. Each text
 # parser is handed one in every place a number is read.
 _KEY = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"  # pragma: allowlist secret
-LONG_NUMBER_TEXTS = (
-    "older({n})",
-    f"thresh({{n}},pk({_KEY}))",
-    f"multi({{n}},{_KEY})",
-    f"wsh(multi({{n}},{_KEY}))",
-    f"wpkh({_KEY}/{{n}})",
+_XPUB = (
+    "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjq"  # pragma: allowlist secret
+    "JoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8"  # pragma: allowlist secret
 )
+_MINISCRIPT_TEXTS = (
+    "older({n})",
+    f"thresh({{n}},pk({_KEY}),s:pk({_KEY}))",
+    f"multi({{n}},{_KEY})",
+)
+LONG_NUMBER_TEXTS = [
+    (miniscript.parse, text) for text in _MINISCRIPT_TEXTS
+] + [
+    (descriptors.parse, f"wsh(and_v(v:pk({_KEY}),{_MINISCRIPT_TEXTS[0]}))"),
+    (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[1]})"),
+    (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[2]})"),
+    (descriptors.parse, f"wpkh({_XPUB}/{{n}})"),
+]
 
 
 def test_invoice_refuses_an_amount_over_4300_digits() -> None:
@@ -241,8 +251,7 @@ def test_invoice_refuses_an_amount_over_4300_digits() -> None:
         _assert_contract(Bolt11Invoice.from_invoice, invoice)
 
 
-@pytest.mark.parametrize("template", LONG_NUMBER_TEXTS)
-@pytest.mark.parametrize("parse", [descriptors.parse, miniscript.parse])
+@pytest.mark.parametrize("parse, template", LONG_NUMBER_TEXTS)
 def test_text_parser_refuses_a_number_over_4300_digits(
     parse: Callable[[str], Any], template: str
 ) -> None:

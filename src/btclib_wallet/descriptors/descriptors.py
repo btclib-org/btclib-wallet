@@ -3189,7 +3189,7 @@ _POLICY_INDEX = r"@(?:0|[1-9]\d{0,9})"
 _POLICY_PLACEHOLDER = re.compile(
     rf"(?:musig\((?P<musig>{_POLICY_INDEX}(?:,{_POLICY_INDEX})*)\)"
     rf"|@(?P<index>0|[1-9]\d{{0,9}}))"
-    r"(?P<suffix>/\*\*|/<(?P<recv>\d{1,10});(?P<chg>\d{1,10})>/\*|/\*)"
+    r"(?P<suffix>/\*\*|/<(?P<recv>\d+);(?P<chg>\d+)>/\*|/\*)"
 )
 # every musig() call the template holds, checked before substitution: the
 # placeholder grammar allows nothing inside but comma-separated indexes,
