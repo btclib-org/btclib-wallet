@@ -12,8 +12,8 @@ a test holding a function to the contract names one of the tuples below
 rather than btclib's class alone. A bare built-in is in none of them,
 which is what the first test asserts.
 
-btclib_ecc's classes are imported from `btclib_ecc.exceptions` itself,
-which `btclib.exceptions` does not bind.
+btclib_ecc's classes are imported from `btclib_ecc.exceptions`:
+`btclib.exceptions` binds them only up to btclib 2026.9.29.
 
 btclib_mnemonics' classes are in them too, for a mnemonic this package
 hands on to that package, imported from `btclib_mnemonics.exceptions`;

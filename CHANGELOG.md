@@ -172,7 +172,8 @@ setting section 11 of the standard states (issue btclib-org/.github#1540).
 ### The suite imports btclib_ecc's exception classes from `btclib_ecc`
 
 `tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
-which `btclib.exceptions` does not bind (closes #166).
+since `btclib.exceptions` binds them only up to btclib 2026.9.29
+(closes #166).
 
 ### `integration-hwi.yml` installs HWI and Speculos from hashed locks
 
