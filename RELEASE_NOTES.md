@@ -25,9 +25,19 @@ before upgrading, rather than a digit.
 - **`bip39.mxprv_from_mnemonic` and `electrum.mxprv_from_mnemonic` refuse
   a falsy passphrase of another type.** An empty `bytes`, `0`, `False` or
   `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
+
+- **A miniscript repeating a public key is refused under different
+  spellings of it.** `descriptors.parse` does so as Bitcoin Core does, except
+  for a key with a hardened step.
+
+- **A malleable miniscript keeps neither "s", "f" nor "e".**
+  `Miniscript.properties` drops them, and `is_signature_required` is false for
+  it.
+
 - **`join` empties the signatures of a version 0 psbt, and `sign` updates a
   version 2 psbt's modifiable flags.** Sign the joined psbt again. `join`
   refuses a version 2 psbt signed with anything but SIGHASH_NONE|ANYONECANPAY.
+
 - **`extract_tx` verifies by default.** It runs every input's scripts and
   checks that the outputs do not exceed the inputs, so it raises on a psbt it
   extracted before: one with a bad signature, a missing utxo or outputs above

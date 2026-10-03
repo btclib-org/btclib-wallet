@@ -191,6 +191,23 @@ In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
 `btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
 where they derived the wallet without a passphrase (closes #162).
 
+### A malleable miniscript keeps neither `s`, `f` nor `e`
+
+`Miniscript.properties` drops "s", "f" and "e" from an expression without "m",
+as BIP379 asks, and `is_signature_required` is false there (closes #190).
+
+### The duplicate-key check compares derived public keys
+
+`Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
+derive at index 0, as Bitcoin Core does. A key with a hardened step is
+compared by its extended key and its path (issue #193).
+
+### The `Sign-off` check is required
+
+`CONTRIBUTING.md`'s shared half says a pull request whose commits lack the
+`Signed-off-by:` trailer cannot merge, and `REPOSITORY.md` lists
+`lint / Sign-off` among the required checks (issue btclib-org/.github#1550).
+
 ### `sign` updates `PSBT_GLOBAL_TX_MODIFIABLE` of a version 2 psbt
 
 Each signature added clears Inputs Modifiable unless it is ANYONECANPAY,
