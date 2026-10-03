@@ -271,7 +271,7 @@ of more than 1000 arguments is refused, a limit of this library (closes #159).
 An amount of more than 20 digits, leading zeros apart, is refused, where
 `int()` raised the built-in `ValueError` past 4300 digits (closes #205).
 
-### `join` refuses to change the lock time or tx version of a signed psbt
+### `join` refuses to change the lock time or tx version of a signed version 2 psbt
 
 `join` refuses to change the lock time or the tx version of a version 2 psbt
 with a signed input, whose signatures commit to both. It kept signatures that

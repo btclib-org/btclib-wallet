@@ -5583,6 +5583,14 @@ def test_join_of_version_2_with_no_signature_may_change_the_lock_time() -> None:
         ("taproot_script_spend_signatures", {b"\x02" * 64: b"\x01" * 64}),
         ("musig2_partial_sigs", {b"\x02" * 66: b"\x06" * 32}),
     ],
+    ids=[
+        "final_script_sig",
+        "final_script_witness",
+        "partial_sigs",
+        "taproot_key_spend_signature",
+        "taproot_script_spend_signatures",
+        "musig2_partial_sigs",
+    ],
 )
 def test_each_signature_field_alone_makes_an_input_signed(
     field: str, value: Any
