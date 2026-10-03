@@ -48,6 +48,8 @@ before upgrading, rather than a digit.
   `if node.is_sane:` is always true, and mypy reports it as `truthy-function`.
   Pass `prv_keys`, the mapping `parse` fills, to derive a hardened step:
   `descriptors.parse` refuses `wsh(or_i(pk(XPRV/1h),pk(<the key it derives>)))`.
+  A key with a hardened step is excepted only where the descriptor does not
+  hold its private key.
 
 ## v2026.9.30
 

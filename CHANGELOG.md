@@ -271,11 +271,16 @@ of more than 1000 arguments is refused, a limit of this library (closes #159).
 An amount of more than 20 digits, leading zeros apart, is refused, where
 `int()` raised the built-in `ValueError` past 4300 digits (closes #205).
 
+### `Miniscript`'s duplicate-key and sanity checks are methods
+
+`has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and `insane_sub`
+were properties. They are methods taking `prv_keys` (issue #199).
+
 ### The duplicate-key check derives a hardened step
 
-`Miniscript.has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and
-`insane_sub` are methods whose `prv_keys` derive a hardened step. A key not
-derived is compared by its expression (closes #199) (issue #193).
+A hardened step is derived where the descriptor holds its private key, and a
+key it cannot derive is compared by its expression. This replaces comparing a
+hardened step by extended key and path (closes #199) (closes #193).
 
 ## v2026.9.30
 

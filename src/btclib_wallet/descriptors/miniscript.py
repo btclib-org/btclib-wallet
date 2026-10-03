@@ -2835,8 +2835,8 @@ def _assert_sane(node: Miniscript, prv_keys: PrvKeys) -> None:
     What Bitcoin Core requires of a miniscript before it accepts a
     descriptor holding one, and the message it answers with: the
     subexpression at fault and the first thing wrong with it. A caller
-    that wants the analysis rather than the refusal reads the analysis
-    itself -- `is_sane(prv_keys)` is this question without the message.
+    that wants the answer rather than the refusal calls
+    `is_sane(prv_keys)`: this question without the message.
 
     Satisfiability is asked beside sanity and not inside it, which is
     Bitcoin Core's split too: an expression with no satisfaction at all is
