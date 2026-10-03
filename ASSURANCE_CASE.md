@@ -37,12 +37,12 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   or `OverflowError` (`tests/fuzz_test.py`).
 - **Where a secret meets the curve, the protection is the one
   SECURITY.md's *Where constant time ends* states, and no more.** Signing
-  and verification run where btclib runs them; BIP32's private
-  derivation and BIP352's key agreement are the two calls this package
-  makes into the libsecp256k1 bindings directly; the sum this package
-  builds for BIP352 and the EC-multiply factor BIP38 builds are Python
-  integer arithmetic, variable in time with the operands, whichever
-  install is in use.
+  and verification run where btclib-ecc runs them; `bip32/bip32.py` and
+  `silent_payments.py` also call the libsecp256k1 bindings directly, as
+  *Where this package reaches past btclib-ecc's own dispatch* below says;
+  the sum this package builds for BIP352 and the EC-multiply factor BIP38
+  builds are Python integer arithmetic, variable in time with the
+  operands, whichever install is in use.
 - **A published distribution is what this tree built.** SECURITY.md's
   *Supported versions* states how that is verified.
 
@@ -54,7 +54,8 @@ differences ARCHITECTURE.md's own sections name: it runs a subprocess
 device, and it opens client sockets of its own (`fetch/`) when a caller
 asks it to reach a node, an explorer or an Electrum server. Neither
 happens on import, and neither happens unless the caller constructs the
-object that does it. The command below lists the top-level name of every
+object or calls the function that does it, such as `hwi.enumerate_devices`.
+The command below lists the top-level name of every
 module `src/` imports, at any depth and in any spelling of the statement.
 
 ```shell
@@ -225,10 +226,11 @@ describes.
   place the public tree is declared, and nothing is imported eagerly, so
   a module's own import graph is what `tests/imports_test.py` walks
   rather than whatever the package root happened to pull in first.
-- **Fail-safe defaults.** `fetch`'s `verify_network` runs by default on
-  every backend construction, so a caller who does not choose gets the
-  check; `check_validity` defaults to `True` the same way btclib's own
-  dataclasses do (`tests/check_validity_test.py`). A hardware device is
+- **Fail-safe defaults.** `fetch`'s `verify_network` runs by default,
+  before a backend's first answer, so a caller who does not choose gets
+  the check. `EsploraFetcher.text`, a plain GET of a path, answers
+  without it. `check_validity` defaults to `True` the same way btclib's
+  own dataclasses do (`tests/check_validity_test.py`). A hardware device is
   selected by fingerprint, never by "the first one found"
   (`hwi.py`'s own argument against HWI's `--device-type`).
 - **Complete mediation.** Every public function validates its inputs,
@@ -257,14 +259,16 @@ describes.
   only the ones before them; `fetch`'s own codec sits in `btclib.p2p`
   and `btclib.electrum`, outside this package, for the reason above.
 
-**Where this package reaches past btclib's own dispatch, it says so.**
+**Where this package reaches past btclib-ecc's own dispatch, it says so.**
 `bip32/bip32.py` and `silent_payments.py` are the two modules calling the
-libsecp256k1 bindings directly rather than through btclib's general
-predicate, and each is one call for one fixed operation — a private-key
-tweak, an ECDH shared secret — rather than a copy of the dispatch logic
-itself, keeping the one place a caller has to read for "does this call
-reach the bindings" to `curves.curve._libsecp256k1_serves` plus these two
-named exceptions.
+libsecp256k1 bindings directly rather than through btclib-ecc's general
+dispatch. Each call is one fixed operation behind
+`is_libsecp256k1_serving`, not a copy of the dispatch logic:
+`prvkey_tweak_add` and `PubkeyTweakChain` in `bip32.py`;
+`create_outputs`, `prevouts_summary` and `scan_outputs` in
+`silent_payments.py`. That keeps the one place a caller has to read for
+"does this call reach the bindings" to
+`btclib_ecc.curves.curve._libsecp256k1_serves` plus these two modules.
 
 ## Common implementation weaknesses
 
@@ -321,12 +325,14 @@ to, and what counters each.
   lint gate in `.pre-commit-config.yaml`.
 - **Code that is wrong and still passes.** Line and branch coverage of
   the package and of the suite is held at 100% by `fail_under` in
-  `pyproject.toml`, and mutation testing, profiled per subsystem under
-  `.github/mutation/` and run by `.github/workflows/mutation.yml`, asks
-  whether the suite notices a wrong line — `signer.toml`'s own header
-  states why the signing boundary is mutated apart from parsing or
-  encoding: a wrong decision there is a signature over somebody else's
-  transaction.
+  `pyproject.toml`, and mutation testing, run by
+  `.github/workflows/mutation.yml` on the modules each `.github/mutation/`
+  file's `module-path` names, asks whether the suite notices a wrong line
+  there. A module no `module-path` lists rests on coverage
+  alone.
+  `signer.toml`'s own header states why the signing boundary is mutated
+  apart from parsing or encoding: a wrong decision there is a signature
+  over somebody else's transaction.
 - **Supply chain.** SECURITY.md's *Supported versions* describes the
   attestations and the bill of materials. `uv.lock` pins every
   dependency, and CONTRIBUTING.md's *The environment and the gates*

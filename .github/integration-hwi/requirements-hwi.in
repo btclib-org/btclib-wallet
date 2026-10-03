@@ -1,0 +1,6 @@
+# what integration-hwi.yml installs, locked and hashed for its runner in
+# requirements-hwi.txt:
+#   uv pip compile --python-version 3.12 \
+#     --python-platform x86_64-unknown-linux-gnu --generate-hashes \
+#     --no-header --output-file requirements-hwi.txt requirements-hwi.in
+hwi==3.2.0

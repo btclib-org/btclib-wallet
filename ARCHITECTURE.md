@@ -59,8 +59,8 @@ ends are btclib-ecc's, stated in its
 under *Limitations, not vulnerabilities*.
 `src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
 are the two modules that reach past that dispatch and call the
-`btclib_secp256k1` bindings directly, for a private-key tweak and a
-silent-payment key agreement the general dispatch does not cover.
+`btclib_secp256k1` bindings directly, for operations the general dispatch
+does not cover; ASSURANCE_CASE.md names each call.
 
 `btclib_wallet/__init__.py`'s `__all__` is the root of the public tree,
 written out rather than discovered; nothing is imported eagerly, and a
@@ -185,7 +185,7 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's, and a mnemonic up to its seed is
+serialization — is btclib's or btclib_ecc's, and a mnemonic up to its seed is
 btclib_mnemonics'; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
@@ -193,7 +193,8 @@ wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 an external signer answers to, and the clients that reach a node, an
 explorer or an Electrum server for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
-and the harnesses under `fuzz/` hold every parser named here to one
-contract: it fails the way the library says it fails, whatever it is
-handed, never with a bare `IndexError` or `OverflowError` a caller's
-`except BTClibValueError` does not catch.
+holds every parser named here to one contract: it fails the way the
+library says it fails, whatever it is handed, never with a bare
+`IndexError` or `OverflowError` a caller's `except BTClibValueError` does
+not catch. The harnesses under `fuzz/` drive the extended-key, descriptor,
+PSBT and BIP322 parsers beyond that.

@@ -208,6 +208,34 @@ compared by its extended key and its path (issue #193).
 `Signed-off-by:` trailer cannot merge, and `REPOSITORY.md` lists
 `lint / Sign-off` among the required checks (issue btclib-org/.github#1550).
 
+### The suite imports btclib_ecc's exception classes from `btclib_ecc`
+
+`tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
+since `btclib.exceptions` binds them only up to btclib 2026.9.29
+(closes #166).
+
+### `integration-hwi.yml` installs HWI and Speculos from hashed locks
+
+`.github/integration-hwi/` holds hashed locks of both, installed with
+`--require-hashes`, and the Ledger app is fetched by the commit that tag
+2.5.0 names (closes #167).
+
+### The assurance case names every direct call into libsecp256k1
+
+`ASSURANCE_CASE.md` also says `verify_network` runs before a fetcher's first
+answer, `EsploraFetcher.text` excepted, and names btclib-ecc's dispatch
+(closes #163).
+
+### The fuzz inventory covers the text parsers the threat model names
+
+`tests/fuzz_test.py` drives the BOLT11, silent-payment address, BIP38,
+minikey, derivation-path and transaction-or-PSBT parsers (closes #164).
+
+### The assurance case states the scope of mutation testing
+
+`ASSURANCE_CASE.md` says a module no `.github/mutation/` profile lists
+rests on coverage alone (closes #165).
+
 ### `sign` updates `PSBT_GLOBAL_TX_MODIFIABLE` of a version 2 psbt
 
 Each signature added clears Inputs Modifiable unless it is ANYONECANPAY,

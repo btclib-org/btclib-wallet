@@ -357,15 +357,13 @@ schemes on it are btclib_ecc's, whose `BTClibEccTypeError`,
 `BTClibEccValueError` and `BTClibEccRuntimeError` are a
 `TypeError`, a `ValueError` and a `RuntimeError` and no `BTClibException`:
 an argument this package hands on to it unchecked is refused as one of
-those, and that btclib binds each in `btclib.exceptions` for a caller to
-name. A catch that renames a refusal btclib_ecc may raise, to say
-which field it was, names `ValueError`, so that the field is named
-whichever library refused; a catch that answers a failed check `False`
-names the runtime class of both libraries, which is `bip322`'s `_INVALID`.
+those, which a caller names from `btclib_ecc.exceptions`. A catch that
+renames a refusal btclib_ecc may raise, to say which field it was, names
+`ValueError`, so that the field is named whichever library refused; a catch
+that answers a failed check `False` names the runtime class of both
+libraries, which is `bip322`'s `_INVALID`.
 `tests/exception_family_test.py` holds the classes of both libraries for
-each kind, and a bare built-in is in none of them. A name btclib does not
-bind falls back to btclib's own class in silence, so that module also fails
-where btclib delegates to btclib_ecc and leaves one of those names unbound.
+each kind, and a bare built-in is in none of them.
 
 **A refusal of btclib_mnemonics' own leaves as that package's class.** A
 mnemonic this package hands on is checked there, and

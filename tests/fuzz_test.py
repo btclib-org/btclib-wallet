@@ -19,6 +19,7 @@ caller was catching BTClibValueError to reject it. btclib's own
 """
 
 import contextlib
+import functools
 import importlib
 import json
 from collections.abc import Callable
@@ -29,16 +30,19 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from btclib_wallet import bip322, descriptors
+from btclib_wallet import bip38, bip322, descriptors, minikey, silent_payments
 from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32.bip32 import BIP32KeyData
+from btclib_wallet.bip32.der_path import indexes_from_der_path
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
+from btclib_wallet.bolt11 import Bolt11Invoice
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt import psbt_utils
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
-from tests import module_names, public_classes_with
+from btclib_wallet.tx_or_psbt import tx_or_psbt_from_any
+from tests import aes_decrypt_block, aes_expand_key, module_names, public_classes_with
 from tests.exception_family_test import RUNTIME_ERRORS, TYPE_ERRORS, VALUE_ERRORS
 
 # What a parser is allowed to raise. Anything else -- an IndexError off a
@@ -72,6 +76,21 @@ BINARY_PARSERS: dict[str, Callable[[bytes], Any]] = {
     # form alone, so the text entry point below is where it is read
 }
 
+
+@functools.wraps(bip38.decrypt)
+def _bip38_decrypt(encrypted_key: str) -> Any:
+    """Call `bip38.decrypt` with a fixed password and the test AES-256.
+
+    `wraps` gives the wrapper `decrypt`'s name and module, which is what
+    the inventory check below reads off an entry.
+    """
+    return bip38.decrypt(
+        encrypted_key,
+        "password",
+        lambda key, block: aes_decrypt_block(block, aes_expand_key(key)),
+    )
+
+
 # The same contract, for what a user pastes rather than what a peer
 # sends: a URI, an extended key, a descriptor.
 #
@@ -88,23 +107,34 @@ TEXT_PARSERS: dict[str, Callable[[str], Any]] = {
     "descriptors.checksum": descriptors.checksum,
     "descriptors.parse": descriptors.parse,
     "miniscript.parse": miniscript.parse,
+    "Bolt11Invoice.from_invoice": Bolt11Invoice.from_invoice,
+    "silent_payments.keys_from_address": silent_payments.keys_from_address,
+    "bip38.decrypt": _bip38_decrypt,
+    "minikey.prv_key_data_from_minikey": minikey.prv_key_data_from_minikey,
+    "der_path.indexes_from_der_path": indexes_from_der_path,
+    "tx_or_psbt.tx_or_psbt_from_any": tx_or_psbt_from_any,
 }
 
 
-# A class-level decoder is one of these three: `parse` for octets, `b64decode`
-# and `b58decode` for the two text encodings a class reads on its own.
-# `serialization_boundary_test.py`'s `test_every_decoder_is_covered` draws the
-# same three names for the same reason, so widening this tuple is what a class
-# gaining a fourth would ask for, in both files at once.
-_CLASS_DECODER_METHODS = ("parse", "b64decode", "b58decode")
+# A class-level decoder is one of these: `parse` for octets, `b64decode`
+# and `b58decode` for the two text encodings a class reads on its own, and
+# `from_invoice` for BOLT11's bech32 text. `serialization_boundary_test.py`
+# walks the first three only
+_CLASS_DECODER_METHODS = ("parse", "b64decode", "b58decode", "from_invoice")
 
-# And the module-function side of the same family: a bare function takes the
-# same three roles under different names, `descriptors.checksum` being the one
-# member with no class to read a `b64decode` or a `b58decode` off. What this
-# tuple does not reach is a decoder named otherwise -- the `psbt_utils`
-# entries above are such -- whose coverage rests on the dicts, by hand, not
-# on this walk
-_MODULE_DECODER_NAMES = ("parse", "decode", "checksum")
+# And the module-function side: the names a bare function decodes
+# under. A decoder named otherwise -- the `psbt_utils` entries above are
+# such -- rests on the dicts, by hand, not on this walk
+_MODULE_DECODER_NAMES = (
+    "parse",
+    "decode",
+    "checksum",
+    "decrypt",
+    "keys_from_address",
+    "prv_key_data_from_minikey",
+    "indexes_from_der_path",
+    "tx_or_psbt_from_any",
+)
 
 
 def _classes_driven_here() -> set[str]:
@@ -115,7 +145,7 @@ def _classes_driven_here() -> set[str]:
     names: `GetCFilters` inherits `_FilterRangeRequest.parse`, and
     `__qualname__` answers with a private base the walk below never
     returns. The method name is part of the key, since a class offering
-    two of the three would otherwise collide.
+    two of them would otherwise collide.
     """
     driven = set()
     for entry_point in (*BINARY_PARSERS.values(), *TEXT_PARSERS.values()):
@@ -160,13 +190,10 @@ def test_every_module_function_that_decodes_is_driven_here() -> None:
     """And the same promise where the entry point is a module function.
 
     The walk above finds classes, so a module-level decoder needs its
-    own names: `parse`, `decode` and `checksum` are what a bare function
-    carries in place of a class's `parse`, `b64decode` and `b58decode`.
+    own names, `_MODULE_DECODER_NAMES`.
     What is asserted is containment and not equality: the dicts already
-    drive entry points named otherwise, and a tuple of literal names wide
-    enough to find every one of those is the exclusion list this file
-    otherwise avoids -- their coverage rests on the dicts above, by
-    hand, not on this walk.
+    drive entry points named otherwise, and their coverage rests on the
+    dicts above, by hand, not on this walk.
     """
     found = set()
     for module_name in module_names():

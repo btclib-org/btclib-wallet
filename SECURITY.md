@@ -104,21 +104,22 @@ written against, and the argument for what this file does promise.
 These are known and inherent, and worth stating because this package is
 used to teach and to prototype as much as to build.
 
-- **The arithmetic is btclib's, and so is its notice.** Signing,
-    verification, BIP32's private derivation and the silent-payment key
-    agreement reach libsecp256k1 where btclib's own predicate lets them,
-    through btclib or through the bindings `bip32` and `silent_payments`
-    call directly, and run btclib's Python arithmetic otherwise — which
-    is validated against the bindings but is not constant-time.
+- **The arithmetic is btclib-ecc's, and so is its notice.** Signing,
+    verification, BIP32's derivation and the silent-payment operations
+    reach libsecp256k1 where btclib-ecc's own predicate lets them,
+    through btclib-ecc or through the bindings `bip32` and
+    `silent_payments` call directly, and run btclib-ecc's Python
+    arithmetic otherwise — which is validated against the bindings but is
+    not constant-time.
     Which operations cross the boundary, under which conditions, and
     what the Python path leaks is
-    [btclib's SECURITY.md](https://github.com/btclib-org/btclib/blob/main/SECURITY.md),
+    [btclib-ecc's SECURITY.md](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md),
     and this file does not restate it.
 - **An install decides whether the boundary is there.**
     `pip install "btclib-wallet[secp256k1]"` installs the bindings,
     through btclib's own extra and by name; `pip install btclib-wallet`
     installs no C, and every secret then meets the Python arithmetic.
-    Nothing raises to say so, and `btclib.curves.is_libsecp256k1_serving()`
+    Nothing raises to say so, and `btclib_ecc.curves.is_libsecp256k1_serving()`
     is how a caller asks which of the two it has.
 - **Where this package combines secret scalars itself, the arithmetic
     is on Python integers**, variable in time with the operands, whether
