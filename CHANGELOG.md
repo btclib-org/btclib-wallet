@@ -279,8 +279,15 @@ the ack of record is a bot's (issue btclib-org/.github#452).
 
 ### The bypass is for emergencies, in `CONTRIBUTING.md` and this tree's prose
 
-Every pull request lands with an approving review from somebody other than
-its author (issue btclib-org/.github#1362).
+`CONTRIBUTING.md` and `REVIEWING.md` say every pull request, the maintainer's
+included, lands with an approving review from somebody other than its author;
+the bypass is for emergencies (issue btclib-org/.github#1362).
+
+### Earlier entries on how a pull request lands
+
+Entries above that have the maintainer landing without another person's approval
+describe the rule before issue btclib-org/.github#1362 (issue
+btclib-org/.github#1569).
 
 ## v2026.9.30
 
