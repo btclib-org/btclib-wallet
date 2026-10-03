@@ -271,6 +271,12 @@ of more than 1000 arguments is refused, a limit of this library (closes #159).
 An amount of more than 20 digits, leading zeros apart, is refused, where
 `int()` raised the built-in `ValueError` past 4300 digits (closes #205).
 
+### `CONTRIBUTING.md` says the ack of record is a bot's
+
+*The review* says the maintainer lands their own pull requests through the
+bypass, and that the OpenSSF criterion `two_person_review` is unmet because
+the ack of record is a bot's (issue btclib-org/.github#452).
+
 ### A PSBT's global unsigned transaction is read as Core reads it
 
 It is read as `TX_NO_WITNESS`, so a PSBT with no input is read. The floors are
