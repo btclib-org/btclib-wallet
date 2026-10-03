@@ -160,13 +160,9 @@ stands in (issue btclib-org/.github#1527).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
-The field is read as `TX_NO_WITNESS`, so a PSBT with no input, as Core's
-`createpsbt` writes it, is read with one, two or more outputs, where `00`
-after the version was taken for BIP144's marker. A transaction in witness
-serialization there is refused by the parse, and the write-back comparison
-that refused it before is gone. The
-`btclib` floor is 2026.10.3, the first release with `Tx.parse_without_witness`
-(closes #196).
+The field is read as `TX_NO_WITNESS`, so Core's `createpsbt` output with no
+input is read, and `btclib>=2026.10.3` is the floor, the first release with
+`Tx.parse_without_witness` (closes #196).
 
 ## v2026.9.30
 
