@@ -288,6 +288,10 @@ the bypass is for emergencies (issue btclib-org/.github#1362).
 Entries above that have the maintainer landing without another person's approval
 describe the rule before issue btclib-org/.github#1362 (issue
 btclib-org/.github#1569).
+### A `musig()` participant with an origin keeps the leaf hashes of its plain key
+
+`TrDescriptor`'s taproot derivations list every leaf of a key that is a plain
+leaf key and a participant, whichever spelling has the origin (closes #198).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
