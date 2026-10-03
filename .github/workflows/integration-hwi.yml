@@ -103,7 +103,11 @@ jobs:
       # HWI declares ^3.9,<3.13 and is run as a program rather than imported
       # (src/btclib_wallet/hwi.py says why, and issue btclib-org/btclib#469 why
       # there is no extra), so it gets an interpreter of its own here: uv
-      # fetches 3.12, and nothing about the environment the tests run in changes
+      # fetches 3.12, and nothing about the environment the tests run in changes.
+      #
+      # The version is the one .github/integration-hwi/requirements-hwi.in
+      # names, and the install checks that it is. Installed from the hashed
+      # file beside it, which pins every dependency HWI resolves to
       HWI_VERSION: "3.2.0"
       HWI_PYTHON: "3.12"
     steps:
@@ -113,7 +117,7 @@ jobs:
           # see the checkout of the coverage job in test.yml
           persist-credentials: false
       - name: Setup uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
       # the signing test spends a regtest coin, so this job needs the
@@ -183,7 +187,9 @@ jobs:
       - name: Install HWI
         run: |
           uv venv --python "$HWI_PYTHON" hwi-env
-          uv pip install --python hwi-env/bin/python "hwi==$HWI_VERSION"
+          uv pip install --python hwi-env/bin/python --require-hashes \
+            --requirement .github/integration-hwi/requirements-hwi.txt
+          uv pip freeze --python hwi-env/bin/python | grep -Fx "hwi==$HWI_VERSION"
           echo "BTCLIB_HWI=$PWD/hwi-env/bin/hwi --emulators" >> "$GITHUB_ENV"
           hwi-env/bin/hwi --version
       # the emulator, then the seed, and both versions in the log: what a
@@ -348,12 +354,18 @@ jobs:
       # both from one image.
       #
       # No sha256 of an artifact to pin, either, the app being built here
-      # and not downloaded: what is pinned instead is the source tag, the
-      # builder image by digest -- the tag beside it is what that digest
+      # and not downloaded: what is pinned instead is the source commit,
+      # the builder image by digest -- the tag beside it is what that digest
       # was -- and the SDK, which the image provides. HWI's own CI builds
       # this same pair, and 2.5.0 with builder 5.3.17 is the combination
-      # it uses
+      # it uses.
+      #
+      # The commit is the one tag 2.5.0 of LedgerHQ/app-bitcoin names, read
+      # with `git ls-remote https://github.com/LedgerHQ/app-bitcoin.git
+      # refs/tags/2.5.0`: a tag can be moved and a commit cannot. The
+      # version is what the emulator reports as the running app
       LEDGER_APP_VERSION: "2.5.0"
+      LEDGER_APP_COMMIT: 0fec192f13cac736107d15614ccbbe3f2b8446c1 # pragma: allowlist secret
       LEDGER_APP_BUILDER: >-
         ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder@sha256:036d9fd1a264a068ea20f2d0edc962ecdbf1bf5861ef75215924abd77f93bf29
       # nanox, as HWI's suite runs the 2.x app on, and the model the
@@ -362,7 +374,10 @@ jobs:
       # from PyPI, where it brings its own launcher and cx libraries and
       # wants only qemu from the system. HWI still clones and cmakes it,
       # pinned at 0.25.10 -- the last release supporting python 3.9,
-      # which is HWI's floor and not this repository's
+      # which is HWI's floor and not this repository's. The version is the
+      # one .github/integration-hwi/requirements-speculos.in names, and the
+      # install checks that it is; both it and HWI are installed from the
+      # hashed files beside them
       SPECULOS_VERSION: "0.26.10"
       HWI_VERSION: "3.2.0"
       HWI_PYTHON: "3.12"
@@ -372,7 +387,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
       # the node, as the trezor job installs it and for its reasons
@@ -406,8 +421,10 @@ jobs:
       # wants the runner's uv and its python and not the builder's
       - name: Build the Bitcoin app
         run: |
-          git clone --branch "$LEDGER_APP_VERSION" --depth 1 \
-            https://github.com/LedgerHQ/app-bitcoin.git
+          git init app-bitcoin
+          git -C app-bitcoin fetch --depth 1 \
+            https://github.com/LedgerHQ/app-bitcoin.git "$LEDGER_APP_COMMIT"
+          git -C app-bitcoin checkout --detach FETCH_HEAD
           docker run --rm --volume "$PWD/app-bitcoin:/app" --workdir /app \
             "$LEDGER_APP_BUILDER" bash -c '
               set -e
@@ -423,13 +440,20 @@ jobs:
       - name: Install HWI and Speculos
         run: |
           uv venv --python "$HWI_PYTHON" hwi-env
-          uv pip install --python hwi-env/bin/python "hwi==$HWI_VERSION"
+          uv pip install --python hwi-env/bin/python --require-hashes \
+            --requirement .github/integration-hwi/requirements-hwi.txt
+          uv pip freeze --python hwi-env/bin/python | grep -Fx "hwi==$HWI_VERSION"
           # an environment of its own: speculos wants pyqt6 and pygame
           # even to run headless, and none of that belongs beside the
           # command under test
           uv venv --python "$HWI_PYTHON" speculos-env
-          uv pip install --python speculos-env/bin/python \
-            "speculos==$SPECULOS_VERSION"
+          # --no-deps: the lock carries a pillow that speculos's metadata
+          # refuses, and everything it needs is in the lock
+          uv pip install --python speculos-env/bin/python --require-hashes \
+            --no-deps \
+            --requirement .github/integration-hwi/requirements-speculos.txt
+          uv pip freeze --python speculos-env/bin/python |
+            grep -Fx "speculos==$SPECULOS_VERSION"
           echo "BTCLIB_HWI=$PWD/hwi-env/bin/hwi --emulators" >> "$GITHUB_ENV"
           hwi-env/bin/hwi --version
           # speculos takes no --version: what it answers to is the

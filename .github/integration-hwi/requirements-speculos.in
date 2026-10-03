@@ -1,0 +1,9 @@
+# what integration-hwi.yml installs, locked and hashed for its runner in
+# requirements-speculos.txt:
+#   uv pip compile --python-version 3.12 \
+#     --python-platform x86_64-unknown-linux-gnu --generate-hashes \
+#     --no-header --override overrides-speculos.txt \
+#     --output-file requirements-speculos.txt requirements-speculos.in
+# overrides-speculos.txt replaces speculos's own `pillow<11.0.0`, whose newest
+# release, 10.4.0, carries published advisories
+speculos==0.26.10

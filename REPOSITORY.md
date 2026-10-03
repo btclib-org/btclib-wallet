@@ -99,6 +99,7 @@ nothing.
 | `lint / Lint and type-check` | `lint.yml`, calling `reusable-lint.yml` |
 | `regtest / Regtest against Bitcoin Core` | `integration-bitcoind.yml` |
 | `lint / Dependency review` | `lint.yml`, calling `reusable-lint.yml` |
+| `lint / Sign-off` | `lint.yml`, calling `reusable-lint.yml` |
 
 A job whose whole body is a call to a reusable workflow contributes no
 name of its own: the context joins the calling job's id to the called
@@ -138,7 +139,8 @@ gh api -X PUT repos/btclib-org/btclib-wallet/branches/main/protection \
    {"context": "docs / Build the documentation", "app_id": 15368},
    {"context": "lint / Lint and type-check", "app_id": 15368},
    {"context": "regtest / Regtest against Bitcoin Core", "app_id": 15368},
-   {"context": "lint / Dependency review", "app_id": 15368}]},
+   {"context": "lint / Dependency review", "app_id": 15368},
+   {"context": "lint / Sign-off", "app_id": 15368}]},
  "enforce_admins": false,
  "required_pull_request_reviews": {"dismiss_stale_reviews": true,
    "require_code_owner_reviews": false,
@@ -169,7 +171,8 @@ gh api repos/btclib-org/btclib-wallet/branches/main/protection \
 #   ["docs / Build the documentation",15368],
 #   ["lint / Lint and type-check",15368],
 #   ["regtest / Regtest against Bitcoin Core",15368],
-#   ["lint / Dependency review",15368]],
+#   ["lint / Dependency review",15368],
+#   ["lint / Sign-off",15368]],
 #  "conversation":true,"enforce_admins":false,"linear":true,
 #  "reviews":{"dismiss_stale_reviews":true,
 #   "required_approving_review_count":1},
@@ -345,6 +348,18 @@ gh api orgs/btclib-org/actions/permissions \
 `sha_pinning_required` is set at the organization level: [section 11 of
 the standard has the reasons for both
 fields](https://github.com/btclib-org/.github/blob/main/README.md#tokens-publishing-scanning).
+
+## Sign-off on web commits
+
+```shell
+gh api repos/btclib-org/btclib-wallet --jq .web_commit_signoff_required
+# true
+gh api orgs/btclib-org --jq .web_commit_signoff_required
+# true
+```
+
+Set at the organization level, [for the reason section 11
+gives](https://github.com/btclib-org/.github/blob/main/README.md#signatures).
 
 ## Publishing
 
@@ -595,8 +610,8 @@ back with a call of its own.
 
 **A switch no section of the standard states a rule for stays out.**
 `allow_forking`, `allow_update_branch`, `has_discussions`,
-`has_downloads`, `is_template` and `web_commit_signoff_required` are in
-that document and no section above reads any of them back.
+`has_downloads` and `is_template` are in that document and no section
+above reads any of them back.
 
 **A credential this repository spends and does not hold.**
 `claude-review.yml` reads `secrets.CLAUDE_CODE_OAUTH_TOKEN`, which

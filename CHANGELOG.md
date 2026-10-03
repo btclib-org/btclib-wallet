@@ -158,6 +158,68 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### `dependabot.yml` does not say that every workflow passes `--locked`
+
+`.github/dependabot.yml` says the workflows install from `uv.lock` with
+`--locked`, bar the jobs that re-lock, install a published or built package
+or install a hash-pinned export (issue btclib-org/.github#1538).
+
+### `REPOSITORY.md` reads back the web sign-off setting
+
+`REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
+setting section 11 of the standard states (issue btclib-org/.github#1540).
+
+### `descriptors.parse` refuses a key of another network
+
+`parse` raises `BTClibValueError` for a WIF or an extended key of another
+network, as Core does; `KeyExpression.wif_prefix` holds the WIF's version
+byte for it (closes #180).
+
+### A `musig()` participant that is also a plain taproot key keeps its leaf hashes
+
+`TrDescriptor`'s taproot derivations list every leaf of such a key whose plain
+spelling has an origin, in either order; a participant written after the plain
+key replaced its entry with an empty list (closes #185).
+
+### `SilentPaymentOutput`'s repr leaves out `prv_key_tweak`
+
+The tweak is a secret, so a logged output does not carry it (closes #161).
+
+### `mxprv_from_mnemonic` takes only `None` or `""` as the empty passphrase
+
+In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
+`btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
+where they derived the wallet without a passphrase (closes #162).
+
+### A malleable miniscript keeps neither `s`, `f` nor `e`
+
+`Miniscript.properties` drops "s", "f" and "e" from an expression without "m",
+as BIP379 asks, and `is_signature_required` is false there (closes #190).
+
+### The duplicate-key check compares derived public keys
+
+`Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
+derive at index 0, as Bitcoin Core does. A key with a hardened step is
+compared by its extended key and its path (issue #193).
+
+### The `Sign-off` check is required
+
+`CONTRIBUTING.md`'s shared half says a pull request whose commits lack the
+`Signed-off-by:` trailer cannot merge, and `REPOSITORY.md` lists
+`lint / Sign-off` among the required checks (issue btclib-org/.github#1550).
+
+### The suite imports btclib_ecc's exception classes from `btclib_ecc`
+
+`tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
+since `btclib.exceptions` binds them only up to btclib 2026.9.29
+(closes #166).
+
+### `integration-hwi.yml` installs HWI and Speculos from hashed locks
+
+`.github/integration-hwi/` holds hashed locks of both, installed with
+`--require-hashes`, and the Ledger app is fetched by the commit that tag
+2.5.0 names (closes #167).
+
 ### A PSBT's global unsigned transaction is read as Core reads it
 
 The field is read as `TX_NO_WITNESS`, so Core's `createpsbt` output with no

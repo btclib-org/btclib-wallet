@@ -1058,7 +1058,7 @@ def test_network() -> None:
     assert script_pub_key.address.startswith("tb1")
     assert ScriptPubKey.from_address(script_pub_key.address) == script_pub_key
     with pytest.raises(BTClibValueError, match="not a mainnet key: version "):
-        parse(descriptor).script_pub_key()
+        parse(descriptor)
 
 
 def test_descriptor_coerces_the_network_name() -> None:
@@ -3871,3 +3871,66 @@ def test_a_redeem_script_over_520_bytes_is_refused(
     )
     with pytest.raises(BTClibValueError, match=err_msg):
         parse(f"sh({name}(1,{keys}))")
+
+
+NETWORK_KEYS = [
+    pytest.param(WIF, "regtest", "WIF prefix", id="mainnet-wif-on-regtest"),
+    pytest.param(
+        "cNJFgo1driFnPcBdBX8BrJrpxchBWXwXCvNH5SoSkdcF6JXXwHMm",
+        "mainnet",
+        "WIF prefix",
+        id="testnet-wif-on-mainnet",
+    ),
+    pytest.param(XPUB, "regtest", "version 0x0488b21e", id="xpub-on-regtest"),
+    pytest.param(TESTNET_XPUB, "mainnet", "version 0x043587cf", id="tpub-on-mainnet"),
+    pytest.param(xpub_from_xprv(XPRV_ROOT), "signet", "version", id="xpub-on-signet"),
+]
+
+
+@pytest.mark.parametrize("key, network, message", NETWORK_KEYS)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "pkh({key})",
+        "tr({key},pk({key}))",
+        "wsh(pk({key}))",
+        "tr({xonly},pk(musig({key},{sec})))",
+    ],
+)
+def test_parse_refuses_a_key_of_another_network(
+    template: str, key: str, network: str, message: str
+) -> None:
+    """A key spelled for another network is refused where it is read.
+
+    Bitcoin Core's `ParsePubkeyInner` decodes a WIF and an extended key
+    against the chain's own prefixes. A miniscript leaf and a ``musig()``
+    participant are keys of the same kind.
+    """
+    descriptor = template.format(key=key, xonly=XONLY, sec=SEC_KEYS[1])
+    with pytest.raises(BTClibValueError, match=f"^not a {network} key: .*{message}"):
+        parse(descriptor, network)
+
+
+def test_parse_takes_the_keys_the_test_networks_share() -> None:
+    """The test networks share one WIF prefix and one xkey version."""
+    wif = "cNJFgo1driFnPcBdBX8BrJrpxchBWXwXCvNH5SoSkdcF6JXXwHMm"
+    for network in ("testnet", "signet", "regtest", "testnet4"):
+        parse(f"pkh({wif})", network)
+        parse(f"pkh({TESTNET_XPUB}/0)", network)
+
+
+def test_a_participant_that_is_also_a_leaf_key_keeps_its_leaf_hashes() -> None:
+    """BIP371 lists every leaf a key is in, whatever order the tree writes.
+
+    C is a plain leaf key and a participant of another leaf, and has an
+    origin, so both kinds of entry write under its x-only key.
+    """
+    key_a, key_b, key_c = (f"[d34db33f/{i}h]{sec}" for i, sec in enumerate(SEC_KEYS))
+    plain, group = f"pk({key_c})", f"pk(musig({key_a},{key_c}))"
+    for tree in (f"{{{plain},{group}}}", f"{{{group},{plain}}}"):
+        descriptor = parse(f"tr(musig({key_a},{key_b}),{tree})")
+        psbt_in = descriptor.update_psbt_input(psbt_spending(descriptor), 0).inputs[0]
+        hashes, origin = psbt_in.taproot_hd_key_paths[bytes.fromhex(SEC_KEYS[2])[1:]]
+        assert origin.description == "d34db33f/2h"
+        script = taproot_leaf_of(psbt_in, SEC_KEYS[2][2:])[0]
+        assert hashes == [taproot.leaf_hash(0xC0, script)]
