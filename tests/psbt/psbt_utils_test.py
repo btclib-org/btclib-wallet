@@ -148,11 +148,9 @@ def test_deserialize_tx_reads_include_witness_for_its_truth() -> None:
     """`True` accepts either encoding, `False` demands the round trip.
 
     Two values and two behaviours, which is what issue btclib-org/btclib#1190
-    settled: the flag is read as a truth, `not include_witness` being false for
-    `True` alone, so `True` is the one that does not ask for the round trip and
-    `False` is the one that refuses a witness serialization. `None` used to be
-    declared here too, documented as "either encoding" and doing what `False`
-    does, and is now a `BTClibTypeError` like any other non-bool.
+    settled: `True` reads either encoding and `False` reads Core's
+    `TX_NO_WITNESS`, so it refuses a witness serialization. `None` is a
+    `BTClibTypeError` like any other non-bool.
 
     Asserted rather than described, and asserted on octets that tell the
     two encodings apart: a legacy serialization is accepted by every
@@ -172,13 +170,13 @@ def test_deserialize_tx_reads_include_witness_for_its_truth() -> None:
     # legacy octets parse to whatever the flag says
     stripped = Tx.parse(legacy, check_validity=False)
 
-    # True: the round trip is not asked for, so either encoding is read
+    # True: either encoding is read
     assert deserialize_tx(b"\x00", witness, "tx", True) == tx
     assert deserialize_tx(b"\x00", legacy, "tx", True) == stripped
 
-    # False: the round trip is the check, and the witness form fails it
+    # False: the witness form is read as Core reads it, without a marker
     assert deserialize_tx(b"\x00", legacy, "tx", False) == stripped
-    with pytest.raises(BTClibValueError, match="wrong tx serialization format"):
+    with pytest.raises(BTClibValueError, match="bytes after the transaction"):
         deserialize_tx(b"\x00", witness, "tx", False)
 
     # None is no longer a third spelling of False; it is a wrong type
