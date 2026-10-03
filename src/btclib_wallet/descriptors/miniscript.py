@@ -1755,16 +1755,16 @@ def _key_identity(key: KeyExpression) -> object:
     """Return what two KEY expressions are compared by.
 
     The public key at index 0, which is what Bitcoin Core compares. The
-    extended key and the path where the key cannot be derived without a
-    private key, or is no key at all, as a wallet-policy placeholder is.
+    extended key, the path, the wildcard and the participants where the
+    key cannot be derived without a private key, or is no key at all, as a
+    wallet-policy placeholder is. The network is that of the first
+    participant with an extended key, whichever place it has.
     """
-    first = key
-    while first.participants:
-        first = first.participants[0]
+    xkeys = [k.xkey for k in (key.participants or (key,)) if k.xkey]
     try:
         network = (
-            network_from_xkeyversion(BIP32KeyData.b58decode(first.xkey).version)
-            if first.xkey
+            network_from_xkeyversion(BIP32KeyData.b58decode(xkeys[0]).version)
+            if xkeys
             else "mainnet"
         )
         return key.sec(0, network)

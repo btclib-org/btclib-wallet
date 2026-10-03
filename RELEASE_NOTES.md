@@ -20,8 +20,10 @@ before upgrading, rather than a digit.
 - **A miniscript repeating a public key is refused under different
   spellings of it.** `descriptors.parse` does so as Bitcoin Core does, except
   for a hardened step whose private key is absent.
-  `Miniscript.properties` and `is_signature_required` drop "s", "f" and "e"
-  on a malleable expression.
+
+- **A malleable miniscript keeps neither "s", "f" nor "e".**
+  `Miniscript.properties` drops them, and `is_signature_required` is false for
+  it.
 
 ## v2026.9.30
 

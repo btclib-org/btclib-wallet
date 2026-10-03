@@ -160,8 +160,8 @@ stands in (issue btclib-org/.github#1527).
 
 ### A malleable miniscript keeps neither `s`, `f` nor `e`
 
-`Miniscript.properties` and `is_signature_required` answer without "s", "f"
-and "e" for an expression without "m", as BIP379 asks (closes #190).
+`Miniscript.properties` drops "s", "f" and "e" from an expression without "m",
+as BIP379 asks, and `is_signature_required` is false there (closes #190).
 
 ### The duplicate-key check compares derived public keys
 

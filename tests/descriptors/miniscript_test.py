@@ -45,6 +45,7 @@ from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
+from btclib.network import NETWORKS
 from btclib.script import sig_hash
 from btclib.script.engine import verify_transaction
 from btclib.script.script import serialize
@@ -57,7 +58,7 @@ from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from btclib_ecc.ecc import dsa, ssa
 
-from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
+from btclib_wallet.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import (
     TrDescriptor,
@@ -640,6 +641,18 @@ def test_a_repeated_musig_key_is_a_repeated_key() -> None:
     assert parse(twice, TAPSCRIPT).has_duplicate_keys
     once = f"or_i(pk({hardened}),pk(musig({XPRV}/1h,{first})))"
     assert not parse(once, TAPSCRIPT).has_duplicate_keys
+
+
+def test_a_repeated_musig_key_is_found_on_a_test_network() -> None:
+    """Take the network from the participant that has one, wherever it is."""
+    testnet = xpub_from_xprv(
+        rootxprv_from_seed(b"\x00" * 32, NETWORKS["testnet"].bip32_prv)
+    )
+    child = f"{testnet}/1"
+    for participants in ((KEY, child), (child, KEY)):
+        first, second = participants, participants[::-1]
+        both = f"or_i(pk(musig({','.join(first)})),pk(musig({','.join(second)})))"
+        assert parse(both, TAPSCRIPT).has_duplicate_keys
 
 
 @pytest.mark.parametrize(
