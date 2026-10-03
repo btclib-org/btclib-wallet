@@ -228,9 +228,12 @@ def test_a_silent_payment_is_checked_before_the_signer_sees_it() -> None:
     xprv = derive(signer.xprv, path)
     prv_key = int.from_bytes(BIP32KeyData.b58decode(xprv).key[1:], "big")
     sec = bytes_from_point(mult(prv_key))
+    spent = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(sec)))
+    prev_tx = Tx(vin=[TxIn(OutPoint(b"\x06" * 32, 0))], vout=[spent])
     psbt_in = PsbtIn(
-        witness_utxo=TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(sec))),
-        previous_tx_id=b"\x06" * 32,
+        non_witness_utxo=prev_tx,
+        witness_utxo=spent,
+        previous_tx_id=prev_tx.id,
         output_index=0,
         hd_key_paths={sec: BIP32KeyOrigin(signer.master_fingerprint, path)},
     )

@@ -72,6 +72,7 @@ from typing import Any
 import pytest
 from btclib.b58 import p2pkh
 from btclib.key import PrvKeyData, PubKeyData
+from btclib.script import ScriptPubKey
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
@@ -110,6 +111,7 @@ from btclib_wallet.psbt import musig2 as psbt_musig2
 from btclib_wallet.psbt.psbt import Psbt, assert_signed
 from btclib_wallet.psbt.psbt import extract_tx as psbt_extract_tx
 from btclib_wallet.psbt.psbt import join as psbt_join
+from btclib_wallet.psbt.psbt import sign as psbt_sign
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_utils import (
     deserialize_sized_int,
@@ -184,6 +186,18 @@ _PSBTS = [Psbt.from_tx(_TX), Psbt.from_tx(_TX_2)]
 _SPENDABLE_PSBT = Psbt.from_tx(_TX)
 _SPENDABLE_PSBT.inputs[0].witness_utxo = TxOut(2000, b"\x51")
 _TX_BYTES = _TX.serialize(include_witness=False, check_validity=False)
+
+# a p2wpkh input carrying the transaction it spends from, which is the
+# psbt `require_non_witness_utxo` accepts at True; it names no key, so
+# `sign` signs nothing in it
+_PREV_TX = Tx(
+    vin=[TxIn(OutPoint(b"\x22" * 32, 0))],
+    vout=[TxOut(2000, ScriptPubKey.p2wpkh(PubKeyData(_SEC)))],
+)
+_VOUCHED_PSBT = Psbt.from_tx(
+    Tx(vin=[TxIn(OutPoint(_PREV_TX.id, 0))], vout=[TxOut(1000, b"\x51")])
+)
+_VOUCHED_PSBT.inputs[0].non_witness_utxo = _PREV_TX
 
 # the first BIP174 vector that is signed through, which is what makes
 # `allow_partial` a flag both of whose values accept it
@@ -420,6 +434,27 @@ _TRUTHS = (
         {"psbt": _SPENDABLE_PSBT},
         reason="whether the final scripts are run; a transaction they accept"
         " is the same one",
+    ),
+    _Case(
+        "btclib_wallet.psbt.psbt.Psbt.assert_signable",
+        "require_non_witness_utxo",
+        _VOUCHED_PSBT.assert_signable,
+        reason="whether a segwit v0 input has to carry its non_witness_utxo",
+    ),
+    _Case(
+        "btclib_wallet.psbt.psbt.sign",
+        "require_non_witness_utxo",
+        psbt_sign,
+        {"psbt": _VOUCHED_PSBT, "key_manager": SoftwareSigner(_ROOT_XPRV)},
+        reason="`Psbt.assert_signable`'s, handed to it; a psbt both accept"
+        " is signed the same",
+    ),
+    _Case(
+        "btclib_wallet.psbt_signer.SoftwareSigner.sign_psbt",
+        "require_non_witness_utxo",
+        SoftwareSigner(_ROOT_XPRV).sign_psbt,
+        {"psbt": _VOUCHED_PSBT},
+        reason="`sign`'s, handed to it",
     ),
     _Case(
         "btclib_wallet.slip132.p2pkh_xkey",

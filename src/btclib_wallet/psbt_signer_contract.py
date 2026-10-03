@@ -110,14 +110,20 @@ def unsignable_psbt(fingerprint: bytes) -> Psbt:
     other = bytes([fingerprint[0] ^ 0xFF, *fingerprint[1:]])
     script_pub_key = ScriptPubKey.p2wpkh(PubKeyData(_SOMEBODY_ELSES_KEY))
 
-    tx_in = TxIn(OutPoint(b"\xaa" * 32, 0))
+    spent = TxOut(10_000, script_pub_key)
+    # the whole previous transaction and not its output alone: a signer
+    # refuses a p2wpkh input whose amount nothing vouches for, and the
+    # refusal would not be the answer this psbt is sent to read
+    prev_tx = Tx(2, 0, [TxIn(OutPoint(b"\xaa" * 32, 0))], [spent])
+    tx_in = TxIn(OutPoint(prev_tx.id, 0))
     tx_out = TxOut(9_000, script_pub_key)
     psbt = Psbt.from_tx(Tx(version=2, lock_time=0, vin=[tx_in], vout=[tx_out]))
     # the fields are set on the input the psbt already holds rather than
     # on one built beside it: BIP370 keeps the outpoint on the input, so
     # an input replaced wholesale is an input naming nothing
     psbt_in = psbt.inputs[0]
-    psbt_in.witness_utxo = TxOut(10_000, script_pub_key)
+    psbt_in.non_witness_utxo = prev_tx
+    psbt_in.witness_utxo = spent
     psbt_in.hd_key_paths[_SOMEBODY_ELSES_KEY] = BIP32KeyOrigin(other, "m/84h/0h/0h/0/0")
     return psbt
 

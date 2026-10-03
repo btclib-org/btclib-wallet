@@ -168,6 +168,23 @@ def test_the_signer_never_signs_the_legacy_sighash_single_constant() -> None:
         signer.sign_psbt(psbt, allowed_sig_hash_types={3})
 
 
+@pytest.mark.parametrize("purpose", [49, 84])
+def test_a_witness_utxo_alone_is_signed_only_on_request(purpose: int) -> None:
+    """A segwit v0 amount nothing vouches for (GHSA-v4gq-j2v2-c4jp).
+
+    `sign_psbt` refuses the input; `require_non_witness_utxo=False` signs it.
+    """
+    signer = SoftwareSigner(XPRV_ROOT)
+    receive, change = export_account(signer, f"m/{purpose}h/0h/0h")
+    psbt, prevouts = spending(receive, change)
+    psbt.inputs[0].non_witness_utxo = None
+    psbt.inputs[0].witness_utxo = prevouts[0]
+
+    with pytest.raises(BTClibValueError, match="input 0: no non_witness_utxo"):
+        signer.sign_psbt(psbt)
+    assert signer.sign_psbt(psbt, require_non_witness_utxo=False).inputs[0].partial_sigs
+
+
 def test_a_taproot_script_path_is_signed_and_spends() -> None:
     """The other half of a taproot output, end to end.
 

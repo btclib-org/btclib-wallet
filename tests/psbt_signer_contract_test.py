@@ -87,11 +87,16 @@ def _signable() -> Psbt:
     pub_key = pub_keyinfo_from_xkey(xprv)[0]
     script_pub_key = ScriptPubKey.p2wpkh(PubKeyData(pub_key))
 
-    tx_in = TxIn(OutPoint(b"\xbb" * 32, 0))
+    spent = TxOut(10_000, script_pub_key)
+    prev_tx = Tx(
+        version=2, lock_time=0, vin=[TxIn(OutPoint(b"\xbb" * 32, 0))], vout=[spent]
+    )
+    tx_in = TxIn(OutPoint(prev_tx.id, 0))
     tx_out = TxOut(9_000, script_pub_key)
     psbt = Psbt.from_tx(Tx(version=2, lock_time=0, vin=[tx_in], vout=[tx_out]))
     psbt_in = psbt.inputs[0]
-    psbt_in.witness_utxo = TxOut(10_000, script_pub_key)
+    psbt_in.non_witness_utxo = prev_tx
+    psbt_in.witness_utxo = spent
     psbt_in.hd_key_paths[pub_key] = BIP32KeyOrigin(
         signer.master_fingerprint, f"{_ACCOUNT}/0/0"
     )
@@ -402,11 +407,16 @@ def _partly_signed_quorum() -> Psbt:
     witness_script = serialize(["OP_3", *keys, "OP_3", "OP_CHECKMULTISIG"])
     script_pub_key = ScriptPubKey.p2wsh(witness_script)
 
-    tx_in = TxIn(OutPoint(b"\xcc" * 32, 0))
+    spent = TxOut(10_000, script_pub_key)
+    prev_tx = Tx(
+        version=2, lock_time=0, vin=[TxIn(OutPoint(b"\xcc" * 32, 0))], vout=[spent]
+    )
+    tx_in = TxIn(OutPoint(prev_tx.id, 0))
     tx_out = TxOut(9_000, script_pub_key)
     psbt = Psbt.from_tx(Tx(version=2, lock_time=0, vin=[tx_in], vout=[tx_out]))
     psbt_in = psbt.inputs[0]
-    psbt_in.witness_utxo = TxOut(10_000, script_pub_key)
+    psbt_in.non_witness_utxo = prev_tx
+    psbt_in.witness_utxo = spent
     psbt_in.witness_script = witness_script
     for key, one in zip(keys, roots, strict=True):
         psbt_in.hd_key_paths[key] = BIP32KeyOrigin(

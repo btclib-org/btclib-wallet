@@ -933,6 +933,39 @@ def _assert_input_signable(psbt_in: PsbtIn) -> None:
             raise BTClibValueError("invalid witness script sha256")
 
 
+def _assert_amounts_vouched(inputs: Sequence[PsbtIn]) -> None:
+    """Raise if an input's amount rests on its witness utxo alone.
+
+    A BIP143 signature commits to the amount of its own input only, and
+    nothing vouches for a witness utxo. So a counterparty can misstate
+    one input's amount in one signing session and the other's in a
+    second: the signature each session yields for the input it told the
+    truth about is valid, and the transaction pays the difference as fee.
+    The script a witness utxo states is the counterparty's word too, so
+    an input it calls taproot is refused like any other.
+
+    The non_witness_utxo is vouched for by the outpoint's tx_id, and
+    `_assert_valid_utxo` holds a witness utxo beside it to the same
+    output. A psbt whose every input spends a p2tr script and none asks
+    for ANYONECANPAY is not asked: a BIP341 signature of any other type
+    commits to the amount and the script of every input, so one that
+    misstates either is invalid. One of ANYONECANPAY commits to its own
+    input's alone, as a BIP143 signature does.
+    """
+    if all(
+        is_p2tr(_spent_script(psbt_in))
+        and not (psbt_in.sig_hash_type or 0) & ANYONECANPAY
+        for psbt_in in inputs
+    ):
+        return
+    for i, psbt_in in enumerate(inputs):
+        if psbt_in.non_witness_utxo is None:
+            err_msg = f"input {i}: no non_witness_utxo, so nothing vouches for "
+            err_msg += "the amount it states, and the psbt is not all taproot "
+            err_msg += "without ANYONECANPAY"
+            raise BTClibValueError(err_msg)
+
+
 @dataclass
 class Psbt:
     """A partially signed bitcoin transaction, BIP174 and BIP370.
@@ -1217,7 +1250,7 @@ class Psbt:
         )
         assert_valid_unknown(self.unknown)
 
-    def assert_signable(self) -> None:
+    def assert_signable(self, *, require_non_witness_utxo: bool = True) -> None:
         """Assert that every input carries what a Signer needs.
 
         Valid and signable are different questions, and BIP174 answers only
@@ -1230,6 +1263,13 @@ class Psbt:
         input: without it an empty vin passes the loop vacuously, and a
         caller doing assert_signable() and then looping over the inputs
         signs none of them and is told nothing.
+
+        Every input has to carry its non_witness_utxo, which BIP174 does
+        not require, unless every input spends a p2tr script and none
+        asks for ANYONECANPAY: `_assert_amounts_vouched` says why. With
+        `require_non_witness_utxo=False` a witness utxo alone is
+        accepted, and its amount is then the word of whoever wrote the
+        psbt.
         """
         self.assert_valid()
 
@@ -1238,6 +1278,8 @@ class Psbt:
 
         for psbt_in in self.inputs:
             _assert_input_signable(psbt_in)
+        if require_non_witness_utxo:
+            _assert_amounts_vouched(self.inputs)
 
     def to_dict(self, *, check_validity: bool = True) -> dict[str, Any]:
         """Return the psbt as a dict of json-friendly values.
@@ -2178,6 +2220,10 @@ def prevouts(psbt: Psbt) -> list[TxOut]:
     one being signed, so a single missing utxo leaves the whole
     transaction unsignable rather than one input of it -- which is why
     this raises where `_prev_out` answers None.
+
+    An input carrying a witness utxo alone answers that field's amount,
+    which nothing vouches for; `Psbt.assert_signable` refuses such an
+    input unless every input is taproot and none asks for ANYONECANPAY.
     """
     # the amounts and scripts a taproot signature commits to under BIP341,
     # which makes this the list that most wants to have been checked
@@ -2512,6 +2558,10 @@ def ecdsa_sig_hash(psbt: Psbt, vin_i: int, *, hash_type: int | None = None) -> b
     one has to stop. Where it raises -- a non-witness spend described by
     a witness utxo alone -- every caller stops, that being an input no
     role may sign, verify or finalize.
+
+    An input's amount is its witness utxo's where it carries no
+    non_witness_utxo, and nothing vouches for it: a caller signing this
+    hash itself asks `Psbt.assert_signable` first, as `sign` does.
     """
     psbt.assert_valid()
     return _ecdsa_sig_hash(psbt.inputs[vin_i], psbt.tx, vin_i, hash_type)
@@ -2777,6 +2827,7 @@ def sign(
     key_manager: KeyManager,
     *,
     allowed_sig_hash_types: Collection[int] = frozenset(),
+    require_non_witness_utxo: bool = True,
 ) -> tuple[Psbt, list[int]]:
     """Run the Signer role over every input key_manager answers for.
 
@@ -2803,7 +2854,10 @@ def sign(
     question -- and where a candidate's own hash cannot be computed,
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
-    does not raise.
+    does not raise. `require_non_witness_utxo` is handed to
+    `assert_signable`: at its default an input with no non_witness_utxo
+    is refused, whoever holds its keys, unless every input is taproot
+    and none asks for ANYONECANPAY.
 
     The sig_hash type is the input's `PSBT_IN_SIGHASH_TYPE`, and a type
     other than SIGHASH_ALL or SIGHASH_DEFAULT is signed only where
@@ -2823,7 +2877,7 @@ def sign(
     """
     accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
     psbt = deepcopy(psbt)
-    psbt.assert_signable()
+    psbt.assert_signable(require_non_witness_utxo=require_non_witness_utxo)
     if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
         # imported here: silent_payments imports this module
         from btclib_wallet.psbt.silent_payments import (  # noqa: PLC0415

@@ -1619,12 +1619,14 @@ def test_additional_combination() -> None:
 
 
 def test_valid_sign() -> None:
-    """Check the Updater's example psbt passes assert_signable."""
+    """Check the Updater's example psbt is signable only with the opt-out."""
     psbt_str = "cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAEBIJVe6gsAAAAAF6kUY0UgD2jRieGtwN8cTRbqjxTA2+uHIgIDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUZGMEMCIAQktY7/qqaU4VWepck7v9SokGQiQFXN8HC2dxRpRC0HAh9cjrD+plFtYLisszrWTt5g6Hhb+zqpS5m9+GFR25qaAQEEIgAgdx/RitRZZm3Unz1WTj28QvTIR3TjYK2haBao7UiNVoEBBUdSIQOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RiED3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg71SriIGA7E0HMunaDtq9PEjjNbpfnFn1Wn6xH8eSNR1QYRDVb1GELSmumcAAACAAAAAgAQAAIAiBgPeVdHh2sgF4/iljB+/m5TALz26r+En/vykmV8m+CCDvRC0prpnAAAAgAAAAIAFAACAAAA="
     psbt = Psbt.b64decode(psbt_str)
     assert psbt.b64encode() == psbt_str
 
-    psbt.assert_signable()
+    with pytest.raises(BTClibValueError, match="no non_witness_utxo"):
+        psbt.assert_signable()
+    psbt.assert_signable(require_non_witness_utxo=False)
 
 
 def test_valid_sign_2() -> None:
@@ -2260,6 +2262,9 @@ def _single_key_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
         psbt.inputs[0].non_witness_utxo = prev_tx
         msg_hash = sig_hash.legacy(script_pub_key.script, tx, 0, 1)
     else:
+        # both, as Bitcoin Core's Updater writes a segwit v0 input: the
+        # transaction is what vouches for the amount `sign` commits to
+        psbt.inputs[0].non_witness_utxo = prev_tx
         psbt.inputs[0].witness_utxo = prev_out
         # BIP143's script code: the witness script for p2wsh, the p2pkh
         # script for the same hash160 for p2wpkh
@@ -2920,6 +2925,7 @@ def test_an_input_that_does_not_say_what_it_spends() -> None:
     """
     psbt, _ = _single_key_psbt("p2wpkh")
     sig = psbt.inputs[0].partial_sigs[_PUB_KEY]
+    psbt.inputs[0].non_witness_utxo = None
     psbt.inputs[0].witness_utxo = None
 
     psbt_in = finalize(psbt).inputs[0]
@@ -3613,9 +3619,10 @@ def _unsigned_multisig_psbt() -> Psbt:
     )
     script_pub_key = ScriptPubKey.p2wsh(witness_script)
     prev_out = TxOut(100_000, script_pub_key)
-    tx, _ = _spending_tx(prev_out)
+    tx, prev_tx = _spending_tx(prev_out)
 
     psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].non_witness_utxo = prev_tx
     psbt.inputs[0].witness_utxo = prev_out
     psbt.inputs[0].witness_script = witness_script
     psbt.inputs[0].hd_key_paths = {
@@ -4053,9 +4060,10 @@ def test_sign_raises_when_a_candidate_cannot_be_hashed() -> None:
     """
     witness_script = serialize([_PUB_KEY, "OP_CHECKSIG"])
     prev_out = TxOut(100_000, ScriptPubKey.p2wsh(witness_script))
-    tx, _ = _spending_tx(prev_out)
+    tx, prev_tx = _spending_tx(prev_out)
 
     psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].non_witness_utxo = prev_tx
     psbt.inputs[0].witness_utxo = prev_out
     psbt.inputs[0].hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
     # no witness_script: assert_signable does not require one, and
@@ -4075,15 +4083,153 @@ def test_sign_leaves_alone_an_input_with_no_candidate() -> None:
     """
     witness_script = serialize([_PUB_KEY, "OP_CHECKSIG"])
     prev_out = TxOut(100_000, ScriptPubKey.p2wsh(witness_script))
-    tx, _ = _spending_tx(prev_out)
+    tx, prev_tx = _spending_tx(prev_out)
 
     psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].non_witness_utxo = prev_tx
     psbt.inputs[0].witness_utxo = prev_out
 
     result, signed_vins = sign(psbt, _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY}))
 
     assert signed_vins == []
     assert result.inputs[0].partial_sigs == {}
+
+
+# GHSA-v4gq-j2v2-c4jp: two 1 BTC outputs of one key, spent to one output
+# of 1 BTC less 1000 sat
+_ONE_BTC = 100_000_000
+
+
+def _fee_attack_psbt() -> tuple[Psbt, list[Tx]]:
+    """Return the unsigned two-input psbt and the transactions it spends."""
+    script_pub_key = ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY))
+    prev_txs = [
+        Tx(
+            2,
+            0,
+            [TxIn(OutPoint(bytes([i + 1]) * 32, 0))],
+            [TxOut(_ONE_BTC, script_pub_key)],
+        )
+        for i in range(2)
+    ]
+    vin = [TxIn(OutPoint(prev_tx.id, 0)) for prev_tx in prev_txs]
+    tx = Tx(2, 0, vin, [TxOut(_ONE_BTC - 1_000, script_pub_key)])
+    psbt = Psbt.from_tx(tx)
+    for psbt_in in psbt.inputs:
+        psbt_in.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+    return psbt, prev_txs
+
+
+def test_a_misstated_segwit_v0_amount_is_refused_by_default() -> None:
+    """Two sessions, each misstating the other input, pay 1 BTC of fee.
+
+    Each session shows a fee of 2000 sat, and the signature each yields
+    for the input it told the truth about is valid. `sign` refuses both
+    sessions; with `require_non_witness_utxo=False` it signs them, and
+    the two signatures spend both outputs.
+    """
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+    sessions = []
+    for stated in ((_ONE_BTC, 1_000), (1_000, _ONE_BTC)):
+        psbt, prev_txs = _fee_attack_psbt()
+        for psbt_in, prev_tx, value in zip(psbt.inputs, prev_txs, stated, strict=True):
+            psbt_in.witness_utxo = TxOut(value, prev_tx.vout[0].script_pub_key)
+        shown_fee = sum(out.value for out in prevouts(psbt)) - psbt.tx.vout[0].value
+        assert shown_fee == 2_000
+
+        with pytest.raises(BTClibValueError, match="input 0: no non_witness_utxo"):
+            sign(psbt, key_manager)
+        sessions.append(sign(psbt, key_manager, require_non_witness_utxo=False)[0])
+
+    combined, prev_txs = _fee_attack_psbt()
+    for i, psbt_in in enumerate(combined.inputs):
+        psbt_in.non_witness_utxo = prev_txs[i]
+        psbt_in.partial_sigs = sessions[i].inputs[i].partial_sigs
+    # extract_tx runs the scripts against the real outputs
+    spent = extract_tx(finalize(combined))
+    assert 2 * _ONE_BTC - spent.vout[0].value == 100_001_000
+
+
+def test_a_non_witness_utxo_leaves_no_amount_to_misstate() -> None:
+    """With the transactions spent, the amounts are theirs or refused."""
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+    psbt, prev_txs = _fee_attack_psbt()
+    for psbt_in, prev_tx in zip(psbt.inputs, prev_txs, strict=True):
+        psbt_in.non_witness_utxo = prev_tx
+    signed, signed_vins = sign(psbt, key_manager)
+    assert signed_vins == [0, 1]
+    assert extract_tx(finalize(signed)) is not None
+
+    misstated = deepcopy(psbt)
+    misstated.inputs[1].witness_utxo = TxOut(1_000, prev_txs[1].vout[0].script_pub_key)
+    with pytest.raises(BTClibValueError, match="mismatched witness utxo"):
+        sign(misstated, key_manager)
+
+    edited = deepcopy(psbt)
+    prev_tx = prev_txs[1]
+    edited.inputs[1].non_witness_utxo = Tx(
+        prev_tx.version,
+        prev_tx.lock_time,
+        prev_tx.vin,
+        [TxOut(1_000, prev_tx.vout[0].script_pub_key)],
+    )
+    with pytest.raises(BTClibValueError, match="mismatched non-witness utxo"):
+        sign(edited, key_manager)
+
+
+def test_an_all_taproot_psbt_needs_no_non_witness_utxo() -> None:
+    """A BIP341 signature commits to every amount and every script."""
+    psbt, _ = _taproot_key_path_psbt()
+    assert psbt.inputs[0].non_witness_utxo is None
+    key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+    assert sign(psbt, key_manager)[1] == [0]
+
+
+def test_an_input_calling_itself_taproot_is_no_exemption() -> None:
+    """Its script is the counterparty's word, as its amount is.
+
+    The other input claims a p2tr script and 1000 sat: the BIP143
+    signature of the honest input commits to neither, so each session of
+    the attack above would sign that input at a fee of 2000 sat.
+    """
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+    psbt, prev_txs = _fee_attack_psbt()
+    psbt.inputs[0].non_witness_utxo = prev_txs[0]
+    psbt.inputs[1].witness_utxo = TxOut(1_000, ScriptPubKey("5120" + "11" * 32))
+    psbt.inputs[1].hd_key_paths = {}
+
+    with pytest.raises(BTClibValueError, match="input 1: no non_witness_utxo"):
+        sign(psbt, key_manager)
+    assert sign(psbt, key_manager, require_non_witness_utxo=False)[1] == [0]
+
+
+def test_an_anyonecanpay_taproot_input_is_no_exemption() -> None:
+    """Under ANYONECANPAY a BIP341 signature commits to its own input alone.
+
+    Two p2tr outputs of one key: the honest input asks for ALL|ANYONECANPAY,
+    the other claims 1000 sat. Allowing the type is the caller's choice,
+    and it does not let the unvouched amount through.
+    """
+    script_pub_key = ScriptPubKey.p2tr(PubKeyData(_TAPROOT_PUB_KEY))
+    vin = [TxIn(OutPoint(bytes([i + 1]) * 32, 0)) for i in range(2)]
+    tx = Tx(2, 0, vin, [TxOut(_ONE_BTC - 1_000, script_pub_key)])
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].witness_utxo = TxOut(_ONE_BTC, script_pub_key)
+    psbt.inputs[0].taproot_internal_key = _TAPROOT_INTERNAL_KEY
+    psbt.inputs[0].sig_hash_type = 0x81  # ALL|ANYONECANPAY
+    psbt.inputs[1].witness_utxo = TxOut(1_000, script_pub_key)
+    key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+    allowed = {0x81}
+
+    with pytest.raises(BTClibValueError, match="input 0: no non_witness_utxo"):
+        sign(psbt, key_manager, allowed_sig_hash_types=allowed)
+    signed_vins = sign(
+        psbt,
+        key_manager,
+        allowed_sig_hash_types=allowed,
+        require_non_witness_utxo=False,
+    )[1]
+    assert signed_vins == [0]
 
 
 # the Finalizer's clearing rule, one list for both kinds of input
@@ -5340,7 +5486,7 @@ def test_sign_records_a_taproot_signature_in_tx_modifiable(
     else:
         psbt, _ = _taproot_script_path_psbt()
         key_manager = _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
-    psbt = psbt.to_v2()
+    psbt = _with_its_transaction(psbt).to_v2()
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
     psbt.inputs[0].sig_hash_type = hash_type
 
@@ -5381,6 +5527,20 @@ def test_sign_keeps_undefined_flag_bits_and_earlier_clears() -> None:
     assert signed.tx_modifiable == 0b1000_0000
 
 
+def _move_outpoint(psbt: Psbt, lock_time: int) -> None:
+    """Point input 0 at another transaction paying the same output.
+
+    Another lock time makes it another transaction, and the
+    non_witness_utxo moves with the outpoint, so the input stays one
+    `sign` accepts.
+    """
+    prev_tx = psbt.inputs[0].non_witness_utxo
+    assert prev_tx is not None
+    moved = Tx(prev_tx.version, lock_time, prev_tx.vin, prev_tx.vout)
+    psbt.inputs[0].non_witness_utxo = moved
+    psbt.inputs[0].previous_tx_id = moved.id
+
+
 def _signed_v0_pair(taproot: bool) -> tuple[Psbt, Psbt]:
     """Two one-input v0 psbts, each signed by `sign`."""
     psbts = []
@@ -5390,9 +5550,10 @@ def _signed_v0_pair(taproot: bool) -> tuple[Psbt, Psbt]:
             key_manager = _KeyManager(
                 by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY}
             )
+            psbt.inputs[0].previous_tx_id = bytes([i + 1]) * 32
         else:
             psbt, key_manager = _unsigned_ecdsa_psbt()
-        psbt.inputs[0].previous_tx_id = bytes([i + 1]) * 32
+            _move_outpoint(psbt, i + 1)
         psbts.append(sign(psbt, key_manager)[0])
     return psbts[0], psbts[1]
 
@@ -5434,7 +5595,7 @@ def test_join_clears_every_signature_field_and_only_those() -> None:
     inp.musig2_pub_nonces = {_PUB_KEY * 2: b"\x04" * 66}
     inp.musig2_partial_sigs = {_PUB_KEY * 2: b"\x06" * 32}
     other = deepcopy(psbt)
-    other.inputs[0].previous_tx_id = b"\x07" * 32
+    _move_outpoint(other, 7)
 
     joined = join([psbt, other], False, False, False, False)
 
@@ -5455,7 +5616,7 @@ def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
     psbt.inputs[0].sig_hash_type = 130  # NONE|ANYONECANPAY
     signed, _ = sign(psbt, key_manager, allowed_sig_hash_types={130})
     other = deepcopy(psbt)
-    other.inputs[0].previous_tx_id = b"\x07" * 32
+    _move_outpoint(other, 7)
     other_signed, _ = sign(other, key_manager, allowed_sig_hash_types={130})
 
     joined = join([signed, other_signed], False, False, False, False)
@@ -5485,7 +5646,7 @@ def _v2_psbt(
     psbt.tx_version = tx_version
     psbt.fallback_lock_time = fallback
     psbt.inputs[0].required_height_lock_time = height
-    psbt.inputs[0].previous_tx_id = bytes([vin]) * 32
+    _move_outpoint(psbt, vin)
     psbt.inputs[0].sig_hash_type = 130  # NONE|ANYONECANPAY
     return psbt, key_manager
 
@@ -5697,6 +5858,7 @@ def test_extract_tx_checks_the_amounts_by_default() -> None:
     psbt, _ = _finalized_psbt("p2wpkh")
     utxo = psbt.inputs[0].witness_utxo
     assert utxo is not None
+    psbt.inputs[0].non_witness_utxo = None
     psbt.inputs[0].witness_utxo = dataclasses.replace(utxo, value=1)
 
     with pytest.raises(BTClibValueError, match="Invalid transaction amounts"):
@@ -5707,6 +5869,7 @@ def test_extract_tx_checks_the_amounts_by_default() -> None:
 def test_extract_tx_verify_scripts_needs_every_utxo() -> None:
     """An input with no utxo raises, as `prevouts` does."""
     psbt, _ = _finalized_psbt("p2wpkh")
+    psbt.inputs[0].non_witness_utxo = None
     psbt.inputs[0].witness_utxo = None
 
     with pytest.raises(BTClibValueError, match="no utxo for input 0"):
@@ -5726,12 +5889,22 @@ _NOT_ALL = [
 _ATTACKER = TxOut(90_000, ScriptPubKey.p2wpkh(PubKeyData(_OTHER_PUB_KEY)))
 
 
+def _with_its_transaction(psbt: Psbt) -> Psbt:
+    """Give input 0 the transaction it spends, which ANYONECANPAY needs."""
+    witness_utxo = psbt.inputs[0].witness_utxo
+    assert witness_utxo is not None
+    psbt.inputs[0].non_witness_utxo = _spending_tx(witness_utxo)[1]
+    return psbt
+
+
 def _unsigned_taproot_psbt(path: str) -> tuple[Psbt, _KeyManager]:
     if path == "key":
         psbt, _ = _taproot_key_path_psbt()
-        return psbt, _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
-    psbt, _ = _taproot_script_path_psbt()
-    return psbt, _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
+        key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+    else:
+        psbt, _ = _taproot_script_path_psbt()
+        key_manager = _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
+    return _with_its_transaction(psbt), key_manager
 
 
 @pytest.mark.parametrize("hash_type", _NOT_ALL)
@@ -5888,8 +6061,12 @@ def test_witness_sighash_single_past_the_outputs_is_signed_if_allowed() -> None:
     psbt.inputs[1].sig_hash_type = 3  # SINGLE
     key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
 
+    # the witness utxos alone, so that nothing but the type is asked
     signed, signed_vins = sign(
-        psbt, key_manager, allowed_sig_hash_types={sig_hash.SINGLE}
+        psbt,
+        key_manager,
+        allowed_sig_hash_types={sig_hash.SINGLE},
+        require_non_witness_utxo=False,
     )
     assert signed_vins == [0, 1]
     verify_transaction(prev_outs, extract_tx(finalize(signed)))

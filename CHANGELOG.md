@@ -362,6 +362,12 @@ allow-list makes signable (GHSA-qq38-77mp-j6wr).
 `finalize`, `assert_signed` and `assert_signatures_only`, which
 `request_signatures` runs, refuse another type there (GHSA-qq38-77mp-j6wr).
 
+### `sign` refuses an input without its `non_witness_utxo`
+
+`Psbt.assert_signable`, `sign` and `SoftwareSigner.sign_psbt` refuse an input
+without its `non_witness_utxo` unless every input is taproot and none asks for
+ANYONECANPAY; `require_non_witness_utxo=False` accepts it (GHSA-v4gq-j2v2-c4jp).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

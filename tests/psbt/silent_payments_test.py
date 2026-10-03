@@ -41,7 +41,7 @@ from btclib.key import PubKeyData
 from btclib.script import ScriptPubKey, Witness, serialize, taproot
 from btclib.script.script_pub_key import is_p2wpkh
 from btclib.script.taproot import output_pubkey_from_merkle_root
-from btclib.tx import TxOut
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import bytes_from_point, mult, secp256k1
 from btclib_ecc.ecc import dleq
 
@@ -676,11 +676,17 @@ _SP_INFO = bytes_from_point(mult(2)) + bytes_from_point(mult(3))
 _OTHER_SCRIPT = bytes.fromhex("5120" + "11" * 32)
 
 
+_SPENT = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_SEC)))
+# the transaction holding it, which is what vouches for its amount
+_PREV_TX = Tx(2, 0, [TxIn(OutPoint(b"\x06" * 32, 0))], [_SPENT])
+
+
 def _sp_psbt(*, script: bytes = b"") -> Psbt:
     """Return the psbt above, its output script as given."""
     psbt_in = PsbtIn(
-        witness_utxo=TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_SEC))),
-        previous_tx_id=b"\x06" * 32,
+        non_witness_utxo=_PREV_TX,
+        witness_utxo=_SPENT,
+        previous_tx_id=_PREV_TX.id,
         output_index=0,
         hd_key_paths={_SEC: BIP32KeyOrigin(_SIGNER.master_fingerprint, _PATH)},
     )
@@ -817,6 +823,8 @@ def test_a_finalized_input_is_read_from_its_final_scripts() -> None:
     skipped = deepcopy(parsed)
     # a program no standard wallet writes, which is why it is spelled out
     p2wpkh = ScriptPubKey(bytes.fromhex("0014") + hash160(uncompressed))
+    # the witness utxo alone, so that its script is the one read
+    skipped.inputs[0].non_witness_utxo = None
     skipped.inputs[0].witness_utxo = TxOut(100_000, p2wpkh)
     skipped.inputs[0].final_script_witness = Witness([b"\x30", uncompressed])
     assert role.input_pub_key(skipped.inputs[0]) is None
@@ -932,8 +940,10 @@ def test_an_input_is_counted_by_its_script_not_by_its_key() -> None:
     short.inputs[1].witness_utxo = spent
     with pytest.raises(BTClibValueError, match="input 1: BIP352 counts it"):
         role.assert_as_valid(short)
+    # input 1 carries no non_witness_utxo, and that is not the refusal
+    # asked about here
     with pytest.raises(BTClibValueError, match="input 1: BIP352 counts it"):
-        sign(short, _SIGNER)
+        sign(short, _SIGNER, require_non_witness_utxo=False)
 
 
 def test_the_scripts_wait_for_every_counted_share() -> None:
@@ -1117,6 +1127,8 @@ def test_what_no_key_can_be_read_from() -> None:
     """
     not_a_key = b"\x02" + b"\xff" * 32
     psbt = _sp_psbt()
+    # the witness utxo alone, so that each script below is the one read
+    psbt.inputs[0].non_witness_utxo = None
     psbt.inputs[0].witness_utxo = TxOut(
         100_000, ScriptPubKey(bytes.fromhex("0014") + hash160(not_a_key))
     )

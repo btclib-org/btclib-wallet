@@ -30,13 +30,14 @@ reused. `change_index` is which output it is, or None for the branch
 that dropped it.
 
 **An input is a `PsbtIn`**: the outpoint it spends, the output that
-outpoint names -- `witness_utxo` or `non_witness_utxo`, whichever its
-kind of input takes -- and whatever else says how it will be unlocked, a
-redeem script or a witness script included. Two things follow from
-taking the psbt's own map rather than a pair of an outpoint and a
-`TxOut`. Nothing here fetches anything, an outpoint alone saying neither
-what it is worth nor what it spends, and a builder that fetches is a
-builder with a node in it; and an input whose script is wrapped or
+outpoint names -- `non_witness_utxo`, with `witness_utxo` beside it for
+a segwit input, or `witness_utxo` alone where every input is taproot and
+none asks for ANYONECANPAY -- and whatever else says how it will be
+unlocked, a redeem script or a witness script included. Two things
+follow from taking the psbt's own map rather than a pair of an outpoint
+and a `TxOut`. Nothing here fetches anything, an outpoint alone saying
+neither what it is worth nor what it spends, and a builder that fetches
+is a builder with a node in it; and an input whose script is wrapped or
 multisig is estimated exactly, its redeem or witness script being a
 field of the map that arrives rather than an argument this function
 would have to grow. The outputs are `TxOut` and not `PsbtOut` because

@@ -780,14 +780,19 @@ class SoftwareSigner:
         return derived
 
     def sign_psbt(
-        self, psbt: Psbt, *, allowed_sig_hash_types: Collection[int] = frozenset()
+        self,
+        psbt: Psbt,
+        *,
+        allowed_sig_hash_types: Collection[int] = frozenset(),
+        require_non_witness_utxo: bool = True,
     ) -> Psbt:
         """Return the psbt with a signature for every key this one holds.
 
         `psbt.sign` over a `KeyManager` this class implements, which is
         the whole of it: the roles are btclib's already, and a reference
         signer that re-derived the sig_hash itself would be a second
-        implementation to keep right.
+        implementation to keep right. `require_non_witness_utxo` is
+        handed to it.
 
         A watch-only signer raises rather than answering the psbt
         unchanged: "I hold none of these keys" and "I hold no key at all"
@@ -802,7 +807,12 @@ class SoftwareSigner:
         self._assert_open()
         if self.is_watch_only:
             raise BTClibValueError("watch-only signer: it holds no key that signs")
-        return sign(psbt, self, allowed_sig_hash_types=allowed_sig_hash_types)[0]
+        return sign(
+            psbt,
+            self,
+            allowed_sig_hash_types=allowed_sig_hash_types,
+            require_non_witness_utxo=require_non_witness_utxo,
+        )[0]
 
     @property
     def capabilities(self) -> SignerCapabilities:

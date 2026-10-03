@@ -74,6 +74,13 @@ before upgrading, rather than a digit.
   an input without `PSBT_IN_SIGHASH_TYPE`; set the field on a psbt whose
   signatures use another type.
 
+- **`sign`, `SoftwareSigner.sign_psbt` and `Psbt.assert_signable` refuse an
+  input without its `non_witness_utxo`, unless every input is taproot and none
+  asks for ANYONECANPAY** (GHSA-v4gq-j2v2-c4jp). Give each input the
+  transaction it spends as its `non_witness_utxo`. Pass
+  `require_non_witness_utxo=False` only where you know every `witness_utxo`
+  amount is right: a wrong one can be spent as fee.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a
