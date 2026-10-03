@@ -26,6 +26,14 @@ before upgrading, rather than a digit.
   a falsy passphrase of another type.** An empty `bytes`, `0`, `False` or
   `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
 
+- **A miniscript repeating a public key is refused under different
+  spellings of it.** `descriptors.parse` does so as Bitcoin Core does, except
+  for a key with a hardened step.
+
+- **A malleable miniscript keeps neither "s", "f" nor "e".**
+  `Miniscript.properties` drops them, and `is_signature_required` is false for
+  it.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a
