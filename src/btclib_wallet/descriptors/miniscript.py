@@ -1217,10 +1217,11 @@ class Miniscript:
         wildcard do not make two spellings of a key two keys. An x-only
         key counts as its even-y form, parity included in the comparison.
 
-        A hardened step needs a private key, which `prv_keys` holds as for
-        `KeyExpression.sec`. A key that cannot be derived without it is
-        compared by its expression, origin and spelling included, and is
-        never taken for a key that can be derived, as Bitcoin Core does.
+        A hardened step is derived with `prv_keys`, as in
+        `KeyExpression.sec`. A key it cannot derive is compared by its
+        expression, origin and hardening symbol included, and never matches
+        a key that can be derived: Bitcoin Core does the same since
+        bitcoin/bitcoin@7b15e2cb44.
         """
         keys = [_key_identity(key, prv_keys) for key in self.key_expressions]
         return len(set(keys)) != len(keys)
@@ -1345,6 +1346,7 @@ class Miniscript:
         and that it cannot be satisfied without a signature -- without
         one, an attacker is free to change the nSequence and the nLockTime
         the timelocks were checked against, and to rewrite the witness.
+        `prv_keys` is `has_duplicate_keys`'s.
         """
         return (
             self.is_valid_top_level
@@ -1357,7 +1359,7 @@ class Miniscript:
 
         The deepest, because that is the one to name: an expression is
         insane where one of its parts is, so the part is the answer and
-        the whole is the symptom.
+        the whole is the symptom. `prv_keys` is `has_duplicate_keys`'s.
         """
 
         def up(
@@ -2833,8 +2835,8 @@ def _assert_sane(node: Miniscript, prv_keys: PrvKeys) -> None:
     What Bitcoin Core requires of a miniscript before it accepts a
     descriptor holding one, and the message it answers with: the
     subexpression at fault and the first thing wrong with it. A caller
-    that wants the analysis rather than the refusal reads the properties
-    themselves -- `is_sane()` is this question without the message.
+    that wants the analysis rather than the refusal reads the analysis
+    itself -- `is_sane(prv_keys)` is this question without the message.
 
     Satisfiability is asked beside sanity and not inside it, which is
     Bitcoin Core's split too: an expression with no satisfaction at all is
