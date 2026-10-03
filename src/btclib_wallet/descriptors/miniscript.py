@@ -27,7 +27,7 @@ worse than none.
 
 The bounds are the same analysis read statically: `max_ops`,
 `max_stack_items`, `max_exec_stack_items` and `max_witness_size` answer
-what a spend may cost before there is a spend, and `is_sane` is the
+what a spend may cost before there is a spend, and `is_sane()` is the
 conjunction Bitcoin Core requires of a miniscript before it accepts a
 descriptor holding one. `max_witness_stack` is the last of those broken
 into its elements, which is what an estimator needs: the largest witness
@@ -1205,8 +1205,7 @@ class Miniscript:
             stack.extend(reversed(node.subs))
         return tuple(keys)
 
-    @property
-    def has_duplicate_keys(self) -> bool:
+    def has_duplicate_keys(self, prv_keys: PrvKeys | None = None) -> bool:
         """Answer whether one public key appears more than once.
 
         Which BIP379's malleability analysis assumes away: a signature
@@ -1218,10 +1217,13 @@ class Miniscript:
         wildcard do not make two spellings of a key two keys. An x-only
         key counts as its even-y form, parity included in the comparison.
 
-        A key with a hardened step is compared by its extended key and its
-        path: the private key that derives it is not passed here.
+        A hardened step is derived with `prv_keys`, as in
+        `KeyExpression.sec`. A key it cannot derive is compared by its
+        expression, origin and hardening symbol included, and never matches
+        a key that can be derived: Bitcoin Core does the same since
+        bitcoin/bitcoin@7b15e2cb44.
         """
-        keys = [_key_identity(key) for key in self.key_expressions]
+        keys = [_key_identity(key, prv_keys) for key in self.key_expressions]
         return len(set(keys)) != len(keys)
 
     @property
@@ -1324,18 +1326,19 @@ class Miniscript:
             elements is None or elements <= _MAX_STANDARD_P2WSH_STACK_ITEMS
         )
 
-    @property
-    def is_sane_subexpression(self) -> bool:
-        """Answer whether the expression means what it says, as a part."""
+    def is_sane_subexpression(self, prv_keys: PrvKeys | None = None) -> bool:
+        """Answer whether the expression means what it says, as a part.
+
+        `prv_keys` is `has_duplicate_keys`'s.
+        """
         return (
             self.is_within_resource_limits
             and self.is_non_malleable
             and not self.mixes_timelocks
-            and not self.has_duplicate_keys
+            and not self.has_duplicate_keys(prv_keys)
         )
 
-    @property
-    def is_sane(self) -> bool:
+    def is_sane(self, prv_keys: PrvKeys | None = None) -> bool:
         """Answer whether the expression is safe as a script on its own.
 
         Which adds to its parts being sane the two things only a whole
@@ -1343,20 +1346,20 @@ class Miniscript:
         and that it cannot be satisfied without a signature -- without
         one, an attacker is free to change the nSequence and the nLockTime
         the timelocks were checked against, and to rewrite the witness.
+        `prv_keys` is `has_duplicate_keys`'s.
         """
         return (
             self.is_valid_top_level
-            and self.is_sane_subexpression
+            and self.is_sane_subexpression(prv_keys)
             and self.is_signature_required
         )
 
-    @property
-    def insane_sub(self) -> Miniscript | None:
+    def insane_sub(self, prv_keys: PrvKeys | None = None) -> Miniscript | None:
         """Return the deepest subexpression that is not sane, or None.
 
         The deepest, because that is the one to name: an expression is
         insane where one of its parts is, so the part is the answer and
-        the whole is the symptom.
+        the whole is the symptom. `prv_keys` is `has_duplicate_keys`'s.
         """
 
         def up(
@@ -1365,7 +1368,7 @@ class Miniscript:
             for insane in subs:
                 if insane is not None:
                     return insane
-            return None if node.is_sane_subexpression else node
+            return None if node.is_sane_subexpression(prv_keys) else node
 
         return _tree_eval(self, None, lambda *_: None, up)
 
@@ -1760,14 +1763,14 @@ def _plain_text(node: Miniscript, subs: list[str]) -> str:
     return text
 
 
-def _key_identity(key: KeyExpression) -> object:
+def _key_identity(key: KeyExpression, prv_keys: PrvKeys | None) -> object:
     """Return what two KEY expressions are compared by.
 
     The public key at index 0, which is what Bitcoin Core compares. The
-    extended key, the path, the wildcard and the participants where the
-    key cannot be derived without a private key, or is no key at all, as a
-    wallet-policy placeholder is. The network is that of the first
-    participant with an extended key, whichever place it has.
+    expression itself where the key cannot be derived with `prv_keys`, or
+    is no key at all, as a wallet-policy placeholder is. The network is
+    that of the first participant with an extended key, whichever place it
+    has.
     """
     xkeys = [k.xkey for k in (key.participants or (key,)) if k.xkey]
     try:
@@ -1776,14 +1779,9 @@ def _key_identity(key: KeyExpression) -> object:
             if xkeys
             else "mainnet"
         )
-        return key.sec(0, network)
+        return key.sec(0, network, prv_keys)
     except BTClibValueError:
-        return (
-            key.xkey,
-            key.der_path,
-            key.wildcard,
-            tuple(_key_identity(participant) for participant in key.participants),
-        )
+        return str(key)
 
 
 def _sanitized(properties: frozenset[str]) -> frozenset[str]:
@@ -2831,23 +2829,23 @@ def reads_back(
     return node.script() == script
 
 
-def _assert_sane(node: Miniscript) -> None:
+def _assert_sane(node: Miniscript, prv_keys: PrvKeys) -> None:
     """Refuse a miniscript that does not mean what it says.
 
     What Bitcoin Core requires of a miniscript before it accepts a
     descriptor holding one, and the message it answers with: the
     subexpression at fault and the first thing wrong with it. A caller
-    that wants the analysis rather than the refusal reads the properties
-    themselves -- `is_sane` is this question without the message.
+    that wants the answer rather than the refusal calls
+    `is_sane(prv_keys)`: this question without the message.
 
     Satisfiability is asked beside sanity and not inside it, which is
     Bitcoin Core's split too: an expression with no satisfaction at all is
     a script nobody can spend, and every *part* of a sane expression may
     be one -- the ``0`` of an ``or_i()`` among them.
     """
-    if node.is_sane and node.is_satisfiable:
+    if node.is_sane(prv_keys) and node.is_satisfiable:
         return
-    insane = node.insane_sub or node
+    insane = node.insane_sub(prv_keys) or node
     if not node.is_satisfiable:
         raise BTClibValueError(f"{node} is not satisfiable")
     if not insane.is_non_malleable:
@@ -2861,7 +2859,7 @@ def _assert_sane(node: Miniscript) -> None:
             "expressed in blocks and in seconds"
         )
         raise BTClibValueError(err_msg)
-    if insane.has_duplicate_keys:
+    if insane.has_duplicate_keys(prv_keys):
         raise BTClibValueError(f"{insane} is not sane: it repeats a public key")
     err_msg = f"{insane} is not sane: satisfying it may exceed the resource limits"
     raise BTClibValueError(err_msg)
