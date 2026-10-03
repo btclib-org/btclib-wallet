@@ -158,6 +158,17 @@ publish jobs wait for approval (issue btclib-org/.github#1506).
 and that a local review of a named sha, by a reviewer other than the author,
 stands in (issue btclib-org/.github#1527).
 
+### `dependabot.yml` does not say that every workflow passes `--locked`
+
+`.github/dependabot.yml` says the workflows install from `uv.lock` with
+`--locked`, bar the jobs that re-lock, install a published or built package
+or install a hash-pinned export (issue btclib-org/.github#1538).
+
+### `REPOSITORY.md` reads back the web sign-off setting
+
+`REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
+setting section 11 of the standard states (issue btclib-org/.github#1540).
+
 ### A malleable miniscript keeps neither `s`, `f` nor `e`
 
 `Miniscript.properties` drops "s", "f" and "e" from an expression without "m",
