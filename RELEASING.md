@@ -395,24 +395,19 @@ result.
 
    "Squash and merge" is the only method either the repository setting
    or the ruleset accepts, and auto-merge presses it once the review and
-   the checks are in. Branch protection requires an approving review
-   and GitHub does not let an author approve their own, which on a
-   solo-maintainer repository would stop every merge — the
-   `main-self-merge` bypass in `pull_request` mode is what answers that,
-   and only that. There is no second landing to choose between: a direct
-   push to `main` is refused for everyone.
+   the checks are in. Branch protection requires an approving review,
+   and GitHub does not let an author approve their own: the release pull
+   request waits for an owner other than its author, like every other.
+   The `main-self-merge` bypass in `pull_request` mode is for an
+   emergency only. A direct push to `main` is refused for everyone.
 
-   `gh pr merge <n> --squash` alone can still refuse this pull request —
-   `the base branch policy prohibits the merge` — because a
-   solo-maintainer repository never clears `REVIEW_REQUIRED`, and gh's
-   client-side mergeable check declines before it asks the server.
-   `--admin` is the flag that clears it — the pair REPOSITORY.md's
-   "Branch protection" describes, `enforce_admins` `false` together with
-   holding `admin`. Name the release commit's title and body explicitly
-   when using it — `gh pr merge <n> --squash --admin --body-file <path>
-   --subject <title>` — rather than leave them to
-   `squash_merge_commit_message`'s repository default, which concatenates
-   the branch's commit messages.
+   Name the release commit's title and body explicitly, rather than leave
+   them to `squash_merge_commit_message`'s repository default, which
+   concatenates the branch's commit messages: `gh pr merge <n> --squash
+   --match-head-commit <head> --body-file <path> --subject <title>`.
+   In an emergency `--admin` replaces the wait, the pair REPOSITORY.md's
+   "Branch protection" describes: `enforce_admins` `false` together with
+   holding `admin`.
 
    That the commit is composed by GitHub and signed with its web-flow
    key rather than yours costs nothing. What `main-integrity` requires
