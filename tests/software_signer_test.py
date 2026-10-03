@@ -122,6 +122,52 @@ def test_a_psbt_of_an_exported_account_is_signed_and_spends(purpose: int) -> Non
     verify_transaction(prevouts, tx)
 
 
+@pytest.mark.parametrize("purpose", [44, 86])
+def test_the_signer_signs_another_sig_hash_type_only_if_allowed(purpose: int) -> None:
+    """SIGHASH_NONE is the caller's to allow (GHSA-qq38-77mp-j6wr).
+
+    `request_signatures` passes no allow-list, so through it the psbt is
+    refused.
+    """
+    signer = SoftwareSigner(XPRV_ROOT)
+    receive, change = export_account(signer, f"m/{purpose}h/0h/0h")
+    psbt, _ = spending(receive, change)
+    psbt.inputs[0].sig_hash_type = 2  # NONE
+
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+        signer.sign_psbt(psbt)
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+        request_signatures(signer, psbt)
+
+    signed = signer.sign_psbt(psbt, allowed_sig_hash_types={2})
+    finalize(signed)
+
+
+def test_the_signer_never_signs_the_legacy_sighash_single_constant() -> None:
+    """Legacy SIGHASH_SINGLE with no output at its index, allowed or not."""
+    signer = SoftwareSigner(XPRV_ROOT)
+    receive, _ = export_account(signer, "m/44h/0h/0h")
+    prev_txs = [
+        Tx(
+            vin=[TxIn(OutPoint(bytes([i + 1]) * 32, 0))],
+            vout=[TxOut(100_000, receive.script_pub_key(i))],
+        )
+        for i in range(2)
+    ]
+    tx = Tx(
+        vin=[TxIn(OutPoint(prev_tx.id, 0)) for prev_tx in prev_txs],
+        vout=[TxOut(190_000, receive.script_pub_key(2))],
+    )
+    psbt = Psbt.from_tx(tx)
+    for i, prev_tx in enumerate(prev_txs):
+        psbt.inputs[i].non_witness_utxo = prev_tx
+        psbt = receive.update_psbt_input(psbt, i, i)
+    psbt.inputs[1].sig_hash_type = 3  # SINGLE
+
+    with pytest.raises(BTClibValueError, match="signs the constant 1"):
+        signer.sign_psbt(psbt, allowed_sig_hash_types={3})
+
+
 def test_a_taproot_script_path_is_signed_and_spends() -> None:
     """The other half of a taproot output, end to end.
 

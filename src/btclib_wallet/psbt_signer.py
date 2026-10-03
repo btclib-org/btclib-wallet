@@ -58,6 +58,7 @@ does, being what goes wrong when it is written by hand.
 from __future__ import annotations
 
 from base64 import b64encode
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -778,7 +779,9 @@ class SoftwareSigner:
             return xpub_from_xprv(derived)
         return derived
 
-    def sign_psbt(self, psbt: Psbt) -> Psbt:
+    def sign_psbt(
+        self, psbt: Psbt, *, allowed_sig_hash_types: Collection[int] = frozenset()
+    ) -> Psbt:
         """Return the psbt with a signature for every key this one holds.
 
         `psbt.sign` over a `KeyManager` this class implements, which is
@@ -790,11 +793,16 @@ class SoftwareSigner:
         unchanged: "I hold none of these keys" and "I hold no key at all"
         are different answers, and only the first is a psbt somebody else
         can carry on with.
+
+        allowed_sig_hash_types is `psbt.sign`'s: a type other than
+        SIGHASH_ALL or SIGHASH_DEFAULT is signed only where it names it.
+        `request_signatures` cannot pass it, so a caller who accepts other
+        types calls this method directly.
         """
         self._assert_open()
         if self.is_watch_only:
             raise BTClibValueError("watch-only signer: it holds no key that signs")
-        return sign(psbt, self)[0]
+        return sign(psbt, self, allowed_sig_hash_types=allowed_sig_hash_types)[0]
 
     @property
     def capabilities(self) -> SignerCapabilities:

@@ -61,6 +61,19 @@ before upgrading, rather than a digit.
   Upgrading btclib-wallet installs btclib; the `secp256k1` extra installs
   the bindings.
 
+- **Signing refuses a sig_hash type other than SIGHASH_ALL or
+  SIGHASH_DEFAULT unless the caller allows it** (GHSA-qq38-77mp-j6wr).
+  `sign`, `SoftwareSigner.sign_psbt`, `musig2.partial_sign` and
+  `frost.partial_sign` raise on an input asking for SIGHASH_NONE, SINGLE or
+  ANYONECANPAY; pass the types you accept as `allowed_sig_hash_types`.
+  `request_signatures` passes none, so call `SoftwareSigner.sign_psbt`
+  directly to sign such a psbt. A legacy SIGHASH_SINGLE input with no output
+  at its index is refused whatever is allowed, and `ecdsa_sig_hash` and
+  `PsbtView.ecdsa_sig_hash` refuse it too. `finalize`, `assert_signed` and
+  `assert_signatures_only` refuse an ECDSA signature other than SIGHASH_ALL on
+  an input without `PSBT_IN_SIGHASH_TYPE`; set the field on a psbt whose
+  signatures use another type.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a

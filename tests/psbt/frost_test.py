@@ -810,6 +810,36 @@ def test_a_session_signing_for_a_sig_hash_type_of_its_own() -> None:
     verify_transaction(spent, extract_tx(finalize(psbt)))
 
 
+def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
+    """SIGHASH_NONE is the caller's to allow (GHSA-qq38-77mp-j6wr)."""
+    psbt = internal_key_psbt()
+    psbt.inputs[0].sig_hash_type = 2  # NONE
+    spent = prevouts(psbt)
+    sec_nonces = {
+        my_id: psbt_frost.nonce_gen(psbt, 0, my_id, SEC_SHARES[my_id], THRESH_PK)
+        for my_id in SIGNERS
+    }
+    my_id = SIGNERS[0]
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+        psbt_frost.partial_sign(
+            psbt, 0, sec_nonces[my_id], my_id, SEC_SHARES[my_id], THRESH_PK
+        )
+    for my_id in SIGNERS:
+        psbt_frost.partial_sign(
+            psbt,
+            0,
+            sec_nonces[my_id],
+            my_id,
+            SEC_SHARES[my_id],
+            THRESH_PK,
+            allowed_sig_hash_types={2},
+        )
+    psbt_frost.partial_sigs_agg(psbt, 0, THRESH_PK)
+
+    assert psbt.inputs[0].taproot_key_spend_signature[-1] == 2
+    verify_transaction(spent, extract_tx(finalize(psbt)))
+
+
 def test_records_of_another_session_are_not_read_as_this_one() -> None:
     """A session is what is filed under its own key and leaf, and no more.
 

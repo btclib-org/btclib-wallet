@@ -346,6 +346,22 @@ callable (closes #215).
 They fix GHSA-9fr5-46w5-5f9r, which stalled `bip322.verify` on a crafted
 tapscript witness, and GHSA-8h6f-34jj-7p6c, in `silentpayments.scan_outputs`.
 
+### `sign` and `partial_sign` refuse a sig_hash type the caller did not allow
+
+So does `SoftwareSigner.sign_psbt`: any type but ALL or DEFAULT needs
+`allowed_sig_hash_types`, and a legacy SINGLE input past the last output is
+never signed (GHSA-qq38-77mp-j6wr).
+
+### `ecdsa_sig_hash` refuses a legacy SIGHASH_SINGLE past the last output
+
+So does `PsbtView.ecdsa_sig_hash`: the hash is the constant 1, which no
+allow-list makes signable (GHSA-qq38-77mp-j6wr).
+
+### An input with no sig_hash type takes ECDSA signatures of SIGHASH_ALL alone
+
+`finalize`, `assert_signed` and `assert_signatures_only`, which
+`request_signatures` runs, refuse another type there (GHSA-qq38-77mp-j6wr).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

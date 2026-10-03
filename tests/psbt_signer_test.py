@@ -289,6 +289,23 @@ def test_an_answer_that_changed_anything_but_a_signature_is_refused() -> None:
         request_signatures(signer, psbt)
 
 
+def test_an_answer_of_another_sig_hash_type_is_refused() -> None:
+    """A request naming no type asks for SIGHASH_ALL (GHSA-qq38-77mp-j6wr).
+
+    A signer answering SIGHASH_NONE has signed away the outputs, so the
+    answer is refused as one of a type the request did not ask for.
+    """
+    signer = _Signer()
+    psbt, _ = account_psbt(signer)
+    asking_none = deepcopy(psbt)
+    asking_none.inputs[0].sig_hash_type = 2  # NONE
+    answer = sign(asking_none, _KeyManager(signer.xprv), allowed_sig_hash_types={2})[0]
+    answer.inputs[0].sig_hash_type = None
+    signer.answer = answer
+    with pytest.raises(BTClibValueError, match="mismatched sig_hash type: 0x2 vs 0x1"):
+        request_signatures(signer, psbt)
+
+
 def test_a_signer_holding_none_of_the_keys_adds_nothing() -> None:
     """Which is not an error: an input somebody else signs is not this one's.
 

@@ -57,7 +57,7 @@ get it -- is the quadratic shape issue btclib-org/btclib#1046 fixed.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import NamedTuple
 
 from btclib.alias import Integer, Octets
@@ -73,6 +73,8 @@ from btclib_ecc.hashes import tagged_hash
 from btclib_wallet.bip32 import BIP328_CHAIN_CODE, pub_key_derivation_tweaks
 from btclib_wallet.psbt.psbt import (
     Psbt,
+    _accepted_sig_hash_types,
+    _assert_accepted_sig_hash_type,
     leaf_script,
     prevouts,
     single_leaf_key,
@@ -414,6 +416,7 @@ def partial_sign(
     aggregate_pub_key: Octets,
     *,
     leaf_hash: Octets = b"",
+    allowed_sig_hash_types: Collection[int] = frozenset(),
 ) -> bytes:
     """Write the partial signature of round 2, and return it.
 
@@ -425,10 +428,17 @@ def partial_sign(
     the psbt describes: a signer that publishes a partial signature of a
     session it got wrong has published a number the others cannot use and
     cannot make it un-published.
+
+    The input's sig_hash type is signed only where it is SIGHASH_DEFAULT
+    or SIGHASH_ALL, or allowed_sig_hash_types names it, as `psbt.sign`
+    has it (GHSA-qq38-77mp-j6wr).
     """
     aggregate_pub_key = bytes_from_octets(aggregate_pub_key, MUSIG2_PUB_KEY_SIZE)
     leaf_hash = bytes_from_octets(leaf_hash)
     psbt_in = psbt.inputs[vin_i]
+    _assert_accepted_sig_hash_type(
+        psbt_in, vin_i, _accepted_sig_hash_types(allowed_sig_hash_types)
+    )
     # as in `nonce_gen` above, and for its reason
     q = scalar_from_prv_key(prv_key)
     pub_key = musig2.individual_pub_key(q)

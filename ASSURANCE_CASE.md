@@ -199,6 +199,14 @@ an argument list this package built, never a caller-supplied string
 passed to a shell (`hwi.py`'s own `# noqa: S603`, the exec vector
 `S602`'s `shell=True` would open, not taken).
 
+The sig_hash type a signature commits to is the caller's, not the psbt
+author's. `psbt.sign`, `SoftwareSigner.sign_psbt` and the MuSig2 and
+FROST `partial_sign` sign SIGHASH_ALL, or SIGHASH_DEFAULT for taproot,
+unless `allowed_sig_hash_types` names another type. A legacy
+SIGHASH_SINGLE input with no output at its index is never signed, and a
+returned ECDSA signature of a type other than SIGHASH_ALL is refused
+where the input names none (GHSA-qq38-77mp-j6wr).
+
 **The network.** `fetch/` is where a backend's own reply crosses in — a
 transaction, a block header, a fee estimate, a UTXO's existence.
 SECURITY.md's *A backend is trusted, and not every backend alike* is the

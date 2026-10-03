@@ -28,7 +28,7 @@ from __future__ import annotations
 import base64
 import secrets
 import string
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, fields
 from math import ceil
@@ -2461,7 +2461,8 @@ def _ecdsa_sig_hash(
     if hash_type == DEFAULT:
         raise BTClibValueError("SIGHASH_DEFAULT is not an ECDSA sig_hash type")
 
-    if is_p2tr(_spent_script(psbt_in)):
+    spent = _spent_script(psbt_in)
+    if is_p2tr(spent):
         err_msg = f"input {vin_i} is taproot: its message is taproot_sig_hash's"
         raise BTClibValueError(err_msg)
 
@@ -2469,6 +2470,17 @@ def _ecdsa_sig_hash(
     if msg_hash is None:
         err_msg = f"input {vin_i} does not say what is being signed: "
         err_msg += "no utxo, no redeem script, or no witness script"
+        raise BTClibValueError(err_msg)
+    # the legacy SIGHASH_SINGLE bug: with no output at the input's index
+    # the hash is the constant 1, and a signature of it spends any legacy
+    # output of the same key
+    if (
+        hash_type & ~ANYONECANPAY == SINGLE
+        and vin_i >= len(tx.vout)
+        and not (is_p2wpkh(spent) or is_p2wsh(spent))
+    ):
+        err_msg = f"input {vin_i}: legacy SIGHASH_SINGLE with no output at its "
+        err_msg += "index signs the constant 1"
         raise BTClibValueError(err_msg)
     return msg_hash
 
@@ -2487,6 +2499,10 @@ def ecdsa_sig_hash(psbt: Psbt, vin_i: int, *, hash_type: int | None = None) -> b
     carries it, and a psbt asking for it is one no partial signature can
     finalize -- which is what `_assert_sig_hash_type` says from the
     Finalizer's end.
+
+    SIGHASH_SINGLE on a non-witness spend with no output at the input's
+    index is refused too. Its hash is the constant 1, and a signature of it
+    spends any legacy output of the same key (GHSA-qq38-77mp-j6wr).
 
     Every kind a partial signature can belong to is covered, the wrapped
     ones included: `_sig_hash_from_psbt_in` is the dispatch and says how.
@@ -2573,6 +2589,35 @@ class KeyManager(Protocol):
         ...
 
 
+def _accepted_sig_hash_types(allowed_sig_hash_types: Collection[int]) -> frozenset[int]:
+    """Return the sig_hash types a Signer signs: ALL, DEFAULT, and the caller's.
+
+    BIP174: "If a sighash type is provided, the signer must check that the
+    sighash is acceptable." The psbt is written by somebody else, so what
+    is acceptable is the caller's to say, and ALL and DEFAULT, which commit
+    to every input and every output, are what is accepted unasked.
+    """
+    assert_type(allowed_sig_hash_types, Collection, "allowed_sig_hash_types")
+    for hash_type in allowed_sig_hash_types:
+        assert_valid_hash_type(hash_type)
+    return frozenset(allowed_sig_hash_types) | {ALL, DEFAULT}
+
+
+def _assert_accepted_sig_hash_type(
+    psbt_in: PsbtIn, vin_i: int, accepted: frozenset[int]
+) -> None:
+    """Raise unless the type the input asks for is one the caller accepts.
+
+    An absent field is SIGHASH_ALL for an ECDSA spend and SIGHASH_DEFAULT
+    for a taproot one, and both are always accepted.
+    """
+    hash_type = psbt_in.sig_hash_type
+    if hash_type is not None and hash_type not in accepted:
+        err_msg = f"input {vin_i} asks for sig_hash type {hex(hash_type)}, "
+        err_msg += "which allowed_sig_hash_types does not name"
+        raise BTClibValueError(err_msg)
+
+
 def _record_signature(psbt: Psbt, hash_type: int) -> None:
     """Update PSBT_GLOBAL_TX_MODIFIABLE for a signature of this type.
 
@@ -2596,7 +2641,9 @@ def _record_signature(psbt: Psbt, hash_type: int) -> None:
     psbt.tx_modifiable = flags
 
 
-def _sign_ecdsa_input(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> bool:
+def _sign_ecdsa_input(
+    psbt: Psbt, vin_i: int, key_manager: KeyManager, accepted: frozenset[int]
+) -> bool:
     """Write every partial signature key_manager gives for one input.
 
     hd_key_paths is the candidate list: what a psbt names for an ECDSA
@@ -2615,6 +2662,7 @@ def _sign_ecdsa_input(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> bool:
         if pub_key in psbt_in.partial_sigs:
             continue
         if msg_hash is None:
+            _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
             msg_hash = ecdsa_sig_hash(psbt, vin_i, hash_type=hash_type)
         sig = key_manager.sign_ecdsa(pub_key, origin, msg_hash)
         if sig is None:
@@ -2640,7 +2688,9 @@ def _taproot_signature(sig: bytes, psbt_in: PsbtIn) -> bytes:
     return sig + hash_type.to_bytes(1, "big")
 
 
-def _sign_taproot_key_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> bool:
+def _sign_taproot_key_path(
+    psbt: Psbt, vin_i: int, key_manager: KeyManager, accepted: frozenset[int]
+) -> bool:
     """Write the taproot key path signature key_manager gives, if any.
 
     One candidate, the internal key, already signed or absent being the
@@ -2652,6 +2702,7 @@ def _sign_taproot_key_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> b
     psbt_in = psbt.inputs[vin_i]
     if not psbt_in.taproot_internal_key or psbt_in.taproot_key_spend_signature:
         return False
+    _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
     origin = psbt_in.taproot_hd_key_paths.get(psbt_in.taproot_internal_key)
     msg_hash = taproot_sig_hash(psbt, vin_i)
     sig = key_manager.sign_schnorr(
@@ -2667,7 +2718,9 @@ def _sign_taproot_key_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> b
     return True
 
 
-def _sign_taproot_script_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> bool:
+def _sign_taproot_script_path(
+    psbt: Psbt, vin_i: int, key_manager: KeyManager, accepted: frozenset[int]
+) -> bool:
     """Write every script path signature key_manager gives for one input.
 
     A candidate is a key and a leaf, and BIP371 names the two in
@@ -2704,6 +2757,7 @@ def _sign_taproot_script_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -
             key_data = pub_key + leaf_hash
             if key_data in psbt_in.taproot_script_spend_signatures:
                 continue
+            _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
             msg_hash = taproot_sig_hash(psbt, vin_i, leaf_hash=leaf_hash)
             sig = key_manager.sign_schnorr_script_path(
                 pub_key, origin, msg_hash, leaf_hash
@@ -2718,7 +2772,12 @@ def _sign_taproot_script_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -
     return signed
 
 
-def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
+def sign(
+    psbt: Psbt,
+    key_manager: KeyManager,
+    *,
+    allowed_sig_hash_types: Collection[int] = frozenset(),
+) -> tuple[Psbt, list[int]]:
     """Run the Signer role over every input key_manager answers for.
 
     Per input the candidates are what the psbt itself names: hd_key_paths
@@ -2746,6 +2805,13 @@ def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
     key_manager has nothing to say about is a different question and
     does not raise.
 
+    The sig_hash type is the input's `PSBT_IN_SIGHASH_TYPE`, and a type
+    other than SIGHASH_ALL or SIGHASH_DEFAULT is signed only where
+    allowed_sig_hash_types names it. The psbt is somebody else's, and
+    SIGHASH_NONE, SINGLE or ANYONECANPAY let whoever holds the signature
+    change outputs or inputs (GHSA-qq38-77mp-j6wr). An input asking for
+    a type not named raises once there is a key to ask about.
+
     A version 2 psbt comes back with PSBT_GLOBAL_TX_MODIFIABLE updated
     for every signature added, as BIP370 asks of the Signer.
 
@@ -2755,6 +2821,7 @@ def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
     than left unsigned, so that "not yet" does not read as "nothing for
     me" in the list of inputs signed.
     """
+    accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
     psbt = deepcopy(psbt)
     psbt.assert_signable()
     if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
@@ -2770,12 +2837,12 @@ def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
             # both, and neither short-circuiting the other: an input can
             # be signed for the key path and for a leaf, and `or` would
             # leave the second unasked
-            key_path = _sign_taproot_key_path(psbt, vin_i, key_manager)
-            script_path = _sign_taproot_script_path(psbt, vin_i, key_manager)
+            key_path = _sign_taproot_key_path(psbt, vin_i, key_manager, accepted)
+            script_path = _sign_taproot_script_path(psbt, vin_i, key_manager, accepted)
             if key_path or script_path:
                 signed_vins.append(vin_i)
             continue
-        if _sign_ecdsa_input(psbt, vin_i, key_manager):
+        if _sign_ecdsa_input(psbt, vin_i, key_manager, accepted):
             signed_vins.append(vin_i)
     return psbt, signed_vins
 
@@ -3275,17 +3342,20 @@ def _assert_sig_hash_type(psbt_in: PsbtIn) -> None:
     The type a signature commits to is the byte appended to its DER
     encoding, which is where the script engine reads it too.
 
+    An input without the field asks for SIGHASH_ALL, as
+    `_assert_taproot_sig_hash_type` has it ask for SIGHASH_DEFAULT.
+    Otherwise a signer answering a request with SIGHASH_NONE would have
+    its signature accepted (GHSA-qq38-77mp-j6wr).
+
     Presence is `is not None` rather than truthiness: 0 is
     SIGHASH_DEFAULT, which an input may ask for and no ECDSA signature
     carries, so an input asking for it is exactly an input no partial
     signature can finalize.
     """
-    if psbt_in.sig_hash_type is None:
-        return
+    expected = ALL if psbt_in.sig_hash_type is None else psbt_in.sig_hash_type
     for sig in psbt_in.partial_sigs.values():
-        if sig[-1] != psbt_in.sig_hash_type:
-            err_msg = "mismatched sig_hash type: "
-            err_msg += f"{hex(sig[-1])} vs {hex(psbt_in.sig_hash_type)}"
+        if sig[-1] != expected:
+            err_msg = f"mismatched sig_hash type: {hex(sig[-1])} vs {hex(expected)}"
             raise BTClibValueError(err_msg)
 
 

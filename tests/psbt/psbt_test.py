@@ -40,6 +40,7 @@ from btclib_wallet.psbt import (
     Psbt,
     PsbtIn,
     PsbtOut,
+    PsbtView,
     assert_signatures_only,
     assert_signed,
     combine,
@@ -3017,7 +3018,8 @@ def test_the_signer_is_told_the_hash_type_the_input_asks_for() -> None:
     commit to it, which is what the Finalizer refuses them for; a Signer
     reading the psbt therefore needs no argument in the ordinary case.
     SIGHASH_ALL is the fallback because it is what a signature with
-    nothing said about it means.
+    nothing said about it means. Whether the type is one to sign is
+    `sign`'s question, and its allowed_sig_hash_types.
     """
     psbt, _ = _single_key_psbt("p2wpkh")
     assert psbt.inputs[0].sig_hash_type is None
@@ -5289,6 +5291,9 @@ _ECDSA_TYPES = [
     sig_hash.SINGLE,
 ]
 _TAPROOT_TYPES = [*_ECDSA_TYPES, sig_hash.DEFAULT]
+# what the BIP370 tests below sign with: every type, the policy of
+# allowed_sig_hash_types being the subject of tests of its own
+_EVERY_TYPE = sig_hash.SIG_HASH_TYPES
 # BIP370: not ANYONECANPAY clears Inputs Modifiable, not NONE clears
 # Outputs Modifiable, SINGLE sets Has SIGHASH_SINGLE
 _BIP370_FLAGS = {
@@ -5317,7 +5322,7 @@ def test_sign_records_an_ecdsa_signature_in_tx_modifiable(
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
     psbt.inputs[0].sig_hash_type = hash_type
 
-    signed, signed_vins = sign(psbt, key_manager)
+    signed, signed_vins = sign(psbt, key_manager, allowed_sig_hash_types=_EVERY_TYPE)
 
     assert signed_vins == [0]
     assert signed.tx_modifiable == _BIP370_FLAGS[hash_type]
@@ -5339,7 +5344,7 @@ def test_sign_records_a_taproot_signature_in_tx_modifiable(
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
     psbt.inputs[0].sig_hash_type = hash_type
 
-    signed, signed_vins = sign(psbt, key_manager)
+    signed, signed_vins = sign(psbt, key_manager, allowed_sig_hash_types=_EVERY_TYPE)
 
     assert signed_vins == [0]
     assert signed.tx_modifiable == _BIP370_FLAGS[hash_type]
@@ -5354,7 +5359,8 @@ def test_sign_creates_tx_modifiable_only_for_sighash_single() -> None:
     assert sign(psbt, key_manager)[0].tx_modifiable is None
 
     psbt.inputs[0].sig_hash_type = 3  # SINGLE
-    assert sign(psbt, key_manager)[0].tx_modifiable == HAS_SIG_HASH_SINGLE
+    signed, _ = sign(psbt, key_manager, allowed_sig_hash_types={3})
+    assert signed.tx_modifiable == HAS_SIG_HASH_SINGLE
 
 
 def test_sign_keeps_the_flags_of_a_version_0_psbt() -> None:
@@ -5447,10 +5453,10 @@ def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
     psbt = psbt.to_v2()
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
     psbt.inputs[0].sig_hash_type = 130  # NONE|ANYONECANPAY
-    signed, _ = sign(psbt, key_manager)
+    signed, _ = sign(psbt, key_manager, allowed_sig_hash_types={130})
     other = deepcopy(psbt)
     other.inputs[0].previous_tx_id = b"\x07" * 32
-    other_signed, _ = sign(other, key_manager)
+    other_signed, _ = sign(other, key_manager, allowed_sig_hash_types={130})
 
     joined = join([signed, other_signed], False, False, False, False)
 
@@ -5487,7 +5493,7 @@ def _v2_psbt(
 def _signed_v2_psbt(vin: int, **kwargs: Any) -> Psbt:
     """Return a one-input v2 psbt signed NONE|ANYONECANPAY."""
     psbt, key_manager = _v2_psbt(vin, **kwargs)
-    return sign(psbt, key_manager)[0]
+    return sign(psbt, key_manager, allowed_sig_hash_types={130})[0]
 
 
 def test_join_of_version_2_refuses_to_change_the_lock_time_of_a_signed_psbt() -> None:
@@ -5705,3 +5711,207 @@ def test_extract_tx_verify_scripts_needs_every_utxo() -> None:
 
     with pytest.raises(BTClibValueError, match="no utxo for input 0"):
         extract_tx(psbt, check_validity=False)
+
+
+# GHSA-qq38-77mp-j6wr: which sig_hash types a Signer signs
+
+# every type but the two that commit to every input and every output
+_NOT_ALL = [
+    sig_hash.NONE,
+    sig_hash.SINGLE,
+    sig_hash.ALL | sig_hash.ANYONECANPAY,
+    sig_hash.NONE | sig_hash.ANYONECANPAY,
+    sig_hash.SINGLE | sig_hash.ANYONECANPAY,
+]
+_ATTACKER = TxOut(90_000, ScriptPubKey.p2wpkh(PubKeyData(_OTHER_PUB_KEY)))
+
+
+def _unsigned_taproot_psbt(path: str) -> tuple[Psbt, _KeyManager]:
+    if path == "key":
+        psbt, _ = _taproot_key_path_psbt()
+        return psbt, _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+    psbt, _ = _taproot_script_path_psbt()
+    return psbt, _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY})
+
+
+@pytest.mark.parametrize("hash_type", _NOT_ALL)
+def test_sign_refuses_an_ecdsa_type_the_caller_did_not_allow(hash_type: Any) -> None:
+    """The psbt's author does not choose what a signature commits to."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt.inputs[0].sig_hash_type = hash_type
+
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type"):
+        sign(psbt, key_manager)
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type"):
+        sign(psbt, key_manager, allowed_sig_hash_types={sig_hash.ALL})
+
+    signed, _ = sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
+    assert signed.inputs[0].partial_sigs[_PUB_KEY][-1] == hash_type
+
+
+@pytest.mark.parametrize("hash_type", _NOT_ALL)
+@pytest.mark.parametrize("path", ["key", "script"])
+def test_sign_refuses_a_taproot_type_the_caller_did_not_allow(
+    path: str, hash_type: Any
+) -> None:
+    """Both taproot paths, the same rule."""
+    psbt, key_manager = _unsigned_taproot_psbt(path)
+    psbt.inputs[0].sig_hash_type = hash_type
+
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type"):
+        sign(psbt, key_manager)
+
+    _, signed_vins = sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
+    assert signed_vins == [0]
+
+
+@pytest.mark.parametrize("hash_type", [None, sig_hash.ALL])
+def test_sign_signs_all_and_an_absent_field_unasked(hash_type: Any) -> None:
+    """SIGHASH_ALL, and SIGHASH_DEFAULT for taproot, need no allow-list."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt.inputs[0].sig_hash_type = hash_type
+    assert sign(psbt, key_manager)[1] == [0]
+
+    for path in ("key", "script"):
+        taproot_types: list[Any] = [hash_type, sig_hash.DEFAULT]
+        for taproot_type in taproot_types:
+            psbt, key_manager = _unsigned_taproot_psbt(path)
+            psbt.inputs[0].sig_hash_type = taproot_type
+            assert sign(psbt, key_manager)[1] == [0]
+
+
+def test_a_none_signature_pays_whoever_holds_it() -> None:
+    """What allowing SIGHASH_NONE means: the outputs are anybody's.
+
+    The advisory's reproduction (1). Its signature, once allowed,
+    still verifies after the only output is replaced with an attacker's.
+    """
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt.inputs[0].sig_hash_type = 2  # NONE
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+        sign(psbt, key_manager)
+
+    signed, _ = sign(psbt, key_manager, allowed_sig_hash_types={sig_hash.NONE})
+    finalized = finalize(signed)
+    prev_out = signed.inputs[0].witness_utxo
+    assert prev_out is not None
+    tx = extract_tx(finalized)
+    redirected = Tx(tx.version, tx.lock_time, tx.vin, [_ATTACKER])
+    verify_transaction([prev_out], redirected)
+
+
+def test_sign_refuses_an_allow_list_that_is_not_one() -> None:
+    """A collection of valid sig_hash types, and nothing else."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    with pytest.raises(BTClibTypeError, match="allowed_sig_hash_types"):
+        sign(psbt, key_manager, allowed_sig_hash_types=2)  # type: ignore[arg-type]
+    with pytest.raises(BTClibValueError, match="invalid sig_hash type"):
+        sign(psbt, key_manager, allowed_sig_hash_types={0x84})
+
+
+def _two_input_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
+    """Two inputs of one key, of the given kind, and a single output."""
+    script_pub_key = {
+        "p2pkh": ScriptPubKey.p2pkh(PubKeyData(_PUB_KEY)),
+        "p2wpkh": ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)),
+    }[kind]
+    prev_outs = [TxOut(100_000 + i, script_pub_key) for i in range(2)]
+    prev_txs = [_spending_tx(prev_out)[1] for prev_out in prev_outs]
+    tx = Tx(
+        2,
+        0,
+        [TxIn(OutPoint(prev_tx.id, 0), b"", 0xFFFFFFFF) for prev_tx in prev_txs],
+        [TxOut(190_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))],
+    )
+    psbt = Psbt.from_tx(tx)
+    for psbt_in, prev_tx in zip(psbt.inputs, prev_txs, strict=True):
+        psbt_in.non_witness_utxo = prev_tx
+        psbt_in.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+    return psbt, prev_outs
+
+
+@pytest.mark.parametrize("hash_type", [sig_hash.SINGLE, 0x83])
+def test_legacy_sighash_single_past_the_outputs_is_never_signed(
+    hash_type: Any,
+) -> None:
+    """The constant 1 is refused, allow-list or not.
+
+    The advisory's reproduction (2). A legacy input whose index has no
+    output hashes to the constant 1 under SIGHASH_SINGLE, so a signature of
+    it is a signature of any transaction shaped the same way: below, it
+    spends another output of the same key to an attacker.
+    """
+    psbt, _ = _two_input_psbt("p2pkh")
+    psbt.inputs[1].sig_hash_type = hash_type
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+
+    with pytest.raises(BTClibValueError, match="signs the constant 1"):
+        sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
+    with pytest.raises(BTClibValueError, match="signs the constant 1"):
+        ecdsa_sig_hash(psbt, 1)
+    with pytest.raises(BTClibValueError, match="signs the constant 1"):
+        PsbtView(psbt.serialize()).ecdsa_sig_hash(1)
+
+    # the theft the refusal prevents: the attacker's own coin as input 0,
+    # the user's other coin as input 1, under the signature of the constant
+    one = (1).to_bytes(32, "little")
+    script_pub_key = ScriptPubKey.p2pkh(PubKeyData(_PUB_KEY))
+    assert sig_hash.legacy(script_pub_key.script, psbt.tx, 1, hash_type) == one
+    users_sig = dsa.sign_(one, _PRV_KEY).serialize() + bytes([hash_type])
+    attackers = ScriptPubKey.p2pkh(PubKeyData(_OTHER_PUB_KEY))
+    prevouts = [TxOut(1_000, attackers), TxOut(500_000, script_pub_key)]
+    theft = Tx(
+        2,
+        0,
+        [TxIn(OutPoint(bytes([i + 7]) * 32, 0), b"", 0xFFFFFFFF) for i in range(2)],
+        [_ATTACKER],
+    )
+    attackers_hash = sig_hash.legacy(attackers.script, theft, 0, sig_hash.ALL)
+    attackers_sig = dsa.sign_(attackers_hash, _OTHER_PRV_KEY).serialize() + b"\x01"
+    theft.vin[0].script_sig = serialize([attackers_sig, _OTHER_PUB_KEY])
+    theft.vin[1].script_sig = serialize([users_sig, _PUB_KEY])
+    verify_transaction(prevouts, theft)
+
+    # the input at an index that has an output is signed as allowed
+    psbt.inputs[1].sig_hash_type = None
+    psbt.inputs[0].sig_hash_type = hash_type
+    _, signed_vins = sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
+    assert signed_vins == [0, 1]
+
+
+def test_witness_sighash_single_past_the_outputs_is_signed_if_allowed() -> None:
+    """BIP143 has no constant 1: the type is the caller's to allow."""
+    psbt, prev_outs = _two_input_psbt("p2wpkh")
+    for psbt_in, prev_out in zip(psbt.inputs, prev_outs, strict=True):
+        psbt_in.non_witness_utxo = None
+        psbt_in.witness_utxo = prev_out
+    psbt.inputs[1].sig_hash_type = 3  # SINGLE
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+
+    signed, signed_vins = sign(
+        psbt, key_manager, allowed_sig_hash_types={sig_hash.SINGLE}
+    )
+    assert signed_vins == [0, 1]
+    verify_transaction(prev_outs, extract_tx(finalize(signed)))
+
+
+def test_an_ecdsa_signature_of_another_type_is_refused_without_the_field() -> None:
+    """No PSBT_IN_SIGHASH_TYPE asks for SIGHASH_ALL, as it asks for DEFAULT.
+
+    The advisory's reproduction (3): a SIGHASH_NONE answer to a request
+    that named no type is refused by every role that reads it.
+    """
+    request, _ = _unsigned_ecdsa_psbt()
+    asking_none = deepcopy(request)
+    asking_none.inputs[0].sig_hash_type = 2  # NONE
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+    answer, _ = sign(asking_none, key_manager, allowed_sig_hash_types={sig_hash.NONE})
+    answer.inputs[0].sig_hash_type = None
+
+    err_msg = "mismatched sig_hash type: 0x2 vs 0x1"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signatures_only(request, answer)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signed(answer)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(answer)
