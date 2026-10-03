@@ -169,6 +169,28 @@ or install a hash-pinned export (issue btclib-org/.github#1538).
 `REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
 setting section 11 of the standard states (issue btclib-org/.github#1540).
 
+### `descriptors.parse` refuses a key of another network
+
+`parse` raises `BTClibValueError` for a WIF or an extended key of another
+network, as Core does; `KeyExpression.wif_prefix` holds the WIF's version
+byte for it (closes #180).
+
+### A `musig()` participant that is also a plain taproot key keeps its leaf hashes
+
+`TrDescriptor`'s taproot derivations list every leaf of such a key whose plain
+spelling has an origin, in either order; a participant written after the plain
+key replaced its entry with an empty list (closes #185).
+
+### `SilentPaymentOutput`'s repr leaves out `prv_key_tweak`
+
+The tweak is a secret, so a logged output does not carry it (closes #161).
+
+### `mxprv_from_mnemonic` takes only `None` or `""` as the empty passphrase
+
+In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
+`btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
+where they derived the wallet without a passphrase (closes #162).
+
 ### `sign` updates `PSBT_GLOBAL_TX_MODIFIABLE` of a version 2 psbt
 
 Each signature added clears Inputs Modifiable unless it is ANYONECANPAY,
