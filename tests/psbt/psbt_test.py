@@ -58,6 +58,7 @@ from btclib_wallet.psbt.psbt import (
     OUTPUTS_MODIFIABLE,
     PSBT_GLOBAL_UNSIGNED_TX,
     PSBT_GLOBAL_VERSION,
+    _has_signature,
     _prev_out,
     _sig_hash_from_psbt_in,
     _sort_or_shuffle,
@@ -5464,21 +5465,35 @@ def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
         join([signed, all_signed], False, False, False, False)
 
 
-def _signed_v2_with_fallback(fallback: int | None, vin: int) -> Psbt:
-    """Return a one-input v2 psbt signed NONE|ANYONECANPAY."""
+def _v2_psbt(
+    vin: int,
+    *,
+    fallback: int | None = None,
+    height: int | None = None,
+    tx_version: int = 2,
+) -> tuple[Psbt, _KeyManager]:
+    """Return an unsigned one-input v2 psbt, both modifiable flags set."""
     psbt, key_manager = _unsigned_ecdsa_psbt()
     psbt = psbt.to_v2()
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    psbt.tx_version = tx_version
     psbt.fallback_lock_time = fallback
+    psbt.inputs[0].required_height_lock_time = height
     psbt.inputs[0].previous_tx_id = bytes([vin]) * 32
     psbt.inputs[0].sig_hash_type = 130  # NONE|ANYONECANPAY
+    return psbt, key_manager
+
+
+def _signed_v2_psbt(vin: int, **kwargs: Any) -> Psbt:
+    """Return a one-input v2 psbt signed NONE|ANYONECANPAY."""
+    psbt, key_manager = _v2_psbt(vin, **kwargs)
     return sign(psbt, key_manager)[0]
 
 
 def test_join_of_version_2_refuses_to_change_the_lock_time_of_a_signed_psbt() -> None:
     """BIP370's Constructor: signatures forbid a change of the lock time."""
-    low = _signed_v2_with_fallback(0, 1)
-    high = _signed_v2_with_fallback(500, 2)
+    low = _signed_v2_psbt(1, fallback=0)
+    high = _signed_v2_psbt(2, fallback=500)
     assert (low.lock_time, high.lock_time) == (0, 500)
 
     for pair in ([low, high], [high, low]):
@@ -5486,36 +5501,99 @@ def test_join_of_version_2_refuses_to_change_the_lock_time_of_a_signed_psbt() ->
             join(pair, False, False, False, False)
 
     # a join that leaves the lock time alone keeps the signatures
-    same = _signed_v2_with_fallback(500, 3)
+    same = _signed_v2_psbt(3, fallback=500)
     joined = join([high, same], False, False, False, False)
     assert joined.lock_time == 500
     assert extract_tx(finalize(joined)) is not None
 
 
 def test_join_of_version_2_refuses_a_lock_time_raised_by_an_unsigned_psbt() -> None:
-    """One signed psbt is enough, whichever it is."""
-    signed = _signed_v2_with_fallback(0, 1)
-    unsigned, _ = _unsigned_ecdsa_psbt()
-    unsigned = unsigned.to_v2()
-    unsigned.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
-    unsigned.fallback_lock_time = 500
-    unsigned.inputs[0].previous_tx_id = b"" * 32
+    """The signed psbt is refused whichever side it is on."""
+    signed = _signed_v2_psbt(1, fallback=0)
+    unsigned, _ = _v2_psbt(2, fallback=500)
 
-    with pytest.raises(BTClibValueError, match="changes the lock time"):
-        join([signed, unsigned], False, False, False, False)
+    for pair in ([signed, unsigned], [unsigned, signed]):
+        with pytest.raises(BTClibValueError, match="0 to 500"):
+            join(pair, False, False, False, False)
+
+
+def test_join_of_version_2_refuses_a_required_lock_time_the_fallback_hides() -> None:
+    """The lock time is the computed one, not the fallback."""
+    signed = _signed_v2_psbt(1, fallback=0)
+    requiring, _ = _v2_psbt(2, height=500)
+    assert requiring.lock_time == 500
+
+    with pytest.raises(BTClibValueError, match="0 to 500"):
+        join([signed, requiring], False, False, False, False)
+
+
+def test_join_of_version_2_allows_a_fallback_a_required_lock_time_overrides() -> None:
+    """A fallback is not the lock time where an input requires one."""
+    signed = _signed_v2_psbt(1, height=500)
+    other, _ = _v2_psbt(2, fallback=600)
+    assert (signed.lock_time, other.lock_time) == (500, 600)
+
+    joined = join([signed, other], False, False, False, False)
+
+    assert joined.lock_time == 500
+    assert joined.inputs[0].partial_sigs
+
+
+def test_join_of_version_2_refuses_to_change_the_tx_version_of_a_signed_psbt() -> None:
+    """The signatures commit to the version too."""
+    two = _signed_v2_psbt(1, tx_version=2)
+    three = _signed_v2_psbt(2, tx_version=3)
+
+    with pytest.raises(BTClibValueError, match="tx version"):
+        join([two, three], False, False, False, False)
+
+    same = _signed_v2_psbt(3, tx_version=3)
+    joined = join([three, same], False, False, False, False)
+    assert extract_tx(finalize(joined)) is not None
 
 
 def test_join_of_version_2_with_no_signature_may_change_the_lock_time() -> None:
-    """Nothing commits to the lock time yet."""
-    first, _ = _unsigned_ecdsa_psbt()
-    first = first.to_v2()
-    first.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
-    first.fallback_lock_time = 0
-    second = deepcopy(first)
-    second.fallback_lock_time = 500
-    second.inputs[0].previous_tx_id = b"" * 32
+    """Nothing commits to the lock time or the version yet."""
+    first, _ = _v2_psbt(1, fallback=0, tx_version=2)
+    second, _ = _v2_psbt(2, fallback=500, tx_version=3)
 
-    assert join([first, second], False, False, False, False).lock_time == 500
+    joined = join([first, second], False, False, False, False)
+
+    assert (joined.lock_time, joined.tx_version) == (500, 3)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("final_script_sig", b"\x01"),
+        ("final_script_witness", Witness([b"\x01"])),
+        ("partial_sigs", {b"\x02" * 33: b"\x01"}),
+        ("taproot_key_spend_signature", b"\x01" * 64),
+        ("taproot_script_spend_signatures", {b"\x02" * 64: b"\x01" * 64}),
+        ("musig2_partial_sigs", {b"\x02" * 66: b"\x06" * 32}),
+    ],
+)
+def test_each_signature_field_alone_makes_an_input_signed(
+    field: str, value: Any
+) -> None:
+    """Every field `join` clears for version 0 counts as a signature."""
+    psbt_in = PsbtIn()
+    assert not _has_signature(psbt_in)
+
+    setattr(psbt_in, field, value)
+
+    assert _has_signature(psbt_in)
+
+
+def test_join_of_version_2_refuses_a_finalized_signed_psbt() -> None:
+    """BIP174's Finalizer empties `partial_sigs`, and the signature is there."""
+    finalized = finalize(_signed_v2_psbt(1, fallback=0))
+    finalized.inputs[0].partial_sigs = {}
+    assert finalized.inputs[0].final_script_witness
+    unsigned, _ = _v2_psbt(2, fallback=500)
+
+    with pytest.raises(BTClibValueError, match="0 to 500"):
+        join([finalized, unsigned], False, False, False, False)
 
 
 def _flip_signature_byte(psbt: Psbt) -> None:

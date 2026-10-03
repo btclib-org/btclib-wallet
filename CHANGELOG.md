@@ -289,10 +289,11 @@ Entries above that have the maintainer landing without another person's approval
 describe the rule before issue btclib-org/.github#1362 (issue
 btclib-org/.github#1569).
 ### `join` refuses to change the lock time of a signed version 2 psbt
+### `join` refuses to change the lock time or tx version of a signed psbt
 
-BIP370's Constructor must not add an input that changes the lock time while an
-input has a signature. `join` refuses it, where it kept signatures that no
-longer verify (closes #211).
+`join` refuses to change the lock time or the tx version of a version 2 psbt
+with a signed input, whose signatures commit to both. It kept signatures that
+no longer verified (closes #211).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
