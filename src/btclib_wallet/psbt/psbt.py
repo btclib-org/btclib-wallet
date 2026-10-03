@@ -3473,8 +3473,9 @@ def extract_tx(
     bad signature passes it. `verify_scripts=True` runs every input's
     scripts against the output it spends, under the consensus rules of
     `btclib.script.engine.verify_transaction`, and raises where one
-    fails. A signature that is valid under consensus and not standard
-    (high-S) passes it. It needs every input's utxo, and an input
+    fails, and checks that the outputs do not exceed the inputs. A
+    signature that is valid under consensus and not standard (high-S)
+    passes it. It needs every input's utxo, and an input
     without one raises as `prevouts` does.
     """
     if check_validity:
@@ -3616,9 +3617,10 @@ def join(
     no longer verifies would also make `sign` skip its key. Every
     input's `partial_sigs`, final scripts and taproot and MuSig2
     signature fields are cleared, and its keys, scripts, origins and
-    utxo kept. A version 2 psbt that passes the modifiable flags was
-    signed SIGHASH_NONE|ANYONECANPAY or not at all, so its signatures
-    still verify and stay.
+    utxo kept. A version 2 psbt keeps its signatures: one that passes
+    the modifiable flags was signed SIGHASH_NONE|ANYONECANPAY or not at
+    all. Such a signature still commits to the version and lock time, and
+    stops verifying where the join changes either.
 
     A signed message is not carried over, and that is not an omission:
     it says which challenge *this* transaction answers, and joining

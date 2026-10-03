@@ -5521,6 +5521,29 @@ def test_extract_tx_runs_the_final_scripts_when_asked(kind: str) -> None:
         extract_tx(psbt, verify_scripts=True)
 
 
+def test_extract_tx_verify_scripts_issue_191_vector() -> None:
+    """Issue 191: one byte of a taproot key path signature is wrong."""
+    b64 = (
+        "cHNidP8BAFICAAAAAR0A/Bhe2dmm5XtXv27jID+25Fwp9Q6vK5wuVcm8aKUQAAAAAAD9"
+        "////AcCe5gUAAAAAFgAUx1q2+jtYG2Uguit6DuP39dIZy8gAAAAAAAEBKwDh9QUAAAAA"
+        "IlEgsJvCXI8GGTu0iHEx7zee1tSCx5i+eGmLC/fw3fghSfwBCEIBQElmDQhhrmMUDBuD"
+        "pocUrZU/vXxJGWtquzmlSzJjalfd5wztcuccXZQ3KmPIVmvuBKa2FoNnp3Kc6GmnlhmC"
+        "axQAIgIC36qzlnGVvyQaIgplxj3RUnfQ6wJVmuf7IvDNrLQ/UYAYyiAO71QAAIABAACA"
+        "AAAAgAAAAAAFAAAAAA=="
+    )
+    psbt = finalize(Psbt.b64decode(b64))
+    with pytest.raises(ScriptError, match="invalid signature for the taproot key"):
+        extract_tx(psbt, verify_scripts=True)
+
+    witness = psbt.inputs[0].final_script_witness
+    assert witness is not None
+    sig = bytearray(witness.stack[0])
+    assert sig[-2] == 0x6B
+    sig[-2] = 0x6A
+    psbt.inputs[0].final_script_witness = Witness([bytes(sig)])
+    assert extract_tx(psbt, verify_scripts=True) is not None
+
+
 def test_extract_tx_verify_scripts_needs_every_utxo() -> None:
     """An input with no utxo raises, as `prevouts` does."""
     psbt, _ = _finalized_psbt("p2wpkh")
