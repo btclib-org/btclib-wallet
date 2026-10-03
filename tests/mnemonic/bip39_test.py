@@ -10,7 +10,10 @@ is asserted here is the extended key each vector carries.
 """
 
 import pytest
-from btclib_mnemonics.exceptions import BTClibMnemonicsValueError
+from btclib_mnemonics.exceptions import (
+    BTClibMnemonicsTypeError,
+    BTClibMnemonicsValueError,
+)
 
 from btclib_wallet.mnemonic import bip39
 from tests import load, vector_id
@@ -79,3 +82,19 @@ def test_a_refusal_of_btclib_mnemonics_is_a_value_error() -> None:
         bip39.mxprv_from_mnemonic(mnemonic)
     assert isinstance(excinfo.value, BTClibMnemonicsValueError)
     assert bip39.mxprv_from_mnemonic(mnemonic, verify_checksum=False).startswith("xprv")
+
+
+@pytest.mark.parametrize("passphrase", [0, False, [], b""])
+def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) -> None:
+    """None and "" are the empty passphrase, and no other falsy value is.
+
+    A value of another type is refused whether or not it is empty, and
+    the refusal is `btclib_mnemonics`' own class, a `TypeError`.
+    """
+    mnemonic = " ".join(["abandon"] * 11 + ["about"])
+    xprv = bip39.mxprv_from_mnemonic(mnemonic)
+    assert bip39.mxprv_from_mnemonic(mnemonic, None) == xprv
+    assert bip39.mxprv_from_mnemonic(mnemonic, "") == xprv
+    err_msg = f"invalid passphrase type: {type(passphrase).__name__}"
+    with pytest.raises(BTClibMnemonicsTypeError, match=err_msg):
+        bip39.mxprv_from_mnemonic(mnemonic, passphrase)  # type: ignore[arg-type]

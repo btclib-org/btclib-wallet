@@ -72,6 +72,7 @@ from typing import SupportsIndex, TypeVar
 from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160
+from btclib.network import network_from_xkeyversion
 from btclib.script.limits import (
     MAX_OPS_PER_SCRIPT,
     MAX_PUBKEYS_PER_MULTISIG,
@@ -93,6 +94,7 @@ from btclib.utils import assert_type, bytes_from_octets, decode_num, encode_num
 from btclib.var_int import serialize as var_int_serialize
 from typing_extensions import override
 
+from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.der_path import _int_from_digits
 from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
@@ -1175,7 +1177,11 @@ class Miniscript:
 
     @property
     def is_signature_required(self) -> bool:
-        """Answer whether every satisfaction requires a signature."""
+        """Answer whether every satisfaction requires a signature.
+
+        False for a malleable expression, of which BIP379 says "s" tells
+        nothing.
+        """
         return _has(self.properties, "s")
 
     @property
@@ -1201,16 +1207,21 @@ class Miniscript:
 
     @property
     def has_duplicate_keys(self) -> bool:
-        """Answer whether one KEY expression appears more than once.
+        """Answer whether one public key appears more than once.
 
         Which BIP379's malleability analysis assumes away: a signature
         made for one check of a key satisfies every other check of it, so
         an expression naming a key twice has satisfactions the type system
-        does not predict. Two KEY expressions are the same where they are
-        equal -- the same text, in effect -- which is the comparison
-        Bitcoin Core's descriptor layer makes too.
+        does not predict. The keys compared are the ones the KEY
+        expressions derive at index 0, as Bitcoin Core's `KeyCompare`
+        does, so the origin, the spelling of a hardened step and the
+        wildcard do not make two spellings of a key two keys. An x-only
+        key counts as its even-y form, parity included in the comparison.
+
+        A key with a hardened step is compared by its extended key and its
+        path: the private key that derives it is not passed here.
         """
-        keys = self.key_expressions
+        keys = [_key_identity(key) for key in self.key_expressions]
         return len(set(keys)) != len(keys)
 
     @property
@@ -1749,6 +1760,32 @@ def _plain_text(node: Miniscript, subs: list[str]) -> str:
     return text
 
 
+def _key_identity(key: KeyExpression) -> object:
+    """Return what two KEY expressions are compared by.
+
+    The public key at index 0, which is what Bitcoin Core compares. The
+    extended key, the path, the wildcard and the participants where the
+    key cannot be derived without a private key, or is no key at all, as a
+    wallet-policy placeholder is. The network is that of the first
+    participant with an extended key, whichever place it has.
+    """
+    xkeys = [k.xkey for k in (key.participants or (key,)) if k.xkey]
+    try:
+        network = (
+            network_from_xkeyversion(BIP32KeyData.b58decode(xkeys[0]).version)
+            if xkeys
+            else "mainnet"
+        )
+        return key.sec(0, network)
+    except BTClibValueError:
+        return (
+            key.xkey,
+            key.der_path,
+            key.wildcard,
+            tuple(_key_identity(participant) for participant in key.participants),
+        )
+
+
 def _sanitized(properties: frozenset[str]) -> frozenset[str]:
     """Return the properties, or none where they name no one basic type.
 
@@ -1757,8 +1794,14 @@ def _sanitized(properties: frozenset[str]) -> frozenset[str]:
     their requirements are not met is the properties without any, which is
     not a type. Bitcoin Core's `SanitizeType`, whose other checks are
     invariants of those tables rather than answers about an expression.
+
+    A malleable expression, one without "m", keeps neither "s", "f" nor
+    "e": BIP379 says they tell nothing about it, and an API that returns
+    them should return them false.
     """
-    return properties if len(properties & _t("BVKW")) == 1 else _NONE
+    if len(properties & _t("BVKW")) != 1:
+        return _NONE
+    return properties if _has(properties, "m") else properties - _t("sfe")
 
 
 # how a fragment's arguments are written, for the parser to read: the two

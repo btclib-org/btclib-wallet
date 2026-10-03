@@ -16,6 +16,23 @@ before upgrading, rather than a digit.
   `--signer-workflow btclib-org/.github/.github/workflows/reusable-build.yml@refs/heads/main`
   and `--source-ref refs/tags/v<version>`; SECURITY.md has the command.
   Earlier releases keep `reusable-attest.yml`.
+- **`descriptors.parse` refuses a key of another network.** A WIF or an
+  extended key whose prefix is not the `network`'s raises
+  `BTClibValueError` there, where the WIF was accepted and the extended key
+  was refused only by `script_pub_keys()`. A caller that parses a descriptor
+  for a network its keys are not of has to pass the right `network`.
+
+- **`bip39.mxprv_from_mnemonic` and `electrum.mxprv_from_mnemonic` refuse
+  a falsy passphrase of another type.** An empty `bytes`, `0`, `False` or
+  `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
+
+- **A miniscript repeating a public key is refused under different
+  spellings of it.** `descriptors.parse` does so as Bitcoin Core does, except
+  for a key with a hardened step.
+
+- **A malleable miniscript keeps neither "s", "f" nor "e".**
+  `Miniscript.properties` drops them, and `is_signature_required` is false for
+  it.
 
 ## v2026.9.30
 
