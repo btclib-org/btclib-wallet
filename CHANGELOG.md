@@ -277,6 +277,12 @@ An amount of more than 20 digits, leading zeros apart, is refused, where
 bypass, and that the OpenSSF criterion `two_person_review` is unmet because
 the ack of record is a bot's (issue btclib-org/.github#452).
 
+### A PSBT's global unsigned transaction is read as Core reads it
+
+It is read as `TX_NO_WITNESS`, so a PSBT with no input is read. The floors are
+`btclib` 2026.10.3, the first release with `Tx.parse_without_witness`, and
+`btclib-ecc` 2026.10.2, the one that release declares (closes #196).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
