@@ -93,10 +93,9 @@ def test_invalid_psbt_bip174(test_vector: dict[str, str]) -> None:
     The message is btclib's, not the BIP's, so the assert is what pins a
     rejection to its reason rather than to the fact of one. The case the
     BIP describes as a witness serialization and the one it describes as
-    a value whose size is not the stated size share "superfluous witness
-    record": the second one's transaction carries a marker over no
-    witness, which `Tx.parse` stops on before the size is anything
-    (issue btclib-org/btclib#1104).
+    a value whose size is not the stated size are read without a marker,
+    as Core reads the field, so each is refused for what the transaction
+    reading finds (issue #196).
     """
     with pytest.raises(BTClibValueError) as excinfo:
         Psbt.b64decode(test_vector["encoded psbt"])
@@ -2174,19 +2173,13 @@ def test_a_value_that_is_not_the_stated_size_says_so() -> None:
         Psbt.parse(_psbt_from_unsigned_tx_value(value))
 
 
-def test_an_unsigned_tx_that_re_serializes_to_something_else_is_refused() -> None:
-    """`deserialize_tx` compares the parse against the octets it read.
+def test_an_unsigned_tx_in_witness_serialization_is_refused() -> None:
+    """BIP174's global unsigned transaction is the stripped serialization.
 
-    BIP174's global unsigned transaction is the stripped serialization,
-    which is why `deserialize_tx` is called with `include_witness` False
-    and compares: a value holding a witness serialization is a value the
-    psbt could not write back.
-
-    A witness carrying something is what reaches that comparison. A
-    template written in witness format has empty stacks by construction
-    -- it is unsigned -- so `Tx.parse` refuses it one layer down for the
-    encoding (issue btclib-org/btclib#1104), and what is left here is the
-    transaction that parses whole and re-serializes to something else.
+    `deserialize_tx` is called with `include_witness` False, which reads
+    it as Core does: the `00 01` after the version are a count of no inputs
+    and a count of one output, and what follows is data after the
+    transaction.
     """
     tx = Tx(
         1,
@@ -2195,7 +2188,7 @@ def test_an_unsigned_tx_that_re_serializes_to_something_else_is_refused() -> Non
         [TxOut(1, ScriptPubKey(b"\x51"))],
     )
     value = tx.serialize(include_witness=True)
-    with pytest.raises(BTClibValueError, match="wrong tx serialization format"):
+    with pytest.raises(BTClibValueError, match="bytes after the transaction"):
         Psbt.parse(_psbt_from_unsigned_tx_value(value))
 
 

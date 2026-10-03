@@ -852,31 +852,24 @@ def deserialize_tx(
     there. The other caller is a non-witness utxo, which is a complete
     transaction and gets the full check.
 
+    include_witness=False reads it as Core reads the global unsigned
+    transaction, TX_NO_WITNESS: after the version a 0x00 is an empty input
+    list, never BIP144's marker. include_witness=True reads either
+    encoding.
+
     The parse itself is unvalidated and assert_valid called afterwards:
     validating on the way in would report what is wrong with the
-    transaction where what is wrong is the value. A witness serialization
-    of a transaction with no outputs is such a value -- to be refused for
-    the encoding this could not write back, where a validating parse
-    answers "Missing outputs", which is true of it but not the fault.
+    transaction where what is wrong is the value.
     """
-    # two values and two behaviours, and the flag is read as a truth
-    # below: `not include_witness` is false for True alone, so True is
-    # the one that accepts either encoding and False is the one that
-    # demands the round trip. The type is `bool`, not `bool | None`,
-    # because `not None` is `not False`: a `None` would be a third
-    # spelling of the second behaviour, documented as "either encoding"
-    # while doing what False does -- a trap for whoever trusts the
-    # comment over the type (issue btclib-org/btclib#1190)
     assert_type(include_witness, bool, "include_witness")
     assert_type(unsigned_template, bool, "unsigned_template")
     if len(k) != 1:
         err_msg = f"invalid {type_} key length: {len(k)}"
         raise BTClibValueError(err_msg)
-    tx = Tx.parse(v, check_validity=False)
-    if (
-        not include_witness
-        and tx.serialize(include_witness=False, check_validity=False) != v
-    ):
-        raise BTClibValueError("wrong tx serialization format")
+    tx = (
+        Tx.parse(v, check_validity=False)
+        if include_witness
+        else Tx.parse_without_witness(v, check_validity=False)
+    )
     tx.assert_valid(unsigned_template=unsigned_template)
     return tx
