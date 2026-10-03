@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -519,7 +519,7 @@ requires-dist = [
     { name = "bitcoin-core-rpc", specifier = ">=2026.9.3" },
     { name = "btclib", specifier = ">=2026.10.3" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", specifier = ">=2026.10.3" },
-    { name = "btclib-ecc", specifier = ">=2026.9.28" },
+    { name = "btclib-ecc", specifier = ">=2026.10.2" },
     { name = "btclib-mnemonics", specifier = ">=2026.9.29" },
     { name = "btclib-secp256k1", marker = "extra == 'secp256k1'", specifier = ">=0.8.0.9" },
     { name = "typing-extensions", specifier = ">=4.10" },

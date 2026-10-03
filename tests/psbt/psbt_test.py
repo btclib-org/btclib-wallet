@@ -94,8 +94,8 @@ def test_invalid_psbt_bip174(test_vector: dict[str, str]) -> None:
     rejection to its reason rather than to the fact of one. The case the
     BIP describes as a witness serialization and the one it describes as
     a value whose size is not the stated size are read without a marker,
-    as Core reads the field, so each is refused for what the transaction
-    reading finds (issue #196).
+    as Core reads the field: the first runs out of data and the second
+    leaves octets after its transaction (issue #196).
     """
     with pytest.raises(BTClibValueError) as excinfo:
         Psbt.b64decode(test_vector["encoded psbt"])
@@ -2156,11 +2156,7 @@ def test_a_value_that_is_not_the_stated_size_says_so() -> None:
     the remainder dropped in silence.
 
     BIP174's "invalid value data due to its size being not the stated
-    size" is such a value and no longer reaches this refusal: its
-    transaction carries a witness marker over no witness at all, so
-    `Tx.parse` stops on that first (issue btclib-org/btclib#1104). The shape is
-    what this test is about, so it builds one whose transaction is otherwise
-    well-formed.
+    size" is refused the same way, in `test_invalid_psbt_bip174`.
     """
     tx = Tx(
         1,
@@ -2178,8 +2174,8 @@ def test_an_unsigned_tx_in_witness_serialization_is_refused() -> None:
 
     `deserialize_tx` is called with `include_witness` False, which reads
     it as Core does: the `00 01` after the version are a count of no inputs
-    and a count of one output, and what follows is data after the
-    transaction.
+    and a count of one output; the next octets are read as that output and
+    the lock time, and the rest is left over.
     """
     tx = Tx(
         1,
