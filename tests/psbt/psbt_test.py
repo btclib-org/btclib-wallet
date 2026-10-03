@@ -5428,7 +5428,7 @@ def test_join_of_version_0_keeps_no_signature_and_can_be_signed_again(
 
 
 def test_join_clears_every_signature_field_and_only_those() -> None:
-    """Each of the seven fields, filled in, comes out empty."""
+    """Every signature field, filled in, comes out empty."""
     psbt, _ = _single_key_psbt("p2wpkh")
     inp = psbt.inputs[0]
     inp.final_script_sig = b"\x01"
@@ -5449,7 +5449,10 @@ def test_join_clears_every_signature_field_and_only_those() -> None:
 
 
 def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
-    """NONE|ANYONECANPAY is the one signature a join cannot break."""
+    """A version 2 psbt signed NONE|ANYONECANPAY keeps its signatures.
+
+    One signed ALL is refused.
+    """
     psbt, key_manager = _unsigned_ecdsa_psbt()
     psbt = psbt.to_v2()
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
@@ -5463,6 +5466,7 @@ def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
 
     assert joined.inputs == signed.inputs + other_signed.inputs
     assert all(inp.partial_sigs for inp in joined.inputs)
+    assert extract_tx(finalize(joined)) is not None
 
     # signed with any other type, the join is refused
     psbt.inputs[0].sig_hash_type = 1  # ALL
@@ -5509,7 +5513,7 @@ def _finalized_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
         "taproot script path",
     ],
 )
-def test_extract_tx_runs_the_final_scripts_when_asked(kind: str) -> None:
+def test_extract_tx_runs_the_final_scripts_by_default(kind: str) -> None:
     """`check_validity` runs no script; `verify_scripts` does, by default."""
     psbt, _ = _finalized_psbt(kind)
     assert extract_tx(psbt) == extract_tx(psbt, verify_scripts=False)
@@ -5519,6 +5523,15 @@ def test_extract_tx_runs_the_final_scripts_when_asked(kind: str) -> None:
     assert extract_tx(psbt, verify_scripts=False) is not None
     with pytest.raises(ScriptError):
         extract_tx(psbt)
+
+
+def test_extract_tx_without_check_validity_does_not_assert_valid() -> None:
+    """`check_validity=False` skips `assert_valid`, scripts run or not."""
+    psbt, _ = _finalized_psbt("p2wpkh")
+    psbt.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
+    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+        extract_tx(psbt)
+    assert extract_tx(psbt, check_validity=False) is not None
 
 
 def test_extract_tx_verify_scripts_issue_191_vector() -> None:

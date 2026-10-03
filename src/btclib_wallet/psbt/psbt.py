@@ -3443,7 +3443,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 def extract_tx(
     psbt: Psbt, *, check_validity: bool = True, verify_scripts: bool = True
 ) -> Tx:
-    """Extract the Tx fro the Psbt.
+    """Extract the Tx from the Psbt.
 
     The Transaction Extractor must only accept a PSBT. It checks whether
     all inputs have complete scriptSigs and scriptWitnesses by checking
@@ -3501,7 +3501,7 @@ def extract_tx(
     if check_validity:
         tx.assert_valid()
     if verify_scripts:
-        verify_transaction(prevouts(psbt), tx)
+        verify_transaction(_spent_outputs(psbt.inputs), tx)
     return tx
 
 

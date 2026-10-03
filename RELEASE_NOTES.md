@@ -26,8 +26,8 @@ before upgrading, rather than a digit.
   a falsy passphrase of another type.** An empty `bytes`, `0`, `False` or
   `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
 - **`join` empties the signatures of a version 0 psbt, and `sign` updates a
-  version 2 psbt's modifiable flags.** Sign the joined psbt again. A version 2
-  psbt signed with anything but SIGHASH_NONE|ANYONECANPAY refuses a join.
+  version 2 psbt's modifiable flags.** Sign the joined psbt again. `join`
+  refuses a version 2 psbt signed with anything but SIGHASH_NONE|ANYONECANPAY.
 - **`extract_tx` verifies by default.** It runs every input's scripts and
   checks that the outputs do not exceed the inputs, so it raises on a psbt it
   extracted before: one with a bad signature, a missing utxo or outputs above
