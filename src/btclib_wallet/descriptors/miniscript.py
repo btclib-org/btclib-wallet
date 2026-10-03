@@ -1208,9 +1208,8 @@ class Miniscript:
         wildcard do not make two spellings of a key two keys. An x-only
         key counts as its even-y form, parity included in the comparison.
 
-        A key that cannot be derived here, because it has a hardened step
-        and the private key is not in the expression, is compared by its
-        extended key and its path.
+        A key with a hardened step is compared by its extended key and its
+        path: the private key that derives it is not passed here.
         """
         keys = [_key_identity(key) for key in self.key_expressions]
         return len(set(keys)) != len(keys)
