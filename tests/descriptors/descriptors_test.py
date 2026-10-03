@@ -3930,11 +3930,10 @@ def test_parse_takes_the_keys_the_test_networks_share() -> None:
 def test_a_participant_that_is_also_a_leaf_key_keeps_its_leaf_hashes(
     plain_origin: bool, participant_origin: bool
 ) -> None:
-    """BIP371 lists every leaf a key is in, whatever order the tree writes.
+    """C is a plain leaf key and a participant of another leaf.
 
-    C is a plain leaf key and a participant of another leaf. An origin on
-    either spelling is the key's origin, so both kinds of entry write under
-    its x-only key.
+    It has an origin on either spelling or both. Its entry lists the leaf of
+    `pk(C)`, in either leaf order.
     """
     key_a, key_b, key_c = (f"[d34db33f/{i}h]{sec}" for i, sec in enumerate(SEC_KEYS))
     spelled_c = {True: key_c, False: SEC_KEYS[2]}
@@ -3947,3 +3946,15 @@ def test_a_participant_that_is_also_a_leaf_key_keeps_its_leaf_hashes(
         assert origin.description == "d34db33f/2h"
         script = taproot_leaf_of(psbt_in, SEC_KEYS[2][2:])[0]
         assert hashes == [taproot.leaf_hash(0xC0, script)]
+
+
+def test_the_plain_key_origin_is_the_participants_entry_origin() -> None:
+    """Where the plain key has an origin, that origin is the entry's."""
+    key_a = f"[d34db33f/0h]{SEC_KEYS[0]}"
+    plain = f"pk([aaaaaaaa/9h]{SEC_KEYS[2]})"
+    group = f"pk(musig({key_a},[bbbbbbbb/2h]{SEC_KEYS[2]}))"
+    for tree in (f"{{{plain},{group}}}", f"{{{group},{plain}}}"):
+        descriptor = parse(f"tr(musig({key_a},{SEC_KEYS[1]}),{tree})")
+        psbt_in = descriptor.update_psbt_input(psbt_spending(descriptor), 0).inputs[0]
+        origin = psbt_in.taproot_hd_key_paths[bytes.fromhex(SEC_KEYS[2])[1:]][1]
+        assert origin.description == "aaaaaaaa/9h"

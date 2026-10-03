@@ -288,16 +288,18 @@ the bypass is for emergencies (issue btclib-org/.github#1362).
 Entries above that have the maintainer landing without another person's approval
 describe the rule before issue btclib-org/.github#1362 (issue
 btclib-org/.github#1569).
-### A `musig()` participant with an origin keeps the leaf hashes of its plain key
-
-`TrDescriptor`'s taproot derivations list every leaf of a key that is a plain
-leaf key and a participant, whichever spelling has the origin (closes #198).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
 It is read as `TX_NO_WITNESS`, so a PSBT with no input is read. The floors are
 `btclib` 2026.10.3, the first release with `Tx.parse_without_witness`, and
 `btclib-ecc` 2026.10.2, the one that release declares (closes #196).
+
+### A `musig()` participant with an origin keeps the leaf hashes of its plain key
+
+`TrDescriptor`'s taproot derivations give a key that is a plain leaf key and a
+`musig()` participant the leaf hashes of its plain leaves, whichever spelling
+has the origin (closes #198).
 
 ## v2026.9.30
 
