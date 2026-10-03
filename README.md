@@ -75,10 +75,10 @@ still match.
 python -m pip install --upgrade btclib-wallet
 ```
 
-Signing and verifying run where btclib runs them, so its
+Signing and verifying run where btclib-ecc runs them, so its
 [libsecp256k1 bindings](https://github.com/btclib-org/btclib-secp256k1)
-are the recommended install beside it, and btclib's
-[SECURITY.md](https://github.com/btclib-org/btclib/blob/main/SECURITY.md)
+are the recommended install beside it, and btclib-ecc's
+[SECURITY.md](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
 says what happens without them.
 
 ## An address from a mnemonic
