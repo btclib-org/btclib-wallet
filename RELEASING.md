@@ -397,7 +397,7 @@ result.
    or the ruleset accepts, and auto-merge presses it once the review and
    the checks are in. Branch protection requires an approving review,
    and GitHub does not let an author approve their own: the release pull
-   request waits for an owner other than its author, like every other.
+   request waits for somebody other than its author, like every other.
    The `main-self-merge` bypass in `pull_request` mode is for an
    emergency only. A direct push to `main` is refused for everyone.
 

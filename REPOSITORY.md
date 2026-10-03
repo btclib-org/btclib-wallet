@@ -198,8 +198,8 @@ JSON
 `main-self-merge` requires a pull request, with the maintainer as the
 only bypass actor and in **`pull_request` mode**, which excuses the
 approving review and nothing else; it is for an emergency only, and every
-other pull request lands with an approving review from an owner other than
-its author. A direct push to `main` is refused for everyone.
+other pull request lands with an approving review from somebody other
+than its author. A direct push to `main` is refused for everyone.
 
 ```shell
 gh api -X POST repos/btclib-org/btclib-wallet/rulesets --input - <<'JSON'
