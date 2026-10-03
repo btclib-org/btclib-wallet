@@ -277,6 +277,11 @@ An amount of more than 20 digits, leading zeros apart, is refused, where
 bypass, and that the OpenSSF criterion `two_person_review` is unmet because
 the ack of record is a bot's (issue btclib-org/.github#452).
 
+### The bypass is for emergencies, in `CONTRIBUTING.md` and this tree's prose
+
+Every pull request lands with an approving review from somebody other than
+its author (issue btclib-org/.github#1362).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
