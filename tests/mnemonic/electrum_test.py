@@ -196,7 +196,7 @@ def test_p2wpkh_p2sh() -> None:
 
 @pytest.mark.parametrize("passphrase", [0, False, [], b""])
 def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) -> None:
-    """None is the empty passphrase, and no other falsy value is.
+    """None and "" are the empty passphrase, and no other falsy value is.
 
     A value of another type is refused whether or not it is empty, and
     the refusal is `btclib_mnemonics`' own class, a `TypeError`.

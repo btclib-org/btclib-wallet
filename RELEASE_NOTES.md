@@ -18,7 +18,7 @@ before upgrading, rather than a digit.
   Earlier releases keep `reusable-attest.yml`.
 
 - **`bip39.mxprv_from_mnemonic` and `electrum.mxprv_from_mnemonic` refuse
-  a falsy passphrase other than `None`.** An empty `bytes`, `0`, `False` or
+  a falsy passphrase of another type.** An empty `bytes`, `0`, `False` or
   `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
 
 ## v2026.9.30
