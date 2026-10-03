@@ -5464,6 +5464,60 @@ def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
         join([signed, all_signed], False, False, False, False)
 
 
+def _signed_v2_with_fallback(fallback: int | None, vin: int) -> Psbt:
+    """A one-input v2 psbt signed NONE|ANYONECANPAY, with this fallback."""
+    psbt, key_manager = _unsigned_ecdsa_psbt()
+    psbt = psbt.to_v2()
+    psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    psbt.fallback_lock_time = fallback
+    psbt.inputs[0].previous_tx_id = bytes([vin]) * 32
+    psbt.inputs[0].sig_hash_type = 130  # NONE|ANYONECANPAY
+    return sign(psbt, key_manager)[0]
+
+
+def test_join_of_version_2_refuses_to_change_the_lock_time_of_a_signed_psbt() -> None:
+    """BIP370's Constructor: signatures forbid a change of the lock time."""
+    low = _signed_v2_with_fallback(0, 1)
+    high = _signed_v2_with_fallback(500, 2)
+    assert (low.lock_time, high.lock_time) == (0, 500)
+
+    for pair in ([low, high], [high, low]):
+        with pytest.raises(BTClibValueError, match="changes the lock time"):
+            join(pair, False, False, False, False)
+
+    # a join that leaves the lock time alone keeps the signatures
+    same = _signed_v2_with_fallback(500, 3)
+    joined = join([high, same], False, False, False, False)
+    assert joined.lock_time == 500
+    assert extract_tx(finalize(joined)) is not None
+
+
+def test_join_of_version_2_refuses_a_lock_time_raised_by_an_unsigned_psbt() -> None:
+    """One signed psbt is enough, whichever it is."""
+    signed = _signed_v2_with_fallback(0, 1)
+    unsigned, _ = _unsigned_ecdsa_psbt()
+    unsigned = unsigned.to_v2()
+    unsigned.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    unsigned.fallback_lock_time = 500
+    unsigned.inputs[0].previous_tx_id = b"" * 32
+
+    with pytest.raises(BTClibValueError, match="changes the lock time"):
+        join([signed, unsigned], False, False, False, False)
+
+
+def test_join_of_version_2_with_no_signature_may_change_the_lock_time() -> None:
+    """Nothing commits to the lock time yet."""
+    first, _ = _unsigned_ecdsa_psbt()
+    first = first.to_v2()
+    first.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
+    first.fallback_lock_time = 0
+    second = deepcopy(first)
+    second.fallback_lock_time = 500
+    second.inputs[0].previous_tx_id = b"" * 32
+
+    assert join([first, second], False, False, False, False).lock_time == 500
+
+
 def _flip_signature_byte(psbt: Psbt) -> None:
     """Corrupt the first signature of the finalized input."""
     psbt_in = psbt.inputs[0]

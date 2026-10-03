@@ -43,6 +43,10 @@ before upgrading, rather than a digit.
   extracted before: one with a bad signature, a missing utxo or outputs above
   the inputs. Pass `verify_scripts=False` to extract without the check.
 
+- **`join` refuses a version 2 psbt whose lock time the join changes while an
+  input is signed.** The signatures would stop verifying. Join the psbts
+  before they are signed, or give them the same lock time.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a
