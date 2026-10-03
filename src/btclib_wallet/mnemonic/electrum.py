@@ -54,7 +54,8 @@ def mxprv_from_mnemonic(
             err_msg += "; use old_master_pub_key_from_mnemonic"
         raise BTClibValueError(err_msg)
 
-    seed = btclib_mnemonics.electrum.seed_from_mnemonic(mnemonic, passphrase or "")
+    passphrase = "" if passphrase is None else passphrase
+    seed = btclib_mnemonics.electrum.seed_from_mnemonic(mnemonic, passphrase)
     if version == "standard":
         xversion = network_from_name(network).bip32_prv
         return rootxprv_from_seed(seed, xversion)

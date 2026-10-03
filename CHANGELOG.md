@@ -169,6 +169,28 @@ or install a hash-pinned export (issue btclib-org/.github#1538).
 `REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
 setting section 11 of the standard states (issue btclib-org/.github#1540).
 
+### `descriptors.parse` refuses a key of another network
+
+`parse` raises `BTClibValueError` for a WIF or an extended key of another
+network, as Core does; `KeyExpression.wif_prefix` holds the WIF's version
+byte for it (closes #180).
+
+### A `musig()` participant that is also a plain taproot key keeps its leaf hashes
+
+`TrDescriptor`'s taproot derivations list every leaf of such a key whose plain
+spelling has an origin, in either order; a participant written after the plain
+key replaced its entry with an empty list (closes #185).
+
+### `SilentPaymentOutput`'s repr leaves out `prv_key_tweak`
+
+The tweak is a secret, so a logged output does not carry it (closes #161).
+
+### `mxprv_from_mnemonic` takes only `None` or `""` as the empty passphrase
+
+In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
+`btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
+where they derived the wallet without a passphrase (closes #162).
+
 ### A malleable miniscript keeps neither `s`, `f` nor `e`
 
 `Miniscript.properties` drops "s", "f" and "e" from an expression without "m",
@@ -177,8 +199,8 @@ as BIP379 asks, and `is_signature_required` is false there (closes #190).
 ### The duplicate-key check compares derived public keys
 
 `Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
-derive at index 0, as Bitcoin Core does, except for a hardened step whose
-private key is absent (issue #193).
+derive at index 0, as Bitcoin Core does. A key with a hardened step is
+compared by its extended key and its path (issue #193).
 
 ## v2026.9.30
 
