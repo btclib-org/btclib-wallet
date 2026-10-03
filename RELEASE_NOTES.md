@@ -22,6 +22,10 @@ before upgrading, rather than a digit.
   was refused only by `script_pub_keys()`. A caller that parses a descriptor
   for a network its keys are not of has to pass the right `network`.
 
+- **`bip39.mxprv_from_mnemonic` and `electrum.mxprv_from_mnemonic` refuse
+  a falsy passphrase of another type.** An empty `bytes`, `0`, `False` or
+  `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a

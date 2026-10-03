@@ -181,6 +181,16 @@ byte for it (closes #180).
 spelling has an origin, in either order; a participant written after the plain
 key replaced its entry with an empty list (closes #185).
 
+### `SilentPaymentOutput`'s repr leaves out `prv_key_tweak`
+
+The tweak is a secret, so a logged output does not carry it (closes #161).
+
+### `mxprv_from_mnemonic` takes only `None` or `""` as the empty passphrase
+
+In `bip39` and `electrum`, `b""`, `0`, `False` and `[]` are refused with
+`btclib_mnemonics`' `BTClibMnemonicsTypeError`, as `slip39` refuses them,
+where they derived the wallet without a passphrase (closes #162).
+
 ### The suite imports btclib_ecc's exception classes from `btclib_ecc`
 
 `tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
