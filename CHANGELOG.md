@@ -274,8 +274,8 @@ An amount of more than 20 digits, leading zeros apart, is refused, where
 ### `join` refuses to change the lock time of a signed version 2 psbt
 
 BIP370's Constructor must not add an input that changes the lock time while an
-input has a signature. `join` refuses it, where it kept signatures that no longer verify
-(closes #211).
+input has a signature. `join` refuses it, where it kept signatures that no
+longer verify (closes #211).
 
 ## v2026.9.30
 

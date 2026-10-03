@@ -5476,7 +5476,7 @@ def test_join_of_version_2_keeps_signatures_that_still_verify() -> None:
 
 
 def _signed_v2_with_fallback(fallback: int | None, vin: int) -> Psbt:
-    """A one-input v2 psbt signed NONE|ANYONECANPAY, with this fallback."""
+    """Return a one-input v2 psbt signed NONE|ANYONECANPAY."""
     psbt, key_manager = _unsigned_ecdsa_psbt()
     psbt = psbt.to_v2()
     psbt.tx_modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
