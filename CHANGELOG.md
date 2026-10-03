@@ -184,10 +184,8 @@ signature fields are emptied, so the joined psbt can be signed again
 ### `extract_tx` verifies the scripts and the amounts by default
 
 `extract_tx` runs every input's scripts under the consensus rules and checks
-that the outputs do not exceed the inputs, and raises where either fails.
-`verify_scripts=False` extracts without them. `check_validity` runs no
-script, and its docstring says so. `bip322` passes `verify_scripts=False`,
-having its own script check (closes #191).
+that the outputs do not exceed the inputs. `verify_scripts=False` extracts
+without them. `bip322` passes it, running the scripts itself (closes #191).
 
 ## v2026.9.30
 

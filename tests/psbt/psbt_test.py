@@ -5510,7 +5510,7 @@ def _finalized_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
     ],
 )
 def test_extract_tx_runs_the_final_scripts_when_asked(kind: str) -> None:
-    """`check_validity` runs no script; `verify_scripts`, on by default, does."""
+    """`check_validity` runs no script; `verify_scripts` does, by default."""
     psbt, _ = _finalized_psbt(kind)
     assert extract_tx(psbt) == extract_tx(psbt, verify_scripts=False)
 
@@ -5545,11 +5545,11 @@ def test_extract_tx_verify_scripts_issue_191_vector() -> None:
 
 
 def test_extract_tx_checks_the_amounts_by_default() -> None:
-    """Outputs exceeding the inputs are refused, unless `verify_scripts` is off."""
+    """Outputs above the inputs are refused, unless `verify_scripts` is off."""
     psbt, _ = _finalized_psbt("p2wpkh")
-    psbt.inputs[0].witness_utxo = dataclasses.replace(
-        psbt.inputs[0].witness_utxo, value=1
-    )
+    utxo = psbt.inputs[0].witness_utxo
+    assert utxo is not None
+    psbt.inputs[0].witness_utxo = dataclasses.replace(utxo, value=1)
 
     with pytest.raises(BTClibValueError, match="Invalid transaction amounts"):
         extract_tx(psbt, check_validity=False)
