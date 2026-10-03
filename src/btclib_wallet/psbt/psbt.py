@@ -3589,12 +3589,18 @@ def _has_signature(psbt_in: PsbtIn) -> bool:
     )
 
 
-def _assert_signed_lock_times_kept(psbts: Sequence[Psbt], joined: Psbt) -> None:
-    """Raise where the joined psbt has another lock time than a signed one."""
+def _assert_signatures_kept(psbts: Sequence[Psbt], joined: Psbt) -> None:
+    """Raise where the join changes what a signed psbt commits to."""
     for psbt in psbts:
-        if any(map(_has_signature, psbt.inputs)) and psbt.lock_time != joined.lock_time:
+        if not any(map(_has_signature, psbt.inputs)):
+            continue
+        if psbt.lock_time != joined.lock_time:
             err_msg = "the join changes the lock time of a signed psbt: "
             err_msg += f"{psbt.lock_time} to {joined.lock_time}"
+            raise BTClibValueError(err_msg)
+        if psbt.tx_version != joined.tx_version:
+            err_msg = "the join changes the tx version of a signed psbt: "
+            err_msg += f"{psbt.tx_version} to {joined.tx_version}"
             raise BTClibValueError(err_msg)
 
 
@@ -3645,13 +3651,11 @@ def join(
     commits to the version and lock time, and stops verifying where the
     join changes either.
 
-    BIP370's Constructor must not add an input that changes the lock
-    time where an input has a signature, so the join is refused where a
-    version 2 psbt with a signed input would have another lock time in
-    the result. The lock time is the one BIP370's "Determining Lock
-    Time" gives, which the inputs' required lock times and the fallback
-    decide, and not only the fallback. The version a signature commits
-    to is not checked.
+    The join is refused where it changes the lock time or the tx version
+    of a version 2 psbt with a signed input, whose signatures commit to
+    both. BIP370's Constructor refuses an input that would change the
+    lock time. The lock time is the one BIP370's "Determining Lock Time"
+    gives.
 
     A signed message is not carried over, and that is not an omission:
     it says which challenge *this* transaction answers, and joining
@@ -3729,5 +3733,5 @@ def join(
 
     psbt.assert_valid()
     if version != PSBT_V0:
-        _assert_signed_lock_times_kept(psbts, psbt)
+        _assert_signatures_kept(psbts, psbt)
     return psbt
