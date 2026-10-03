@@ -5526,7 +5526,7 @@ def test_extract_tx_runs_the_final_scripts_by_default(kind: str) -> None:
 
 
 def test_extract_tx_without_check_validity_does_not_assert_valid() -> None:
-    """`check_validity=False` skips `assert_valid`, even where the scripts run."""
+    """`check_validity=False` skips `assert_valid` where the scripts run."""
     psbt, _ = _finalized_psbt("p2wpkh")
     psbt.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
     with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
