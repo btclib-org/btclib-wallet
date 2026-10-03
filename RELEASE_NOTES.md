@@ -27,8 +27,7 @@ before upgrading, rather than a digit.
   `[]` derived the wallet without a passphrase; pass `None` or `""` for that.
 
 - **A miniscript repeating a public key is refused under different
-  spellings of it.** `descriptors.parse` does so as Bitcoin Core does, except
-  for a key with a hardened step.
+  spellings of it.** `descriptors.parse` does so as Bitcoin Core does.
 
 - **A malleable miniscript keeps neither "s", "f" nor "e".**
   `Miniscript.properties` drops them, and `is_signature_required` is false for
@@ -42,6 +41,11 @@ before upgrading, rather than a digit.
   checks that the outputs do not exceed the inputs, so it raises on a psbt it
   extracted before: one with a bad signature, a missing utxo or outputs above
   the inputs. Pass `verify_scripts=False` to extract without the check.
+
+- **`Miniscript.has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and
+  `insane_sub` are methods.** Call them with parentheses. Pass `prv_keys`, the
+  mapping `parse` fills, to derive a hardened step: `descriptors.parse`
+  refuses `wsh(or_i(pk(XPRV/1h),pk(<the key it derives>)))`.
 
 ## v2026.9.30
 

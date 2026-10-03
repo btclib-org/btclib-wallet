@@ -199,8 +199,7 @@ as BIP379 asks, and `is_signature_required` is false there (closes #190).
 ### The duplicate-key check compares derived public keys
 
 `Miniscript.has_duplicate_keys` compares the public keys the KEY expressions
-derive at index 0, as Bitcoin Core does. A key with a hardened step is
-compared by its extended key and its path (issue #193).
+derive at index 0, as Bitcoin Core does (issue #193).
 
 ### The `Sign-off` check is required
 
@@ -270,6 +269,12 @@ of more than 1000 arguments is refused, a limit of this library (closes #159).
 
 An amount of more than 20 digits, leading zeros apart, is refused, where
 `int()` raised the built-in `ValueError` past 4300 digits (closes #205).
+
+### The duplicate-key check derives a hardened step
+
+`has_duplicate_keys`, `is_sane`, `is_sane_subexpression` and `insane_sub` of
+`Miniscript` are methods taking `prv_keys`, and a hardened step is derived
+where the descriptor holds its private key (closes #199) (issue #193).
 
 ## v2026.9.30
 
