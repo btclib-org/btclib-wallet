@@ -236,6 +236,24 @@ minikey, derivation-path and transaction-or-PSBT parsers (closes #164).
 `ASSURANCE_CASE.md` says a module no `.github/mutation/` profile lists
 rests on coverage alone (closes #165).
 
+### `sign` updates `PSBT_GLOBAL_TX_MODIFIABLE` of a version 2 psbt
+
+Each signature added clears Inputs Modifiable unless it is ANYONECANPAY,
+clears Outputs Modifiable unless it is NONE, and sets Has SIGHASH_SINGLE
+where it is SINGLE, as BIP370 asks of the Signer (closes #194).
+
+### `join` clears the signatures of a version 0 psbt's inputs
+
+`partial_sigs`, the final scriptSig and witness, and the taproot and MuSig2
+signature fields are emptied, so the joined psbt can be signed again
+(closes #195).
+
+### `extract_tx` verifies the scripts and the amounts by default
+
+`extract_tx` runs every input's scripts under the consensus rules and checks
+that the outputs do not exceed the inputs. `verify_scripts=False` extracts
+without them. `bip322` passes it, running the scripts itself (closes #191).
+
 ### The parsers refuse a long number as a `BTClibValueError`
 
 A derivation index, a multisignature or `thresh()` threshold, an `older()` or

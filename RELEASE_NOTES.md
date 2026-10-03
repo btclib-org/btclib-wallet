@@ -34,6 +34,15 @@ before upgrading, rather than a digit.
   `Miniscript.properties` drops them, and `is_signature_required` is false for
   it.
 
+- **`join` empties the signatures of a version 0 psbt, and `sign` updates a
+  version 2 psbt's modifiable flags.** Sign the joined psbt again. `join`
+  refuses a version 2 psbt signed with anything but SIGHASH_NONE|ANYONECANPAY.
+
+- **`extract_tx` verifies by default.** It runs every input's scripts and
+  checks that the outputs do not exceed the inputs, so it raises on a psbt it
+  extracted before: one with a bad signature, a missing utxo or outputs above
+  the inputs. Pass `verify_scripts=False` to extract without the check.
+
 ## v2026.9.30
 
 A binary-string entropy passed as `bytes` is refused with a

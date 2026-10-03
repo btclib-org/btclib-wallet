@@ -51,7 +51,15 @@ from btclib.script import (
     taproot,
     type_and_payload,
 )
-from btclib.script.sig_hash import ALL, DEFAULT, assert_valid_hash_type
+from btclib.script.engine import verify_transaction
+from btclib.script.sig_hash import (
+    ALL,
+    ANYONECANPAY,
+    DEFAULT,
+    NONE,
+    SINGLE,
+    assert_valid_hash_type,
+)
 from btclib.tx import Tx, TxIn, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
 from btclib.utils import (
@@ -2565,6 +2573,29 @@ class KeyManager(Protocol):
         ...
 
 
+def _record_signature(psbt: Psbt, hash_type: int) -> None:
+    """Update PSBT_GLOBAL_TX_MODIFIABLE for a signature of this type.
+
+    BIP370 asks the Signer of a version 2 psbt to record what the
+    signature commits to: a type without ANYONECANPAY clears Inputs
+    Modifiable, one without NONE clears Outputs Modifiable, and SINGLE
+    sets Has SIGHASH_SINGLE. DEFAULT commits to what ALL does. A psbt
+    without the field already says that nothing may be modified, so only
+    Has SIGHASH_SINGLE creates it. A version 0 psbt has no field.
+    """
+    if psbt.version == PSBT_V0:
+        return
+    flags = psbt.tx_modifiable
+    if flags is not None:
+        if not hash_type & ANYONECANPAY:
+            flags &= ~INPUTS_MODIFIABLE
+        if hash_type & ~ANYONECANPAY != NONE:
+            flags &= ~OUTPUTS_MODIFIABLE
+    if hash_type & ~ANYONECANPAY == SINGLE:
+        flags = (flags or 0) | HAS_SIG_HASH_SINGLE
+    psbt.tx_modifiable = flags
+
+
 def _sign_ecdsa_input(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> bool:
     """Write every partial signature key_manager gives for one input.
 
@@ -2589,6 +2620,7 @@ def _sign_ecdsa_input(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> bool:
         if sig is None:
             continue
         psbt_in.partial_sigs[pub_key] = sig + hash_type.to_bytes(1, "big")
+        _record_signature(psbt, hash_type)
         signed = True
     return signed
 
@@ -2631,6 +2663,7 @@ def _sign_taproot_key_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -> b
     if sig is None:
         return False
     psbt_in.taproot_key_spend_signature = _taproot_signature(sig, psbt_in)
+    _record_signature(psbt, psbt_in.sig_hash_type or DEFAULT)
     return True
 
 
@@ -2680,6 +2713,7 @@ def _sign_taproot_script_path(psbt: Psbt, vin_i: int, key_manager: KeyManager) -
             psbt_in.taproot_script_spend_signatures[key_data] = _taproot_signature(
                 sig, psbt_in
             )
+            _record_signature(psbt, psbt_in.sig_hash_type or DEFAULT)
             signed = True
     return signed
 
@@ -2711,6 +2745,9 @@ def sign(psbt: Psbt, key_manager: KeyManager) -> tuple[Psbt, list[int]]:
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
     does not raise.
+
+    A version 2 psbt comes back with PSBT_GLOBAL_TX_MODIFIABLE updated
+    for every signature added, as BIP370 asks of the Signer.
 
     A psbt paying a silent payment is also asked BIP375's Signer rules,
     `btclib_wallet.psbt.silent_payments._assert_signable`, before any
@@ -3403,8 +3440,10 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     return psbt
 
 
-def extract_tx(psbt: Psbt, *, check_validity: bool = True) -> Tx:
-    """Extract the Tx fro the Psbt.
+def extract_tx(
+    psbt: Psbt, *, check_validity: bool = True, verify_scripts: bool = True
+) -> Tx:
+    """Extract the Tx from the Psbt.
 
     The Transaction Extractor must only accept a PSBT. It checks whether
     all inputs have complete scriptSigs and scriptWitnesses by checking
@@ -3428,6 +3467,17 @@ def extract_tx(psbt: Psbt, *, check_validity: bool = True) -> Tx:
     `assert_as_valid`, whose last check recomputes every script from the
     ECDH shares, and a script on every silent payment output.
     `check_validity=False` skips it with the rest.
+
+    `check_validity` runs no script, so it does not say that the
+    transaction will be accepted: a final scriptSig or witness holding a
+    bad signature passes it. `verify_scripts`, true by default, runs
+    every input's scripts against the output it spends, under the
+    consensus rules of `btclib.script.engine.verify_transaction`, and
+    raises where one fails. It also raises where the outputs exceed the
+    inputs. A signature that is valid under consensus and not standard
+    (high-S) passes it. It needs every input's utxo and raises
+    `BTClibValueError` where one is missing. `verify_scripts=False`
+    extracts without these checks.
     """
     if check_validity:
         psbt.assert_valid()
@@ -3450,6 +3500,8 @@ def extract_tx(psbt: Psbt, *, check_validity: bool = True) -> Tx:
 
     if check_validity:
         tx.assert_valid()
+    if verify_scripts:
+        verify_transaction(_spent_outputs(psbt.inputs), tx)
     return tx
 
 
@@ -3506,6 +3558,25 @@ def _ensure_consistency(psbts: Sequence[Psbt]) -> None:
         unknown.update(psbt.unknown)
 
 
+def _joined_inputs(psbts: Sequence[Psbt]) -> list[PsbtIn]:
+    """Return the inputs of all psbts, without signatures for version 0.
+
+    The inputs are the psbts' own, so the caller passes copies.
+    """
+    inputs = [inp for psbt in psbts for inp in psbt.inputs]
+    if psbts[0].version != PSBT_V0:
+        return inputs
+    for inp in inputs:
+        inp.partial_sigs = {}
+        inp.final_script_sig = b""
+        inp.final_script_witness = Witness()
+        inp.taproot_key_spend_signature = b""
+        inp.taproot_script_spend_signatures = {}
+        inp.musig2_pub_nonces = {}
+        inp.musig2_partial_sigs = {}
+    return inputs
+
+
 def join(
     psbts: Sequence[Psbt],
     enforce_same_tx_version: bool,
@@ -3542,6 +3613,17 @@ def join(
     inputs *are* theirs, and an Updater filling one in afterwards fills
     in a psbt somebody else is still holding.
 
+    A version 0 psbt's signatures are not carried over: the joined
+    transaction is not the one they were made over, and a signature that
+    no longer verifies would also make `sign` skip its key. Every
+    input's `partial_sigs`, final scripts and taproot and MuSig2
+    signature fields are cleared, and its keys, scripts, origins and
+    utxo kept. A version 2 psbt keeps its signatures. Under BIP370's
+    Signer rules, one that passes the modifiable flags was signed
+    SIGHASH_NONE|ANYONECANPAY or not at all. Such a signature still
+    commits to the version and lock time, and stops verifying where the
+    join changes either.
+
     A signed message is not carried over, and that is not an omission:
     it says which challenge *this* transaction answers, and joining
     builds a transaction that is not it -- BIP322 binds the message to
@@ -3568,7 +3650,7 @@ def join(
         _assert_modifiable(psbt, inputs=True)
         _assert_modifiable(psbt, inputs=False)
 
-    inputs = [inp for psbt in psbts for inp in psbt.inputs]
+    inputs = _joined_inputs(psbts)
     outputs = [outp for psbt in psbts for outp in psbt.outputs]
     hd_key_paths: dict[Octets, BIP32KeyOrigin] = {
         k: v for psbt in psbts for k, v in psbt.hd_key_paths.items()
