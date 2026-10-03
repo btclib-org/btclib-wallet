@@ -162,9 +162,9 @@ _MAX_TAPSCRIPT_SIZE = _TAPSCRIPT_WEIGHT_LEFT - len(
 # is the stack: one element per key, and no more than 1000 elements
 _MAX_PUBKEYS_PER_MULTI_A = 999
 
-# the arguments of one thresh() a parse reads. The stack analysis of a thresh()
-# takes time quadratic in its arguments and the size of a tapscript alone
-# allows thousands; a thresh() of keys over this many is unsatisfiable
+# the most arguments a parse reads in one thresh(). The stack analysis of a
+# thresh() takes time quadratic in its arguments and the size of a tapscript
+# alone allows thousands; a thresh() of keys over this many is unsatisfiable
 # anyway, its witness holding one element per key. This is a limit of
 # this library and not of the protocol: it refuses some thresh() Bitcoin Core
 # parses. It bounds one thresh() and not nested ones, which `_Built`'s

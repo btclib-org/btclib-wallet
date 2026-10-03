@@ -6,8 +6,8 @@
 
 Python's `int()` refuses a string of more than 4300 digits with a built-in
 `ValueError`, which no caller catching this library's errors expects. And
-a `thresh()` costs time quadratic in its arguments, so the size limit has
-to refuse an over-limit one before that analysis starts.
+a `thresh()` costs time quadratic in its arguments, so a parse refuses before
+it analyses one whose arguments pass the size limit.
 """
 
 from __future__ import annotations
@@ -231,11 +231,11 @@ def test_nested_thresh_is_refused_by_the_running_total_in_tapscript(
 
 
 def test_a_wide_and_nested_thresh_is_refused_quickly() -> None:
-    """Refuse a `thresh()` of 60 of 60 of 60 `thresh()` quickly.
+    """Refuse a `thresh()` of 60 of 60 of 60 `thresh()` within 5 s.
 
-    It takes 0.5 s to refuse, and 12 s without the running total, which lets
-    the analysis of every `thresh()` run before the size is checked. The
-    bound is ten times the first, so that a loaded machine does not fail it.
+    Analysing every inner `thresh()` before the size is checked takes longer
+    than that; refusing once the running total passes the limit takes a
+    fraction of it.
     """
     text = _nested_thresh(60, _nested_thresh(60, _thresh(60, _XONLY)))
     start = time.perf_counter()

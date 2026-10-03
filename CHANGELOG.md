@@ -239,14 +239,14 @@ rests on coverage alone (closes #165).
 ### The parsers refuse a long number as a `BTClibValueError`
 
 A derivation index, a multisignature or `thresh()` threshold, an `older()` or
-`after()` number and a wallet-policy `@N` of more than ten digits are refused,
-where `int()` raised the built-in `ValueError` past 4300 digits (closes #158).
+`after()` number and a wallet-policy `@N` of over ten significant digits are
+refused, where `int()` raised `ValueError` past 4300 digits (closes #158).
 
-### `thresh()` is refused by its size or its argument count before it is analysed
+### A miniscript parse stops at its script size and at 1000 `thresh()` arguments
 
 A parse refuses once the fragments it has built pass the context's script
-size, and a `thresh()` of over 1000 arguments (a limit of this library, not
-of the protocol), before the quadratic analysis (closes #159).
+size, before it analyses the `thresh()` they are arguments of. A `thresh()`
+of more than 1000 arguments is refused, a limit of this library (closes #159).
 
 ### `Bolt11Invoice.from_invoice` refuses a long amount as a `BTClibValueError`
 
