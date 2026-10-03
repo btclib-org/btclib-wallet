@@ -3475,8 +3475,8 @@ def extract_tx(
     consensus rules of `btclib.script.engine.verify_transaction`, and
     raises where one fails. It also raises where the outputs exceed the
     inputs. A signature that is valid under consensus and not standard
-    (high-S) passes it. It needs every input's utxo, and an input
-    without one raises as `prevouts` does. `verify_scripts=False`
+    (high-S) passes it. It needs every input's utxo and raises
+    `BTClibValueError` where one is missing. `verify_scripts=False`
     extracts without these checks.
     """
     if check_validity:
