@@ -746,8 +746,8 @@ class SilentPaymentOutput:
       transaction carries and what identifies the output
     - prv_key_tweak is the scalar to add to the spend private key,
       t_k plus the label tweak where a label was used:
-      `prv_key_from_tweak` does that addition; it is a secret, so the
-      repr leaves it out
+      `prv_key_from_tweak` does that addition
+    - prv_key_tweak is a secret, so the repr leaves it out
     """
 
     pub_key: bytes

@@ -914,7 +914,7 @@ def test_only_ascii_whitespace_is_stripped_from_an_address() -> None:
 
 
 def test_repr_leaves_out_the_tweak() -> None:
-    """The tweak is a secret: with one output key it gives the spend key."""
+    """The tweak is a secret: with one output's private key it gives the spend private key."""
     tweak = 0xDEADBEEF1234
     output = silent_payments.SilentPaymentOutput(b"\x11" * 32, tweak)
     assert str(tweak) not in repr(output)
