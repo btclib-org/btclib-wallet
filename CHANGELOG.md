@@ -273,8 +273,9 @@ An amount of more than 20 digits, leading zeros apart, is refused, where
 
 ### A `musig()` participant with an origin keeps the leaf hashes of its plain key
 
-`TrDescriptor`'s taproot derivations list every leaf of a key that is a plain
-leaf key and a participant, whichever spelling has the origin (closes #198).
+`TrDescriptor`'s taproot derivations give a key that is a plain leaf key and a
+`musig()` participant the leaf hashes of its plain leaves, whichever spelling
+has the origin (closes #198).
 
 ## v2026.9.30
 
