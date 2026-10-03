@@ -67,7 +67,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TypeVar
+from typing import SupportsIndex, TypeVar
 
 from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibValueError
@@ -95,6 +95,7 @@ from btclib.var_int import serialize as var_int_serialize
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import BIP32KeyData
+from btclib_wallet.bip32.der_path import _int_from_digits
 from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
     PrvKeys,
@@ -160,6 +161,15 @@ _MAX_TAPSCRIPT_SIZE = _TAPSCRIPT_WEIGHT_LEFT - len(
 # BIP342 puts no bound of its own on the keys of a multi_a(), so the bound
 # is the stack: one element per key, and no more than 1000 elements
 _MAX_PUBKEYS_PER_MULTI_A = 999
+
+# the most arguments a parse reads in one thresh(). The stack analysis of a
+# thresh() takes time quadratic in its arguments and the size of a tapscript
+# alone allows thousands; a thresh() of keys over this many is unsatisfiable
+# anyway, its witness holding one element per key. This is a limit of
+# this library and not of the protocol: it refuses some thresh() Bitcoin Core
+# parses. It bounds one thresh() and not nested ones, which `_Built`'s
+# running total of script size bounds
+_MAX_THRESH_ARGUMENTS = MAX_STACK_SIZE
 
 # 1 <= n < 2**31 for older() and after(): a script number is signed, so
 # 2**31 is the first value CHECKSEQUENCEVERIFY cannot be handed, and zero
@@ -1839,6 +1849,48 @@ def _expression_end(text: str, pos: int) -> int:
     return len(text)
 
 
+class _Built(list[Miniscript]):
+    """The fragments a parse has finished, refused once their sum is too large.
+
+    Every fragment held ends up in the script the parse returns, so their
+    sizes added are a lower bound of its size. Keeping the sum, and
+    refusing as the fragment that passes the limit is added, bounds the
+    work of a parse by the script size of its context, however the
+    thresh() in it are nested: each is analysed in time quadratic in its
+    arguments, and the sum is what no nesting escapes.
+    """
+
+    def __init__(self, context: str) -> None:
+        super().__init__()
+        self._limit = _max_script_size(context)
+        self._context = context
+        self._total = 0
+
+    @override
+    def append(self, node: Miniscript) -> None:
+        self._total += node.script_size
+        if self._total > self._limit:
+            err_msg = (
+                f"miniscript too large for {self._context}: "
+                f"at least {self._total} bytes of script"
+            )
+            raise BTClibValueError(err_msg)
+        super().append(node)
+
+    @override
+    def pop(self, index: SupportsIndex = -1) -> Miniscript:
+        node = super().pop(index)
+        self._total -= node.script_size
+        return node
+
+    def drop_last(self, count: int) -> tuple[Miniscript, ...]:
+        """Remove and return the last `count` fragments."""
+        nodes = tuple(self[len(self) - count :])
+        del self[len(self) - count :]
+        self._total -= sum(node.script_size for node in nodes)
+        return nodes
+
+
 def _assert_typed(node: Miniscript) -> Miniscript:
     """Return the node, refusing one the type system does not allow.
 
@@ -1861,7 +1913,7 @@ def _assert_typed(node: Miniscript) -> Miniscript:
     return node
 
 
-def _built(fragment: str, built: list[Miniscript], context: str) -> None:
+def _built(fragment: str, built: _Built, context: str) -> None:
     """Build a node from the arguments already built, and check its type.
 
     The sugared wrappers are built as what they stand for: ``t:X`` is
@@ -1883,8 +1935,7 @@ def _built(fragment: str, built: list[Miniscript], context: str) -> None:
         fragment = "andor"
     else:
         count = 1 if fragment in _WRAPPERS else _ARITY[fragment]
-        arguments = tuple(built[len(built) - count :])
-        del built[len(built) - count :]
+        arguments = built.drop_last(count)
     built.append(_assert_typed(Miniscript(fragment, context, arguments)))
 
 
@@ -1892,7 +1943,7 @@ def _read_wrappers(
     expression: str,
     pos: int,
     to_parse: list[tuple[str, int, int]],
-    built: list[Miniscript],
+    built: _Built,
     context: str,
 ) -> int:
     """Read the wrappers in front of an expression, and stack them.
@@ -1991,7 +2042,7 @@ def _read_multi(
             )
             for key in keys
         ),
-        threshold=int(threshold),
+        threshold=_int_from_digits(threshold, f"{name}() threshold"),
     )
 
 
@@ -2004,7 +2055,7 @@ def _read_number(name: str, argument: str) -> int:
     """
     if not _NUMBER.fullmatch(argument):
         raise BTClibValueError(f"invalid {name}() number: digits expected")
-    return int(argument)
+    return _int_from_digits(argument, f"{name}() number")
 
 
 def _read_leaf(
@@ -2028,7 +2079,7 @@ def _read_fragment(
     expression: str,
     pos: int,
     to_parse: list[tuple[str, int, int]],
-    built: list[Miniscript],
+    built: _Built,
     context: str,
     prv_keys: dict[str, str],
 ) -> int:
@@ -2074,7 +2125,7 @@ def _read_more_thresh(
     expression: str,
     pos: int,
     to_parse: list[tuple[str, int, int]],
-    built: list[Miniscript],
+    built: _Built,
     context: str,
     count: int,
     threshold: int,
@@ -2082,13 +2133,15 @@ def _read_more_thresh(
     """Read another thresh() argument, or close the thresh() and build it."""
     char = expression[pos : pos + 1]
     if char == ",":
+        if count == _MAX_THRESH_ARGUMENTS:
+            err_msg = f"thresh() takes at most {_MAX_THRESH_ARGUMENTS} arguments"
+            raise BTClibValueError(err_msg)
         to_parse.append((_MORE_THRESH, count + 1, threshold))
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
     if char != ")":
         raise BTClibValueError("unbalanced brackets in thresh()")
-    arguments = tuple(built[len(built) - count :])
-    del built[len(built) - count :]
+    arguments = built.drop_last(count)
     built.append(
         _assert_typed(Miniscript("thresh", context, arguments, threshold=threshold))
     )
@@ -2128,7 +2181,7 @@ def parse(
     if prv_keys is None:
         prv_keys = {}
     to_parse: list[tuple[str, int, int]] = [(_WRAPPED_EXPR, 0, 0)]
-    built: list[Miniscript] = []
+    built = _Built(context)
     pos = 0
     while to_parse:
         state, count, threshold = to_parse.pop()

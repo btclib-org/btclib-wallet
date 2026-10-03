@@ -123,6 +123,10 @@ _NETWORK_FROM_CURRENCY = {v: k for k, v in _CURRENCY_FROM_NETWORK.items()}
 _CURRENCIES_BY_LENGTH = sorted(_NETWORK_FROM_CURRENCY, key=len, reverse=True)
 
 _AMOUNT_RE = re.compile(r"([0-9]+)([munp]?)\Z")
+# the most digits of an amount, leading zeros apart: 21 million
+# bitcoin is 2.1e19 pico-bitcoin. A longer one is refused
+# before `int()`, which raises a built-in `ValueError` past 4300 digits
+_MAX_AMOUNT_DIGITS = 20
 # millisatoshi per unit digit, for the three multipliers that scale
 # evenly; "p" (pico-BTC) is a tenth of a millisatoshi, handled on its own
 # below rather than through this table
@@ -199,7 +203,10 @@ def _parse_hrp(hrp: str) -> tuple[str, int | None]:
     if not match:
         raise BTClibValueError(f"invalid amount: {amount_part!r}")
     digits, multiplier = match.group(1), match.group(2)
-    value = int(digits)
+    digits = digits.lstrip("0")
+    if len(digits) > _MAX_AMOUNT_DIGITS:
+        raise BTClibValueError(f"invalid amount: more than {_MAX_AMOUNT_DIGITS} digits")
+    value = int(digits or "0")
     if multiplier == "p":
         if value % 10:
             err_msg = "a pico-bitcoin amount must end in a 0 digit: "

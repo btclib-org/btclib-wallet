@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from btclib.bech32 import encode as bech32_encode
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -35,7 +36,7 @@ from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.der_path import indexes_from_der_path
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.bolt11 import Bolt11Invoice
+from btclib_wallet.bolt11 import _SIGNATURE_WORDS, Bolt11Invoice
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt import psbt_utils
 from btclib_wallet.psbt.psbt import Psbt
@@ -243,6 +244,44 @@ def test_text_parser_honors_the_exception_contract(
 ) -> None:
     """Fuzz every text parser: refusals stay within the contract."""
     _assert_contract(parse, data)
+
+
+# A number of more than 4300 digits is past `MAX_INPUT` and past what
+# `int()` takes, so the strategy above cannot stumble on it. Each text
+# parser is handed one in every place a number is read.
+_KEY = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"  # pragma: allowlist secret
+_XPUB = (
+    "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjq"  # pragma: allowlist secret
+    "JoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8"  # pragma: allowlist secret
+)
+_MINISCRIPT_TEXTS = (
+    "older({n})",
+    f"thresh({{n}},pk({_KEY}),s:pk({_KEY}))",
+    f"multi({{n}},{_KEY})",
+)
+LONG_NUMBER_TEXTS = [(miniscript.parse, text) for text in _MINISCRIPT_TEXTS] + [
+    (descriptors.parse, f"wsh(and_v(v:pk({_KEY}),{_MINISCRIPT_TEXTS[0]}))"),
+    (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[1]})"),
+    (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[2]})"),
+    (descriptors.parse, f"wpkh({_XPUB}/{{n}})"),
+]
+
+
+def test_invoice_refuses_an_amount_over_4300_digits() -> None:
+    """An amount `int()` cannot read leaves as the contract says."""
+    for digits in ("9" * 5000, "0" * 5000 + "1"):
+        words = [0] * (7 + _SIGNATURE_WORDS)
+        invoice = bech32_encode("lnbc" + digits + "m", words, 1).decode()
+        _assert_contract(Bolt11Invoice.from_invoice, invoice)
+
+
+@pytest.mark.parametrize("parse, template", LONG_NUMBER_TEXTS)
+def test_text_parser_refuses_a_number_over_4300_digits(
+    parse: Callable[[str], Any], template: str
+) -> None:
+    """A number `int()` cannot read leaves as the contract says."""
+    for digits in ("9" * 5000, "0" * 5000 + "1"):
+        _assert_contract(parse, template.format(n=digits))
 
 
 def _first_valid_psbt() -> bytes:

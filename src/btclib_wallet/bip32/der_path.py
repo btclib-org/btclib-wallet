@@ -52,6 +52,24 @@ _HARDENING = "h"
 # every other script and the Unicode whitespace around them (issue #107)
 _INDEX = re.compile(r"[0-9]+")
 
+# the most digits, leading zeros apart, that a number read from text may
+# have: 2**32 has ten. `int()` refuses more than 4300 digits with a built-in
+# `ValueError`, and a caller catching this library's errors would miss it
+_MAX_DIGITS = 10
+
+
+def _int_from_digits(digits: str, what: str) -> int:
+    """Return the number that ASCII `digits` spell, refusing a long one.
+
+    Leading zeros are not counted, since they change no value. `digits`
+    is already known to be one or more of `0` to `9`.
+    """
+    significant = digits.lstrip("0")
+    if len(significant) > _MAX_DIGITS:
+        raise BTClibValueError(f"invalid {what}: more than {_MAX_DIGITS} digits")
+    return int(significant or "0")
+
+
 # the offset a hardened index carries: BIP32 splits the 2**32 indexes in
 # half at 2**31, so an index is hardened when it reaches this value, and
 # what a path spells before the hardening symbol is what is left under it.
@@ -84,7 +102,7 @@ def _index_and_hardening_from_str(s: str, *, bip380_enforced: bool) -> tuple[int
     # after a path with no separator between them is read as its last step
     if not _INDEX.fullmatch(number):
         raise BTClibValueError("invalid derivation index: not ASCII decimal digits")
-    index = int(number)
+    index = _int_from_digits(number, "derivation index")
     if index >= _HARDENED_OFFSET:
         raise BTClibValueError("invalid index: not below 2**31")
     return index + (_HARDENED_OFFSET if hardening else 0), hardening
