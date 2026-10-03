@@ -3589,6 +3589,15 @@ def _has_signature(psbt_in: PsbtIn) -> bool:
     )
 
 
+def _assert_signed_lock_times_kept(psbts: Sequence[Psbt], joined: Psbt) -> None:
+    """Raise where the joined psbt has another lock time than a signed one."""
+    for psbt in psbts:
+        if any(map(_has_signature, psbt.inputs)) and psbt.lock_time != joined.lock_time:
+            err_msg = "the join changes the lock time of a signed psbt: "
+            err_msg += f"{psbt.lock_time} to {joined.lock_time}"
+            raise BTClibValueError(err_msg)
+
+
 def join(
     psbts: Sequence[Psbt],
     enforce_same_tx_version: bool,
@@ -3720,11 +3729,5 @@ def join(
 
     psbt.assert_valid()
     if version != PSBT_V0:
-        for original in psbts:
-            if any(map(_has_signature, original.inputs)) and (
-                original.lock_time != psbt.lock_time
-            ):
-                err_msg = "the join changes the lock time of a signed psbt: "
-                err_msg += f"{original.lock_time} to {psbt.lock_time}"
-                raise BTClibValueError(err_msg)
+        _assert_signed_lock_times_kept(psbts, psbt)
     return psbt
