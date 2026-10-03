@@ -346,6 +346,18 @@ gh api orgs/btclib-org/actions/permissions \
 the standard has the reasons for both
 fields](https://github.com/btclib-org/.github/blob/main/README.md#tokens-publishing-scanning).
 
+## Sign-off on web commits
+
+```shell
+gh api repos/btclib-org/btclib-wallet --jq .web_commit_signoff_required
+# true
+gh api orgs/btclib-org --jq .web_commit_signoff_required
+# true
+```
+
+Set at the organization level, [for the reason section 11
+gives](https://github.com/btclib-org/.github/blob/main/README.md#signatures).
+
 ## Publishing
 
 **Publishing waits for an approval**: the `pypi` and `testpypi`
@@ -595,8 +607,8 @@ back with a call of its own.
 
 **A switch no section of the standard states a rule for stays out.**
 `allow_forking`, `allow_update_branch`, `has_discussions`,
-`has_downloads`, `is_template` and `web_commit_signoff_required` are in
-that document and no section above reads any of them back.
+`has_downloads` and `is_template` are in that document and no section
+above reads any of them back.
 
 **A credential this repository spends and does not hold.**
 `claude-review.yml` reads `secrets.CLAUDE_CODE_OAUTH_TOKEN`, which

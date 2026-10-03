@@ -164,6 +164,11 @@ stands in (issue btclib-org/.github#1527).
 `--locked`, bar the jobs that re-lock, install a published or built package
 or install a hash-pinned export (issue btclib-org/.github#1538).
 
+### `REPOSITORY.md` reads back the web sign-off setting
+
+`REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
+setting section 11 of the standard states (issue btclib-org/.github#1540).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
