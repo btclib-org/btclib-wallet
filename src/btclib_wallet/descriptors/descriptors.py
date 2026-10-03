@@ -695,10 +695,10 @@ def _taproot_derivations(
     `_aggregate_origin` computes, and each participant that carries an
     origin of its own -- the second being how a signer finds out that one
     of the keys it holds is in this group at all. A participant is in no
-    leaf of its own as a participant, so its leaf hashes are empty unless
-    the same key is also a plain key with an origin, whose entry it does
-    not replace; what says which leaves the group signs for is the
-    aggregate's own entry.
+    leaf of its own as a participant, so it carries the leaf hashes of the
+    leaves its key is a plain key of, and none where it is not one, and
+    its origin is the plain key's where that has one; what says which
+    leaves the group signs for is the aggregate's own entry.
     """
     derivations: dict[bytes, tuple[list[bytes], BIP32KeyOrigin]] = {}
     for key in keys:
@@ -715,7 +715,9 @@ def _taproot_derivations(
             if participant_origin is None:
                 continue
             x_only = participant.sec(index, network, prv_keys)[1:]
-            derivations.setdefault(x_only, ([], participant_origin))
+            derivations.setdefault(
+                x_only, (list(leaf_hashes.get(x_only, [])), participant_origin)
+            )
     return derivations
 
 
