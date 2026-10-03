@@ -288,12 +288,6 @@ the bypass is for emergencies (issue btclib-org/.github#1362).
 Entries above that have the maintainer landing without another person's approval
 describe the rule before issue btclib-org/.github#1362 (issue
 btclib-org/.github#1569).
-### `join` refuses to change the lock time of a signed version 2 psbt
-### `join` refuses to change the lock time or tx version of a signed psbt
-
-`join` refuses to change the lock time or the tx version of a version 2 psbt
-with a signed input, whose signatures commit to both. It kept signatures that
-no longer verified (closes #211).
 
 ### A PSBT's global unsigned transaction is read as Core reads it
 
@@ -306,6 +300,12 @@ It is read as `TX_NO_WITNESS`, so a PSBT with no input is read. The floors are
 `TrDescriptor`'s taproot derivations give a key that is a plain leaf key and a
 `musig()` participant the leaf hashes of its plain leaves, whichever spelling
 has the origin (closes #198).
+
+### `join` refuses to change the lock time or tx version of a signed version 2 psbt
+
+`join` refuses to change the lock time or the tx version of a version 2 psbt
+with a signed input, whose signatures commit to both. It kept signatures that
+no longer verified (closes #211).
 
 ## v2026.9.30
 

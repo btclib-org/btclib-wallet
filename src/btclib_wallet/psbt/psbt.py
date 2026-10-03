@@ -3652,9 +3652,9 @@ def join(
     join changes either.
 
     The join is refused where it changes the lock time or the tx version
-    of a version 2 psbt with a signed input, whose signatures commit to
-    both. BIP370's Constructor refuses an input that would change the
-    lock time. The lock time is the one BIP370's "Determining Lock Time"
+    of a version 2 psbt with a signed input. BIP370's Constructor must
+    not add an input that changes the lock time while an input is signed.
+    The lock time compared is the one BIP370's "Determining Lock Time"
     gives.
 
     A signed message is not carried over, and that is not an omission:
