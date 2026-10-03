@@ -122,11 +122,9 @@ TEXT_PARSERS: dict[str, Callable[[str], Any]] = {
 # walks the first three only
 _CLASS_DECODER_METHODS = ("parse", "b64decode", "b58decode", "from_invoice")
 
-# And the module-function side of the same family: the names a bare
-# function decodes under, `descriptors.checksum` being the one member
-# with no class to read a `b64decode` or a `b58decode` off. A decoder
-# named otherwise -- the `psbt_utils` entries above are such -- rests
-# on the dicts, by hand, not on this walk
+# And the module-function side: the names a bare function decodes
+# under. A decoder named otherwise -- the `psbt_utils` entries above are
+# such -- rests on the dicts, by hand, not on this walk
 _MODULE_DECODER_NAMES = (
     "parse",
     "decode",

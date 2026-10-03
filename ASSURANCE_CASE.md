@@ -38,11 +38,11 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
 - **Where a secret meets the curve, the protection is the one
   SECURITY.md's *Where constant time ends* states, and no more.** Signing
   and verification run where btclib-ecc runs them; `bip32/bip32.py` and
-  `silent_payments.py` also call the libsecp256k1 bindings directly, as the
-  section on btclib-ecc's dispatch below says; the sum this package
-  builds for BIP352 and the EC-multiply factor BIP38 builds are Python
-  integer arithmetic, variable in time with the operands, whichever
-  install is in use.
+  `silent_payments.py` also call the libsecp256k1 bindings directly, as
+  *Where this package reaches past btclib-ecc's own dispatch* below says;
+  the sum this package builds for BIP352 and the EC-multiply factor BIP38
+  builds are Python integer arithmetic, variable in time with the
+  operands, whichever install is in use.
 - **A published distribution is what this tree built.** SECURITY.md's
   *Supported versions* states how that is verified.
 

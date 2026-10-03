@@ -169,7 +169,7 @@ or install a hash-pinned export (issue btclib-org/.github#1538).
 `REPOSITORY.md` reads `web_commit_signoff_required` back, the organization
 setting section 11 of the standard states (issue btclib-org/.github#1540).
 
-### The assurance case names every call into libsecp256k1
+### The assurance case names every direct call into libsecp256k1
 
 `ASSURANCE_CASE.md` also says `verify_network` runs before a fetcher's first
 answer, `EsploraFetcher.text` excepted, and names btclib-ecc's dispatch
