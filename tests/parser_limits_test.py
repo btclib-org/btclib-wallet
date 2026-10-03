@@ -242,3 +242,11 @@ def test_a_wide_and_nested_thresh_is_refused_quickly() -> None:
     with pytest.raises(BTClibValueError, match="too large for tapscript"):
         miniscript.parse(text, miniscript.TAPSCRIPT)
     assert time.perf_counter() - start < 5
+
+
+def test_a_node_over_the_limit_whose_arguments_are_not_is_refused() -> None:
+    """Refuse a wrapper that pushes a script of exactly the limit over it."""
+    keys = f"thresh(1,pk({_KEY})" + f",s:pk({_KEY})" * 95 + ",a:0" * 12 + ")"
+    assert miniscript.parse(keys).script_size == 3600
+    with pytest.raises(BTClibValueError, match="too large for P2WSH: 3601 bytes"):
+        miniscript.parse(f"n:{keys}")
