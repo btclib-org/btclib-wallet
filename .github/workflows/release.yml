@@ -105,6 +105,8 @@ jobs:
       concurrency-suffix: "-release"
       # the files the dist job checks are the ones the build job signed
       use-signed-dist: true
+      # and refuses them unless their digests are the ones the build job printed
+      digests: ${{ needs.build.outputs.digests }}
 
   # the checks a pull request lints with: without this a tag push could
   # publish code the pre-commit hooks reject
@@ -154,7 +156,18 @@ jobs:
   publish-testpypi:
     name: Publish to TestPyPI
     needs:
-      [public-api, audit, test, lint, docs, ubuntu, macos, windows, integration]
+      [
+        build,
+        public-api,
+        audit,
+        test,
+        lint,
+        docs,
+        ubuntu,
+        macos,
+        windows,
+        integration,
+      ]
     # public-api is a need for the ordering -- its reading arrives before
     # the upload -- and not for its result: it exits 1 on a break in the
     # public surface that RELEASE_NOTES.md does not name. `always()` opts
@@ -182,6 +195,16 @@ jobs:
         with:
           name: dist
           path: dist/
+      # a job that ran after the build could have uploaded another
+      # artifact named `dist`: what is published is the files the build
+      # job printed the digests of, or nothing
+      - name: Check the files are the ones the build job built
+        env:
+          DIGESTS: ${{ needs.build.outputs.digests }}
+        shell: bash
+        run: |
+          sha256sum dist/* | LC_ALL=C sort -k2 \
+            | diff - <(printf '%s\n' "$DIGESTS" | grep -F '  dist/')
       # generates PEP 740 attestations by default
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
@@ -191,7 +214,18 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs:
-      [public-api, audit, test, lint, docs, ubuntu, macos, windows, integration]
+      [
+        build,
+        public-api,
+        audit,
+        test,
+        lint,
+        docs,
+        ubuntu,
+        macos,
+        windows,
+        integration,
+      ]
     # see publish-testpypi: public-api is a need for the ordering and not
     # for its result, on a tag exactly as on a rehearsal
     if: >-
@@ -217,6 +251,16 @@ jobs:
         with:
           name: dist
           path: dist/
+      # a job that ran after the build could have uploaded another
+      # artifact named `dist`: what is published is the files the build
+      # job printed the digests of, or nothing
+      - name: Check the files are the ones the build job built
+        env:
+          DIGESTS: ${{ needs.build.outputs.digests }}
+        shell: bash
+        run: |
+          sha256sum dist/* | LC_ALL=C sort -k2 \
+            | diff - <(printf '%s\n' "$DIGESTS" | grep -F '  dist/')
       # generates PEP 740 attestations by default
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
@@ -253,6 +297,8 @@ jobs:
     uses: btclib-org/.github/.github/workflows/reusable-github-release.yml@main
     with:
       dist-artifact: dist
+      # refuses the files unless their digests are the ones the build job printed
+      digests: ${{ needs.build.outputs.digests }}
 
   # the sentinel on the documentation: read the docs activates and builds
   # a new release tag from an automation rule of its own, and a build that

@@ -318,6 +318,17 @@ A key with a hardened step is compared by the public key it derives where
 the descriptor holds its private key, not by its extended key and path. A
 key not derived is compared as written (closes #199) (closes #193).
 
+### The release publishes the files the build job built
+
+The publish jobs, `github-release` and `test.yml`'s `dist` job on a release
+stop where the `dist` they download differs from the digests
+`reusable-build.yml` outputs (issue #168).
+
+### The verification command pins the tag for every signer
+
+SECURITY.md and RELEASING.md said a release signed by `reusable-attest.yml`
+took no `--source-ref`; it takes the tag (issue #168).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

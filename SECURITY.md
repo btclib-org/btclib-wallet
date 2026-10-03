@@ -90,7 +90,7 @@ than accepting any attestation this repository has: the signing runs in
 `btclib-org/.github`'s `reusable-build.yml`, which `release.yml` calls,
 and `--source-ref` is what keeps a build of a branch from passing as the
 release. A release made before that was signed by `reusable-attest.yml`,
-named the same way without `--source-ref`.
+named the same way, `--source-ref` included.
 A CycloneDX bill of materials is attached beside them, generated from the
 built wheel and covered by the same attestation. Either distribution file
 can also be rebuilt from its tag and compared, the build being

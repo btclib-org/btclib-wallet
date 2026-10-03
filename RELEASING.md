@@ -106,10 +106,13 @@ one, and TestPyPI's rehearsal does the same there.
    which `release.yml`'s `build` job calls, holds `id-token: write` too,
    for its own Sigstore exchange, and no environment: it signs the
    distribution files before either reviewed job starts, and signs only
-   files whose digests the build job printed. `pypi` is additionally restricted
-   to `v*` tags, which is the only ref its job runs on anyway — the
-   restriction is what makes that true of the environment and not just
-   of an `if:` in a file a pull request could change.
+   files whose digests the build job printed. `publish-testpypi`,
+   `publish-pypi`, `github-release` and the `dist` job check what they
+   download against those digests, and fail where a file differs, is added
+   or is missing. `pypi` is additionally restricted to `v*` tags, which
+   is the only ref its job runs on anyway — the restriction is what makes
+   that true of the environment and not just of an `if:` in a file a pull
+   request could change.
 
    Self-review stays allowed: the environment does not require the
    approver to differ from whoever pushed the tag, so the tag's own
@@ -650,7 +653,7 @@ result.
    rehearsal dispatched from a branch from verifying as this release. A
    release made before this repository called `reusable-build.yml` was
    signed by `reusable-attest.yml`, and verifies with that workflow as
-   the signer and no `--source-ref`. For a signer that is a reusable workflow,
+   the signer, `--source-ref` included. For a signer that is a reusable workflow,
    `gh attestation verify --help` requires `--signer-workflow` or
    `--signer-repo`, and without one either form refuses the release.
    Neither form is offline on its own — the
@@ -735,7 +738,7 @@ gh attestation verify "sbom/btclib_wallet-${version:?}.cdx.json" \
 ```
 
 A release made before this repository called `reusable-build.yml` names
-`reusable-attest.yml` as the signer instead, with no `--source-ref`.
+`reusable-attest.yml` as the signer instead, the flags otherwise the same.
 
 `python` is the interpreter the tag's own `.python-version` pins, its
 comment and blank lines dropped, and not the one `main` pins:
