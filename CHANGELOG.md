@@ -161,8 +161,7 @@ stands in (issue btclib-org/.github#1527).
 ### The suite imports btclib_ecc's exception classes from `btclib_ecc`
 
 `tests/exception_family_test.py` imports them from `btclib_ecc.exceptions`,
-which btclib 2026.9.30 does not bind them in, and `btclib` is capped below
-2026.11 until #196 lands (closes #166).
+which `btclib.exceptions` does not bind (closes #166).
 
 ### `integration-hwi.yml` installs HWI and Speculos from hashed locks
 

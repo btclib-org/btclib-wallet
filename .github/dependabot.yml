@@ -46,10 +46,9 @@ updates:
       default-days: 7
 
   # uv.lock is committed and the workflows install from it with --locked,
-  # while the dependency groups declare floors, and a ceiling on btclib
-  # alone (see pyproject.toml): the drift of btclib, bitcoin-core-rpc and
-  # the tooling above those floors lives in the lock file, and this is
-  # the only thing that moves it. The
+  # while the dependency groups declare a floor and no ceiling: the drift
+  # of btclib, bitcoin-core-rpc and the tooling above those floors lives
+  # in the lock file, and this is the only thing that moves it. The
   # uv-lock pre-commit hook re-locks what pyproject.toml changed and
   # upgrades nothing, and deps-latest tests an upgrade it never commits
   - package-ecosystem: uv
