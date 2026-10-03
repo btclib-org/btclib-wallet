@@ -3577,6 +3577,33 @@ def _joined_inputs(psbts: Sequence[Psbt]) -> list[PsbtIn]:
     return inputs
 
 
+def _has_signature(psbt_in: PsbtIn) -> bool:
+    """Return whether the input carries a signature, finalized or not."""
+    return bool(
+        psbt_in.partial_sigs
+        or psbt_in.final_script_sig
+        or psbt_in.final_script_witness
+        or psbt_in.taproot_key_spend_signature
+        or psbt_in.taproot_script_spend_signatures
+        or psbt_in.musig2_partial_sigs
+    )
+
+
+def _assert_signatures_kept(psbts: Sequence[Psbt], joined: Psbt) -> None:
+    """Raise where the join changes what a signed psbt commits to."""
+    for psbt in psbts:
+        if not any(map(_has_signature, psbt.inputs)):
+            continue
+        if psbt.lock_time != joined.lock_time:
+            err_msg = "the join changes the lock time of a signed psbt: "
+            err_msg += f"{psbt.lock_time} to {joined.lock_time}"
+            raise BTClibValueError(err_msg)
+        if psbt.tx_version != joined.tx_version:
+            err_msg = "the join changes the tx version of a signed psbt: "
+            err_msg += f"{psbt.tx_version} to {joined.tx_version}"
+            raise BTClibValueError(err_msg)
+
+
 def join(
     psbts: Sequence[Psbt],
     enforce_same_tx_version: bool,
@@ -3623,6 +3650,12 @@ def join(
     SIGHASH_NONE|ANYONECANPAY or not at all. Such a signature still
     commits to the version and lock time, and stops verifying where the
     join changes either.
+
+    The join is refused where it changes the lock time or the tx version
+    of a version 2 psbt with a signed input. BIP370's Constructor must
+    not add an input that changes the lock time while an input is signed.
+    The lock time compared is the one BIP370's "Determining Lock Time"
+    gives.
 
     A signed message is not carried over, and that is not an omission:
     it says which challenge *this* transaction answers, and joining
@@ -3699,4 +3732,6 @@ def join(
         psbt.sort_outputs(sort_out)
 
     psbt.assert_valid()
+    if version != PSBT_V0:
+        _assert_signatures_kept(psbts, psbt)
     return psbt

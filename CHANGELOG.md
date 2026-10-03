@@ -277,6 +277,12 @@ An amount of more than 20 digits, leading zeros apart, is refused, where
 bypass, and that the OpenSSF criterion `two_person_review` is unmet because
 the ack of record is a bot's (issue btclib-org/.github#452).
 
+### `join` refuses to change the lock time or tx version of a signed version 2 psbt
+
+`join` refuses to change the lock time or the tx version of a version 2 psbt
+with a signed input, whose signatures commit to both. It kept signatures that
+no longer verified (closes #211).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge
