@@ -185,7 +185,7 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's, and a mnemonic up to its seed is
+serialization — is btclib's or btclib_ecc's, and a mnemonic up to its seed is
 btclib_mnemonics'; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
