@@ -27,7 +27,7 @@ driver that would keep both sides' numbers.
 
 ### The assurance case names every call into libsecp256k1
 
-The prose also says `verify_network` runs before a fetcher's first answer,
+`ASSURANCE_CASE.md` also says `verify_network` runs before a fetcher's first answer,
 `EsploraFetcher.text` excepted, and names btclib-ecc's dispatch (closes #163).
 
 ### The fuzz inventory covers the text parsers the threat model names

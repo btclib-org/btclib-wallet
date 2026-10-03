@@ -196,13 +196,10 @@ def test_every_module_function_that_decodes_is_driven_here() -> None:
     """And the same promise where the entry point is a module function.
 
     The walk above finds classes, so a module-level decoder needs its
-    own names: the names in `_MODULE_DECODER_NAMES` are what a bare function
-    carries in place of a class's `parse`, `b64decode` and `b58decode`.
+    own names, `_MODULE_DECODER_NAMES`.
     What is asserted is containment and not equality: the dicts already
-    drive entry points named otherwise, and a tuple of literal names wide
-    enough to find every one of those is the exclusion list this file
-    otherwise avoids -- their coverage rests on the dicts above, by
-    hand, not on this walk.
+    drive entry points named otherwise, and their coverage rests on the
+    dicts above, by hand, not on this walk.
     """
     found = set()
     for module_name in module_names():

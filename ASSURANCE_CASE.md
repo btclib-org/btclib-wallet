@@ -55,8 +55,8 @@ differences ARCHITECTURE.md's own sections name: it runs a subprocess
 device, and it opens client sockets of its own (`fetch/`) when a caller
 asks it to reach a node, an explorer or an Electrum server. Neither
 happens on import, and neither happens unless the caller constructs the
-object or calls the function that does it, `hwi.enumerate_devices` being
-a function. The command below lists the top-level name of every
+object or calls the function that does it, such as `hwi.enumerate_devices`.
+The command below lists the top-level name of every
 module `src/` imports, at any depth and in any spelling of the statement.
 
 ```shell
@@ -331,10 +331,7 @@ to, and what counters each.
   `module-path` of each file under `.github/mutation/`, run by
   `.github/workflows/mutation.yml`, asks whether the suite notices a
   wrong line there. A module no `module-path` lists rests on coverage
-  alone: silent payments, BIP38, BIP85, the mnemonics, coin selection,
-  the transaction builder, `fetch/broadcaster.py`,
-  `fetch/fee_estimator.py`, `psbt/psbt_view.py` and
-  `psbt/silent_payments.py` among them.
+  alone.
   `signer.toml`'s own header states why the signing boundary is mutated
   apart from parsing or encoding: a wrong decision there is a signature
   over somebody else's transaction.
