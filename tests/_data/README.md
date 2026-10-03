@@ -55,9 +55,13 @@ ever reach.
 Where an entry pins to a commit, it gives the upstream repository, the
 path in it, and the commit. A `blob` line, where the entry carries one,
 gives the git blob SHA-1 of what that entry pins; what it pins, and
-whether it was compared byte for byte, is the entry's own to say. Most
-entries close on a verdict; one with nothing upstream to compare against
-says so in prose instead. The verdicts used:
+whether it was compared byte for byte, is the entry's own to say. An
+`ours` line gives the blob of the file kept here where that is not the
+`blob`, or where the entry has no upstream blob to name: a file with its
+line endings or trailing newline changed, a reformatted or transcribed
+file. The weekly job holds the file to `ours`, or to `blob` where there
+is no `ours`. Most entries close on a verdict; one with nothing upstream
+to compare against says so in prose instead. The verdicts used:
 
 - **identical** -- our file and the upstream blob are the same bytes.
 - **reformatted** -- same parsed JSON value, different whitespace.
@@ -103,6 +107,14 @@ gh api "repos/bitcoin/bips/git/trees/${commit:?}:bip-0375" \
 The comparison is on git blob SHA-1, not sha256: it is what a tree entry
 already carries, so nothing has to be downloaded, and `git hash-object`
 reproduces it locally.
+
+The weekly job runs this comparison for every entry whose heading is one
+file's path and which carries a `blob` or an `ours` line, and fails,
+naming the file, on a mismatch. It compares the file with `ours` (or
+`blob`) and the entry's `blob` with upstream's at `commit`, so a file
+edited here and a pin whose blob is not the one at its commit both fail.
+Add an `ours` line to a new entry whose file is not upstream's bytes,
+and a `-text` line for the file to `.gitattributes`.
 
 ## bitcoin/bips
 
@@ -154,6 +166,7 @@ vectors are all v0 addresses on mainnet.
 repo    bitcoin/bips
 path    bip-0032.mediawiki
 commit  c0644a054fd1568ecbfc9c2b656ad5200b16ff74  2026-03-05
+ours    eb692228a6fb84a694a699f62937808bc2c640aa
 pulled  2020-05-08, vector 4 added 2021-08-25, re-pinned to the tip 2026-08-06
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -179,6 +192,7 @@ above is now that tip, so the weekly automated check can carry it.
 repo    bitcoin/bips
 path    bip-0032.mediawiki
 commit  c0644a054fd1568ecbfc9c2b656ad5200b16ff74  2026-03-05
+ours    7b092d7c429cb50674b77352113d65fe4de7cd84
 pulled  2020-05-16, error strings last changed 2026-07-30, re-pinned to
         the tip 2026-08-06
 behind  0 revisions; that commit is the tip of the path
@@ -203,6 +217,7 @@ upstream means refreshing the keys, never the messages.
 repo    bitcoin/bips
 path    bip-0174.mediawiki
 commit  722d01e5e0a2e0c82b0e3e77402ddc44a5bf6aaa  2026-09-23
+ours    c3acc20f4a7209cf425be65d65ea7a68ea6ceed4
 pulled  2020-11-15, extended 2021-08-03, refreshed 2026-07-30, re-pinned
         to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
@@ -235,6 +250,7 @@ correcting it here too.
 repo    bitcoin/bips
 path    bip-0371.mediawiki
 commit  8629462a94d6b7fcfe8ef6251a5304da4c794cec  2026-09-23
+ours    93dab40ba9e8d5daf563a850ba9d541dd65748d6
 pulled  2023-07-07, re-pinned to the tip 2026-08-06, and again 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -258,6 +274,7 @@ vector.
 repo    bitcoin/bips
 path    bip-0370.mediawiki
 commit  1e431879afd53be71a3bafe29ddae93837337f40  2026-09-23
+ours    e17a62599d8e4378adce594011e5dc49bb3e54d6
 pulled  2026-08-03, re-pinned to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -302,6 +319,7 @@ names.
 repo    bitcoin/bips
 path    bip-0373.mediawiki
 commit  24e96e870fffaa257b465ce1f0370c14aac588e8  2026-01-12
+ours    d262cc3db75584077b622c11efef49ba0b3694db
 pulled  2026-08-03
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -430,6 +448,7 @@ repo    bitcoin/bips
 path    bip-0322/basic-test-vectors.json
 commit  d77863fb9e9be7829ad8bb51694b9ba80a786766  2026-05-06
 blob    f32a5bf45ae8b19ca33d0763669f5718879c82f4
+ours    2aefe430268d0f93d39aacf94b5e82d42989a54d
 pulled  2026-08-08
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -451,6 +470,7 @@ repo    bitcoin/bips
 path    bip-0322/generated-test-vectors.json
 commit  d77863fb9e9be7829ad8bb51694b9ba80a786766  2026-05-06
 blob    4677eea4544b9fef4814c85640ff109a4d887264
+ours    1c061893cdb16471312f55a5872f66ef84058a0b
 pulled  2026-08-08
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -466,6 +486,7 @@ which the BIP names as their source.
 repo    bitcoin/bips
 path    bip-0085.mediawiki
 commit  6209768676bf85d7ef5ffb4055543d6286d79b96  2026-08-03
+ours    f7114320148308d281ec41ebd8d42d688ac265b6
 pulled  2026-08-25
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -618,6 +639,7 @@ path    bip-0445/python/vectors/sign_verify_vectors.json
 ref     bip-frost-signing
 commit  8e25d57911c33f1daadcadb0161a60a56ef7145a  2026-08-26
 blob    622d859bcd742e9caf37e1541bf2409aa7c6c333
+ours    ead53ab18f87c5d46ec82962204fa31a0bcdc132
 pulled  2026-09-17
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -634,6 +656,7 @@ plus the `\n` the `end-of-file-fixer` hook added, so our blob is
 repo    bitcoin/bitcoin
 path    doc/descriptors.md
 commit  0f38524c31da4cf69d8e904569fe56292e4325b9  2022-10-30
+ours    1741596f31d557718c571d58070812662744f05e
 pulled  2023-07-12
 ```
 
@@ -664,6 +687,7 @@ repo    bitcoin/bitcoin
 path    src/test/miniscript_tests.cpp
 commit  e8691056c0140f8fa850fc6837dde915ebeb22cc  2026-08-03
 blob    d593fc3bf813ac27dce422d596ae9bf4b8b9e777
+ours    83f5e24eb6344c973bbe377eae37ff92f34ac430
 pulled  2026-08-25
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -916,6 +940,7 @@ repo    bip32JP/bip32JP.github.io
 path    test_JP_BIP39.json
 commit  360c05a6439e5c461bbe5e84c7567ec38eb4ac5f  2017-08-20
 blob    6d8c40b19e5d4b899f9f3c2addbf994d150b245b
+ours    4e7efab9ced430060a6646c77770cd387203b757
 pulled  2026-08-02
 behind  0 revisions
 ```
@@ -939,6 +964,7 @@ repo    trezor/python-shamir-mnemonic
 path    vectors.json
 commit  1525df19df504b1f69b49179140119959f317f24  2024-05-14
 blob    d98c387aa1feb32ca9e6e4410cff870dfc6fb358
+ours    2e6da291bdb7824d032e7962a4020f2a8bff9fa6
 pulled  2026-08-02
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -964,6 +990,7 @@ it, which is also the tip of the path.
 repo    lightning/bolts
 path    11-payment-encoding.md
 commit  14901bdcacee53d95b46dc276b0f09c85d7d71fd  2026-03-09
+ours    375102ed1c93a924639c2e9999bb7e806677c88c
 pulled  2026-09-03
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -986,6 +1013,7 @@ assignment table, which `Bolt11Invoice.assert_valid` reads.
 repo    lightning/bolts
 path    09-features.md
 commit  35e79db504560b9d3494a0ed07bf1e8379c3663a  2026-07-27
+ours    4a6457da081430acaea70a817cde47099feb25b6
 pulled  2026-09-03
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -1228,10 +1256,13 @@ Composed 2026-08-02.
   its raw material came from, which is not the same as having an
   upstream: the cases are btclib's, so the pin says where the psbts were
   read and nothing about the cases built on them.
-- **Nothing here is enforced by the suite.** No hook re-fetches an
-  upstream and no test compares a blob, and that is a deliberate stopping
-  point: a network call in the test suite would trade a documented drift
-  for a flaky one.
+- **The suite checks the local half, offline.**
+  `tests/check_vendored_vectors_test.py` holds each file this ledger names
+  to its `ours` line, or its `blob` where there is none. No test asks
+  upstream for a blob: a network call in the suite would trade a
+  documented drift for a flaky one.
+  `.github/workflows/vendored-vectors.yml` asks upstream, weekly, and a
+  byte mismatch fails the run.
 
 ## Summary
 

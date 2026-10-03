@@ -46,3 +46,28 @@
 # path the tree does not hold matches nothing.
 CHANGELOG.md merge=union
 RELEASE_NOTES.md merge=union
+
+# The vendored files `tests/_data/README.md` names are held to a git blob
+# SHA-1 over their committed bytes, which `check_vendored_vectors.py` and
+# its test read straight off the disk. `-text` is what keeps a checkout
+# with `core.autocrlf=true` (Git for Windows' default) from converting
+# them, so those bytes are the ones on disk on every platform.
+src/btclib_wallet/bolt9.py -text
+tests/_data/basic-test-vectors.json -text
+tests/_data/bip85_test_vectors.json -text
+tests/_data/bolt11_test_vectors.json -text
+tests/_data/descriptor_checksums.json -text
+tests/_data/generated-test-vectors.json -text
+tests/_data/miniscript_fixed_tests.json -text
+tests/_data/send_and_receive_test_vectors.json -text
+tests/bip32/_data/bip32_invalid_keys.json -text
+tests/bip32/_data/bip32_test_vectors.json -text
+tests/ecc/_data/bip445/sign_verify_vectors.json -text
+tests/mnemonic/_data/bip39_test_vectors.json -text
+tests/mnemonic/_data/test_JP_BIP39.json -text
+tests/mnemonic/_data/vectors.json -text
+tests/psbt/_data/bip174_test_vectors.json -text
+tests/psbt/_data/bip370_test_vectors.json -text
+tests/psbt/_data/bip371_test_vectors.json -text
+tests/psbt/_data/bip373_test_vectors.json -text
+tests/psbt/_data/bip375_test_vectors.json -text

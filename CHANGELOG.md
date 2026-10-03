@@ -329,6 +329,12 @@ stop where the `dist` they download differs from the digests
 SECURITY.md and RELEASING.md said a release signed by `reusable-attest.yml`
 took no `--source-ref`; it takes the tag (issue #168).
 
+### The weekly vendored-vectors check compares bytes
+
+`check_vendored_vectors.py` hashes each vendored file against the blob
+`tests/_data/README.md` records, and that blob against upstream's at the
+pinned commit, failing the run on a mismatch (issue #168).
+
 ## v2026.9.30
 
 ### `README.md` carries the OpenSSF Best Practices badge

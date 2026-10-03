@@ -21,8 +21,11 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   `tests/integration/regtest_test.py` against a disposable regtest
   `bitcoind` (`.github/workflows/integration-bitcoind.yml`).
   `tests/_data/README.md` pins every vendored vector to the upstream
-  commit it was copied from and says whether the two still match, and
-  `.github/workflows/vendored-vectors.yml` re-checks that weekly.
+  commit it was copied from and says whether the two still match.
+  `.github/workflows/vendored-vectors.yml` runs weekly: it hashes each
+  vendored file against the blob recorded there, compares that blob with
+  upstream's at the pinned commit, and reports a pin that is no longer
+  upstream's tip.
 - **Malformed input is refused the way the library says it is.** A
   public function handed an argument it cannot use raises
   `BTClibTypeError` or `BTClibValueError`, as btclib's own contract
@@ -344,6 +347,7 @@ to, and what counters each.
 
 **Upstream.** `tests/_data/README.md` pins every vendored file to the
 upstream commit it was copied from and to a git blob hash, and states
-whether the two still match; a vector that disagrees with the rule it
-tests is kept byte for byte, so that its pin still compares, rather than
-edited to pass.
+whether the two still match; the weekly `vendored-vectors.yml` run fails
+where a vendored file's bytes are not the recorded blob. A vector that
+disagrees with the rule it tests is kept byte for byte, so that its pin
+still compares, rather than edited to pass.
