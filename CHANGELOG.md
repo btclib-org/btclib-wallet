@@ -82,6 +82,12 @@ it (closes #243).
 fingerprint, as `wsh()` does. An explicit origin beats it, and of two explicit
 ones for one key the first wins, where the last did (closes #236).
 
+### The release notes name a change to the release's assets
+
+RELEASE_NOTES.md gives the bundle's name, `v<version>.intoto.jsonl`.
+RELEASING.md asks that a change to a release's assets or their verification
+be named there (issue btclib-org/.github#1596).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
