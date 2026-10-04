@@ -23,7 +23,9 @@ Neither file states how many entries it holds: a stated number is a line
 every open branch has to edit, and the two files carry a union merge
 driver that would keep both sides' numbers.
 
-## v2026.10 (work in progress, not released yet)
+## v2026.11 (work in progress, not released yet)
+
+## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
 

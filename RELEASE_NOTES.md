@@ -9,13 +9,43 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
-## v2026.10 (work in progress, not released yet)
+## v2026.11 (work in progress, not released yet)
+
+## v2026.10.4
+
+- **Signing refuses a sig_hash type other than SIGHASH_ALL or
+  SIGHASH_DEFAULT unless the caller allows it** (GHSA-qq38-77mp-j6wr).
+  `sign`, `SoftwareSigner.sign_psbt`, `musig2.partial_sign` and
+  `frost.partial_sign` raise on an input asking for SIGHASH_NONE, SINGLE or
+  ANYONECANPAY; pass the types you accept as `allowed_sig_hash_types`.
+  `request_signatures` passes none, so call `SoftwareSigner.sign_psbt`
+  directly to sign such a psbt. A legacy SIGHASH_SINGLE input with no output
+  at its index is refused whatever is allowed, and `ecdsa_sig_hash` and
+  `PsbtView.ecdsa_sig_hash` refuse it too. `finalize`, `assert_signed` and
+  `assert_signatures_only` refuse an ECDSA signature other than SIGHASH_ALL on
+  an input without `PSBT_IN_SIGHASH_TYPE`; set the field on a psbt whose
+  signatures use another type.
+
+- **`sign`, `SoftwareSigner.sign_psbt` and `Psbt.assert_signable` refuse an
+  input without its `non_witness_utxo`, unless every input is taproot and none
+  asks for ANYONECANPAY** (GHSA-v4gq-j2v2-c4jp). Give each input the
+  transaction it spends as its `non_witness_utxo`. Pass
+  `require_non_witness_utxo=False` only where you know every `witness_utxo`
+  amount is right: a wrong one can be spent as fee.
+
+- **btclib-wallet requires btclib 2026.10.4, btclib-ecc 2026.10.2 and
+  btclib-secp256k1 0.8.0.10.** btclib 2026.10.4 fixes GHSA-9fr5-46w5-5f9r,
+  which made `bip322.verify` run for minutes on a crafted signature;
+  0.8.0.10 fixes GHSA-8h6f-34jj-7p6c, an invalid-curve oracle in
+  `silentpayments.scan_outputs`. Upgrading btclib-wallet installs btclib and
+  btclib-ecc; the `secp256k1` extra installs the bindings.
 
 - **Verifying a release's attestation names a new signer and the tag.**
   `gh attestation verify` takes
   `--signer-workflow btclib-org/.github/.github/workflows/reusable-build.yml@refs/heads/main`
   and `--source-ref refs/tags/v<version>`; SECURITY.md has the command.
   Earlier releases keep `reusable-attest.yml`.
+
 - **`descriptors.parse` refuses a key of another network.** A WIF or an
   extended key whose prefix is not the `network`'s raises
   `BTClibValueError` there, where the WIF was accepted and the extended key
@@ -55,31 +85,28 @@ before upgrading, rather than a digit.
   Without its private key, a key with a hardened step is still compared as
   written.
 
-- **btclib-wallet requires btclib 2026.10.4 and btclib-secp256k1 0.8.0.10.**
-  btclib 2026.10.4 fixes GHSA-9fr5-46w5-5f9r, which made `bip322.verify` run
-  for minutes on a crafted signature; 0.8.0.10 fixes GHSA-8h6f-34jj-7p6c.
-  Upgrading btclib-wallet installs btclib; the `secp256k1` extra installs
-  the bindings.
+- **`descriptors.parse` refuses a threshold no script can meet.** A `multi()`
+  or `sortedmulti()` threshold of zero or above its key count, and a
+  `multi_a()` or `sortedmulti_a()` one of zero, above its key count, or of more
+  than 999 keys, raise `BTClibValueError`, where they were stored. A
+  `thresh()` of more than 1000 arguments is refused too, a limit of this
+  library.
 
-- **Signing refuses a sig_hash type other than SIGHASH_ALL or
-  SIGHASH_DEFAULT unless the caller allows it** (GHSA-qq38-77mp-j6wr).
-  `sign`, `SoftwareSigner.sign_psbt`, `musig2.partial_sign` and
-  `frost.partial_sign` raise on an input asking for SIGHASH_NONE, SINGLE or
-  ANYONECANPAY; pass the types you accept as `allowed_sig_hash_types`.
-  `request_signatures` passes none, so call `SoftwareSigner.sign_psbt`
-  directly to sign such a psbt. A legacy SIGHASH_SINGLE input with no output
-  at its index is refused whatever is allowed, and `ecdsa_sig_hash` and
-  `PsbtView.ecdsa_sig_hash` refuse it too. `finalize`, `assert_signed` and
-  `assert_signatures_only` refuse an ECDSA signature other than SIGHASH_ALL on
-  an input without `PSBT_IN_SIGHASH_TYPE`; set the field on a psbt whose
-  signatures use another type.
+- **A number of over 4300 digits is a `BTClibValueError`.** A derivation
+  index, a threshold, an `older()` or `after()` number and a `@N` of that size
+  raised the built-in `ValueError`; they are refused at ten digits now.
+  `Bolt11Invoice.from_invoice` refuses an amount of more than 20 digits, which
+  its amount parser read up to 4300 digits.
 
-- **`sign`, `SoftwareSigner.sign_psbt` and `Psbt.assert_signable` refuse an
-  input without its `non_witness_utxo`, unless every input is taproot and none
-  asks for ANYONECANPAY** (GHSA-v4gq-j2v2-c4jp). Give each input the
-  transaction it spends as its `non_witness_utxo`. Pass
-  `require_non_witness_utxo=False` only where you know every `witness_utxo`
-  amount is right: a wrong one can be spent as fee.
+- **A `prv_keys` that is not a mapping raises `BTClibTypeError`.** The
+  descriptor, `KeyExpression`, `Miniscript` and `DescriptorWallet` methods
+  taking it, and `descriptors.normalized`, check it as `parse` does, where a
+  string raised `AttributeError`.
+
+- **`SilentPaymentOutput`'s `repr` leaves out `prv_key_tweak`.** The tweak is
+  a secret; read the field, not the `repr`, where you need it.
+
+`CHANGELOG.md`'s own `v2026.10.4` section has the rest.
 
 ## v2026.9.30
 
