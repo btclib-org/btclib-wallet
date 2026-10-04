@@ -347,11 +347,8 @@ result.
 
    **If `main` moves while the gates run, throw the branch away and redo
    these edits on top of it — never rebase it, and never merge `main` into
-   it.** CHANGELOG.md and RELEASE_NOTES.md are `merge=union`, so a change that
-   opened a `### Repository` group where this release opens its own is
-   fused into one section carrying that heading twice, and the union driver
-   reports no conflict for a reader to catch. Reset onto the new tip, then
-   redo the retitle, the version and `uv lock`, and gate again:
+   it.** Reset onto the new tip, then redo
+   the retitle, the version and `uv lock`, and gate again:
 
    ```shell
    git fetch origin
@@ -360,10 +357,7 @@ result.
 
    The retitle, the headings it opens and the version are a few lines;
    what is expensive to reconstruct is the entries, and those are
-   already on `main` in the pull requests that landed them. `git diff
-   --cached` at the landing step
-   below is the second reading of the same hazard, not a substitute for
-   this one: by then the fused headings are what is being committed.
+   already on `main` in the pull requests that landed them.
 
 1. Give the release pull request its title and its body, before merging it
    and not after. The title is the version; the body says what the release
@@ -660,6 +654,15 @@ result.
    Sigstore trusted root comes over the network unless
    `gh attestation trusted-root > trusted_root.jsonl` fetched it earlier
    and `--custom-trusted-root` points at it.
+
+1. **Review the bestpractices.dev answers.** Refresh the saved answers
+   with `btclib-org/.github`'s `.github/scripts/bestpractices.py`, and run
+   its `--stale` and `--differ` to find what to read (section 10 of its
+   README). Read <https://www.bestpractices.dev/projects/14813> against the
+   release and update every answer it changed: the release notes and the
+   vulnerabilities it fixed, signed tags and assets, attestation names. Then
+   refresh the saved answers again. An advisory this repository publishes is
+   owed the same review.
 
 1. Open the next cycle: set a generic next version without the day (e.g.
    after 2026.8.6, use 2026.9) in `pyproject.toml`, through a pull

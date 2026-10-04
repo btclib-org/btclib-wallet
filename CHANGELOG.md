@@ -20,8 +20,7 @@ which say what a user has to act on; this file is the record behind them.
 [std]: https://github.com/btclib-org/.github
 
 Neither file states how many entries it holds: a stated number is a line
-every open branch has to edit, and the two files carry a union merge
-driver that would keep both sides' numbers.
+every open branch has to edit.
 
 ## v2026.11 (work in progress, not released yet)
 
@@ -35,6 +34,12 @@ times the parse of one of its arguments, timed in the same process, where a
 
 `Bip21.assert_valid` refuses `others` carrying `amount`, `label`, `message` or
 `lightning`, instead of writing a URI its own `parse` refuses (closes #217).
+
+### The issue forms set a type, and the history files lose `merge=union`
+
+Each form sets an issue type, no kind label (issue btclib-org/.github#1584);
+the history files have no merge driver (issue btclib-org/.github#1582);
+a release reviews the bestpractices.dev answers (issue btclib-org/.github#1589).
 
 ## v2026.10.4
 
