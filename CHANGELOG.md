@@ -64,6 +64,12 @@ before the signer is called, unless the new keyword-only
 Unless every input is taproot and none asks for ANYONECANPAY, as `sign` has
 it. `require_non_witness_utxo=False` accepts it (closes #234).
 
+### A descriptor's psbt derivations give every key an origin
+
+The Updater gives a key without an origin one, as Bitcoin Core does. An
+explicit origin wins, then a plain key's, then the first spelling's. A
+`musig()` participant's taproot entry lists its groups' leaves (closes #213).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

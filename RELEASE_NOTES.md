@@ -25,6 +25,11 @@ before upgrading, rather than a digit.
   `require_non_witness_utxo=False` only where you know every `witness_utxo`
   amount is right.
 
+- **A psbt updated from a descriptor carries a derivation for every key**, as
+  Bitcoin Core's does. A key the descriptor gives no origin has an entry under
+  its own fingerprint, so `hd_key_paths` and `taproot_hd_key_paths` are not
+  empty for such a descriptor.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or
