@@ -23,10 +23,10 @@ in the Hypothesis property suite, `tests/fuzz_test.py`.
 A crash here on hostile bytes is a defect in the parser, never in this
 harness: `data` is unconstrained bytes handed straight to each entry
 point, `b64decode` taking bytes as the ascii it decodes them from.
-`BTClibException` is what both answer malformed input with, so that
-family is caught below as the expected outcome. An `IndexError`, a
-`RecursionError` or an uncaught assertion is not, and propagates to
-atheris as the finding it is.
+`BTClibException` and `BTClibEccException` are what both answer
+malformed input with, so that family is caught below as the expected
+outcome. An `IndexError`, a `RecursionError` or an uncaught assertion is
+not, and propagates to atheris as the finding it is.
 
 The seed corpus is one of the BIP174 vectors
 `tests/psbt/_data/bip174_test_vectors.json` carries, in both forms: the
@@ -41,6 +41,7 @@ import sys
 
 import atheris
 from btclib.exceptions import BTClibException
+from btclib_ecc.exceptions import BTClibEccException
 
 from btclib_wallet.psbt.psbt import Psbt
 
@@ -56,14 +57,14 @@ ENTRY_POINTS = (
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as psbt octets, then as the base64 armor of some.
 
-    `BTClibException` is swallowed as each entry point's own refusal of
-    malformed input; any other exception propagates, which is how atheris
-    tells a defect in the parser from the domain of input it already
-    rejects.
+    `BTClibException` and `BTClibEccException` are swallowed as each
+    entry point's own refusal of malformed input; any other exception
+    propagates, which is how atheris tells a defect in the parser from
+    the domain of input it already rejects.
     """
-    with contextlib.suppress(BTClibException):
+    with contextlib.suppress(BTClibException, BTClibEccException):
         Psbt.parse(data)
-    with contextlib.suppress(BTClibException):
+    with contextlib.suppress(BTClibException, BTClibEccException):
         Psbt.b64decode(data)
 
 

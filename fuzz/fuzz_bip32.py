@@ -20,11 +20,11 @@ already admits bytes -- `str | bytes | bytearray | memoryview` -- so
 `data` reaches `.b58decode` unmodified rather than through a decode step
 `.parse` and `.b64decode` elsewhere in this tree do not need either.
 
-A crash on hostile bytes is a defect in one of the three decoders,
-never in this harness: `data` is unconstrained bytes handed straight to
-each entry point. `BTClibException` is what all three answer a
-truncated, non-canonical or wrong-length record with, so that family is
-caught below as the expected outcome. An `IndexError`, a
+A crash on hostile bytes is a defect in one of the three decoders, never
+in this harness: `data` is unconstrained bytes handed straight to each
+entry point. `BTClibException` and `BTClibEccException` are what all
+three answer a truncated, non-canonical or wrong-length record with, so
+that family is caught below as the expected outcome. An `IndexError`, a
 `RecursionError` or an uncaught assertion is not, and propagates to
 atheris as the finding it is.
 
@@ -42,6 +42,7 @@ import sys
 
 import atheris
 from btclib.exceptions import BTClibException
+from btclib_ecc.exceptions import BTClibEccException
 
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
@@ -59,16 +60,16 @@ ENTRY_POINTS = (
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as an extended key, its text spelling, and a key origin.
 
-    `BTClibException` is swallowed as each entry point's own refusal of
-    malformed input; any other exception propagates, which is how atheris
-    tells a defect in one of the three from the domain of input each
-    already rejects.
+    `BTClibException` and `BTClibEccException` are swallowed as each
+    entry point's own refusal of malformed input; any other exception
+    propagates, which is how atheris tells a defect in one of the three
+    from the domain of input each already rejects.
     """
-    with contextlib.suppress(BTClibException):
+    with contextlib.suppress(BTClibException, BTClibEccException):
         BIP32KeyData.parse(data)
-    with contextlib.suppress(BTClibException):
+    with contextlib.suppress(BTClibException, BTClibEccException):
         BIP32KeyData.b58decode(data)
-    with contextlib.suppress(BTClibException):
+    with contextlib.suppress(BTClibException, BTClibEccException):
         BIP32KeyOrigin.parse(data)
 
 

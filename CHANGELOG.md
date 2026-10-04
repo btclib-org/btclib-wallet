@@ -93,6 +93,12 @@ be named there (issue btclib-org/.github#1596).
 A `###` heading under a release older than the newest, absent at the merge
 base with `origin/main`, is refused (issue btclib-org/.github#1614).
 
+### The fuzzers bundle package data and accept `btclib_ecc`'s refusals
+
+`.clusterfuzzlite/build.sh` bundles the package data of every pinned
+dependency, which `btclib_ecc`'s curves need, and the fuzz harnesses
+accept `BTClibEccException` as a refusal (closes #248).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

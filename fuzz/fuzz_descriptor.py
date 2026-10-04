@@ -24,12 +24,13 @@ raise would make the harness answer for the decoder rather than for the
 parser.
 
 A crash on hostile text is a defect in `parse` itself, never in this
-harness: nothing validates or normalizes between the decode and the call.
-`BTClibException` is what `parse` answers a character outside the
-charset, an unknown function, a bad key and a checksum that does not
-match with, so that family is caught below as the expected outcome. An
-`IndexError`, a `RecursionError` or an uncaught assertion is not, and
-propagates to atheris as the finding it is.
+harness: nothing validates or normalizes between the decode and the
+call. `BTClibException` and `BTClibEccException` are what `parse`
+answers a character outside the charset, an unknown function, a bad key
+and a checksum that does not match with, so that family is caught below
+as the expected outcome. An `IndexError`, a `RecursionError` or an
+uncaught assertion is not, and propagates to atheris as the finding it
+is.
 
 `network` and `prv_keys` are left at their defaults: both are the
 caller's own arguments rather than anything the descriptor says.
@@ -50,6 +51,7 @@ import sys
 
 import atheris
 from btclib.exceptions import BTClibException
+from btclib_ecc.exceptions import BTClibEccException
 
 from btclib_wallet.descriptors import descriptors
 
@@ -62,11 +64,12 @@ ENTRY_POINTS = ("btclib_wallet.descriptors.descriptors:parse",)
 def fuzz_target(data: bytes) -> None:
     """Parse `data`, decoded as text, as an output descriptor.
 
-    `BTClibException` is swallowed as `parse`'s own refusal of malformed
-    input; any other exception propagates, which is how atheris tells a
-    defect in `parse` from the domain of input it already rejects.
+    `BTClibException` and `BTClibEccException` are swallowed as
+    `parse`'s own refusal of malformed input; any other exception
+    propagates, which is how atheris tells a defect in `parse` from the
+    domain of input it already rejects.
     """
-    with contextlib.suppress(BTClibException):
+    with contextlib.suppress(BTClibException, BTClibEccException):
         descriptors.parse(data.decode("utf-8", errors="replace"))
 
 

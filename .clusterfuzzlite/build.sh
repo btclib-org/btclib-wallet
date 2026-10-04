@@ -24,17 +24,18 @@ pip3 install --no-deps .
 
 # compile_python_fuzzer forwards every extra argument straight to
 # pyinstaller, ahead of the fuzzer's own path (base-builder's own
-# compile_python_fuzzer script). --collect-data closes a gap PyInstaller's
-# own analysis does not: btclib.curves.curve and btclib.network each read
-# a JSON file under their own package's `_data/` directory at import
-# time, from a path built off `__file__`, and btclib_wallet.bip44 does
-# the same for `_data/bip44_purposes.json` -- a frozen onefile executable
-# bundles no non-Python file PyInstaller cannot trace a reference to.
-# Both packages are named for every harness, walking each one's whole
-# tree rather than naming one `_data/` directory alone, so a harness
-# whose own import chain does not reach a given directory today still
-# gets it bundled, ahead of the next harness that does.
-#
+# compile_python_fuzzer script). A frozen onefile executable bundles no
+# non-Python file PyInstaller cannot trace a reference to, and these
+# packages read files under their own directory from a path built off
+# `__file__`. --collect-data names the project's own package and every
+# distribution requirements.txt pins, its name with `-` read as `_`.
+# For a name that is a module, or is not the import name, PyInstaller
+# warns and collects nothing.
+collect=--collect-data=btclib_wallet
+for dist in $(sed -n 's/^\([A-Za-z0-9_.-]*\)==.*/\1/p' requirements.txt); do
+  collect="$collect --collect-data=$(echo "$dist" | tr '-' '_')"
+done
+
 # The same loop also zips each target's own seed corpus, one
 # fuzz/corpus/<name>/ directory per fuzzer (google/fuzzing's glossary,
 # "Seed Corpus": inputs "checked into source alongside fuzz targets"),
@@ -43,8 +44,7 @@ pip3 install --no-deps .
 # it is picked up here without a second list of names to keep in step
 # with the first.
 for fuzzer in $(find "$SRC/btclib-wallet/fuzz" -maxdepth 1 -name 'fuzz_*.py'); do
-  compile_python_fuzzer "$fuzzer" \
-    --collect-data=btclib --collect-data=btclib_wallet
+  compile_python_fuzzer "$fuzzer" $collect
   name=$(basename "$fuzzer" .py)
   if [ -d "fuzz/corpus/$name" ]; then
     zip -j "$OUT/${name}_seed_corpus.zip" "fuzz/corpus/$name"/*.bin
