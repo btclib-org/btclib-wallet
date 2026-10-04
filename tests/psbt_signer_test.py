@@ -49,7 +49,7 @@ from btclib_wallet.descriptors import (
 from btclib_wallet.hwi import HwiDevice
 from btclib_wallet.psbt import silent_payments
 from btclib_wallet.psbt.psbt import Psbt, sign
-from btclib_wallet.psbt.psbt_in import PsbtIn
+from btclib_wallet.psbt.psbt_in import PsbtIn, ValidSigHashType
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
@@ -307,6 +307,82 @@ def test_an_answer_of_another_sig_hash_type_is_refused() -> None:
     signer.answer = answer
     with pytest.raises(BTClibValueError, match="mismatched sig_hash type: 0x2 vs 0x1"):
         request_signatures(signer, psbt)
+
+
+class _Willing(_Signer):
+    """A signer that signs whatever sig_hash type the psbt asks for.
+
+    What a device does: the type is the psbt's, and nothing on the device
+    applies the caller's allow-list.
+    """
+
+    @override
+    def sign_psbt(self, psbt: Psbt) -> Psbt:
+        """Sign with every type the psbt's inputs ask for allowed."""
+        self.asked += 1
+        asked = {
+            hash_type
+            for psbt_in in psbt.inputs
+            if (hash_type := psbt_in.sig_hash_type) is not None
+        }
+        return sign(psbt, _KeyManager(self.xprv), allowed_sig_hash_types=asked)[0]
+
+
+# SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_ALL|ANYONECANPAY
+@pytest.mark.parametrize("hash_type", [0x02, 0x03, 0x81])
+def test_another_sig_hash_type_is_sent_only_if_allowed(
+    hash_type: ValidSigHashType,
+) -> None:
+    """The signer signs the type the psbt asks for (issue #233).
+
+    So the type is checked before `sign_psbt` is called, against the
+    caller's allowed_sig_hash_types, as `psbt.sign` checks it.
+    """
+    signer = _Willing()
+    psbt, _ = account_psbt(signer)
+    psbt.inputs[0].sig_hash_type = hash_type
+
+    with pytest.raises(BTClibValueError, match=f"sig_hash type {hex(hash_type)}"):
+        request_signatures(signer, psbt)
+    assert signer.asked == 0
+
+    allowed = {hash_type}
+    signed = request_signatures(signer, psbt, allowed_sig_hash_types=allowed)
+    assert signer.asked == 1
+    sigs = signed.inputs[0].partial_sigs.values()
+    assert [sig[-1] for sig in sigs] == [hash_type]
+
+
+# no type, SIGHASH_ALL, SIGHASH_DEFAULT
+@pytest.mark.parametrize("hash_type", [None, 0x01, 0x00])
+def test_all_default_or_no_sig_hash_type_is_sent_unasked(
+    hash_type: ValidSigHashType | None,
+) -> None:
+    """These commit to every input and every output.
+
+    The answer is the psbt unchanged: what is under test is that it is
+    sent, and SIGHASH_DEFAULT is a taproot type this ECDSA double cannot
+    sign.
+    """
+    signer = _Signer()
+    psbt, _ = account_psbt(signer)
+    psbt.inputs[0].sig_hash_type = hash_type
+    signer.answer = deepcopy(psbt)
+
+    assert request_signatures(signer, psbt) == psbt
+    assert signer.asked == 1
+
+
+def test_the_allow_list_is_checked_before_the_signer_is_asked() -> None:
+    """The same validation as `psbt.sign`'s allowed_sig_hash_types."""
+    signer = _Signer()
+    psbt, _ = account_psbt(signer)
+
+    with pytest.raises(BTClibTypeError, match="allowed_sig_hash_types"):
+        request_signatures(signer, psbt, allowed_sig_hash_types=2)  # type: ignore[arg-type]
+    with pytest.raises(BTClibValueError, match="invalid sig_hash type"):
+        request_signatures(signer, psbt, allowed_sig_hash_types={0x04})
+    assert signer.asked == 0
 
 
 def test_a_signer_holding_none_of_the_keys_adds_nothing() -> None:

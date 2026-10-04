@@ -53,6 +53,12 @@ because uv can answer from a cached index and miss a version just published
 required checks too, and `REVIEWING.md`'s "hold the merge" excepts it
 (issue btclib-org/.github#1597).
 
+### `request_signatures` sends another sig_hash type only if allowed
+
+A psbt asking for a type other than SIGHASH_ALL or SIGHASH_DEFAULT is refused
+before the signer is called, unless the new keyword-only
+`allowed_sig_hash_types` names it (closes #233).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

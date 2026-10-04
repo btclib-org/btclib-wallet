@@ -11,6 +11,13 @@ before upgrading, rather than a digit.
 
 ## v2026.11 (work in progress, not released yet)
 
+- **`request_signatures` refuses to send a psbt asking for a sig_hash type
+  other than SIGHASH_ALL or SIGHASH_DEFAULT.** It raises on an input asking
+  for SIGHASH_NONE, SINGLE or ANYONECANPAY, before the signer is called; pass
+  the types you accept as `allowed_sig_hash_types`.
+  `SoftwareSigner` applies its own allow-list, so to sign such a psbt with it,
+  call its `sign_psbt` directly with `allowed_sig_hash_types`.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or

@@ -273,6 +273,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "allowed_sig_hash_types",
         "require_non_witness_utxo",
     ],
+    "btclib_wallet.psbt_signer:request_signatures": ["allowed_sig_hash_types"],
     "btclib_wallet.psbt_signer_contract:assert_psbt_signer": ["der_path", "signable"],
     "btclib_wallet.tx_builder:build_psbt": [
         "tx_version",

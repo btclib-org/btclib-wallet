@@ -667,6 +667,10 @@ class HwiSigner:
         need not know BIP375, and this method is public, so a caller
         reaching it directly would otherwise send the device a psbt
         `psbt.sign` refuses.
+
+        The sig_hash type is not checked here: `request_signatures` checks
+        it against the caller's allowed_sig_hash_types, which this method
+        is not given (issue #233).
         """
         assert_type(psbt, Psbt, "psbt")
         _assert_sendable(psbt)

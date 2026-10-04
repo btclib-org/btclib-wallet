@@ -92,7 +92,14 @@ from btclib_wallet.descriptors import (
     account_descriptors,
     wallet_policy_address,
 )
-from btclib_wallet.psbt.psbt import Psbt, assert_signatures_only, combine, sign
+from btclib_wallet.psbt.psbt import (
+    Psbt,
+    _accepted_sig_hash_types,
+    _assert_accepted_sig_hash_type,
+    assert_signatures_only,
+    combine,
+    sign,
+)
 from btclib_wallet.psbt.silent_payments import _assert_sendable
 
 if TYPE_CHECKING:
@@ -462,7 +469,12 @@ def assert_public(descriptor: Descriptor) -> None:
                 raise BTClibValueError(err_msg)
 
 
-def request_signatures(signer: PsbtSigner, psbt: Psbt) -> Psbt:
+def request_signatures(
+    signer: PsbtSigner,
+    psbt: Psbt,
+    *,
+    allowed_sig_hash_types: Collection[int] = frozenset(),
+) -> Psbt:
     """Return the psbt with what the signer added, checked and merged.
 
     Three steps and the middle one is why this exists: the psbt goes out,
@@ -486,8 +498,18 @@ def request_signatures(signer: PsbtSigner, psbt: Psbt) -> Psbt:
     funds to whatever script the output carries, which no check on the
     answer can take back. Asked here for every `PsbtSigner`, a caller's
     own included, and not only by the signers this package ships.
+
+    A psbt asking for a sig_hash type other than SIGHASH_ALL or
+    SIGHASH_DEFAULT is sent only where allowed_sig_hash_types names it,
+    the rule `psbt.sign` applies (issue #233). A signer may sign whatever
+    type the psbt asks for, and the check on its answer accepts that type.
+    The allow-list is not passed to the signer, so one with its own, as
+    `SoftwareSigner` has, may still refuse.
     """
+    accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
     assert_type(psbt, Psbt, "request")
+    for vin_i, psbt_in in enumerate(psbt.inputs):
+        _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
     _assert_sendable(psbt)
     returned = signer.sign_psbt(psbt)
     assert_signatures_only(psbt, returned)
