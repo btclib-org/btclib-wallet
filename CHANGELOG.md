@@ -70,6 +70,12 @@ The Updater gives a key without an origin one, as Bitcoin Core does. An
 explicit origin wins, then a plain key's, then the first spelling's. A
 `musig()` participant's taproot entry lists its groups' leaves (closes #213).
 
+### `HwiSigner.sign_psbt` sends another sig_hash type only if allowed
+
+A psbt asking for a type other than SIGHASH_ALL or SIGHASH_DEFAULT is refused
+before `hwi` runs, unless the new keyword-only `allowed_sig_hash_types` names
+it (closes #243).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

@@ -69,7 +69,7 @@ from btclib_wallet.hwi import (
 )
 from btclib_wallet.psbt import silent_payments
 from btclib_wallet.psbt.psbt import Psbt, ecdsa_sig_hash
-from btclib_wallet.psbt.psbt_in import PsbtIn
+from btclib_wallet.psbt.psbt_in import PsbtIn, ValidSigHashType
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
@@ -1084,6 +1084,51 @@ def test_signtx_answers_a_psbt_and_whether_it_signed(tmp_path: Path) -> None:
 
     with pytest.raises(SignerError, match="did not answer a psbt"):
         signer(stand_in(tmp_path, {"signtx": {"signed": True}})).sign_psbt(psbt)
+
+
+# SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_ALL|ANYONECANPAY
+@pytest.mark.parametrize("hash_type", [0x02, 0x03, 0x81])
+def test_another_sig_hash_type_is_sent_only_if_allowed(
+    tmp_path: Path, hash_type: ValidSigHashType
+) -> None:
+    """A device signs the type the psbt asks for (issue #243).
+
+    So the type is checked before `hwi` runs, against the caller's
+    allowed_sig_hash_types, as `psbt.sign` checks it. The stand-in's
+    answer is canned: what is under test is whether it is run.
+    """
+    psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
+    psbt.inputs[0].sig_hash_type = hash_type
+    device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
+    argv = Path(device[-1]).with_suffix(".argv.json")
+
+    with pytest.raises(BTClibValueError, match=f"sig_hash type {hex(hash_type)}"):
+        signer(device).sign_psbt(psbt)
+    with pytest.raises(BTClibValueError, match="invalid sig_hash type"):
+        signer(device).sign_psbt(psbt, allowed_sig_hash_types={0x04})
+    with pytest.raises(BTClibTypeError, match="allowed_sig_hash_types"):
+        signer(device).sign_psbt(psbt, allowed_sig_hash_types=2)  # type: ignore[arg-type]
+    assert not argv.exists()
+
+    allowed = {hash_type}
+    assert signer(device).sign_psbt(psbt, allowed_sig_hash_types=allowed) == psbt
+    assert argv.exists()
+
+
+# no type, SIGHASH_ALL, SIGHASH_DEFAULT
+@pytest.mark.parametrize("hash_type", [None, 0x01, 0x00])
+def test_all_default_or_no_sig_hash_type_is_sent_unasked(
+    tmp_path: Path, hash_type: ValidSigHashType | None
+) -> None:
+    """These commit to every input and every output."""
+    psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
+    psbt.inputs[0].sig_hash_type = hash_type
+    device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
+
+    # SIGHASH_DEFAULT is not written to the wire, so it is the psbt as sent
+    sent = Psbt.b64decode(psbt.b64encode())
+    assert signer(device).sign_psbt(psbt) == sent
+    assert Path(device[-1]).with_suffix(".argv.json").exists()
 
 
 @pytest.mark.parametrize("code", sorted(HWI_ERROR_CODES))

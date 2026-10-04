@@ -138,7 +138,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import IO, Any
 
@@ -149,7 +149,11 @@ from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
-from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt.psbt import (
+    Psbt,
+    _accepted_sig_hash_types,
+    _assert_accepted_sig_hash_type,
+)
 from btclib_wallet.psbt.silent_payments import _assert_sendable
 from btclib_wallet.psbt_signer import SignerCapabilities
 
@@ -640,13 +644,18 @@ class HwiSigner:
         """Return the extended public key at a path: HWI's `getxpub`."""
         return self._answer(["getxpub", str_from_der_path(der_path)], "xpub")
 
-    def sign_psbt(self, psbt: Psbt) -> Psbt:
+    def sign_psbt(
+        self,
+        psbt: Psbt,
+        *,
+        allowed_sig_hash_types: Collection[int] = frozenset(),
+    ) -> Psbt:
         """Return what `hwi signtx` answered, parsed and otherwise untouched.
 
         Untouched deliberately: what the answer *contains* is checked
-        against the psbt that was sent by
-        `psbt_signer.request_signatures`, which is the caller of this and
-        the one place that comparison belongs.
+        against the psbt that was sent by `assert_signatures_only`, which
+        `psbt_signer.request_signatures` runs, and a caller of this method
+        runs itself before `combine`.
 
         What is checked here is the other thing, and only this layer can:
         `signtx` answers `signed` beside the psbt -- HWI computes it as
@@ -668,11 +677,18 @@ class HwiSigner:
         reaching it directly would otherwise send the device a psbt
         `psbt.sign` refuses.
 
-        The sig_hash type is not checked here: `request_signatures` checks
-        it against the caller's allowed_sig_hash_types, which this method
-        is not given (issue #233).
+        A psbt asking for a sig_hash type other than SIGHASH_ALL or
+        SIGHASH_DEFAULT is sent only where allowed_sig_hash_types names it,
+        the rule `psbt.sign` applies (issue #243). A device signs whatever
+        type the psbt asks for, so the check is made here, before `hwi`
+        runs. `request_signatures` does not pass its allow-list on, so a
+        caller who accepts other types calls this method directly and holds
+        the answer with `assert_signatures_only` before `combine`.
         """
+        accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
         assert_type(psbt, Psbt, "psbt")
+        for vin_i, psbt_in in enumerate(psbt.inputs):
+            _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
         _assert_sendable(psbt)
         sent = psbt.b64encode()
         # on standard input, one line and then the end of it: the module
