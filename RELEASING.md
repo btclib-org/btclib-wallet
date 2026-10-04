@@ -544,12 +544,14 @@ result.
 
    ```shell
    uv run --isolated --no-project --with btclib-wallet \
+     --refresh-package btclib-wallet \
      python -c "import btclib_wallet; print(btclib_wallet.__version__)"
    ```
 
    from a directory that belongs to no checkout of this project: run
    inside one, uv can answer from a cached build of the tree rather than
-   from the index.
+   from the index. `--refresh-package` makes uv read the index again
+   rather than its cache, which can miss a version just published.
 
    then check the attestations — the JSON API answers `null` for
    `provenance` even where they exist; the
