@@ -41,6 +41,12 @@ Each form sets an issue type, no kind label (issue btclib-org/.github#1584);
 the history files have no merge driver (issue btclib-org/.github#1582);
 a release reviews the bestpractices.dev answers (issue btclib-org/.github#1589).
 
+### The post-release install refreshes the index
+
+RELEASING.md installs the release with `--refresh-package btclib-wallet`,
+because uv can answer from a cached index and miss a version just published
+(issue btclib-org/.github#1595).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
