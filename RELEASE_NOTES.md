@@ -42,6 +42,11 @@ before upgrading, rather than a digit.
   its own fingerprint, so `hd_key_paths` is not empty for such a group. Of
   two explicit origins for one key, the first is written, not the last.
 
+- **The attestation bundle is attached as `v<version>.intoto.jsonl`** from
+  v2026.10.4 on, where earlier releases attach `v<version>.attestation.jsonl`.
+  A script that downloads it by name, or passes it to
+  `gh attestation verify --bundle`, uses the new name.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or

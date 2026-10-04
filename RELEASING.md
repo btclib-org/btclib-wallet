@@ -304,6 +304,12 @@ result.
    that matters is green, which is why the step after the approval below
    reads the run job by job rather than as a whole.
 
+1. Name in RELEASE_NOTES.md every change to the release's assets or to how they
+   are verified — a file name, a signer, a `--source-ref` — in the release that
+   first ships it. A script that downloads or verifies a release by the old
+   value fails, and the notes are what tell its user the new one
+   (btclib-org/.github#1596).
+
 1. Retitle the work-in-progress sections of
    [RELEASE_NOTES.md](./RELEASE_NOTES.md) and [CHANGELOG.md](./CHANGELOG.md) to
    `## v<version>` — the heading must be the version alone, and the section
