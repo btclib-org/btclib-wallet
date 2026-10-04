@@ -204,9 +204,8 @@ author's. `psbt.sign`, `SoftwareSigner.sign_psbt` and the MuSig2 and
 FROST `partial_sign` sign SIGHASH_ALL, or SIGHASH_DEFAULT for taproot,
 unless `allowed_sig_hash_types` names another type. `request_signatures`
 sends a psbt asking for another type only where its own
-`allowed_sig_hash_types` names it (issue #233). A signer's `sign_psbt`
-called directly checks only against the signer's own allow-list, and
-`HwiSigner` has none. A legacy
+`allowed_sig_hash_types` names it (issue #233). `HwiSigner.sign_psbt`
+checks against its own, before `hwi` runs (issue #243). A legacy
 SIGHASH_SINGLE input with no output at its index is never signed, and a
 returned ECDSA signature of a type other than SIGHASH_ALL is refused
 where the input names none (GHSA-qq38-77mp-j6wr).

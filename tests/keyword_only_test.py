@@ -215,6 +215,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "emulators",
         "capabilities",
     ],
+    "btclib_wallet.hwi:HwiSigner.sign_psbt": ["allowed_sig_hash_types"],
     "btclib_wallet.hwi:enumerate_devices": [
         "executable",
         "network",

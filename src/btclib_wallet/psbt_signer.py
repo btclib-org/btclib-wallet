@@ -504,7 +504,7 @@ def request_signatures(
     the rule `psbt.sign` applies (issue #233). A signer may sign whatever
     type the psbt asks for, and the check on its answer accepts that type.
     The allow-list is not passed to the signer, so one with its own, as
-    `SoftwareSigner` has, may still refuse.
+    `SoftwareSigner` and `HwiSigner` have, refuses even then.
     """
     accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
     assert_type(psbt, Psbt, "request")
@@ -823,8 +823,8 @@ class SoftwareSigner:
 
         allowed_sig_hash_types is `psbt.sign`'s: a type other than
         SIGHASH_ALL or SIGHASH_DEFAULT is signed only where it names it.
-        `request_signatures` cannot pass it, so a caller who accepts other
-        types calls this method directly.
+        `request_signatures` does not pass its own allow-list on, so a
+        caller who accepts other types calls this method directly.
         """
         self._assert_open()
         if self.is_watch_only:

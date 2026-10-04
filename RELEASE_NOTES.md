@@ -30,6 +30,13 @@ before upgrading, rather than a digit.
   its own fingerprint, so `hd_key_paths` and `taproot_hd_key_paths` are not
   empty for such a descriptor.
 
+- **`HwiSigner.sign_psbt` refuses a psbt asking for a sig_hash type other
+  than SIGHASH_ALL or SIGHASH_DEFAULT.** It raises before `hwi` runs; pass the
+  types you accept as its keyword-only `allowed_sig_hash_types`.
+  `request_signatures` does not pass its allow-list on, so to send such a psbt
+  to a device, call `sign_psbt` directly and hold its answer with
+  `assert_signatures_only(psbt, answer)` before `combine`.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or
