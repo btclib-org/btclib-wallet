@@ -75,6 +75,7 @@ from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,
     _assert_accepted_sig_hash_type,
+    _assert_amounts_vouched,
     leaf_script,
     prevouts,
     single_leaf_key,
@@ -417,6 +418,7 @@ def partial_sign(
     *,
     leaf_hash: Octets = b"",
     allowed_sig_hash_types: Collection[int] = frozenset(),
+    require_non_witness_utxo: bool = True,
 ) -> bytes:
     """Write the partial signature of round 2, and return it.
 
@@ -432,6 +434,11 @@ def partial_sign(
     The input's sig_hash type is signed only where it is SIGHASH_DEFAULT
     or SIGHASH_ALL, or allowed_sig_hash_types names it, as `psbt.sign`
     has it (GHSA-qq38-77mp-j6wr).
+
+    At the default an input with no non_witness_utxo is refused unless
+    every input is taproot and none asks for ANYONECANPAY, as `psbt.sign`
+    has it (GHSA-v4gq-j2v2-c4jp).
+    ``require_non_witness_utxo=False`` takes a witness utxo's word.
     """
     aggregate_pub_key = bytes_from_octets(aggregate_pub_key, MUSIG2_PUB_KEY_SIZE)
     leaf_hash = bytes_from_octets(leaf_hash)
@@ -439,6 +446,8 @@ def partial_sign(
     _assert_accepted_sig_hash_type(
         psbt_in, vin_i, _accepted_sig_hash_types(allowed_sig_hash_types)
     )
+    if require_non_witness_utxo:
+        _assert_amounts_vouched(psbt.inputs)
     # as in `nonce_gen` above, and for its reason
     q = scalar_from_prv_key(prv_key)
     pub_key = musig2.individual_pub_key(q)
