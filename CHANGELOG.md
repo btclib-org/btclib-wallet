@@ -31,6 +31,11 @@ driver that would keep both sides' numbers.
 times the parse of one of its arguments, timed in the same process, where a
 5 s bound failed on `macos-26-intel` (closes #230).
 
+### `Bip21` refuses typed parameters passed in `others`
+
+`Bip21.assert_valid` refuses `others` carrying `amount`, `label`, `message` or
+`lightning`, instead of writing a URI its own `parse` refuses (closes #217).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

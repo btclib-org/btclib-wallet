@@ -416,3 +416,15 @@ def test_lightning_amount_consistent_is_accepted() -> None:
     """A URI amount agreeing with the invoice's own is accepted."""
     uri = Bip21(ADDR, amount="0.02", lightning=_INVOICE)
     assert uri.lightning is _INVOICE
+
+
+def test_typed_parameters_in_others_are_refused() -> None:
+    """A typed parameter passed in `others` is refused by `assert_valid`."""
+    for key in ("amount", "label", "message", "lightning"):
+        with pytest.raises(BTClibValueError, match="parameter cannot be in others"):
+            Bip21(ADDR, others={key: "1"})
+
+    # check_validity=False still builds it, but serialize() refuses it
+    uri = Bip21(ADDR, others={"amount": "1"}, check_validity=False)
+    with pytest.raises(BTClibValueError, match="parameter cannot be in others"):
+        uri.serialize()

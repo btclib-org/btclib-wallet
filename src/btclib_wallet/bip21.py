@@ -55,6 +55,12 @@ __all__ = [
 
 _SCHEME = "bitcoin"
 
+# the parameters Bip21 types as fields on the class rather than leaving
+# in `others`. An `others` mapping carrying one of them is refused: a
+# parameter cannot be both typed and untyped, and writing it from both
+# would produce repeated keys that `Bip21.parse` itself refuses
+_TYPED_PARAMS = frozenset({"amount", "label", "message", "lightning"})
+
 # BIP21's own grammar for the amount: `*digit [ "." *digit ]`, and the
 # reason to spell it out rather than hand the string straight to
 # valid_btc_amount is what Decimal() would otherwise take -- "1e5",
@@ -195,19 +201,26 @@ class Bip21:
         for key in self.others:
             if not key:
                 raise BTClibValueError("empty parameter name in the bip21 URI")
+            if key in _TYPED_PARAMS:
+                raise BTClibValueError(f"parameter cannot be in others: {key}")
             if key.lower().startswith("req-"):
                 raise BTClibValueError(f"unknown required parameter: {key}")
 
-        if self.lightning is not None:
-            self.lightning.assert_valid()
-            if network_type_from_network(self.lightning.network) != self.network_type:
-                err_msg = "the lightning invoice's network does not match the address"
+        self._assert_valid_lightning()
+
+    def _assert_valid_lightning(self) -> None:
+        """Refuse an invoice inconsistent with the address or amount."""
+        if self.lightning is None:
+            return
+        self.lightning.assert_valid()
+        if network_type_from_network(self.lightning.network) != self.network_type:
+            err_msg = "the lightning invoice's network does not match the address"
+            raise BTClibValueError(err_msg)
+        if self.amount is not None and self.lightning.amount_msat is not None:
+            invoice_amount = Decimal(self.lightning.amount_msat) / Decimal(10**11)
+            if invoice_amount != self.amount:
+                err_msg = "the lightning invoice's amount does not match the URI"
                 raise BTClibValueError(err_msg)
-            if self.amount is not None and self.lightning.amount_msat is not None:
-                invoice_amount = Decimal(self.lightning.amount_msat) / Decimal(10**11)
-                if invoice_amount != self.amount:
-                    err_msg = "the lightning invoice's amount does not match the URI"
-                    raise BTClibValueError(err_msg)
 
     def serialize(self, *, check_validity: bool = True) -> str:
         """Return the `bitcoin:` URI of this payment request."""
