@@ -547,27 +547,74 @@ def test_the_account_order_does_not_move_an_origin_off_its_key() -> None:
         )
 
 
-def test_a_group_given_no_origin_writes_no_key_path() -> None:
-    """Which is a wallet that computes addresses and updates nothing else.
+def test_a_group_given_no_origin_writes_the_descriptors_made_up_one() -> None:
+    """The origin of a key without one is the one `Descriptor` makes up.
 
     An account key records neither the master fingerprint nor the path
-    down to itself, so a caller who has neither has nothing to declare,
-    and the psbt is short of exactly that field.
+    down to itself, so a caller who has neither declares nothing, and
+    the key is under its own fingerprint, as in the equivalent `wsh()`.
     """
-    wallet = ScriptWallet([KeyGroup(2, _XPUBS)], "p2wsh", "derived")
-    psbt = _psbt_spending(wallet.script_pub_key())
+    wallet = ScriptWallet([KeyGroup(2, _XPUBS)], "p2wsh", "none")
+    descriptor = parse(f"wsh({_multi(2, _XPUBS, 1, origins=False)})")
+    psbt = _psbt_spending(wallet.script_pub_key(1, 2))
 
-    psbt_in = wallet.update_psbt_input(psbt, 0).inputs[0]
-    assert psbt_in.witness_script == wallet.witness_script()
-    assert not psbt_in.hd_key_paths
-
-    # and one origin among several is one entry, the missing ones being
-    # skipped rather than refused
-    partial = ScriptWallet(
-        [KeyGroup(2, _XPUBS, origins=[_ORIGINS[0], None, None])], "p2wsh", "derived"
+    psbt_in = wallet.update_psbt_input(psbt, 0, 1, 2).inputs[0]
+    assert psbt_in.witness_script == wallet.witness_script(1, 2)
+    assert psbt_in.hd_key_paths
+    assert (
+        psbt_in.hd_key_paths
+        == descriptor.update_psbt_input(psbt, 0, 2).inputs[0].hd_key_paths
     )
-    psbt = _psbt_spending(partial.script_pub_key())
-    assert len(partial.update_psbt_input(psbt, 0).inputs[0].hd_key_paths) == 1
+    for xpub in _XPUBS:
+        origin = psbt_in.hd_key_paths[_derived(xpub, 1, 2)]
+        assert origin.description == f"{fingerprint(xpub).hex()}/1/2"
+
+    # one origin among several is its own, the others being made up
+    partial = ScriptWallet(
+        [KeyGroup(2, _XPUBS, origins=[_ORIGINS[0], None, None])], "p2wsh", "none"
+    )
+    psbt = _psbt_spending(partial.script_pub_key(1, 2))
+    paths = partial.update_psbt_input(psbt, 0, 1, 2).inputs[0].hd_key_paths
+    assert paths[_derived(_XPUBS[0], 1, 2)].description == _derived_path(
+        _ACCOUNTS[0], 1, 2
+    )
+    assert paths[_derived(_XPUBS[1], 1, 2)].description == (
+        f"{fingerprint(_XPUBS[1]).hex()}/1/2"
+    )
+
+    # a key spelled with an origin in one group and none in another has
+    # the origin, whichever group comes first
+    for origins in ([_ORIGINS[0], None], [None, _ORIGINS[0]]):
+        twice = ScriptWallet(
+            [
+                KeyGroup(1, _XPUBS[:1], origins=origins[:1]),
+                KeyGroup(1, _XPUBS[:1], origins=origins[1:]),
+            ],
+            "p2wsh",
+            "none",
+        )
+        psbt = _psbt_spending(twice.script_pub_key(1, 2))
+        paths = twice.update_psbt_input(psbt, 0, 1, 2).inputs[0].hd_key_paths
+        assert [o.description for o in paths.values()] == [
+            _derived_path(_ACCOUNTS[0], 1, 2)
+        ]
+
+
+def test_of_two_origins_of_one_key_the_first_is_written_everywhere() -> None:
+    """The psbt and the wallet's own descriptor agree, as `Descriptor` does."""
+    first = _ORIGINS[0]
+    second = BIP32KeyOrigin(bytes.fromhex("aaaaaaaa"), _ACCOUNTS[0])
+    for origins in ([first, second], [second, first]):
+        wallet = ScriptWallet(
+            [KeyGroup(1, [_XPUBS[0], _XPUBS[0]], origins=origins)], "p2wsh", "none"
+        )
+        psbt = _psbt_spending(wallet.script_pub_key(1, 2))
+        paths = wallet.update_psbt_input(psbt, 0, 1, 2).inputs[0].hd_key_paths
+        descriptor = wallet.descriptor(1)
+        assert paths == descriptor.update_psbt_input(psbt, 0, 2).inputs[0].hd_key_paths
+        (origin,) = paths.values()
+        want = origins[0]
+        assert origin.description == f"{want.description}/1/2"
 
 
 def test_a_key_origin_is_checked_against_the_key_it_belongs_to() -> None:
@@ -676,8 +723,7 @@ def test_the_lift_reads_the_script_and_puts_the_keys_back() -> None:
         f"wsh(or_i({_multi(2, _XPUBS, 1)},and_v(v:{recovery},older(144))))"
     )
     # the recovery group declared no origin, so its keys are written
-    # without one -- the same thing an empty `hd_key_paths` says, and a
-    # descriptor BIP380 allows
+    # without one, which BIP380 allows
     assert "[" not in recovery
     assert [descriptor.address(i) for i in range(8)] == [
         wallet.address(1, i) for i in range(8)

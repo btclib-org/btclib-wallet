@@ -89,10 +89,10 @@ An origin is a `KeyGroup` parameter because an account key cannot supply
 one: BIP174 carries the master fingerprint and the path from the master
 key down, and an extended key below the root records neither -- the same
 reason `descriptors.account_descriptors` takes the fingerprint beside the
-key. A group given no origin is a wallet that computes addresses and
-writes no `hd_key_paths`, which is what a psbt of it then lacks -- and
-what the `[fingerprint/path]` of its descriptor then lacks too, the two
-being one declaration read twice rather than two places to say it.
+key. A group given no origin writes each key in `hd_key_paths` under its
+own fingerprint, as a descriptor does, and its descriptor carries no
+`[fingerprint/path]`. The origins are read once, by `_key_origins`, for
+the psbt and for the descriptor.
 
 **The order is a parameter because deployed wallets disagree about it**,
 and one of the three is why this class exists at all:
@@ -152,7 +152,7 @@ from btclib_wallet.bip32.bip32 import (
 )
 from btclib_wallet.bip32.der_path import str_from_index_int
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors.descriptors import Descriptor
+from btclib_wallet.descriptors.descriptors import Descriptor, _derived_origin
 from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
 from btclib_wallet.descriptors.key_expression import KeyExpression
 from btclib_wallet.descriptors.miniscript import P2WSH, Miniscript
@@ -393,7 +393,8 @@ class KeyGroup:
     per key and in the order the keys are given, `None` for a key whose
     origin the caller does not have. It changes no script: what reads it
     is `ScriptWallet.update_psbt_input` and `update_psbt_output`, and
-    what a group without it writes into a psbt is nothing.
+    what a group without it writes into a psbt is the key's own fingerprint
+    and the two derived levels.
     """
 
     def __init__(
@@ -623,23 +624,26 @@ class ScriptWallet(RangedWallet):
         BIP174's bip32_derivs, keyed by the derived public key the script
         holds: the account key's own origin with the two levels
         `derive_from_account` walks appended to it, which is the path a
-        signer has to take to reach that key. A key given no origin is
-        skipped rather than refused -- the field is keyed by key, and what
-        is missing is one entry of it.
+        signer has to take to reach that key. A key given no origin gets
+        the one `Descriptor` makes up for it, which is what the equivalent
+        descriptor writes. Where one key is spelled more than once, an
+        explicit origin beats a made-up one and otherwise the first
+        spelling's is the entry's, as in `Descriptor`.
 
         The keys are read off the groups as declared, the order being the
         script's business and not this mapping's.
         """
+        origins = self._key_origins()
         hd_key_paths: dict[bytes, BIP32KeyOrigin] = {}
         for command in self.template:
             if not isinstance(command, KeyGroup):
                 continue
-            for key, origin in zip(command.keys, command.origins, strict=True):
-                if origin is None:
-                    continue
-                sec = self._derived_sec(key, branch, index)
-                der_path = [*origin.der_path, branch, index]
-                hd_key_paths[sec] = BIP32KeyOrigin(origin.master_fingerprint, der_path)
+            for key in command.keys:
+                expression = self._key_expression(key, branch, origins)
+                hd_key_paths.setdefault(
+                    self._derived_sec(key, branch, index),
+                    _derived_origin(expression, index),
+                )
         return hd_key_paths
 
     def update_psbt_input(
@@ -748,18 +752,20 @@ class ScriptWallet(RangedWallet):
         spelling because that is what the answer carries, and what
         `descriptors.PrvKeys` keys by for the same reason.
 
-        A key with no origin is absent, and its expression is written
-        without one -- which BIP380 allows and Bitcoin Core imports. What
-        it costs is the same thing an empty `hd_key_paths` costs: a signer
-        cannot tell that the key is its own.
+        Where a key has more than one origin, the first is the one, as in
+        `Descriptor`. A key with no origin is absent, and its expression
+        is written without one -- which BIP380 allows and Bitcoin Core
+        imports. The descriptor makes up that key's origin, as
+        `_hd_key_paths` does.
         """
-        return {
-            self._xpub(key): origin
-            for command in self.template
-            if isinstance(command, KeyGroup)
-            for key, origin in zip(command.keys, command.origins, strict=True)
-            if origin is not None
-        }
+        origins: dict[str, BIP32KeyOrigin] = {}
+        for command in self.template:
+            if not isinstance(command, KeyGroup):
+                continue
+            for key, origin in zip(command.keys, command.origins, strict=True):
+                if origin is not None:
+                    origins.setdefault(self._xpub(key), origin)
+        return origins
 
     @staticmethod
     def _xpub(key: BIP32KeyData) -> str:
@@ -912,8 +918,7 @@ class ScriptWallet(RangedWallet):
         `[fingerprint/44h/0h/0h]` in front of a key expression is what a
         hardware signer recognises its key by, it changes no script, and a
         group given none is written without one -- a descriptor BIP380
-        allows and Core imports, and the same thing an empty
-        `hd_key_paths` says.
+        allows and Core imports.
 
         `checked_indexes` is how many positions the answer is confirmed at
         before it is handed back: the descriptor's script is compared with

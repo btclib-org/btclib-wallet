@@ -76,6 +76,12 @@ A psbt asking for a type other than SIGHASH_ALL or SIGHASH_DEFAULT is refused
 before `hwi` runs, unless the new keyword-only `allowed_sig_hash_types` names
 it (closes #243).
 
+### `ScriptWallet` gives a key without an origin the one `Descriptor` does
+
+`ScriptWallet`'s Updater writes a key of a group given no origin under its own
+fingerprint, as `wsh()` does. An explicit origin beats it, and of two explicit
+ones for one key the first wins, where the last did (closes #236).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

@@ -37,6 +37,11 @@ before upgrading, rather than a digit.
   to a device, call `sign_psbt` directly and hold its answer with
   `assert_signatures_only(psbt, answer)` before `combine`.
 
+- **A `ScriptWallet` psbt carries a derivation for every key**, as a
+  descriptor's does. A key of a `KeyGroup` given no origin has an entry under
+  its own fingerprint, so `hd_key_paths` is not empty for such a group. Of
+  two explicit origins for one key, the first is written, not the last.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or
