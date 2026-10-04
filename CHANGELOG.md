@@ -25,6 +25,12 @@ driver that would keep both sides' numbers.
 
 ## v2026.11 (work in progress, not released yet)
 
+### The nested `thresh()` refusal is timed against a reference parse
+
+`test_a_wide_and_nested_thresh_is_refused_quickly` bounds the refusal by 12
+times the parse of one of its arguments, timed in the same process, where a
+5 s bound failed on `macos-26-intel` (closes #230).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
