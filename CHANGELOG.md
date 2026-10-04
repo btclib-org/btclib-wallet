@@ -88,6 +88,11 @@ RELEASE_NOTES.md gives the bundle's name, `v<version>.intoto.jsonl`.
 RELEASING.md asks that a change to a release's assets or their verification
 be named there (issue btclib-org/.github#1596).
 
+### `check-changelog` refuses an entry added to an older release
+
+A `###` heading under a release older than the newest, absent at the merge
+base with `origin/main`, is refused (issue btclib-org/.github#1614).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
