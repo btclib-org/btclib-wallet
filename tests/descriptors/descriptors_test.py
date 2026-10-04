@@ -1817,7 +1817,7 @@ def test_a_musig_descriptor_builds_a_psbt_its_group_can_sign() -> None:
     psbt_in = psbt.inputs[0]
     assert psbt_in.taproot_internal_key == key.sec(1)[1:]
     assert psbt_in.musig2_participant_pub_keys == {aggregate: key.participant_keys(1)}
-    ((leaf_hashes, origin),) = psbt_in.taproot_hd_key_paths.values()
+    leaf_hashes, origin = psbt_in.taproot_hd_key_paths[key.sec(1)[1:]]
     assert leaf_hashes == []
     assert origin.master_fingerprint == hash160(aggregate)[:4]
     assert origin.description.endswith("/0/1")
@@ -1833,13 +1833,11 @@ def test_a_musig_descriptor_builds_a_psbt_its_group_can_sign() -> None:
 
 
 def test_the_updater_writes_a_musig_group_that_derives_nothing() -> None:
-    """An aggregate key that *is* the internal key has no path to report.
+    """An aggregate key that *is* the internal key has an empty path.
 
     Which is the first of BIP373's four ways for an aggregate key to reach
-    what is spent, and the field that would say how to get from one to the
-    other is left out rather than filled with an empty path. What is still
-    written is the participants, and the origin of each participant that
-    carries one -- the entry a signer looks itself up in.
+    what is spent. The participants are written too, and each participant's
+    origin -- the entry a signer looks itself up in.
     """
     participant = f"[d34db33f/0h]{MUSIG_XPUB_A}"
     descriptor = parse(f"tr(musig({participant},{MUSIG_XPUB_B}))")
@@ -1849,11 +1847,10 @@ def test_the_updater_writes_a_musig_group_that_derives_nothing() -> None:
     aggregate = key.aggregate()
     assert psbt_in.taproot_internal_key == aggregate[1:]
     assert psbt_in.musig2_participant_pub_keys == {aggregate: key.participant_keys()}
-    # the aggregate key is the internal key, so no derivation of it, and
-    # the one entry there is is the participant that named an origin
-    x_only = key.participants[0].sec()[1:]
-    ((leaf_hashes, origin),) = psbt_in.taproot_hd_key_paths.values()
-    assert list(psbt_in.taproot_hd_key_paths) == [x_only]
+    leaf_hashes, origin = psbt_in.taproot_hd_key_paths[aggregate[1:]]
+    assert leaf_hashes == []
+    assert origin.description == hash160(aggregate)[:4].hex()
+    leaf_hashes, origin = psbt_in.taproot_hd_key_paths[key.participants[0].sec()[1:]]
     assert leaf_hashes == []
     assert origin.description == "d34db33f/0h"
 
@@ -2391,21 +2388,6 @@ def test_the_updater_carries_the_key_origin_of_the_derived_key() -> None:
         )
 
 
-def test_a_key_without_an_origin_is_skipped_rather_than_refused() -> None:
-    """A descriptor may name one key as hex and the next with an origin.
-
-    The field is keyed by public key, so what a key with nothing to say
-    about where it came from costs is its own entry and not the field.
-    """
-    descriptor = parse(f"wsh(multi(2,[d34db33f/0h]{XPUB}/0,{KEY_B},{KEY_C}))")
-    psbt = descriptor.update_psbt_input(psbt_spending(descriptor), 0)
-    hd_key_paths = psbt.inputs[0].hd_key_paths
-    assert list(hd_key_paths) == [descriptor.key_expressions[0].sec()]
-    assert hd_key_paths[descriptor.key_expressions[0].sec()].description == (
-        "d34db33f/0h/0"
-    )
-
-
 def test_the_updater_adds_to_what_the_psbt_already_carries() -> None:
     """An Updater is a role a psbt passes through, and not the first one.
 
@@ -2540,8 +2522,7 @@ def test_the_updater_names_the_leaf_a_multi_a_key_is_in() -> None:
     The tapleaf hash is of the whole script, so both keys of one
     `multi_a()` name one hash and the same one: what a signer reads there
     is which scripts it has to sign for, and this is a script both of them
-    have to sign. The internal key carries no origin here, so what the
-    field holds is the leaf's two keys and nothing else.
+    have to sign.
     """
     left, right = f"[aabbccdd/1]{XPUB}/1", f"[11223344/2]{XPUB}/2"
     descriptor = parse(f"tr({XONLY},multi_a(2,{left},{right}))")
@@ -2552,7 +2533,6 @@ def test_the_updater_names_the_leaf_a_multi_a_key_is_in() -> None:
     ((script, version),) = psbt_in.taproot_leaf_scripts.values()
     assert version == 0xC0
     keys = [key.sec()[1:] for key in descriptor.key_expressions[1:]]
-    assert list(psbt_in.taproot_hd_key_paths) == keys
     for key, description in zip(keys, ("aabbccdd/1/1", "11223344/2/2"), strict=True):
         leaf_hashes, origin = psbt_in.taproot_hd_key_paths[key]
         assert leaf_hashes == [taproot.leaf_hash(0xC0, script)]
@@ -2885,7 +2865,7 @@ def test_the_output_updater_names_a_musig_group() -> None:
     aggregate = key.aggregate(2)
     assert psbt_out.musig2_participant_pub_keys == {aggregate: key.participant_keys(2)}
     assert psbt_out.taproot_internal_key == key.sec(2)[1:]
-    ((leaf_hashes, origin),) = psbt_out.taproot_hd_key_paths.values()
+    leaf_hashes, origin = psbt_out.taproot_hd_key_paths[key.sec(2)[1:]]
     assert leaf_hashes == []
     assert origin.master_fingerprint == hash160(aggregate)[:4]
 
@@ -3188,19 +3168,6 @@ def test_the_updater_writes_one_taproot_field_for_a_rawtr() -> None:
     leaf_hashes, origin = psbt_in.taproot_hd_key_paths[key.sec(3)[1:]]
     assert leaf_hashes == []
     assert origin.description == "d34db33f/86h/0h/0h/0/3"
-
-
-def test_a_rawtr_without_an_origin_writes_nothing_at_all() -> None:
-    """There is no other field of it to fill, so the input is left as it is.
-
-    Which is not a refusal: the script an input spends is its
-    script_pub_key and the psbt has that from the utxo, so a ``rawtr()``
-    naming a key with no origin has told the psbt everything it knows by
-    saying nothing.
-    """
-    descriptor = parse(f"rawtr({XONLY_A})")
-    psbt = descriptor.update_psbt_input(psbt_spending(descriptor), 0)
-    assert psbt.inputs[0] == psbt_spending(descriptor).inputs[0]
 
 
 def test_a_descriptor_at_one_index_names_one_script() -> None:
@@ -3919,6 +3886,233 @@ def test_parse_takes_the_keys_the_test_networks_share() -> None:
         parse(f"pkh({TESTNET_XPUB}/0)", network)
 
 
+# The derivation entries Bitcoin Core v31.1 writes for an input spending each
+# descriptor: `utxoupdatepsbt <psbt> '["<descriptor>"]'` then `decodepsbt`,
+# offline on mainnet. Keyed by public key; a taproot entry is the origin and
+# the sorted leaf hashes, a BIP32 one the origin alone.
+LEAF_PK_B = "ab11b8ce98a88b0dccf33a8144f90266dd8228b9fec6fa0cc0f7d4c0a28b8977"
+LEAF_PK_C = "a5f4dd9bd9e8664ec5d1b97819e523b297ea9c7f8daa0b2e96e6460060333e5f"
+LEAF_MUSIG_AB = "357cc9cc4a0807df3e21d2ecf02cc94327fca8a2e4db17089921c03c4f50bbef"
+LEAF_MUSIG_AC = "3259c499c6f47d0fa3e242e95189c8073675fe94e1df91d1d24aa9b9346619d9"
+LEAF_PK_A = "763e9da064b9dc0471fb0f3c8fa2c84b4b84d2ca992497c12d2274386795aa8e"
+LEAF_MULTI_A = "659f0f420f9f48f3830ce9df4f7942c9ec61c8386ecf029de6f9c5ccc50c6b02"
+AGGREGATE_AB = "3b46d262d2f610e9038b44beabdfe97ab5a0feb89870acc2264edfb7f63ec2ec"
+AGGREGATE_AC = "6e68b837de28101018371e7bf6e59b5852c9e39472794c28fd955c714b8174ba"
+MUSIG_X_A = "d2b36900396c9282fa14628566582f206a5dd0bcc8d5e892611806cafb0301f0"
+MUSIG_X_B = "6557fdda1d5d43d79611f784780471f086d58e8126b8c40acb82272a7712e7f2"
+GROUP_AB = f"musig([d34db33f/0h]{KEY_A},[d34db33f/1h]{KEY_B})"
+GROUP_AC = f"musig([d34db33f/0h]{KEY_A},[d34db33f/2h]{KEY_C})"
+# each `departures` entry is one this package writes differently on purpose,
+# for the reasons `_taproot_derivations` gives
+CORE_DERIVATIONS = [
+    pytest.param(
+        f"tr({GROUP_AB},{{pk({KEY_C}),pk({GROUP_AC})}})",
+        0,
+        {
+            AGGREGATE_AB: ("8307b7d6", []),
+            AGGREGATE_AC: ("91111104", [LEAF_MUSIG_AC]),
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+            XONLY_B: ("d34db33f/1h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+            XONLY_C: ("7dd65592", [LEAF_MUSIG_AC, LEAF_PK_C]),
+        },
+        {
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC]),
+            XONLY_B: ("d34db33f/1h", []),
+            XONLY_C: ("d34db33f/2h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+        },
+        id="issue-213-plain-leaf-first",
+    ),
+    pytest.param(
+        f"tr({GROUP_AB},{{pk({GROUP_AC}),pk({KEY_C})}})",
+        0,
+        {
+            AGGREGATE_AB: ("8307b7d6", []),
+            AGGREGATE_AC: ("91111104", [LEAF_MUSIG_AC]),
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+            XONLY_B: ("d34db33f/1h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+            XONLY_C: ("d34db33f/2h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+        },
+        {
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC]),
+            XONLY_B: ("d34db33f/1h", []),
+        },
+        id="issue-213-group-leaf-first",
+    ),
+    pytest.param(
+        f"tr(musig([d34db33f/0h]{KEY_A},{KEY_B}),"
+        f"{{pk(musig([d34db33f/0h]{KEY_A},[bbbbbbbb/2h]{KEY_C})),"
+        f"pk([aaaaaaaa/9h]{KEY_C})}})",
+        0,
+        {
+            AGGREGATE_AB: ("8307b7d6", []),
+            AGGREGATE_AC: ("91111104", [LEAF_MUSIG_AC]),
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+            XONLY_B: ("06afd46b", [LEAF_MUSIG_AC, LEAF_PK_C]),
+            XONLY_C: ("bbbbbbbb/2h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+        },
+        {
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC]),
+            XONLY_B: ("06afd46b", []),
+            XONLY_C: ("aaaaaaaa/9h", [LEAF_MUSIG_AC, LEAF_PK_C]),
+        },
+        id="two-explicit-origins-of-one-key",
+    ),
+    pytest.param(
+        f"tr({KEY_A},{{pk({KEY_B}),pk(musig([d34db33f/0h]{KEY_A},[d34db33f/1h]{KEY_C}))}})",
+        0,
+        {
+            AGGREGATE_AC: ("91111104", [LEAF_MUSIG_AC]),
+            XONLY_A: ("751e76e8", [LEAF_MUSIG_AC, LEAF_PK_B]),
+            XONLY_B: ("06afd46b", [LEAF_PK_B]),
+            XONLY_C: ("d34db33f/1h", [LEAF_MUSIG_AC, LEAF_PK_B]),
+        },
+        {
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AC]),
+            XONLY_C: ("d34db33f/1h", [LEAF_MUSIG_AC]),
+        },
+        id="internal-key-also-a-participant",
+    ),
+    pytest.param(
+        f"tr({GROUP_AB},pk({GROUP_AB}))",
+        0,
+        {
+            AGGREGATE_AB: ("8307b7d6", [LEAF_MUSIG_AB]),
+            XONLY_A: ("d34db33f/0h", [LEAF_MUSIG_AB]),
+            XONLY_B: ("d34db33f/1h", [LEAF_MUSIG_AB]),
+        },
+        {},
+        id="one-group-at-the-key-path-and-in-a-leaf",
+    ),
+    pytest.param(
+        f"tr(musig([d34db33f/0h]{MUSIG_XPUB_A},{MUSIG_XPUB_B}))",
+        0,
+        {
+            "7b88885bae99182e0fcfc21a66d8a06795a1e090905080800fddd7c4d9939faa": (
+                "2dd2fb40",
+                [],
+            ),
+            MUSIG_X_A: ("d34db33f/0h", []),
+            MUSIG_X_B: ("c61368bb", []),
+        },
+        {},
+        id="musig-without-derivation",
+    ),
+    pytest.param(
+        f"tr(musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})/0/*)",
+        2,
+        {
+            "7dbed1b89c338df6a1ae137f133a19cae6e03d481196ee6f1a5c7d1aeb56b166": (
+                "2dd2fb40/0/2",
+                [],
+            ),
+            MUSIG_X_A: ("31a507b8", []),
+            MUSIG_X_B: ("c61368bb", []),
+        },
+        {},
+        id="musig-with-derivation",
+    ),
+    pytest.param(
+        f"tr({XONLY},multi_a(2,[aabbccdd/1]{XPUB}/1,[11223344/2]{XPUB}/2))",
+        0,
+        {
+            XONLY: ("c6581aca", []),
+            "c6300a6eafa84663efc570ee5ad0b320b8c9669d6795ddc33c6ffeb5500719fe": (
+                "aabbccdd/1/1",
+                [LEAF_MULTI_A],
+            ),
+            "740e51236b16399e14e6d45720583c1c321fb104f6a7343b292c2913dc5c84f7": (
+                "11223344/2/2",
+                [LEAF_MULTI_A],
+            ),
+        },
+        {},
+        id="multi-a",
+    ),
+    pytest.param(f"rawtr({XONLY_A})", 0, {XONLY_A: ("751e76e8", [])}, {}, id="rawtr"),
+    pytest.param(f"wpkh({KEY_A})", 0, {KEY_A: ("751e76e8",)}, {}, id="wpkh"),
+    pytest.param(
+        f"pkh({UNCOMPRESSED})", 0, {UNCOMPRESSED: ("b5bd079c",)}, {}, id="uncompressed"
+    ),
+    pytest.param(
+        f"wpkh({XPUB}/0/*)",
+        3,
+        {
+            "0341f3dac1554e01da5b32c8da7557c5864a56cec5d40c95489907870a2244aab4": (
+                "bd16bee5/0/3",
+            )
+        },
+        {},
+        id="xpub",
+    ),
+    pytest.param(
+        f"wsh(multi(2,[d34db33f/0h]{XPUB}/0,{KEY_B},{KEY_C}))",
+        0,
+        {
+            "02fc9e5af0ac8d9b3cecfe2a888e2117ba3d089d8585886c9c826b6b22a98d12ea": (
+                "d34db33f/0h/0",
+            ),
+            KEY_B: ("06afd46b",),
+            KEY_C: ("7dd65592",),
+        },
+        {},
+        id="multi",
+    ),
+    pytest.param(
+        f"wsh(multi(1,{KEY_A},[d34db33f/0h]{KEY_A}))",
+        0,
+        {KEY_A: ("d34db33f/0h",)},
+        {},
+        id="explicit-origin-second",
+    ),
+    pytest.param(
+        f"wsh(multi(1,[d34db33f/0h]{KEY_A},{KEY_A}))",
+        0,
+        {KEY_A: ("d34db33f/0h",)},
+        {},
+        id="explicit-origin-first",
+    ),
+    pytest.param(
+        f"wsh(multi(1,[aaaaaaaa/1h]{KEY_A},[bbbbbbbb/2h]{KEY_A}))",
+        0,
+        # Core v31.1 prefixes the second origin to the first
+        {KEY_A: ("bbbbbbbb/2h/1h",)},
+        {KEY_A: ("aaaaaaaa/1h",)},
+        id="two-explicit-origins-first-wins",
+    ),
+    pytest.param(
+        f"tr({KEY_B},{{pk([aaaaaaaa/1h]{KEY_A}),pk([bbbbbbbb/2h]{KEY_A})}})",
+        0,
+        {XONLY_A: ("aaaaaaaa/1h", [LEAF_PK_A]), XONLY_B: ("06afd46b", [])},
+        {},
+        id="two-explicit-taproot-origins-first-wins",
+    ),
+]
+
+
+@pytest.mark.parametrize("descriptor, index, core, departures", CORE_DERIVATIONS)
+def test_the_updater_writes_the_derivations_core_writes(
+    descriptor: str,
+    index: int,
+    core: dict[str, tuple[str, ...]],
+    departures: dict[str, tuple[str, ...]],
+) -> None:
+    """Every key has an entry, an origin or not, as in Bitcoin Core."""
+    assert set(departures) <= set(core)
+    parsed = parse(descriptor)
+    psbt_in = parsed.update_psbt_input(psbt_spending(parsed, index), 0, index).inputs[0]
+    written: dict[str, tuple[object, ...]] = {
+        key.hex(): (origin.description, sorted(hash_.hex() for hash_ in hashes))
+        for key, (hashes, origin) in psbt_in.taproot_hd_key_paths.items()
+    }
+    written.update(
+        {
+            key.hex(): (origin.description,)
+            for key, origin in psbt_in.hd_key_paths.items()
+        }
+    )
+    assert written == {**core, **departures}
+
+
 @pytest.mark.parametrize(
     "plain_origin, participant_origin",
     [
@@ -3933,7 +4127,7 @@ def test_a_participant_that_is_also_a_leaf_key_keeps_its_leaf_hashes(
     """C is a plain leaf key and a participant of another leaf.
 
     It has an origin on either spelling or both. Its entry lists the leaf of
-    `pk(C)`, in either leaf order.
+    `pk(C)` and the leaf of its group, in either leaf order.
     """
     key_a, key_b, key_c = (f"[d34db33f/{i}h]{sec}" for i, sec in enumerate(SEC_KEYS))
     spelled_c = {True: key_c, False: SEC_KEYS[2]}
@@ -3944,8 +4138,7 @@ def test_a_participant_that_is_also_a_leaf_key_keeps_its_leaf_hashes(
         psbt_in = descriptor.update_psbt_input(psbt_spending(descriptor), 0).inputs[0]
         hashes, origin = psbt_in.taproot_hd_key_paths[bytes.fromhex(SEC_KEYS[2])[1:]]
         assert origin.description == "d34db33f/2h"
-        script = taproot_leaf_of(psbt_in, SEC_KEYS[2][2:])[0]
-        assert hashes == [taproot.leaf_hash(0xC0, script)]
+        assert sorted(hash_.hex() for hash_ in hashes) == [LEAF_MUSIG_AC, LEAF_PK_C]
 
 
 def test_the_plain_key_origin_is_the_participants_entry_origin() -> None:

@@ -636,27 +636,36 @@ def _required_signature(signatures: Mapping[bytes, bytes], sec: bytes) -> bytes:
     return signature
 
 
-def _derived_origin(key: KeyExpression, index: int) -> BIP32KeyOrigin | None:
-    """Return the origin of the key at `index`, None for a key without one.
+def _derived_origin(key: KeyExpression, index: int) -> BIP32KeyOrigin:
+    """Return the origin of the key at `index`.
 
     `KeyExpression.origin` is the path down to the extended key the
     descriptor holds, and what BIP174 carries is the path down to the
     key itself: the derivation the descriptor then does, the wildcard
     step at `index` included, appended to it. A signer given the shorter
     path would derive the wrong key from it.
+
+    A key without an origin is its own master, as in Bitcoin Core's
+    `ConstPubkeyProvider` and `BIP32PubkeyProvider`: a fixed key under
+    the first four bytes of its hash160 with an empty path, an extended key
+    under its own fingerprint with the derivation.
     """
-    if key.origin is None:
-        return None
-    der_path = [*key.origin.der_path, *key.der_path]
+    der_path = [*key.der_path]
     if key.wildcard is not None:
         der_path.append(key.wildcard + index)
-    return BIP32KeyOrigin(key.origin.master_fingerprint, der_path)
+    if key.origin is not None:
+        return BIP32KeyOrigin(
+            key.origin.master_fingerprint, [*key.origin.der_path, *der_path]
+        )
+    if key.pub_key is not None:
+        return BIP32KeyOrigin(hash160(key.pub_key)[:4], der_path)
+    return BIP32KeyOrigin(fingerprint(key.xkey), der_path)
 
 
 def _aggregate_origin(
     key: KeyExpression, index: int, network: str, prv_keys: PrvKeys | None
-) -> BIP32KeyOrigin | None:
-    """Return where a derived aggregate key came from, None where it is one.
+) -> BIP32KeyOrigin:
+    """Return where an aggregate key, derived or not, came from.
 
     BIP373's answer to "how does this key relate to the aggregate the
     participants make": the derivation path, under the fingerprint of
@@ -665,15 +674,13 @@ def _aggregate_origin(
     without a `PSBT_GLOBAL_XPUB` naming that synthetic key.
     `psbt.musig2` reads it back exactly that way.
 
-    None where the expression derives nothing, the key in the script then
-    being the aggregate itself and the psbt having nothing to say about how
-    to get from one to the other.
+    The path is empty where the expression derives nothing, the key in the
+    script being the aggregate itself: Bitcoin Core's `MuSigPubkeyProvider`
+    gives that key the same fingerprint.
     """
     der_path = [*key.der_path]
     if key.wildcard is not None:
         der_path.append(key.wildcard + index)
-    if not der_path:
-        return None
     aggregate = key.aggregate(index, network, prv_keys)
     return BIP32KeyOrigin(hash160(aggregate)[:4], der_path)
 
@@ -692,34 +699,51 @@ def _taproot_derivations(
     for a key that is only the internal one, and one per leaf otherwise.
 
     A ``musig()`` puts two kinds of entry here, both of which BIP373 asks
-    the Updater for: the key in the script, under the synthetic origin
-    `_aggregate_origin` computes, and each participant that carries an
-    origin of its own -- the second being how a signer finds out that one
-    of the keys it holds is in this group at all. A participant's entry
-    carries the leaf hashes of the leaves where its key is a plain key, and
-    none for its group's leaf: the aggregate's own entry says which leaves
-    the group signs for. Where the plain key has an origin, that origin is
-    the entry's.
+    the Updater for: the key in the script, under the origin
+    `_aggregate_origin` computes, and each participant -- the second being
+    how a signer finds out that one of the keys it holds is in this group
+    at all. A participant's entry carries the leaves where its key is a
+    plain key and the leaves of every group it is in.
+
+    Bitcoin Core gives a participant the hash of every leaf of the tree
+    instead, because `SignMuSig2` in its `src/script/sign.cpp` fills in
+    the participants of every aggregate for each leaf key it cannot sign
+    for. Here an entry names only the leaves its key can sign.
+
+    Where one key is spelled more than once, an explicit origin beats one
+    `_derived_origin` makes up, and then a plain key's origin beats a
+    participant's. Otherwise the first spelling's origin is the entry's.
+    Bitcoin Core keeps the first spelling's origin, even a made-up one.
     """
-    derivations: dict[bytes, tuple[list[bytes], BIP32KeyOrigin]] = {}
+    origins: dict[bytes, tuple[tuple[bool, bool], BIP32KeyOrigin]] = {}
+    hashes: dict[bytes, list[bytes]] = {}
+
+    def add(
+        x_only: bytes, rank: tuple[bool, bool], origin: BIP32KeyOrigin, group: bytes
+    ) -> None:
+        if x_only not in origins or rank > origins[x_only][0]:
+            origins[x_only] = (rank, origin)
+        entry = hashes.setdefault(x_only, list(leaf_hashes.get(x_only, [])))
+        for hash_ in leaf_hashes.get(group, []):
+            if hash_ not in entry:
+                entry.append(hash_)
+
     for key in keys:
+        x_only = key.sec(index, network, prv_keys)[1:]
         origin = (
             _aggregate_origin(key, index, network, prv_keys)
             if key.is_aggregate
             else _derived_origin(key, index)
         )
-        if origin is not None:
-            x_only = key.sec(index, network, prv_keys)[1:]
-            derivations[x_only] = (list(leaf_hashes.get(x_only, [])), origin)
+        add(x_only, (key.origin is not None, True), origin, b"")
         for participant in key.participants:
-            participant_origin = _derived_origin(participant, index)
-            if participant_origin is None:
-                continue
-            x_only = participant.sec(index, network, prv_keys)[1:]
-            derivations.setdefault(
-                x_only, (list(leaf_hashes.get(x_only, [])), participant_origin)
+            add(
+                participant.sec(index, network, prv_keys)[1:],
+                (participant.origin is not None, False),
+                _derived_origin(participant, index),
+                x_only,
             )
-    return derivations
+    return {x_only: (hashes[x_only], origin) for x_only, (_, origin) in origins.items()}
 
 
 def _musig2_participants(
@@ -1004,13 +1028,13 @@ class Descriptor(ABC):
         BIP174's Updater, for the one input this descriptor describes:
         the redeem script of a ``sh()``, the witness script of a
         ``wsh()``, the internal key, merkle root and leaf scripts of a
-        ``tr()``, and the origin of every key that carries one -- which is
-        what a hardware signer needs, and what `KeyExpression.origin` is
-        kept for. `psbt.finalize` then assembles the same bytes
-        `satisfy` does, from the signatures the signers filled in at
-        their own pace: that pipeline is what a psbt is for, and what
-        `satisfy` cannot answer, refusing a partial satisfaction rather
-        than returning bytes that do not spend.
+        ``tr()``, and the origin of every key -- which is what a hardware
+        signer needs, and what `KeyExpression.origin` is kept for.
+        `psbt.finalize` then assembles the same bytes `satisfy` does, from
+        the signatures the signers filled in at their own pace: that
+        pipeline is what a psbt is for, and what `satisfy` cannot answer,
+        refusing a partial satisfaction rather than returning bytes that do
+        not spend.
 
         A copy, the psbt handed in being left alone, and the fields of
         the copy mutated in place: `finalize` is the same
@@ -1046,7 +1070,7 @@ class Descriptor(ABC):
         The Updater's other half, and what makes an output recognizable as
         the wallet's own: the redeem script of a ``sh()``, the witness
         script of a ``wsh()``, the internal key and the whole script tree
-        of a ``tr()``, and the origin of every key that carries one. A
+        of a ``tr()``, and the origin of every key. A
         signing device reads them to tell change from a payment -- it can
         derive the script itself and see that the money comes back -- and
         a wallet reading a psbt somebody else built reads them for the same
@@ -1123,17 +1147,22 @@ class Descriptor(ABC):
     def _hd_key_paths(
         self, index: int, prv_keys: PrvKeys | None
     ) -> dict[bytes, BIP32KeyOrigin]:
-        """Return the origin of each key that has one, keyed by public key.
+        """Return the origin of each key, keyed by public key.
 
-        A key with no origin is skipped and not refused: a descriptor may
-        name one key as plain hex and the next with an origin, the field
-        is keyed by key, and what is missing is one entry of it.
+        A key without an origin gets the one `_derived_origin` makes up
+        for it, as in Bitcoin Core. Where one key is spelled more than
+        once, an explicit origin beats a made-up one, and otherwise the
+        first spelling's origin is the entry's.
         """
         hd_key_paths: dict[bytes, BIP32KeyOrigin] = {}
+        explicit: set[bytes] = set()
         for key in self.key_expressions:
-            origin = _derived_origin(key, index)
-            if origin is not None:
-                hd_key_paths[key.sec(index, self.network, prv_keys)] = origin
+            sec = key.sec(index, self.network, prv_keys)
+            if sec in hd_key_paths and (sec in explicit or key.origin is None):
+                continue
+            hd_key_paths[sec] = _derived_origin(key, index)
+            if key.origin is not None:
+                explicit.add(sec)
         return hd_key_paths
 
 
