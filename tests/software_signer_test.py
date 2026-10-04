@@ -126,8 +126,9 @@ def test_a_psbt_of_an_exported_account_is_signed_and_spends(purpose: int) -> Non
 def test_the_signer_signs_another_sig_hash_type_only_if_allowed(purpose: int) -> None:
     """SIGHASH_NONE is the caller's to allow (GHSA-qq38-77mp-j6wr).
 
-    `request_signatures` passes no allow-list, so through it the psbt is
-    refused.
+    `request_signatures` refuses it unless its allowed_sig_hash_types names
+    it, and passes no allow-list on, so `SoftwareSigner` refuses it even
+    then.
     """
     signer = SoftwareSigner(XPRV_ROOT)
     receive, change = export_account(signer, f"m/{purpose}h/0h/0h")
@@ -138,6 +139,8 @@ def test_the_signer_signs_another_sig_hash_type_only_if_allowed(purpose: int) ->
         signer.sign_psbt(psbt)
     with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
         request_signatures(signer, psbt)
+    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+        request_signatures(signer, psbt, allowed_sig_hash_types={2})
 
     signed = signer.sign_psbt(psbt, allowed_sig_hash_types={2})
     finalize(signed)
