@@ -59,6 +59,11 @@ A psbt asking for a type other than SIGHASH_ALL or SIGHASH_DEFAULT is refused
 before the signer is called, unless the new keyword-only
 `allowed_sig_hash_types` names it (closes #233).
 
+### `partial_sign` of musig2 and frost refuses an input without its `non_witness_utxo`
+
+Unless every input is taproot and none asks for ANYONECANPAY, as `sign` has
+it. `require_non_witness_utxo=False` accepts it (closes #234).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

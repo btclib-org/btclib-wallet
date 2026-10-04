@@ -107,6 +107,7 @@ from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.hwi import HwiSigner, enumerate_devices
 from btclib_wallet.mnemonic import bip39
+from btclib_wallet.psbt import frost as psbt_frost
 from btclib_wallet.psbt import musig2 as psbt_musig2
 from btclib_wallet.psbt.psbt import Psbt, assert_signed
 from btclib_wallet.psbt.psbt import extract_tx as psbt_extract_tx
@@ -124,6 +125,8 @@ from tests.exception_family_test import TYPE_ERRORS
 from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
+from tests.psbt import frost_test as psbt_frost_test
+from tests.psbt import musig2_test as psbt_musig2_test
 from tests.psbt import psbt_cases
 
 
@@ -213,6 +216,32 @@ _SIGNED_PSBT = next(
 # a device that answers HWI's own shape and needs no device: the flag is
 # read in front of the command line, which is where it has to be
 _STAND_IN = [sys.executable, "-c", "print('[]')"]
+
+
+def _musig2_partial_sign(**kwargs: Any) -> bytes:
+    """Run both rounds of a MuSig2 session: a secnonce is spent by one call."""
+    psbt = psbt_musig2_test._bip373_psbt(
+        "output key is a MuSig2 Aggregate Pubkey, with participant"
+    )
+    aggregate = bytes.fromhex(psbt_musig2_test.AGGREGATE_PUB_KEY)
+    prv_key = psbt_musig2_test.PARTICIPANT_PRV_KEYS[0]
+    sec_nonce = psbt_musig2.nonce_gen(psbt, 0, prv_key, aggregate)
+    return psbt_musig2.partial_sign(psbt, 0, sec_nonce, prv_key, aggregate, **kwargs)
+
+
+def _frost_partial_sign(**kwargs: Any) -> bytes:
+    """Run both rounds of a FROST session: a secnonce is spent by one call."""
+    psbt = psbt_frost_test.internal_key_psbt()
+    share = psbt_frost_test.SEC_SHARES
+    thresh_pk = psbt_frost_test.THRESH_PK
+    sec_nonces = {
+        my_id: psbt_frost.nonce_gen(psbt, 0, my_id, share[my_id], thresh_pk)
+        for my_id in psbt_frost_test.SIGNERS
+    }
+    my_id = psbt_frost_test.SIGNERS[0]
+    return psbt_frost.partial_sign(
+        psbt, 0, sec_nonces[my_id], my_id, share[my_id], thresh_pk, **kwargs
+    )
 
 
 @dataclass(frozen=True)
@@ -455,6 +484,20 @@ _TRUTHS = (
         SoftwareSigner(_ROOT_XPRV).sign_psbt,
         {"psbt": _VOUCHED_PSBT},
         reason="`sign`'s, handed to it",
+    ),
+    _Case(
+        "btclib_wallet.psbt.musig2.partial_sign",
+        "require_non_witness_utxo",
+        _musig2_partial_sign,
+        reason="whether `sign`'s rule on the whole psbt runs; a psbt both"
+        " accept is signed the same",
+    ),
+    _Case(
+        "btclib_wallet.psbt.frost.partial_sign",
+        "require_non_witness_utxo",
+        _frost_partial_sign,
+        reason="whether `sign`'s rule on the whole psbt runs; a psbt both"
+        " accept is signed the same",
     ),
     _Case(
         "btclib_wallet.slip132.p2pkh_xkey",

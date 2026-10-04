@@ -840,6 +840,49 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
     verify_transaction(spent, extract_tx(finalize(psbt)))
 
 
+def test_an_allowed_anyonecanpay_needs_the_non_witness_utxo() -> None:
+    """ANYONECANPAY signs its own input's amount, which nothing vouches for.
+
+    The caller allows the type; the witness utxo's amount is still the
+    psbt writer's word (GHSA-v4gq-j2v2-c4jp).
+    """
+    psbt = internal_key_psbt()
+    psbt.inputs[0].sig_hash_type = 0x81  # ALL|ANYONECANPAY
+    spent = prevouts(psbt)
+    assert psbt.inputs[0].non_witness_utxo is None
+    sec_nonces = {
+        my_id: psbt_frost.nonce_gen(psbt, 0, my_id, SEC_SHARES[my_id], THRESH_PK)
+        for my_id in SIGNERS
+    }
+    my_id = SIGNERS[0]
+
+    with pytest.raises(BTClibValueError, match="input 0: no non_witness_utxo"):
+        psbt_frost.partial_sign(
+            psbt,
+            0,
+            sec_nonces[my_id],
+            my_id,
+            SEC_SHARES[my_id],
+            THRESH_PK,
+            allowed_sig_hash_types={0x81},
+        )
+    for my_id in SIGNERS:
+        psbt_frost.partial_sign(
+            psbt,
+            0,
+            sec_nonces[my_id],
+            my_id,
+            SEC_SHARES[my_id],
+            THRESH_PK,
+            allowed_sig_hash_types={0x81},
+            require_non_witness_utxo=False,
+        )
+    psbt_frost.partial_sigs_agg(psbt, 0, THRESH_PK)
+
+    assert psbt.inputs[0].taproot_key_spend_signature[-1] == 0x81
+    verify_transaction(spent, extract_tx(finalize(psbt)))
+
+
 def test_records_of_another_session_are_not_read_as_this_one() -> None:
     """A session is what is filed under its own key and leaf, and no more.
 

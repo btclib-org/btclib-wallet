@@ -470,6 +470,47 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
     verify_transaction(spent, extract_tx(finalize(psbt)))
 
 
+def test_an_allowed_anyonecanpay_needs_the_non_witness_utxo() -> None:
+    """ANYONECANPAY signs its own input's amount, which nothing vouches for.
+
+    The caller allows the type; the witness utxo's amount is still the
+    psbt writer's word (GHSA-v4gq-j2v2-c4jp).
+    """
+    psbt = _bip373_psbt("output key is a MuSig2 Aggregate Pubkey, with participant")
+    aggregate_pub_key = bytes.fromhex(AGGREGATE_PUB_KEY)
+    psbt.inputs[0].sig_hash_type = 0x81  # ALL|ANYONECANPAY
+    spent = prevouts(psbt)
+    assert psbt.inputs[0].non_witness_utxo is None
+    sec_nonces = [
+        musig2.nonce_gen(psbt, 0, prv_key, aggregate_pub_key)
+        for prv_key in PARTICIPANT_PRV_KEYS
+    ]
+
+    with pytest.raises(BTClibValueError, match="input 0: no non_witness_utxo"):
+        musig2.partial_sign(
+            psbt,
+            0,
+            sec_nonces[0],
+            PARTICIPANT_PRV_KEYS[0],
+            aggregate_pub_key,
+            allowed_sig_hash_types={0x81},
+        )
+    for prv_key, sec_nonce in zip(PARTICIPANT_PRV_KEYS, sec_nonces, strict=True):
+        musig2.partial_sign(
+            psbt,
+            0,
+            sec_nonce,
+            prv_key,
+            aggregate_pub_key,
+            allowed_sig_hash_types={0x81},
+            require_non_witness_utxo=False,
+        )
+    musig2.partial_sigs_agg(psbt, 0, aggregate_pub_key)
+
+    assert psbt.inputs[0].taproot_key_spend_signature[-1] == 0x81
+    verify_transaction(spent, extract_tx(finalize(psbt)))
+
+
 @pytest.mark.parametrize("test_vector", signed_vectors())
 def test_another_session_in_the_same_input_is_not_read_as_this_one(
     test_vector: dict[str, str],

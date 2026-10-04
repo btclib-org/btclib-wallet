@@ -18,6 +18,13 @@ before upgrading, rather than a digit.
   `SoftwareSigner` applies its own allow-list, so to sign such a psbt with it,
   call its `sign_psbt` directly with `allowed_sig_hash_types`.
 
+- **`musig2.partial_sign` and `frost.partial_sign` refuse an input without its
+  `non_witness_utxo`, unless every input is taproot and none asks for
+  ANYONECANPAY** (GHSA-v4gq-j2v2-c4jp). Give each input the
+  transaction it spends as its `non_witness_utxo`. Pass
+  `require_non_witness_utxo=False` only where you know every `witness_utxo`
+  amount is right.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or
