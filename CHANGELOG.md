@@ -47,6 +47,12 @@ RELEASING.md installs the release with `--refresh-package btclib-wallet`,
 because uv can answer from a cached index and miss a version just published
 (issue btclib-org/.github#1595).
 
+### `--admin` waits for no required check
+
+`CONTRIBUTING.md`'s emergency paragraph says `--admin` skips the
+required checks too, and `REVIEWING.md`'s "hold the merge" excepts it
+(issue btclib-org/.github#1597).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
