@@ -152,7 +152,7 @@ from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,
-    _assert_accepted_sig_hash_type,
+    _assert_sendable_sig_hash_types,
 )
 from btclib_wallet.psbt.silent_payments import _assert_sendable
 from btclib_wallet.psbt_signer import SignerCapabilities
@@ -684,11 +684,14 @@ class HwiSigner:
         runs. `request_signatures` does not pass its allow-list on, so a
         caller who accepts other types calls this method directly and holds
         the answer with `assert_signatures_only` before `combine`.
+
+        SIGHASH_SINGLE with no output at the input's index is never sent,
+        whatever is allowed, for any kind of input: the signature commits
+        to no output.
         """
         accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
         assert_type(psbt, Psbt, "psbt")
-        for vin_i, psbt_in in enumerate(psbt.inputs):
-            _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
+        _assert_sendable_sig_hash_types(psbt, accepted)
         _assert_sendable(psbt)
         sent = psbt.b64encode()
         # on standard input, one line and then the end of it: the module

@@ -50,6 +50,7 @@ from btclib_wallet.psbt import (
     join,
     new_signers,
     sign,
+    taproot_sig_hash,
 )
 from btclib_wallet.psbt import musig2 as psbt_musig2
 from btclib_wallet.psbt.psbt import (
@@ -59,6 +60,7 @@ from btclib_wallet.psbt.psbt import (
     OUTPUTS_MODIFIABLE,
     PSBT_GLOBAL_UNSIGNED_TX,
     PSBT_GLOBAL_VERSION,
+    _assert_sendable_sig_hash_types,
     _has_signature,
     _prev_out,
     _sig_hash_from_psbt_in,
@@ -5984,9 +5986,16 @@ def test_sign_refuses_an_allow_list_that_is_not_one() -> None:
 
 def _two_input_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
     """Two inputs of one key, of the given kind, and a single output."""
-    script_pub_key = {
-        "p2pkh": ScriptPubKey.p2pkh(PubKeyData(_PUB_KEY)),
-        "p2wpkh": ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)),
+    p2pk = serialize([_PUB_KEY, "OP_CHECKSIG"])
+    p2wpkh = ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY))
+    p2wsh = ScriptPubKey.p2wsh(p2pk)
+    script_pub_key, redeem_script = {
+        "p2pkh": (ScriptPubKey.p2pkh(PubKeyData(_PUB_KEY)), b""),
+        "p2wpkh": (p2wpkh, b""),
+        "p2wsh": (p2wsh, b""),
+        "p2sh-p2wpkh": (ScriptPubKey.p2sh(p2wpkh.script), p2wpkh.script),
+        "p2sh-p2wsh": (ScriptPubKey.p2sh(p2wsh.script), p2wsh.script),
+        "p2tr": (ScriptPubKey.p2tr(PubKeyData(_TAPROOT_PUB_KEY)), b""),
     }[kind]
     prev_outs = [TxOut(100_000 + i, script_pub_key) for i in range(2)]
     prev_txs = [_spending_tx(prev_out)[1] for prev_out in prev_outs]
@@ -5997,9 +6006,20 @@ def _two_input_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
         [TxOut(190_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))],
     )
     psbt = Psbt.from_tx(tx)
-    for psbt_in, prev_tx in zip(psbt.inputs, prev_txs, strict=True):
+    for psbt_in, prev_out, prev_tx in zip(
+        psbt.inputs, prev_outs, prev_txs, strict=True
+    ):
         psbt_in.non_witness_utxo = prev_tx
-        psbt_in.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+        psbt_in.redeem_script = redeem_script
+        if kind != "p2pkh":
+            psbt_in.witness_utxo = prev_out
+        if "p2wsh" in kind:
+            psbt_in.witness_script = p2pk
+        if kind == "p2tr":
+            psbt_in.taproot_internal_key = _TAPROOT_INTERNAL_KEY
+            psbt_in.taproot_merkle_root = b""
+        else:
+            psbt_in.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
     return psbt, prev_outs
 
 
@@ -6052,24 +6072,97 @@ def test_legacy_sighash_single_past_the_outputs_is_never_signed(
     assert signed_vins == [0, 1]
 
 
-def test_witness_sighash_single_past_the_outputs_is_signed_if_allowed() -> None:
-    """BIP143 has no constant 1: the type is the caller's to allow."""
-    psbt, prev_outs = _two_input_psbt("p2wpkh")
-    for psbt_in, prev_out in zip(psbt.inputs, prev_outs, strict=True):
-        psbt_in.non_witness_utxo = None
-        psbt_in.witness_utxo = prev_out
-    psbt.inputs[1].sig_hash_type = 3  # SINGLE
+_SEGWIT_V0_KINDS = ["p2wpkh", "p2wsh", "p2sh-p2wpkh", "p2sh-p2wsh"]
+
+
+@pytest.mark.parametrize("hash_type", [sig_hash.SINGLE, 0x83])
+@pytest.mark.parametrize("kind", _SEGWIT_V0_KINDS)
+def test_witness_sighash_single_past_the_outputs_is_never_signed(
+    kind: str, hash_type: Any
+) -> None:
+    """BIP143 zeroes hashOutputs: the signature commits to no output.
+
+    As Bitcoin Core's signer does (bitcoin/bitcoin#35984), `sign` refuses it
+    whatever is allowed. `ecdsa_sig_hash` still answers, for a Finalizer.
+    """
+    psbt, _ = _two_input_psbt(kind)
+    psbt.inputs[1].sig_hash_type = hash_type
     key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
 
-    # the witness utxos alone, so that nothing but the type is asked
-    signed, signed_vins = sign(
-        psbt,
-        key_manager,
-        allowed_sig_hash_types={sig_hash.SINGLE},
-        require_non_witness_utxo=False,
-    )
+    err_msg = "SIGHASH_SINGLE with no output at its index"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
+    assert len(ecdsa_sig_hash(psbt, 1)) == 32
+
+    # the input at an index that has an output is signed as allowed
+    psbt.inputs[1].sig_hash_type = None
+    psbt.inputs[0].sig_hash_type = hash_type
+    _, signed_vins = sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
     assert signed_vins == [0, 1]
+
+
+@pytest.mark.parametrize("hash_type", [sig_hash.SINGLE, 0x83])
+def test_taproot_sighash_single_past_the_outputs_is_never_signed(
+    hash_type: Any,
+) -> None:
+    """BIP341 leaves the hash undefined, and btclib refuses to compute it."""
+    psbt, _ = _two_input_psbt("p2tr")
+    psbt.inputs[1].sig_hash_type = hash_type
+    key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+
+    err_msg = "Sighash single without a corresponding output"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        sign(psbt, key_manager, allowed_sig_hash_types={hash_type})
+    with pytest.raises(BTClibValueError, match=err_msg):
+        taproot_sig_hash(psbt, 1)
+
+
+@pytest.mark.parametrize("hash_type", [sig_hash.SINGLE, 0x83])
+@pytest.mark.parametrize("kind", ["p2pkh", "p2wpkh", "p2sh-p2wsh", "p2tr"])
+def test_single_past_the_outputs_is_not_sendable_for_any_kind(
+    kind: str, hash_type: Any
+) -> None:
+    """What `request_signatures` and `HwiSigner.sign_psbt` ask before a send."""
+    psbt, _ = _two_input_psbt(kind)
+    accepted = frozenset({hash_type, sig_hash.ALL, sig_hash.DEFAULT})
+    _assert_sendable_sig_hash_types(psbt, accepted)
+
+    psbt.inputs[1].sig_hash_type = hash_type
+    err_msg = "SIGHASH_SINGLE with no output at its index"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        _assert_sendable_sig_hash_types(psbt, accepted)
+
+    # an output at its index, or another type, is sendable
+    psbt.inputs[1].sig_hash_type = 1  # ALL
+    psbt.inputs[0].sig_hash_type = hash_type
+    _assert_sendable_sig_hash_types(psbt, accepted)
+
+
+@pytest.mark.parametrize("kind", _SEGWIT_V0_KINDS)
+def test_finalizer_checks_a_witness_sighash_single_signature_past_the_outputs(
+    kind: str,
+) -> None:
+    """A signature `sign` refuses to make is valid by consensus."""
+    psbt, prev_outs = _two_input_psbt(kind)
+    key_manager = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+    signed, _ = sign(psbt, key_manager)
+
+    psbt_in = signed.inputs[1]
+    psbt_in.sig_hash_type = 3  # SINGLE
+    script_code = psbt_in.witness_script or _p2pkh_script_code(hash160(_PUB_KEY))
+    msg_hash = sig_hash.segwit_v0(
+        script_code, signed.tx, 1, sig_hash.SINGLE, prev_outs[1].value
+    )
+    assert ecdsa_sig_hash(signed, 1) == msg_hash
+    good = dsa.sign_(msg_hash, _PRV_KEY).serialize() + b"\x03"
+    psbt_in.partial_sigs = {_PUB_KEY: good}
     verify_transaction(prev_outs, extract_tx(finalize(signed)))
+
+    # a signature of another message under the same type is refused
+    wrong = dsa.sign_(ecdsa_sig_hash(signed, 0), _PRV_KEY).serialize() + b"\x03"
+    psbt_in.partial_sigs = {_PUB_KEY: wrong}
+    with pytest.raises(BTClibValueError):
+        finalize(signed)
 
 
 def test_an_ecdsa_signature_of_another_type_is_refused_without_the_field() -> None:

@@ -95,7 +95,7 @@ from btclib_wallet.descriptors import (
 from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,
-    _assert_accepted_sig_hash_type,
+    _assert_sendable_sig_hash_types,
     assert_signatures_only,
     combine,
     sign,
@@ -505,11 +505,14 @@ def request_signatures(
     type the psbt asks for, and the check on its answer accepts that type.
     The allow-list is not passed to the signer, so one with its own, as
     `SoftwareSigner` and `HwiSigner` have, refuses even then.
+
+    SIGHASH_SINGLE with no output at the input's index is never sent,
+    whatever is allowed, for any kind of input: the signature commits to
+    no output, and a device computes its own hash.
     """
     accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
     assert_type(psbt, Psbt, "request")
-    for vin_i, psbt_in in enumerate(psbt.inputs):
-        _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
+    _assert_sendable_sig_hash_types(psbt, accepted)
     _assert_sendable(psbt)
     returned = signer.sign_psbt(psbt)
     assert_signatures_only(psbt, returned)

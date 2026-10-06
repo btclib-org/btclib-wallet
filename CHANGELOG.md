@@ -105,6 +105,12 @@ The run step passes `language: python`, whose reproduce timeout covers the
 frozen binary's startup, and `report-unreproducible-crashes: true`, so a crash
 that still does not reproduce fails the run (closes #249).
 
+### SIGHASH_SINGLE with no output at its input's index is never signed or sent
+
+It commits to no output, and Bitcoin Core's signer does not make it either
+(bitcoin/bitcoin#35984). `sign`, `request_signatures` and `HwiSigner.sign_psbt`
+refuse it, whatever is allowed (closes #258) (closes #263).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

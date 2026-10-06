@@ -470,6 +470,40 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
     verify_transaction(spent, extract_tx(finalize(psbt)))
 
 
+@pytest.mark.parametrize("hash_type", [0x03, 0x83])
+def test_single_past_the_outputs_is_refused_whatever_is_allowed(
+    hash_type: Any,
+) -> None:
+    """BIP341 leaves the hash undefined: btclib's taproot hash refuses it.
+
+    The refusal is in `taproot_sig_hash`, which both rounds go through, so
+    no allow-list reaches it.
+    """
+    psbt = _participants_only_psbt()
+    aggregate_pub_key = bytes.fromhex(AGGREGATE_PUB_KEY)
+    longer = deepcopy(psbt)
+    longer.inputs.append(deepcopy(psbt.inputs[0]))
+    longer.inputs[1].previous_tx_id = b"\x09" * 32
+    longer.inputs[1].sig_hash_type = hash_type
+
+    err_msg = "Sighash single without a corresponding output"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        musig2.nonce_gen(longer, 1, PARTICIPANT_PRV_KEYS[0], aggregate_pub_key)
+    longer.inputs[1].sig_hash_type = None
+    sec_nonce = musig2.nonce_gen(longer, 1, PARTICIPANT_PRV_KEYS[0], aggregate_pub_key)
+    longer.inputs[1].sig_hash_type = hash_type
+    with pytest.raises(BTClibValueError, match=err_msg):
+        musig2.partial_sign(
+            longer,
+            1,
+            sec_nonce,
+            PARTICIPANT_PRV_KEYS[0],
+            aggregate_pub_key,
+            allowed_sig_hash_types={hash_type},
+            require_non_witness_utxo=False,
+        )
+
+
 def test_an_allowed_anyonecanpay_needs_the_non_witness_utxo() -> None:
     """ANYONECANPAY signs its own input's amount, which nothing vouches for.
 

@@ -2519,7 +2519,9 @@ def _ecdsa_sig_hash(
         raise BTClibValueError(err_msg)
     # the legacy SIGHASH_SINGLE bug: with no output at the input's index
     # the hash is the constant 1, and a signature of it spends any legacy
-    # output of the same key
+    # output of the same key. A segwit v0 signature of it is valid by
+    # consensus, so the hash is computed for the Finalizer to check;
+    # `_sign_ecdsa_input` refuses to sign it
     if (
         hash_type & ~ANYONECANPAY == SINGLE
         and vin_i >= len(tx.vout)
@@ -2548,7 +2550,9 @@ def ecdsa_sig_hash(psbt: Psbt, vin_i: int, *, hash_type: int | None = None) -> b
 
     SIGHASH_SINGLE on a non-witness spend with no output at the input's
     index is refused too. Its hash is the constant 1, and a signature of it
-    spends any legacy output of the same key (GHSA-qq38-77mp-j6wr).
+    spends any legacy output of the same key (GHSA-qq38-77mp-j6wr). A
+    segwit v0 spend is answered, since a Finalizer checks such a signature;
+    `sign` refuses to make one.
 
     Every kind a partial signature can belong to is covered, the wrapped
     ones included: `_sig_hash_from_psbt_in` is the dispatch and says how.
@@ -2668,6 +2672,39 @@ def _assert_accepted_sig_hash_type(
         raise BTClibValueError(err_msg)
 
 
+def _assert_output_at_index_for_single(
+    psbt_in: PsbtIn, vin_i: int, output_count: int
+) -> None:
+    """Raise if the input asks for SIGHASH_SINGLE with no output at its index.
+
+    A legacy signature of that kind signs the constant 1, and a segwit v0
+    one commits to no output (BIP143 zeroes hashOutputs): either way the
+    signature spends the input to whatever output its holder likes.
+    Bitcoin Core's signer makes neither (bitcoin/bitcoin#35984).
+    """
+    hash_type = psbt_in.sig_hash_type
+    if (
+        hash_type is not None
+        and hash_type & ~ANYONECANPAY == SINGLE
+        and vin_i >= output_count
+    ):
+        err_msg = f"input {vin_i}: SIGHASH_SINGLE with no output at its index "
+        err_msg += "commits to no output"
+        raise BTClibValueError(err_msg)
+
+
+def _assert_sendable_sig_hash_types(psbt: Psbt, accepted: frozenset[int]) -> None:
+    """Raise unless every input's type may go to a signer.
+
+    The two checks a signer outside this process cannot be trusted to make:
+    the type is one the caller accepts, and it is not SIGHASH_SINGLE with
+    no output at the input's index, which no allow-list lifts.
+    """
+    for vin_i, psbt_in in enumerate(psbt.inputs):
+        _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
+        _assert_output_at_index_for_single(psbt_in, vin_i, len(psbt.tx.vout))
+
+
 def _record_signature(psbt: Psbt, hash_type: int) -> None:
     """Update PSBT_GLOBAL_TX_MODIFIABLE for a signature of this type.
 
@@ -2703,6 +2740,10 @@ def _sign_ecdsa_input(
     once there is a candidate to ask for it -- an input key_manager
     holds nothing for never reaches `ecdsa_sig_hash` to be refused for a
     reason that is not key_manager's.
+
+    SIGHASH_SINGLE with no output at the input's index is refused for
+    every kind, as Bitcoin Core's signer does: the signature commits to no
+    output, and whoever holds it spends the input to any output.
     """
     psbt_in = psbt.inputs[vin_i]
     hash_type = ALL if psbt_in.sig_hash_type is None else psbt_in.sig_hash_type
@@ -2714,6 +2755,7 @@ def _sign_ecdsa_input(
         if msg_hash is None:
             _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
             msg_hash = ecdsa_sig_hash(psbt, vin_i, hash_type=hash_type)
+            _assert_output_at_index_for_single(psbt_in, vin_i, len(psbt.tx.vout))
         sig = key_manager.sign_ecdsa(pub_key, origin, msg_hash)
         if sig is None:
             continue
@@ -2865,6 +2907,8 @@ def sign(
     SIGHASH_NONE, SINGLE or ANYONECANPAY let whoever holds the signature
     change outputs or inputs (GHSA-qq38-77mp-j6wr). An input asking for
     a type not named raises once there is a key to ask about.
+    SIGHASH_SINGLE on an ECDSA input with no output at its index raises
+    whatever is allowed: the signature commits to no output.
 
     A version 2 psbt comes back with PSBT_GLOBAL_TX_MODIFIABLE updated
     for every signature added, as BIP370 asks of the Signer.
