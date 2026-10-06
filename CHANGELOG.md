@@ -99,6 +99,12 @@ base with `origin/main`, is refused (issue btclib-org/.github#1614).
 dependency, which `btclib_ecc`'s curves need, and the fuzz harnesses
 accept `BTClibEccException` as a refusal (closes #248).
 
+### `fuzz` fails on a crash it cannot reproduce
+
+The run step passes `language: python`, whose reproduce timeout covers the
+frozen binary's startup, and `report-unreproducible-crashes: true`, so a crash
+that still does not reproduce fails the run (closes #249).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
