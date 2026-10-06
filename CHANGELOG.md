@@ -141,6 +141,22 @@ which Core's regtest refuses. Testnet, testnet4 and signet keep `tsp` (closes #2
 `d`, an `x`, `c` or `9` starting with a zero word, and an amount with a leading
 zero. `sign` writes a zero `x` or `c` as an empty field (closes #260).
 
+### An explicit `sig_hash_type` of 0 is serialized and kept by `combine`
+
+`PsbtIn.serialize` writes it, so `sign` refuses an ECDSA input asking for
+SIGHASH_DEFAULT after a round trip too. `combine` keeps the first
+`sig_hash_type` present, 0 included (closes #269).
+
+### `HwiSigner` and `request_signatures` refuse SIGHASH_DEFAULT unless taproot
+
+An input asking for SIGHASH_DEFAULT that is not known to be taproot is refused
+before the signer is called, where a device signed SIGHASH_ALL (issue #269).
+
+### BIP174's combiner vectors are tested in either input order
+
+The walk-through's combined psbt and the `PSBT_IN_SIGHASH_TYPE` vector are each
+combined in either input order (closes #262).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

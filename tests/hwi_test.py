@@ -1134,9 +1134,9 @@ def test_single_past_the_outputs_is_never_sent(tmp_path: Path, hash_type: int) -
     assert not argv.exists()
 
 
-# no type, SIGHASH_ALL, SIGHASH_DEFAULT
-@pytest.mark.parametrize("hash_type", [None, 0x01, 0x00])
-def test_all_default_or_no_sig_hash_type_is_sent_unasked(
+# no type, SIGHASH_ALL
+@pytest.mark.parametrize("hash_type", [None, 0x01])
+def test_all_or_no_sig_hash_type_is_sent_unasked(
     tmp_path: Path, hash_type: ValidSigHashType | None
 ) -> None:
     """These commit to every input and every output."""
@@ -1144,9 +1144,52 @@ def test_all_default_or_no_sig_hash_type_is_sent_unasked(
     psbt.inputs[0].sig_hash_type = hash_type
     device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
 
-    # SIGHASH_DEFAULT is not written to the wire, so it is the psbt as sent
-    sent = Psbt.b64decode(psbt.b64encode())
-    assert signer(device).sign_psbt(psbt) == sent
+    assert signer(device).sign_psbt(psbt) == psbt
+    assert Path(device[-1]).with_suffix(".argv.json").exists()
+
+
+def test_sig_hash_default_is_not_sent_for_an_ecdsa_input(tmp_path: Path) -> None:
+    """No ECDSA signature has that type: a device would sign SIGHASH_ALL."""
+    psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
+    psbt.inputs[0].sig_hash_type = 0
+    device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
+
+    with pytest.raises(
+        BTClibValueError, match="SIGHASH_DEFAULT needs an input known to be taproot"
+    ):
+        signer(device).sign_psbt(psbt)
+    assert not Path(device[-1]).with_suffix(".argv.json").exists()
+
+
+@pytest.mark.parametrize("script", [None, "a914" + "00" * 20 + "87"])
+def test_sig_hash_default_is_not_sent_for_an_input_of_unknown_kind(
+    tmp_path: Path, script: str | None
+) -> None:
+    """No utxo, or a p2sh one with no redeem script: not known to be taproot."""
+    psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
+    psbt.inputs[0].non_witness_utxo = None
+    psbt.inputs[0].redeem_script = b""
+    if script is not None:
+        psbt.inputs[0].witness_utxo = TxOut(100_000, ScriptPubKey(script))
+    psbt.inputs[0].sig_hash_type = 0
+    device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
+
+    with pytest.raises(
+        BTClibValueError, match="SIGHASH_DEFAULT needs an input known to be taproot"
+    ):
+        signer(device).sign_psbt(psbt)
+    assert not Path(device[-1]).with_suffix(".argv.json").exists()
+
+
+def test_sig_hash_default_is_sent_for_a_taproot_input(tmp_path: Path) -> None:
+    """A taproot input may ask for SIGHASH_DEFAULT, its own type."""
+    psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
+    psbt.inputs[0].non_witness_utxo = None
+    psbt.inputs[0].witness_utxo = TxOut(100_000, ScriptPubKey("5120" + "aa" * 32))
+    psbt.inputs[0].sig_hash_type = 0
+    device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
+
+    assert signer(device).sign_psbt(psbt) == psbt
     assert Path(device[-1]).with_suffix(".argv.json").exists()
 
 

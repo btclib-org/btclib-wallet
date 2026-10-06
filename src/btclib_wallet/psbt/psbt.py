@@ -1708,8 +1708,11 @@ def _combine_optional_field(
     _combine_field's rule -- take it when out has none, keep out's when
     it has one -- read with `is not None` rather than with truthiness,
     which for these fields answers the wrong question: 0 is a sequence
-    BIP125 gives a meaning to, an amount of 0 is an amount, and the
-    empty signed message is a message.
+    BIP125 gives a meaning to, a sig_hash_type of 0 is SIGHASH_DEFAULT,
+    an amount of 0 is an amount, and the empty signed message is a message.
+    Bitcoin Core's PSBTInput::Merge keeps the sig_hash_type it has and
+    takes the other's only when it has none, since bitcoin/bitcoin@ea785a31f7;
+    v31.1's Merge does not touch the field.
     """
     item = getattr(psbt_map, key)
     if item is None:
@@ -1891,7 +1894,7 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
             _combine_field(psbt.inputs[i], inp, "non_witness_utxo")
             _combine_field(psbt.inputs[i], inp, "witness_utxo")
             _combine_field(psbt.inputs[i], inp, "partial_sigs")
-            _combine_field(psbt.inputs[i], inp, "sig_hash_type")
+            _combine_optional_field(psbt.inputs[i], inp, "sig_hash_type")
             _combine_field(psbt.inputs[i], inp, "redeem_script")
             _combine_field(psbt.inputs[i], inp, "witness_script")
             _combine_field(psbt.inputs[i], inp, "hd_key_paths")
@@ -2664,8 +2667,16 @@ def _assert_accepted_sig_hash_type(
 
     An absent field is SIGHASH_ALL for an ECDSA spend and SIGHASH_DEFAULT
     for a taproot one, and both are always accepted.
+
+    An explicit SIGHASH_DEFAULT is refused whatever is accepted, unless
+    the input is known to be taproot: no ECDSA signature has that type, so
+    a signer outside this process would sign SIGHASH_ALL instead. An input
+    that does not say what it spends cannot be signed anyway.
     """
     hash_type = psbt_in.sig_hash_type
+    if hash_type == DEFAULT and not is_p2tr(_spent_script(psbt_in)):
+        err_msg = f"input {vin_i}: SIGHASH_DEFAULT needs an input known to be taproot"
+        raise BTClibValueError(err_msg)
     if hash_type is not None and hash_type not in accepted:
         err_msg = f"input {vin_i} asks for sig_hash type {hex(hash_type)}, "
         err_msg += "which allowed_sig_hash_types does not name"

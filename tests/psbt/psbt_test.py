@@ -1152,8 +1152,9 @@ def test_psbt_combination() -> None:
     psbt1 = Psbt.b64decode(psbt1_str)
     psbt2_str = "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAAiAgLath/0mhTban0CsM0fu3j8SxgxK1tOVNrk26L7/vU210gwRQIhAPYQOLMI3B2oZaNIUnRvAVdyk0IIxtJEVDk82ZvfIhd3AiAFbmdaZ1ptCgK4WxTl4pB02KJam1dgvqKBb2YZEKAG6gEBAwQBAAAAAQRHUiEClYO/Oa4KYJdHrRma3dY0+mEIVZ1sXNObTCGD8auW4H8hAtq2H/SaFNtqfQKwzR+7ePxLGDErW05U2uTbovv+9TbXUq4iBgKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfxDZDGpPAAAAgAAAAIAAAACAIgYC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtcQ2QxqTwAAAIAAAACAAQAAgAABASAAwusLAAAAABepFLf1+vQOPUClpFmx2zU18rcvqSHohyICAjrdkE89bc9Z3bkGsN7iNSm3/7ntUOXoYVGSaGAiHw5zRzBEAiBl9FulmYtZon/+GnvtAWrx8fkNVLOqj3RQql9WolEDvQIgf3JHA60e25ZoCyhLVtT/y4j3+3Weq74IqjDym4UTg9IBAQMEAQAAAAEEIgAgjCNTFzdDtZXftKB7crqOQuN5fadOh/59nXSX47ICiQMBBUdSIQMIncEMesbbVPkTKa9hczPbOIzq0MIx9yM3nRuZAwsC3CECOt2QTz1tz1nduQaw3uI1Kbf/ue1Q5ehhUZJoYCIfDnNSriIGAjrdkE89bc9Z3bkGsN7iNSm3/7ntUOXoYVGSaGAiHw5zENkMak8AAACAAAAAgAMAAIAiBgMIncEMesbbVPkTKa9hczPbOIzq0MIx9yM3nRuZAwsC3BDZDGpPAAAAgAAAAIACAACAACICA6mkw39ZltOqJdusa1cK8GUDlEkpQkYLNUdT7Z7spYdxENkMak8AAACAAAAAgAQAAIAAIgICf2OZdX0u/1WhNq0CxoSxg4tlVuXxtrNCgqlLa1AFEJYQ2QxqTwAAAIAAAACABQAAgAA="
     psbt2 = Psbt.b64decode(psbt2_str)
-    combined_psbt = combine([psbt1, psbt2])
-    assert combined_psbt == psbt
+    # compared by value: our key order is not the BIP's
+    assert combine([psbt1, psbt2]) == psbt
+    assert combine([psbt2, psbt1]) == psbt
 
 
 # the psbt BIP174's Combiner example produces, which its Finalizer
@@ -1201,10 +1202,74 @@ def test_lexicographic_ordering() -> None:
     psbt1 = Psbt.b64decode(psbt1_str)
     psbt2_str = "cHNidP8BAD8CAAAAAf//////////////////////////////////////////AAAAAAD/////AQAAAAAAAAAAA2oBAAAAAAAK8AECAwQFBgcIEA8BAgMEBQYHCAkKCwwNDg8ACvABAgMEBQYHCBAPAQIDBAUGBwgJCgsMDQ4PAArwAQIDBAUGBwgQDwECAwQFBgcICQoLDA0ODwA="
     psbt2 = Psbt.b64decode(psbt2_str)
-    combined_psbt = combine([psbt1, psbt2])
-    assert combined_psbt == psbt
-    combined_psbt = combine([psbt2, psbt1])
-    assert combined_psbt == psbt
+    # the bytes are the BIP's, in either order
+    assert combine([psbt1, psbt2]).b64encode() == psbt_str
+    assert combine([psbt2, psbt1]).b64encode() == psbt_str
+
+
+# the psbts of BIP174's Combiner example that keeps PSBT_IN_SIGHASH_TYPE:
+# the first has none, the second asks for 0x81 on both inputs, and the
+# result is the second
+NO_SIG_HASH_TYPE = "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAABBEdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSriIGApWDvzmuCmCXR60Zmt3WNPphCFWdbFzTm0whg/GrluB/ENkMak8AAACAAAAAgAAAAIAiBgLath/0mhTban0CsM0fu3j8SxgxK1tOVNrk26L7/vU21xDZDGpPAAAAgAAAAIABAACAAAEBIADC6wsAAAAAF6kUt/X69A49QKWkWbHbNTXyty+pIeiHAQQiACCMI1MXN0O1ld+0oHtyuo5C43l9p06H/n2ddJfjsgKJAwEFR1IhAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcIQI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc1KuIgYCOt2QTz1tz1nduQaw3uI1Kbf/ue1Q5ehhUZJoYCIfDnMQ2QxqTwAAAIAAAACAAwAAgCIGAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcENkMak8AAACAAAAAgAIAAIAAIgIDqaTDf1mW06ol26xrVwrwZQOUSSlCRgs1R1Ptnuylh3EQ2QxqTwAAAIAAAACABAAAgAAiAgJ/Y5l1fS7/VaE2rQLGhLGDi2VW5fG2s0KCqUtrUAUQlhDZDGpPAAAAgAAAAIAFAACAAA=="
+SIG_HASH_TYPE_0X81 = "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAAiAgKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgf0cwRAIgOL80NT9sZb1AQ+q36sL908FMx7YtrWwov6mYlSarN1oCIAl7zFcZ+ap+M1Smn2g5YxscWU+IyLsRnc2mjsMQFZzsgQEDBIEAAAABBEdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSriIGApWDvzmuCmCXR60Zmt3WNPphCFWdbFzTm0whg/GrluB/ENkMak8AAACAAAAAgAAAAIAiBgLath/0mhTban0CsM0fu3j8SxgxK1tOVNrk26L7/vU21xDZDGpPAAAAgAAAAIABAACAAAEBIADC6wsAAAAAF6kUt/X69A49QKWkWbHbNTXyty+pIeiHIgIDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtxHMEQCIAHLeP7QwBWvKVeF7d0Pz38hRdH1gBZIIOYctWj4/oQ/AiBbz5DTn8kiRHdCLpwvlqyo9WaRXO+k7NTlxSqZtYiSkYEBAwSBAAAAAQQiACCMI1MXN0O1ld+0oHtyuo5C43l9p06H/n2ddJfjsgKJAwEFR1IhAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcIQI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc1KuIgYCOt2QTz1tz1nduQaw3uI1Kbf/ue1Q5ehhUZJoYCIfDnMQ2QxqTwAAAIAAAACAAwAAgCIGAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcENkMak8AAACAAAAAgAIAAIAAIgIDqaTDf1mW06ol26xrVwrwZQOUSSlCRgs1R1Ptnuylh3EQ2QxqTwAAAIAAAACABAAAgAAiAgJ/Y5l1fS7/VaE2rQLGhLGDi2VW5fG2s0KCqUtrUAUQlhDZDGpPAAAAgAAAAIAFAACAAA=="
+
+
+def test_sig_hash_type_is_kept() -> None:
+    """Reproduce BIP174's Combiner example that keeps PSBT_IN_SIGHASH_TYPE."""
+    psbt1 = Psbt.b64decode(NO_SIG_HASH_TYPE)
+    psbt2 = Psbt.b64decode(SIG_HASH_TYPE_0X81)
+    assert psbt1.b64encode() == NO_SIG_HASH_TYPE
+    assert psbt2.b64encode() == SIG_HASH_TYPE_0X81
+    assert [inp.sig_hash_type for inp in psbt1.inputs] == [None, None]
+    assert [inp.sig_hash_type for inp in psbt2.inputs] == [0x81, 0x81]
+    assert combine([psbt1, psbt2]).b64encode() == SIG_HASH_TYPE_0X81
+    assert combine([psbt2, psbt1]).b64encode() == SIG_HASH_TYPE_0X81
+
+
+def test_a_combine_keeps_the_first_sig_hash_type_present() -> None:
+    """A sig_hash_type of 0 is present, and the first one present is kept.
+
+    This is Bitcoin Core's rule: PSBTInput::Merge takes the other
+    side's sig_hash_type only when its own is nullopt. BIP174 lets a
+    combiner pick either value on a conflict, so 0 against 0x81 is a
+    choice, and 0 against none is not one: only one side has the key.
+    """
+    with_0x81 = Psbt.b64decode(SIG_HASH_TYPE_0X81)
+    with_0 = deepcopy(with_0x81)
+    with_0.inputs[0].sig_hash_type = 0
+    absent = Psbt.b64decode(NO_SIG_HASH_TYPE)
+
+    assert combine([with_0, absent]).inputs[0].sig_hash_type == 0
+    assert combine([absent, with_0]).inputs[0].sig_hash_type == 0
+    assert combine([with_0, with_0x81]).inputs[0].sig_hash_type == 0
+    assert combine([with_0x81, with_0]).inputs[0].sig_hash_type == 0x81
+
+
+def test_a_sig_hash_type_of_0_survives_the_bytes() -> None:
+    """An explicit 0 is serialized, so a signer asked to sign it still refuses.
+
+    Absent, an ECDSA input signs SIGHASH_ALL; asking for 0, which is
+    SIGHASH_DEFAULT, it is refused. Losing the 0 on the wire would turn
+    the refusal into a signature.
+    """
+    psbt, _ = _single_key_psbt("p2wpkh")
+    psbt.inputs[0].sig_hash_type = 0
+    wire = psbt.serialize()
+
+    round_tripped = Psbt.parse(wire)
+    assert round_tripped.inputs[0].sig_hash_type == 0
+    assert round_tripped.serialize() == wire
+    assert wire != _single_key_psbt("p2wpkh")[0].serialize()
+    with pytest.raises(BTClibValueError, match="SIGHASH_DEFAULT is not an ECDSA"):
+        ecdsa_sig_hash(round_tripped, 0)
+
+    unsigned = deepcopy(round_tripped)
+    unsigned.inputs[0].partial_sigs = {}
+    unsigned.inputs[0].hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+    with pytest.raises(
+        BTClibValueError, match="SIGHASH_DEFAULT needs an input known to be taproot"
+    ):
+        sign(unsigned, _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY}))
 
 
 # not part of the official BIP174 test vector

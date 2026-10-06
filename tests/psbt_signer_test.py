@@ -381,20 +381,64 @@ def test_single_past_the_outputs_is_never_sent(hash_type: int) -> None:
     assert signer.asked == 0
 
 
-# no type, SIGHASH_ALL, SIGHASH_DEFAULT
-@pytest.mark.parametrize("hash_type", [None, 0x01, 0x00])
-def test_all_default_or_no_sig_hash_type_is_sent_unasked(
+# no type, SIGHASH_ALL
+@pytest.mark.parametrize("hash_type", [None, 0x01])
+def test_all_or_no_sig_hash_type_is_sent_unasked(
     hash_type: ValidSigHashType | None,
 ) -> None:
-    """These commit to every input and every output.
-
-    The answer is the psbt unchanged: what is under test is that it is
-    sent, and SIGHASH_DEFAULT is a taproot type this ECDSA double cannot
-    sign.
-    """
+    """These commit to every input and every output."""
     signer = _Signer()
     psbt, _ = account_psbt(signer)
     psbt.inputs[0].sig_hash_type = hash_type
+
+    assert request_signatures(signer, psbt).inputs[0].partial_sigs
+    assert signer.asked == 1
+
+
+def test_sig_hash_default_is_not_sent_for_an_ecdsa_input() -> None:
+    """No ECDSA signature has that type: a device would sign SIGHASH_ALL."""
+    signer = _Signer()
+    psbt, _ = account_psbt(signer)
+    psbt.inputs[0].sig_hash_type = 0
+
+    with pytest.raises(
+        BTClibValueError, match="SIGHASH_DEFAULT needs an input known to be taproot"
+    ):
+        request_signatures(signer, psbt)
+    assert signer.asked == 0
+
+
+@pytest.mark.parametrize("script", [None, "a914" + "00" * 20 + "87"])
+def test_sig_hash_default_is_not_sent_for_an_input_of_unknown_kind(
+    script: str | None,
+) -> None:
+    """No utxo, or a p2sh one with no redeem script: not known to be taproot."""
+    signer = _Signer()
+    psbt, _ = account_psbt(signer)
+    psbt.inputs[0].non_witness_utxo = None
+    psbt.inputs[0].redeem_script = b""
+    if script is not None:
+        psbt.inputs[0].witness_utxo = TxOut(10_000, ScriptPubKey(script))
+    psbt.inputs[0].sig_hash_type = 0
+
+    with pytest.raises(
+        BTClibValueError, match="SIGHASH_DEFAULT needs an input known to be taproot"
+    ):
+        request_signatures(signer, psbt)
+    assert signer.asked == 0
+
+
+def test_sig_hash_default_is_sent_for_a_taproot_input() -> None:
+    """SIGHASH_DEFAULT is the taproot type, and a taproot input may ask for it.
+
+    The answer is the psbt unchanged: what is under test is that it is
+    sent, and this double signs no taproot input.
+    """
+    signer = _Signer()
+    psbt, _ = account_psbt(signer)
+    psbt.inputs[0].non_witness_utxo = None
+    psbt.inputs[0].witness_utxo = TxOut(10_000, ScriptPubKey("5120" + "aa" * 32))
+    psbt.inputs[0].sig_hash_type = 0
     signer.answer = deepcopy(psbt)
 
     assert request_signatures(signer, psbt) == psbt
