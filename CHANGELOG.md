@@ -129,6 +129,12 @@ Without `hashlib.scrypt`, `encrypt`, `decrypt`, `intermediate_code` and
 `new_key_pair` raise a `BTClibRuntimeError` naming it, not an `AttributeError`
 (closes #255).
 
+### Silent payment addresses use `sprt` on regtest
+
+A regtest address has the hrp `sprt`, as in Bitcoin Core, and `keys_from_address`
+reads it with the network type `"test"`. Earlier releases give regtest `tsp`,
+which Core's regtest refuses. Testnet, testnet4 and signet keep `tsp` (closes #254).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

@@ -74,7 +74,7 @@ from btclib.b32 import power_of_2_base_conversion
 from btclib.bech32 import BECH32_M_CONST, decode, encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
-from btclib.network import network_type_from_network
+from btclib.network import network_type_from_network, validated_network_name
 from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
@@ -133,11 +133,13 @@ _INPUTS_TAG = b"BIP0352/Inputs"
 _LABEL_TAG = b"BIP0352/Label"
 _SHARED_SECRET_TAG = b"BIP0352/SharedSecret"
 
-# the human-readable parts BIP352 defines, one for mainnet and one for
-# every test network: `Network.network_type` is exactly that distinction,
-# so there is no per-network hrp to add to the network table
+# the human-readable parts BIP352 defines: "sp" for mainnet, "tsp" for the
+# test networks
 _MAINNET_HRP = "sp"
 _TESTNET_HRP = "tsp"
+# regtest's is Bitcoin Core's and not BIP352's, which names none
+# (bitcoin/bitcoin#35301, src/kernel/chainparams.cpp:679 at aef8a04966)
+_REGTEST_HRP = "sprt"
 
 # this document defines version 0, and reserves 31 for a change that
 # breaks compatibility -- a v0 wallet must refuse a v31 address rather
@@ -151,8 +153,8 @@ _PAYLOAD_SIZE = 2 * _PK_SIZE
 
 # BIP173's checksum design gives a bech32m string of this length the
 # error-detection it was designed for; BIP352 recommends the bound
-# because a future version may lengthen the payload, so the 90 characters
-# of a segwit address are not it and neither is the 117 a v0 address takes
+# because a future version may lengthen the payload, so neither the 90
+# characters of a segwit address nor a v0 address's length is it
 _MAX_ADDRESS_SIZE = 1023
 
 # the per-group recipient limit. Without it, a block of one transaction
@@ -233,16 +235,19 @@ def _compressed_point(octets: Octets) -> Point | None:
 
 
 def _hrp_from_network(network: str) -> str:
-    """Return BIP352's hrp for a network: mainnet's, or every testnet's.
+    """Return a network's hrp: "sp" on mainnet, "sprt" on regtest, else "tsp".
 
     Through `network_type_from_network` and not `NETWORKS[network]`: a
     name no network has is refused there, where indexing the table answers
     a bare `KeyError` -- which, being a `LookupError`, no `except
     BTClibValueError` written against this library would catch.
     """
-    return (
-        _MAINNET_HRP if network_type_from_network(network) == "main" else _TESTNET_HRP
-    )
+    if network_type_from_network(network) == "main":
+        return _MAINNET_HRP
+    # the name `network_type_from_network` accepted, normalized
+    if validated_network_name(network) == "regtest":
+        return _REGTEST_HRP
+    return _TESTNET_HRP
 
 
 def address_from_keys(B_scan: PubKey, B_m: PubKey, network: str = "mainnet") -> str:
@@ -265,9 +270,9 @@ def address_from_keys(B_scan: PubKey, B_m: PubKey, network: str = "mainnet") -> 
 def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
     """Return (B_scan, B_m, network type) from a silent payment address.
 
-    The network type and not a network: BIP352 has one hrp for mainnet
-    and one for every test network, so "tsp" says testnet, signet,
-    testnet4 or regtest without saying which.
+    The network type and not a network: "tsp" (testnet, testnet4, signet)
+    and "sprt" (regtest) both answer "test", so the answer does not say
+    which test network an address is for.
 
     A version above 0 is read as far as v0 defines it -- the first 66
     bytes of the payload, the rest discarded -- so that a v0 sender can
@@ -293,7 +298,7 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
     hrp, data = decode(addr, BECH32_M_CONST)
     if hrp == _MAINNET_HRP:
         network_type: NetworkType = "main"
-    elif hrp == _TESTNET_HRP:
+    elif hrp in {_TESTNET_HRP, _REGTEST_HRP}:
         network_type = "test"
     else:
         raise BTClibValueError(f"invalid hrp: {hrp}")

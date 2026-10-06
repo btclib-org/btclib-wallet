@@ -281,11 +281,10 @@ def _reencoded(version: int, payload: bytes, hrp: str = "sp") -> str:
 
 
 def test_the_address_round_trip_on_every_network() -> None:
-    """One hrp for mainnet and one for every test network, per BIP352.
+    """Each network's hrp, and the network type read back.
 
-    So the answer is the network *type*: a "tsp" address says testnet,
-    signet, testnet4 or regtest without saying which, and inventing one
-    of the four would be inventing a fact the address does not carry.
+    "tsp" is shared by testnet, testnet4 and signet, and "sprt" is
+    regtest's: both read back as "test".
     """
     B_scan, B_spend = mult(_B_SCAN_PRV), mult(_B_SPEND_PRV)
     for network, hrp, network_type in (
@@ -293,7 +292,7 @@ def test_the_address_round_trip_on_every_network() -> None:
         ("testnet", "tsp", "test"),
         ("signet", "tsp", "test"),
         ("testnet4", "tsp", "test"),
-        ("regtest", "tsp", "test"),
+        ("regtest", "sprt", "test"),
     ):
         address = _address(network=network)
         assert address.startswith(f"{hrp}1q")
@@ -302,6 +301,11 @@ def test_the_address_round_trip_on_every_network() -> None:
             B_spend,
             network_type,
         )
+
+    # a spelling of the name that `network_type_from_network` accepts
+    regtest = _address(network=" Regtest ")
+    assert regtest.startswith("sprt1q")
+    assert silent_payments.keys_from_address(regtest.upper())[2] == "test"
 
     # and the address is read back in upper case and whatever the spacing,
     # as every other btclib bech32 address is
