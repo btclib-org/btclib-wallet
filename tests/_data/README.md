@@ -512,6 +512,28 @@ the name reads: the DERIVED ENTROPY of application 32' is the second half
 of the 64 bytes, the private key of the xprv, and that of 39' is already
 truncated to what the sentence encodes.
 
+### Not vendored as a file: BIP386's `tr()` vectors
+
+```text
+repo    bitcoin/bips
+path    bip-0386.mediawiki
+commit  9d735fb36fdd6a5860febe7e84680aa220baad23  2026-09-17
+pulled  2026-10-07
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, complete for both lists and cited inline, in
+`tests/descriptors/descriptors_test.py`'s `BIP386_VECTORS` and
+`BIP386_INVALID`: each valid descriptor that gives scripts, with the
+script at each index the BIP lists, and each invalid one with the message
+it is refused with. The valid `tr(KEY,pkh(KEY))` gives no script:
+`test_bip386_pkh_leaf` parses it and asserts the script of the same shape
+in Bitcoin Core's `descriptor_test`.
+
+BIP386 lists `tr(KEY,pkh(KEY))` as valid since `d7854890`, `bip386:
+update stale sentence`: a `pkh()` leaf is the BIP379 miniscript fragment
+of that name.
+
 ### Not vendored as a file: BIP387's `multi_a()` vectors
 
 ```text
@@ -748,12 +770,14 @@ function moves the commit, and the weekly run says so.
 
 The subset is deliberate and is what a refresh would revisit: Core's file
 also holds `CheckUnparsable` cases, which this module has as `UNPARSABLE`
-with btclib's own messages, and `musig()` cases. Those BIP390 publishes
-are transcribed from the BIP itself above rather than from here; those it
-does not -- `rawtr(musig(...))` among them -- are transcribed from
-neither. Matched against the file as it stood on 2026-08-06.
+and `CORE_UNPARSABLE` with btclib's own messages, and `musig()` cases.
+Those BIP390 publishes are transcribed from the BIP itself above rather
+than from here; those it does not -- `rawtr(musig(...))` among them -- are
+transcribed from neither. Matched against the file as it stood on
+2026-08-06.
 
-The cases upstream added after that comparison are not here, and
+The cases upstream added after that comparison, other than
+bitcoin/bitcoin#35819's below, are not here, and
 [ISS 1334](https://github.com/btclib-org/btclib/issues/1334) is where
 they were weighed: it measured btclib against both defects they cover --
 a `musig()` duplicate-key check that reads distinct participants as the
@@ -763,10 +787,11 @@ this tree, so none of those cases is owed here.
 
 The revision this refresh crosses is bitcoin/bitcoin#35819, *test: add
 coverage for untested descriptor parse error paths*: new lines, almost
-all new `CheckUnparsable` cases -- already outside the transcribed
-subset for the reason above -- and one new `Check(...)`-shaped case
+all new `CheckUnparsable` cases, and one new `Check(...)`-shaped case
 asserting that a taptree of exactly 128 nesting levels parses.
-`CORE_VECTORS` gains nothing from it.
+The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, and
+that parse is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains
+nothing from it.
 
 ## bitcoin-core/HWI
 

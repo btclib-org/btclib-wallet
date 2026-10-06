@@ -14,11 +14,11 @@ beside them reach. Core's ``rawtr()`` vectors are read there too, no BIP
 publishing them: the ``rawtr()`` vectors BIP390 does publish are
 ``musig()`` ones, and are read from the BIP instead.
 
-Not vendored as files, those and BIP387's and BIP390's alike: the values
-are read out of C++ source and mediawiki prose rather than copied from a
-data file, so what this module cites is the path and the case, and
-`tests/_data/README.md` carries the revision each is pinned to -- which
-is also what the weekly upstream re-check reads.
+Not vendored as files, those and BIP386's, BIP387's and BIP390's alike:
+the values are read out of C++ source and mediawiki prose rather than
+copied from a data file, so what this module cites is the path and the
+case, and `tests/_data/README.md` carries the revision each is pinned to
+-- which is also what the weekly upstream re-check reads.
 
 Where one of those descriptors has no public spelling to check, Core's
 own flags say why: HARDENED and DERIVE_HARDENED mark a derivation that
@@ -786,6 +786,20 @@ def test_bip388_invalid_templates() -> None:
         wallet_policy_descriptor(non_kp, key_info)
 
 
+def test_wallet_policy_accepts_a_pkh_leaf_under_tr() -> None:
+    """Accept `tr(@0/**,pkh(@1/**))`: BIP388 admits a miniscript in `tr()`.
+
+    Its "not inside tr" is the descriptor function's; the fragment `pkh()`
+    of BIP379 is a miniscript.
+    """
+    xpubs = (MUSIG_XPUB_A, MUSIG_XPUB_B)
+    key_info = tuple(parse(f"pk({xpub})").key_expressions[0] for xpub in xpubs)
+    template = "tr(@0/**,pkh(@1/**))"
+    receive = wallet_policy_descriptor(template, key_info, 0)
+    change = wallet_policy_descriptor(template, key_info, 1)
+    assert wallet_policy(receive, change)[0] == template
+
+
 @pytest.mark.parametrize("template, keys, descriptor", BIP388_VECTORS)
 def test_wallet_policy_reconstructs_bip388s_own_vectors(
     template: str, keys: tuple[str, ...], descriptor: str
@@ -1460,7 +1474,6 @@ UNPARSABLE = [
     (f"sh(rawtr({XONLY}))", "not allowed inside"),
     (f"wsh(rawtr({XONLY}))", "not allowed inside"),
     (f"tr({XONLY},rawtr({XONLY}))", "not allowed inside"),
-    (f"tr({XONLY},pkh({KEY}))", "not allowed inside"),
     # inside tr() a function that is no BIP386 leaf is read as a
     # miniscript, so what answers is the language and not the table
     (f"tr({XONLY},nope({KEY}))", "unknown miniscript fragment"),
@@ -1506,6 +1519,179 @@ def test_unparsable(descriptor: str, message: str) -> None:
     """Refuse each unparsable descriptor with the message naming why."""
     with pytest.raises(VALUE_ERRORS, match=message):
         parse(descriptor)
+
+
+# the descriptors of Bitcoin Core's `CheckUnparsable` cases added by
+# bitcoin/bitcoin#35819, in the private and the public spelling Core
+# gives each, and the message `parse` refuses it with. Core's own messages
+# differ: the same rule is worded by the parser of each. A case whose two
+# spellings are one string is listed once
+CORE_UNPARSABLE = [
+    # Core: unterminated musig()
+    (
+        "tr(musig(00)",
+        "unbalanced brackets",
+    ),
+    # Core: an invalid musig() participant key
+    (
+        "tr(musig(00))",
+        "invalid public key length",
+    ),
+    # Core: garbage after a musig() participant key
+    (
+        "tr(musig(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1}{))",
+        "unbalanced brackets",
+    ),
+    (
+        "tr(musig(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd}{))",
+        "unbalanced brackets",
+    ),
+    # Core: a musig() path element over 2^32 - 1
+    (
+        "tr(musig(xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/4294967296)",
+        "invalid index",
+    ),
+    (
+        "tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/4294967296)",
+        "invalid index",
+    ),
+    # Core: musig() participants with multipath steps of different lengths
+    (
+        "tr(musig(xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc/<0;1>,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/<0;1;2>))",
+        "use multipath_descriptors first",
+    ),
+    (
+        "tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/<0;1>,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/<0;1;2>))",
+        "use multipath_descriptors first",
+    ),
+    # Core: multi() inside tr()
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,multi(1,Kx9HCDjGiwFcgVNhTrS5z5NeZdD6veeam61eDxLDCkGWujvL4Gnn))",
+        "multi\\(\\) is not allowed inside tr",
+    ),
+    (
+        "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,multi(1,032707170c71d8f75e4ca4e3fce870b9409dcaf12b051d3bcadff74747fa7619c0))",
+        "multi\\(\\) is not allowed inside tr",
+    ),
+    # Core: multi_a() at top level
+    (
+        "multi_a(1,L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1)",
+        "multi_a\\(\\) is not allowed inside top level",
+    ),
+    (
+        "multi_a(1,03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd)",
+        "multi_a\\(\\) is not allowed inside top level",
+    ),
+    # Core: addr() inside sh()
+    (
+        "sh(addr(asdf))",
+        "addr\\(\\) is not allowed inside sh",
+    ),
+    # Core: garbage after the tr() internal key
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1}(x))",
+        "unbalanced brackets",
+    ),
+    (
+        "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd}(x))",
+        "unbalanced brackets",
+    ),
+    # Core: a taptree 129 braces deep, which no bracket closes
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1," + "{" * 129 + ")",
+        "unbalanced brackets",
+    ),
+    (
+        "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,"
+        + "{" * 129
+        + ")",
+        "unbalanced brackets",
+    ),
+    # Core: a taptree pair with a third branch
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,{pk(Kx9HCDjGiwFcgVNhTrS5z5NeZdD6veeam61eDxLDCkGWujvL4Gnn),pk(L4o2kDvXXDRH2VS9uBnouScLduWt4dZnM25se7kvEjJeQ285en2A),pk(L4o2kDvXXDRH2VS9uBnouScLduWt4dZnM25se7kvEjJeQ285en2A)})",
+        "takes two subtrees",
+    ),
+    (
+        "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,{pk(032707170c71d8f75e4ca4e3fce870b9409dcaf12b051d3bcadff74747fa7619c0),pk(02aa27e5eb2c185e87cd1dbc3e0efc9cb1175235e0259df1713424941c3cb40402),pk(02aa27e5eb2c185e87cd1dbc3e0efc9cb1175235e0259df1713424941c3cb40402)})",
+        "takes two subtrees",
+    ),
+    # Core: a taptree pair with one branch
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,{pk(Kx9HCDjGiwFcgVNhTrS5z5NeZdD6veeam61eDxLDCkGWujvL4Gnn)})",
+        "takes two subtrees",
+    ),
+    (
+        "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,{pk(032707170c71d8f75e4ca4e3fce870b9409dcaf12b051d3bcadff74747fa7619c0)})",
+        "takes two subtrees",
+    ),
+    # Core: garbage after a taptree script expression
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,pk(Kx9HCDjGiwFcgVNhTrS5z5NeZdD6veeam61eDxLDCkGWujvL4Gnn),pk(L4o2kDvXXDRH2VS9uBnouScLduWt4dZnM25se7kvEjJeQ285en2A))",
+        "at most one tree",
+    ),
+    (
+        "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,pk(032707170c71d8f75e4ca4e3fce870b9409dcaf12b051d3bcadff74747fa7619c0),pk(02aa27e5eb2c185e87cd1dbc3e0efc9cb1175235e0259df1713424941c3cb40402))",
+        "at most one tree",
+    ),
+    # Core: tr() inside sh()
+    (
+        "sh(tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1))",
+        "tr\\(\\) is not allowed inside sh",
+    ),
+    (
+        "sh(tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
+        "tr\\(\\) is not allowed inside sh",
+    ),
+    # Core: an invalid rawtr() key
+    (
+        "rawtr(00)",
+        "invalid public key length",
+    ),
+    # Core: rawtr() inside sh()
+    (
+        "sh(rawtr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1))",
+        "rawtr\\(\\) is not allowed inside sh",
+    ),
+    (
+        "sh(rawtr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
+        "rawtr\\(\\) is not allowed inside sh",
+    ),
+    # Core: raw() inside sh()
+    (
+        "sh(raw(00))",
+        "raw\\(\\) is not allowed inside sh",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "descriptor, message",
+    [
+        pytest.param(descriptor, message, id=vector_id(index, descriptor))
+        for index, (descriptor, message) in enumerate(CORE_UNPARSABLE)
+    ],
+)
+def test_core_unparsable(descriptor: str, message: str) -> None:
+    """Refuse each descriptor Core's parse-error cases refuse."""
+    with pytest.raises(VALUE_ERRORS, match=message):
+        parse(descriptor)
+
+
+def test_core_multipath_lengths() -> None:
+    """Refuse musig() participants whose multipath steps differ in length.
+
+    Core's case, which `parse` refuses with every multipath key and
+    `multipath_descriptors` is what compares the lengths of. The same
+    descriptor with two steps on both participants expands.
+    """
+    xprv = "xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc"
+    for first in (xprv, MUSIG_XPUB_A):
+        descriptor = f"tr(musig({first}/<0;1>,{MUSIG_XPUB_B}/<0;1;2>))"
+        with pytest.raises(BTClibValueError, match="different length"):
+            multipath_descriptors(descriptor)
+    descriptor = f"tr(musig({MUSIG_XPUB_A}/<0;1>,{MUSIG_XPUB_B}/<0;1>))"
+    assert len(multipath_descriptors(descriptor)) == 2
 
 
 def _nested_tree(depth: int) -> str:
@@ -1637,6 +1823,105 @@ BIP387_INVALID = [
 )
 def test_bip387_invalid(descriptor: str, message: str) -> None:
     """Refuse each of BIP387's invalid descriptors, with the reason named."""
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
+# BIP386's own test vectors, transcribed from `bip-0386.mediawiki`: a valid
+# descriptor and the scriptPubKey it produces, three of them where the keys
+# derive. The BIP's last valid descriptor, a `pkh()` leaf, gives no script
+# and is `test_bip386_pkh_leaf`'s
+BIP386_VECTORS: list[tuple[str, list[str]]] = [
+    (
+        "tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd)",
+        ["512077aab6e066f8a7419c5ab714c12c67d25007ed55a43cadcacb4d7a970a093f11"],
+    ),
+    (
+        "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1)",
+        ["512077aab6e066f8a7419c5ab714c12c67d25007ed55a43cadcacb4d7a970a093f11"],
+    ),
+    (
+        "tr(xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc/0/*,pk(xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc/1/*))",
+        [
+            "512078bc707124daa551b65af74de2ec128b7525e10f374dc67b64e00ce0ab8b3e12",
+            "512001f0a02a17808c20134b78faab80ef93ffba82261ccef0a2314f5d62b6438f11",
+            "512021024954fcec88237a9386fce80ef2ced5f1e91b422b26c59ccfc174c8d1ad25",
+        ],
+    ),
+    (
+        "tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,pk(669b8afcec803a0d323e9a17f3ea8e68e8abe5a278020a929adbec52421adbd0))",
+        ["512017cf18db381d836d8923b1bdb246cfcd818da1a9f0e6e7907f187f0b2f937754"],
+    ),
+    (
+        "tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,{pk(xprvA2JDeKCSNNZky6uBCviVfJSKyQ1mDYahRjijr5idH2WwLsEd4Hsb2Tyh8RfQMuPh7f7RtyzTtdrbdqqsunu5Mm3wDvUAKRHSC34sJ7in334/0),{{pk(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL),pk(02df12b7035bdac8e3bab862a3a83d06ea6b17b6753d52edecba9be46f5d09e076)},pk(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1)}})",
+        ["512071fff39599a7b78bc02623cbe814efebf1a404f5d8ad34ea80f213bd8943f574"],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "descriptor, scripts",
+    [
+        pytest.param(descriptor, scripts, id=vector_id(index, descriptor))
+        for index, (descriptor, scripts) in enumerate(BIP386_VECTORS)
+    ],
+)
+def test_bip386_vector(descriptor: str, scripts: list[str]) -> None:
+    """Reproduce BIP386's own vectors: the script at each index it lists."""
+    prv_keys: dict[str, str] = {}
+    parsed = parse(descriptor, prv_keys=prv_keys)
+    assert parsed.is_ranged == (len(scripts) > 1)
+    for index, expected in enumerate(scripts):
+        assert parsed.script_pub_key(index, prv_keys).script.hex() == expected
+
+
+def test_bip386_pkh_leaf() -> None:
+    """Accept a `pkh()` leaf under `tr()`, as BIP386 lists it valid.
+
+    `pkh()` is a BIP379 fragment, so a tapscript leaf. The BIP gives no
+    script for its descriptor; the script asserted is Core's for the same
+    shape, in `descriptor_test` of `src/test/descriptor_tests.cpp`, which
+    is the leaf `c:pk_h(KEY)`.
+    """
+    parse(f"tr({XONLY},pkh({WIF}))")
+    core = f"tr({XONLY},pkh(L1NKM8dVA1h52mwDrmk1YreTWkAZZTu2vmKLpmLEbFRqGQYjHeEV))"
+    parsed = parse(core)
+    assert isinstance(parsed, TrDescriptor)
+    assert isinstance(parsed.tree, Miniscript)
+    assert str(parsed.tree).startswith("pkh(")
+    assert (
+        parsed.script_pub_key(0).script.hex()
+        == "51201e9875f690f5847404e4c5951e2f029887df0525691ee11a682afd37b608aad4"
+    )
+
+
+# BIP386's invalid descriptors, and what each is refused with
+BIP386_INVALID = [
+    ("tr(5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss)", "uncompressed"),
+    (
+        "tr(04a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd5b8dec5235a0fa8722476c7709c02559e3aa73aa03918ba2d492eea75abea235)",
+        "uncompressed",
+    ),
+    (
+        "wsh(tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
+        "not allowed inside wsh",
+    ),
+    (
+        "sh(tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
+        "not allowed inside sh",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "descriptor, message",
+    [
+        pytest.param(descriptor, message, id=vector_id(index, descriptor))
+        for index, (descriptor, message) in enumerate(BIP386_INVALID)
+    ],
+)
+def test_bip386_invalid(descriptor: str, message: str) -> None:
+    """Refuse each of BIP386's invalid descriptors, with the reason named."""
     with pytest.raises(BTClibValueError, match=message):
         parse(descriptor)
 
