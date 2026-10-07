@@ -76,6 +76,12 @@ before upgrading, rather than a digit.
   taproot, where a device signed SIGHASH_ALL.
   To sign such a psbt, ask its creator for SIGHASH_ALL or remove the field.
 
+- **`silent_payments.output_keys` refuses an address of another network than
+  its `network` argument**, `"mainnet"` by default, as Bitcoin Core's
+  decoder does. An `sprt`, `tsp` or `sp` address that is not that network's
+  raises `BTClibValueError`, so a caller paying testnet, signet or regtest
+  passes the `network` too.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or

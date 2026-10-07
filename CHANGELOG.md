@@ -163,6 +163,12 @@ Two `<a;b>` steps in one key path, a step in a key origin, and a `musig()`
 multipath in both participants and path are refused with Core's messages
 (closes #265) (closes #279).
 
+### `silent_payments.output_keys` refuses an address of another network
+
+It takes a `network`, `"mainnet"` by default, and refuses an address whose hrp
+is not that network's, as Bitcoin Core's decoder does: `tsp` under regtest and
+`sprt` under testnet are refused too (closes #270).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
