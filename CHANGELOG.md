@@ -157,6 +157,12 @@ before the signer is called, where a device signed SIGHASH_ALL (issue #269).
 The walk-through's combined psbt and the `PSBT_IN_SIGHASH_TYPE` vector are each
 combined in either input order (closes #262).
 
+### `multipath_descriptors` refuses a multipath key Bitcoin Core refuses
+
+Two `<a;b>` steps in one key path, a step in a key origin, and a `musig()`
+multipath in both participants and path are refused with Core's messages
+(closes #265) (closes #279).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

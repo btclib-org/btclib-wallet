@@ -76,10 +76,9 @@ than in `psbt` because of the direction above -- this module imports that
 one -- and a caller passes it: `finalize(psbt, solver=miniscript_solver)`.
 
 BIP390's rule that a multipath ``musig()`` may not hold multipath
-participants has no counterpart here, and cannot: `parse` refuses a
-``<a;b>`` step anywhere, `multipath_descriptors` expands it textually as
-BIP389 defines, and what reaches a `Descriptor` is one path per key. Such
-a descriptor is refused, and for the more general reason.
+participants is `multipath_descriptors`'s, with Bitcoin Core's message:
+`parse` refuses a ``<a;b>`` step anywhere, and what reaches a
+`Descriptor` is one path per key.
 
 A parsed descriptor holds no key that signs. `parse` neuters an xprv to
 the xpub the `KeyExpression` then carries, and hands the private spelling
@@ -193,10 +192,12 @@ from btclib_wallet.bip44 import (
 )
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.descriptors.key_expression import (
+    _MULTIPLE_MULTIPATH,
     KeyExpression,
     PrvKeys,
     _assert_musig_allowed,
     _assert_network,
+    _assert_origin_single_path,
     _assert_prv_keys,
     _expression,
     _offered_signature,
@@ -385,6 +386,30 @@ _THRESHOLD = re.compile(r"[0-9]+")
 # the BIP389 multipath step, brackets included: re.split hands back what
 # it split on when the pattern captures it
 _MULTIPATH_STEP = re.compile(r"(<[^<>]*>)")
+# what ends a key expression: between two steps without one, both steps
+# are in the same key path
+_KEY_END = re.compile(r"[,(){}]")
+
+
+def _assert_musig_one_multipath(text: str) -> None:
+    """Refuse a ``musig()`` multipath in its participants and in its path.
+
+    The message is Bitcoin Core's. The participants are inside the
+    parentheses; the aggregate key's path follows them.
+    """
+    for opening in re.finditer(r"musig\(", text):
+        depth = 1
+        end = opening.end()
+        while depth and end < len(text):
+            depth += {"(": 1, ")": -1}.get(text[end], 0)
+            end += 1
+        path = _KEY_END.split(text[end:], maxsplit=1)[0]
+        if "<" in text[opening.end() : end] and "<" in path:
+            err_msg = (
+                "musig(): Cannot have multipath participant keys "
+                "if musig() is also multipath"
+            )
+            raise BTClibValueError(err_msg)
 
 
 @dataclass(frozen=True)
@@ -2856,13 +2881,22 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     what makes the two-element form a receiving chain and a change chain.
 
     The expansion is textual, as BIP389 defines it, and each result is a
-    descriptor to be parsed on its own.
+    descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
+    key path with two ``<a;b>`` steps, a step in a key origin, and a
+    ``musig()`` multipath in both its participants and its path.
     """
-    pieces = _MULTIPATH_STEP.split(strip_checksum(descriptor))
+    text = strip_checksum(descriptor)
+    _assert_musig_one_multipath(text)
+    for origin in re.finditer(r"\[([^\]]*)\]", text):
+        _assert_origin_single_path(origin[1])
+    pieces = _MULTIPATH_STEP.split(text)
     # re.split with a capturing pattern alternates text and separator, so
     # the odd positions are the multipath steps and the even ones the
     # descriptor around them
     steps = [piece[1:-1].split(";") for piece in pieces[1::2]]
+    # one multipath step per key path, as Core's ParseKeyPath requires
+    if any(not _KEY_END.search(between) for between in pieces[2:-1:2]):
+        raise BTClibValueError(_MULTIPLE_MULTIPATH)
     if not steps:
         return [add_checksum(pieces[0])]
     lengths = {len(step) for step in steps}
