@@ -691,7 +691,34 @@ def test_multipath_refuses_a_step_in_a_key_origin() -> None:
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = f"pkh([deadbeef/<0;1>]{xpub}/0/*)"
-    message = "Key path value '<0;1>' specifies multipath"
+    message = "Key path value specifies multipath"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "template, element",
+    [
+        ("pkh({xpub}/<0;1>h/*)", "<0;1>h"),
+        ("pkh({xpub}/<0;1>'/*)", "<0;1>'"),
+        ("pkh([deadbeef/<0;1>h]{xpub}/0/*)", "<0;1>h"),
+        ("pkh({xpub}/0<0;1>/*)", "0<0;1>"),
+    ],
+)
+def test_multipath_refuses_a_step_that_is_not_the_whole_element(
+    template: str, element: str
+) -> None:
+    """Refuse it in both functions, as Bitcoin Core's ``ParseKeyPathElement``.
+
+    Core takes an element not ending in ``>`` for a number and answers
+    "is not a valid uint32" (`src/util/bip32.cpp`,
+    bitcoin/bitcoin@aef8a04966).
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = template.format(xpub=xpub)
+    message = "Key path value is not a valid uint32"
     with pytest.raises(BTClibValueError, match=message):
         multipath_descriptors(descriptor)
     with pytest.raises(BTClibValueError, match=message):
@@ -3902,6 +3929,12 @@ UNECHOED = [
     ),
     (f"wpkh([deadbeef/{WIF}]{XPRV_ROOT})", "^invalid derivation index$"),
     (f"wpkh({XPRV_ROOT}/0/*{WIF})", "^invalid derivation index$"),
+    (f"wpkh({XPRV_ROOT}<0;1>/*)", "^Key path value is not a valid uint32$"),
+    (f"wpkh({XPRV_ROOT}/0/{WIF}>)", "^Key path value is not a valid uint32$"),
+    (
+        f"wpkh([deadbeef/<{WIF};1>]{XPRV_ROOT})",
+        "^Key path value specifies multipath in a section where multipath is not allowed$",
+    ),
     (
         f"tr(musig({XPRV_ROOT},{XPRV_SECOND}){WIF})",
         r"^not a musig\(\) derivation path: '/' expected$",
@@ -3986,6 +4019,21 @@ def test_a_refusal_echoes_no_private_key(descriptor: str, message: str) -> None:
     """
     with pytest.raises(BTClibValueError, match=message) as excinfo:
         parse(descriptor)
+    _assert_unechoed(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "descriptor",
+    [
+        f"wpkh({XPRV_ROOT}<0;1>/*)",
+        f"wpkh({XPRV_ROOT}/0/{WIF}>)",
+        f"wpkh([deadbeef/<{WIF};1>]{XPRV_ROOT})",
+    ],
+)
+def test_multipath_descriptors_refusal_echoes_no_private_key(descriptor: str) -> None:
+    """`multipath_descriptors` quotes no key text either."""
+    with pytest.raises(BTClibValueError) as excinfo:
+        multipath_descriptors(descriptor)
     _assert_unechoed(excinfo.value)
 
 

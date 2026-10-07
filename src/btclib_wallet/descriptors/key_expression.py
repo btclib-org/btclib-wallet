@@ -443,12 +443,30 @@ def _hardening(path: str) -> str:
     return symbols[-1] if symbols else ""
 
 
+def _assert_whole_multipath_element(element: str) -> None:
+    """Refuse a ``<a;b>`` step that is not the whole path element.
+
+    Bitcoin Core reads such an element, ``<0;1>h`` for one, as a number
+    and refuses it as one. The message leaves out the element Core quotes:
+    it can hold a private key, which no message here echoes.
+    """
+    if ("<" in element or ">" in element) and not (
+        element.startswith("<") and element.endswith(">")
+    ):
+        raise BTClibValueError("Key path value is not a valid uint32")
+
+
 def _assert_origin_single_path(path: str) -> None:
-    """Refuse a multipath step in the path of a key origin, as Core does."""
+    """Refuse a multipath step in the path of a key origin, as Core does.
+
+    The message leaves out the element, as `_assert_whole_multipath_element`
+    does.
+    """
     for element in path.split("/"):
+        _assert_whole_multipath_element(element)
         if element.startswith("<") and element.endswith(">"):
             err_msg = (
-                f"Key path value '{element}' specifies multipath "
+                "Key path value specifies multipath "
                 "in a section where multipath is not allowed"
             )
             raise BTClibValueError(err_msg)
@@ -570,6 +588,8 @@ def _assert_key_characters(rest: str) -> None:
     """Refuse what a KEY expression cannot hold once the origin is off."""
     if "]" in rest:
         raise BTClibValueError("more than one ']' in a single key expression")
+    for element in rest.split("/"):
+        _assert_whole_multipath_element(element)
     if rest.count("<") > 1:
         raise BTClibValueError(_MULTIPLE_MULTIPATH)
     if "<" in rest:

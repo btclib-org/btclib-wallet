@@ -160,8 +160,14 @@ combined in either input order (closes #262).
 ### `multipath_descriptors` refuses a multipath key Bitcoin Core refuses
 
 Two `<a;b>` steps in one key path, a step in a key origin, and a `musig()`
-multipath in both participants and path are refused with Core's messages
+multipath in both participants and path are refused as Core refuses them
 (closes #265) (closes #279).
+
+### `multipath_descriptors` and `parse` refuse `<a;b>` followed by a hardened marker
+
+A path element such as `<0;1>h` is refused with Core's "is not a valid
+uint32", and a step in a key origin with Core's message. Neither quotes the
+element, which can hold a private key (closes #280).
 
 ## v2026.10.4
 

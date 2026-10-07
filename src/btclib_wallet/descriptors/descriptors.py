@@ -199,6 +199,7 @@ from btclib_wallet.descriptors.key_expression import (
     _assert_network,
     _assert_origin_single_path,
     _assert_prv_keys,
+    _assert_whole_multipath_element,
     _expression,
     _offered_signature,
     _parse_key,
@@ -2882,10 +2883,13 @@ def multipath_descriptors(descriptor: str) -> list[str]:
 
     The expansion is textual, as BIP389 defines it, and each result is a
     descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
-    key path with two ``<a;b>`` steps, a step in a key origin, and a
-    ``musig()`` multipath in both its participants and its path.
+    key path with two ``<a;b>`` steps, a step in a key origin, a step
+    followed by a hardened marker, and a ``musig()`` multipath in both its
+    participants and its path.
     """
     text = strip_checksum(descriptor)
+    for element in re.findall(r"[^/\[\](),{}]+", text):
+        _assert_whole_multipath_element(element)
     _assert_musig_one_multipath(text)
     for origin in re.finditer(r"\[([^\]]*)\]", text):
         _assert_origin_single_path(origin[1])
