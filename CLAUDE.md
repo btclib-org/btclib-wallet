@@ -96,8 +96,8 @@ constraints. Do not use Fable unless instructed.
   before is a break in the protocol package's surface, and the question
   is asked of `btclib`'s `RELEASE_NOTES.md` before it is asked of this
   code.
-- **A pull request adds no `CHANGELOG.md` entry**: `CONTRIBUTING.md`'s
-  *Pull requests*.
+- **The changelog and the release notes**: `CONTRIBUTING.md`'s *Pull requests*
+  says which pull request writes them.
 - **Two branches that each touched `.secrets.baseline` conflict on its
   `generated_at`,** whatever else they changed. Keeping `main`'s value
   resolves it, and the check is that the baseline then differs from
