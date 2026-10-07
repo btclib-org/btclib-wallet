@@ -67,6 +67,12 @@ address (compressed or not, per the record's own flag byte), whatever
 network the caller means to spend the recovered key on. That address is
 BIP38's own checksum against the wrong password, not a claim about where
 the key is used.
+
+**Where `hashlib.scrypt` is missing** (an interpreter whose OpenSSL lacks
+scrypt), a function that runs it raises `BTClibRuntimeError` naming it, at
+the call, and the rest of the module works. There is no pure-Python
+fallback: BIP38's scrypt parameters are chosen to be costly, and pure
+Python would make that cost unusable.
 """
 
 from __future__ import annotations
@@ -110,6 +116,23 @@ __all__ = [
 BlockCipherF = Callable[[bytes, bytes], bytes]
 
 _BLOCK_SIZE = 16
+
+# `hashlib.scrypt` exists only where the interpreter's OpenSSL has scrypt.
+# Probed once, as `btclib.hashes` probes ripemd160.
+_HASHLIB_HAS_SCRYPT = hasattr(hashlib, "scrypt")
+
+
+def _scrypt(
+    password: bytes, *, salt: bytes, n: int, r: int, p: int, dklen: int
+) -> bytes:
+    """Return `hashlib.scrypt`'s answer, or refuse where it is missing."""
+    if not _HASHLIB_HAS_SCRYPT:
+        raise BTClibRuntimeError(
+            "hashlib.scrypt is missing (the interpreter's OpenSSL lacks scrypt), "
+            "and BIP38 needs it"
+        )
+    return hashlib.scrypt(password, salt=salt, n=n, r=r, p=p, dklen=dklen)
+
 
 _NO_EC_PREFIX = b"\x01\x42"
 _EC_PREFIX = b"\x01\x43"
@@ -202,7 +225,7 @@ def encrypt(
 
     # BIP38 "Derive a key from the passphrase using scrypt", n=16384,
     # r=8, p=8, length=64, salt=addresshash
-    derived = hashlib.scrypt(
+    derived = _scrypt(
         _password_bytes(password), salt=address_hash, n=16384, r=8, p=8, dklen=64
     )
     derived_half_1, derived_half_2 = derived[:32], derived[32:]
@@ -241,7 +264,7 @@ def _decrypt_no_ec(
     address_hash = payload[3:7]
     encrypted_half_1, encrypted_half_2 = payload[7:23], payload[23:39]
 
-    derived = hashlib.scrypt(
+    derived = _scrypt(
         _password_bytes(password), salt=address_hash, n=16384, r=8, p=8, dklen=64
     )
     derived_half_1, derived_half_2 = derived[:32], derived[32:]
@@ -310,7 +333,7 @@ def intermediate_code(
 
     # BIP38 "Derive a key from the passphrase using scrypt", n=16384,
     # r=8, p=8, length=32, salt=ownersalt -- "prefactor"
-    prefactor = hashlib.scrypt(
+    prefactor = _scrypt(
         _password_bytes(password), salt=owner_salt, n=16384, r=8, p=8, dklen=32
     )
     passfactor = (
@@ -357,7 +380,7 @@ def new_key_pair(
 
     # BIP38 "Derive a second key from passpoint using scrypt", n=1024,
     # r=1, p=1, length=64, salt=addresshash+ownerentropy
-    derived = hashlib.scrypt(
+    derived = _scrypt(
         passpoint_sec,
         salt=address_hash + owner_entropy,
         n=1024,
@@ -410,14 +433,14 @@ def _decrypt_ec(
     encrypted_part_2 = payload[23:39]
 
     owner_salt = owner_entropy[:4] if has_lot_seq else owner_entropy
-    prefactor = hashlib.scrypt(
+    prefactor = _scrypt(
         _password_bytes(password), salt=owner_salt, n=16384, r=8, p=8, dklen=32
     )
     passfactor = hash256(prefactor + owner_entropy) if has_lot_seq else prefactor
     passfactor_q = _scalar(passfactor)
     passpoint_sec = bytes_from_point(mult(passfactor_q), compressed=True)
 
-    derived = hashlib.scrypt(
+    derived = _scrypt(
         passpoint_sec,
         salt=address_hash + owner_entropy,
         n=1024,
@@ -467,9 +490,10 @@ def decrypt(
 
     Raises `NotAPrvKeyError` for a prefix no BIP38 record has,
     `InvalidPrvKeyError` for a recognised record with an invalid flag
-    byte, and `BTClibRuntimeError` for a password that does not match --
-    the same two-class split `b58.prv_key_data_from_wif` makes for a WIF,
-    plus the runtime check a password has and a WIF does not.
+    byte, and `BTClibRuntimeError` for a password that does not match or where
+    `hashlib.scrypt` is missing, the message saying which.
+    `NotAPrvKeyError` and `InvalidPrvKeyError` are the split
+    `b58.prv_key_data_from_wif` makes for a WIF.
     """
     payload = base58_decode(encrypted_key, _ENC_KEY_SIZE)
     prefix = payload[:2]

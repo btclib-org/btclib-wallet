@@ -123,6 +123,12 @@ both read it as given (closes #257).
 it and Bitcoin Core reads it. BIP386's vectors and Core's parse-error cases
 are tested (closes #259) (closes #253) (closes #266).
 
+### BIP38 names `hashlib.scrypt` where the interpreter lacks it
+
+Without `hashlib.scrypt`, `encrypt`, `decrypt`, `intermediate_code` and
+`new_key_pair` raise a `BTClibRuntimeError` naming it, not an `AttributeError`
+(closes #255).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
