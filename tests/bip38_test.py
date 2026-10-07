@@ -23,7 +23,11 @@ chaining.
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+import pathlib
 import secrets
+from types import ModuleType
 
 import pytest
 from btclib.b58 import address_from_h160, prv_key_data_from_wif
@@ -586,3 +590,51 @@ def test_block_cipher_f_is_the_alias_bip38_documents() -> None:
     decrypt_block: BlockCipherF = _decrypt_block
     assert callable(encrypt_block)
     assert callable(decrypt_block)
+
+
+def _bip38_without_hashlib_scrypt(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Execute `btclib_wallet.bip38` afresh on an interpreter lacking scrypt."""
+    monkeypatch.delattr(hashlib, "scrypt")
+    spec = importlib.util.spec_from_file_location(
+        "bip38_without_scrypt", bip38.__file__
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_scrypt_caller_names_scrypt_where_hashlib_lacks_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without `hashlib.scrypt` each function refuses, naming it.
+
+    The inputs are made here, with scrypt, and the module that lacks it is
+    executed afresh, so that its import-time probe is what is tested.
+    """
+    int_code = bip38.intermediate_code("pw")
+    encrypted_ec, _ = bip38.new_key_pair(int_code, _encrypt_block)
+    encrypted = bip38.encrypt(1, "pw", _encrypt_block)
+
+    module = _bip38_without_hashlib_scrypt(monkeypatch)
+    assert module._HASHLIB_HAS_SCRYPT is False
+
+    calls = (
+        (module.encrypt, (1, "pw", _encrypt_block)),
+        (module.decrypt, (encrypted, "pw", _decrypt_block)),
+        (module.decrypt, (encrypted_ec, "pw", _decrypt_block)),
+        (module.intermediate_code, ("pw",)),
+        (module.new_key_pair, (int_code, _encrypt_block)),
+    )
+    for function, args in calls:
+        with pytest.raises(BTClibRuntimeError, match="hashlib.scrypt is missing"):
+            function(*args)
+
+
+def test_hashlib_scrypt_is_called_only_by_the_helper() -> None:
+    """Every scrypt goes through `_scrypt`, so none escapes the probe."""
+    with pathlib.Path(bip38.__file__).open(encoding="utf-8") as f:
+        source = f.read()
+    assert source.count("hashlib.scrypt(") == 1
+    assert source.index("def _scrypt(") < source.index("hashlib.scrypt(")
