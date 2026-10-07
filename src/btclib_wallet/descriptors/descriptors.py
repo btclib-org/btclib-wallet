@@ -99,11 +99,16 @@ too. ``addr()`` is the exception, an address carrying the network in its
 own prefix.
 
 `str(descriptor)` is the way back: the descriptor as text, without its
-checksum, `add_checksum` being what appends one. Bitcoin Core splits it
-the same way -- `ToString` writes none and the rpc layer appends it --
-where HWI and Electrum name the checksummed form `to_string`. What it
-writes is public by construction, there being no private material left
-in a parsed descriptor to write.
+checksum. `add_checksum(str(descriptor))` is the checksummed form: Core's
+`ToString`, `ToStringHelper` writing none, and HWI's and Electrum's
+`to_string`. What it writes is public by construction, there being no
+private material left in a parsed descriptor to write.
+
+`infer_descriptor` goes back from a script instead: Bitcoin Core's
+`InferDescriptor`, reading the script and what a `Provider` knows of its
+keys and scripts. `Descriptor.provider` is what a descriptor expanded at
+an index knows. `scantxoutset` infers with the providers of every index
+of its range, merged in order.
 
 `account_descriptors` is the other way in, for the one shape a wallet
 exports rather than reads: the receive and change descriptors of a BIP44
@@ -139,12 +144,12 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import Any, cast
 
 from btclib.alias import Octets, ScriptList, TaprootScriptTree
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.hashes import hash160
+from btclib.hashes import hash160, ripemd160
 from btclib.key import PubKeyData
 from btclib.network import (
     NETWORKS,
@@ -153,18 +158,21 @@ from btclib.network import (
     validated_network_name,
 )
 from btclib.script.limits import MAX_PUBKEYS_PER_MULTISIG, MAX_SCRIPT_ELEMENT_SIZE
-from btclib.script.script import op_int, serialize
+from btclib.script.script import op_code_spans, op_int, serialize
 from btclib.script.script import parse as _parse_script
 from btclib.script.script_pub_key import ScriptPubKey, script_from_script_pub_key
 from btclib.script.taproot import (
     MAX_TREE_DEPTH,
     input_script_sig,
     leaf_hash,
+    output_pubkey_from_merkle_root,
     tree_helper,
 )
 from btclib.script.witness import Witness
 from btclib.tx.tx_in import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_octets
+from btclib_ecc.ecc.ssa import point_from_bip340pub_key
+from btclib_ecc.hashes import tagged_hash
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
@@ -209,6 +217,7 @@ from btclib_wallet.descriptors.miniscript import (
     Miniscript,
     SpendContext,
     _assert_sane,
+    _script_number,
 )
 from btclib_wallet.descriptors.miniscript import from_script as _miniscript_from_script
 from btclib_wallet.descriptors.miniscript import parse as _parse_miniscript
@@ -228,6 +237,7 @@ __all__ = [
     "MultiDescriptor",
     "PkDescriptor",
     "PkhDescriptor",
+    "Provider",
     "RawDescriptor",
     "RawTrDescriptor",
     "ShDescriptor",
@@ -239,6 +249,7 @@ __all__ = [
     "at_index",
     "checksum",
     "from_address",
+    "infer_descriptor",
     "miniscript_sizer",
     "miniscript_solver",
     "multipath_descriptors",
@@ -793,6 +804,47 @@ def _musig2_participants(
     }
 
 
+@dataclass(frozen=True)
+class Provider:
+    """The keys and scripts a caller knows, for `infer_descriptor` to read.
+
+    Bitcoin Core's `SigningProvider` without the private keys, at
+    bitcoin/bitcoin@9be056a8a7 (the v31.1 tag). `Descriptor.provider` is
+    what a descriptor expanded at an index tells one, and `merged` joins
+    several.
+
+    `keys` maps a SEC public key to the origin it derives from, None where
+    it has none. `scripts` holds the scripts a ``sh()`` or a ``wsh()``
+    embeds, found by their hash160. `trees` maps the x-only output key of
+    a ``tr()`` to its x-only internal key, its merkle root (empty where it
+    has no tree) and each leaf script with its leaf version, keyed by the
+    control block that proves it.
+    """
+
+    keys: Mapping[bytes, BIP32KeyOrigin | None] = field(default_factory=dict)
+    scripts: tuple[bytes, ...] = ()
+    trees: Mapping[bytes, tuple[bytes, bytes, Mapping[bytes, tuple[bytes, int]]]] = (
+        field(default_factory=dict)
+    )
+
+    def merged(self, other: Provider) -> Provider:
+        """Return both providers as one, this one's entry winning a clash.
+
+        Core's `FlatSigningProvider::Merge`, which keeps what it already
+        holds. A key this one knows with no origin takes the other's.
+        """
+        assert_type(other, Provider, "other")
+        keys = {**self.keys, **other.keys}
+        keys.update(
+            {key: origin for key, origin in self.keys.items() if origin is not None}
+        )
+        return Provider(
+            keys=keys,
+            scripts=tuple(dict.fromkeys(self.scripts + other.scripts)),
+            trees={**other.trees, **self.trees},
+        )
+
+
 @dataclass(frozen=True, kw_only=True)
 class Descriptor(ABC):
     """A parsed output descriptor: the scripts it describes, on demand.
@@ -833,9 +885,8 @@ class Descriptor(ABC):
         Without the checksum because a fragment inside another one is
         written by this very method, and a checksum there would be part
         of the outer descriptor's text. `add_checksum(str(descriptor))`
-        is the checksummed form, which is the split Core has too --
-        `ToString` writes none and the rpc layer appends it. HWI and
-        Electrum instead name the checksummed one `to_string`.
+        is the checksummed form: Core's `ToString`, `ToStringHelper`
+        writing none, and HWI's and Electrum's `to_string`.
 
         Two things are normalized rather than echoed, both because the
         parse keeps the meaning and not the characters: a WIF and an
@@ -906,6 +957,28 @@ class Descriptor(ABC):
             script_pub_key.address
             for script_pub_key in self.script_pub_keys(index, prv_keys)
         ]
+
+    def provider(self, index: int = 0, prv_keys: PrvKeys | None = None) -> Provider:
+        """Return what the descriptor expanded at `index` tells a `Provider`.
+
+        Bitcoin Core's `Expand`: each key with its origin, the script each
+        ``sh()`` and ``wsh()`` embeds, the p2wpkh script of a ``combo()``
+        of a compressed key, and the spend data of a ``tr()``.
+
+        A key without an origin is its own master, as in Core: a fixed key
+        under the first four bytes of its hash160, an extended key under
+        its own fingerprint with the path it derives. Where one fragment
+        spells a key twice, the later origin goes in front of the earlier
+        one; where two fragments spell it, the first one's entry stays.
+        Core does both.
+        """
+        _assert_prv_keys(prv_keys)
+        self._assert_index(index)
+        keys: dict[bytes, BIP32KeyOrigin | None] = {}
+        scripts: dict[bytes, None] = {}
+        trees: dict[bytes, tuple[bytes, bytes, Mapping[bytes, tuple[bytes, int]]]] = {}
+        _expand(self, index, prv_keys, keys, scripts, trees)
+        return Provider(keys, tuple(scripts), trees)
 
     def _stack(
         self,
@@ -2679,6 +2752,660 @@ def at_index(descriptor: Descriptor, index: int = 0) -> Descriptor:
         )
 
     return _mapped_keys(descriptor, fixed)
+
+
+def _expanded_key(
+    entries: dict[bytes, BIP32KeyOrigin],
+    key: KeyExpression,
+    index: int,
+    network: str,
+    prv_keys: PrvKeys | None,
+) -> None:
+    """Add a key and its origin to one fragment's entries, as Core does.
+
+    A ``musig()`` adds its participants, then the aggregate. A key with an
+    origin of its own puts it in front of the entry already there, which
+    is Core's `OriginPubkeyProvider::GetPubKey`.
+    """
+    if key.participants:
+        for participant in key.participants:
+            _expanded_key(entries, participant, index, network, prv_keys)
+        sec = key.sec(index, network, prv_keys)
+        entries.setdefault(sec, _aggregate_origin(key, index, network, prv_keys))
+        return
+    sec = key.sec(index, network, prv_keys)
+    found = entries.setdefault(sec, _derived_origin(replace(key, origin=None), index))
+    if key.origin is not None:
+        entries[sec] = BIP32KeyOrigin(
+            key.origin.master_fingerprint, [*key.origin.der_path, *found.der_path]
+        )
+
+
+def _expanded_keys(
+    fragment_keys: Iterable[KeyExpression],
+    index: int,
+    network: str,
+    prv_keys: PrvKeys | None,
+    keys: dict[bytes, BIP32KeyOrigin | None],
+) -> None:
+    """Add one fragment's keys to the provider's, an entry there winning."""
+    entries: dict[bytes, BIP32KeyOrigin] = {}
+    for key in fragment_keys:
+        _expanded_key(entries, key, index, network, prv_keys)
+    for sec, origin in entries.items():
+        keys.setdefault(sec, origin)
+
+
+def _expand(
+    descriptor: Descriptor,
+    index: int,
+    prv_keys: PrvKeys | None,
+    keys: dict[bytes, BIP32KeyOrigin | None],
+    scripts: dict[bytes, None],
+    trees: dict[bytes, tuple[bytes, bytes, Mapping[bytes, tuple[bytes, int]]]],
+) -> None:
+    """Fill a provider as Core's `ExpandHelper` and `MakeScripts` do."""
+    network = descriptor.network
+    if isinstance(descriptor, (ShDescriptor, WshDescriptor)):
+        _expand(descriptor.inner, index, prv_keys, keys, scripts, trees)
+        scripts[descriptor.inner.redeem_script(index, prv_keys)] = None
+        return
+    if isinstance(descriptor, TrDescriptor):
+        _expanded_keys((descriptor.internal_key,), index, network, prv_keys, keys)
+        if descriptor.tree is not None:
+            for leaf in _tree_leaves(descriptor.tree):
+                _expanded_keys(_leaf_keys(leaf), index, network, prv_keys, keys)
+        output_key = descriptor._scripts(index, prv_keys)[0][2:]
+        trees[output_key] = (
+            descriptor.internal_key.sec(index, network, prv_keys)[1:],
+            descriptor.taproot_merkle_root(index, prv_keys),
+            {
+                control: (script, leaf_version)
+                for control, (script, leaf_version) in descriptor.taproot_leaf_scripts(
+                    index, prv_keys
+                ).items()
+            },
+        )
+        return
+    _expanded_keys(descriptor.key_expressions, index, network, prv_keys, keys)
+    if isinstance(descriptor, ComboDescriptor):
+        combo = descriptor._scripts(index, prv_keys)
+        # the p2wpkh script, which only a compressed key has
+        if len(combo) == 4:
+            scripts[combo[2]] = None
+
+
+# the context of the key inside wpkh(), where Core's `InferPubkey` refuses
+# an uncompressed key
+_P2WPKH = "wpkh()"
+
+_OP_0 = 0x00
+_OP_PUSHDATA1 = 0x4C
+_OP_PUSHDATA4 = 0x4E
+_OP_1 = 0x51
+_OP_16 = 0x60
+# what OP_1 to OP_16 and OP_1NEGATE push, which no push op code may
+_OP_N_DATA = {bytes([n]) for n in (*range(1, 17), 0x81)}
+_OP_CHECKSIG = 0xAC
+_OP_CHECKSIGADD = 0xBA
+_OP_CHECKMULTISIG = 0xAE
+_OP_NUMEQUAL = 0x9C
+_X_ONLY_SIZE = 32
+_CONTROL_BASE_SIZE = 33
+
+
+def _ops(script: bytes) -> list[tuple[int, bytes, int]]:
+    """Return each op code with its data and where it ends.
+
+    The ops before a push that runs past the end of the script, where
+    Core's `GetOp` stops.
+    """
+    ops: list[tuple[int, bytes, int]] = []
+    for op_code, start, stop in op_code_spans(script):
+        prefix = 1
+        if _OP_PUSHDATA1 <= op_code <= _OP_PUSHDATA4:
+            prefix += 2 ** (op_code - _OP_PUSHDATA1)
+        data = script[start + prefix : stop] if op_code <= _OP_PUSHDATA4 else b""
+        ops.append((op_code, data, stop))
+    return ops
+
+
+def _number(op_code: int, data: bytes, low: int, high: int) -> int | None:
+    """Return Core's `GetScriptNumber`: an OP_n or a minimal number push.
+
+    A number is at most four bytes, which an op code pushes minimally only
+    where it is the length of the data and the data is not what an OP_n or
+    OP_1NEGATE pushes.
+    """
+    if _OP_1 <= op_code <= _OP_16:
+        number: int | None = op_code - _OP_1 + 1
+    elif op_code != len(data) or data in _OP_N_DATA:
+        return None
+    else:
+        number = _script_number((op_code, data))
+    return number if number is not None and low <= number <= high else None
+
+
+def _sec_size(sec: bytes) -> int:
+    """Return the size Core's `CPubKey::GetLen` gives the key's first byte."""
+    if not sec:
+        return -1
+    return {2: 33, 3: 33, 4: 65, 6: 65, 7: 65}.get(sec[0], -1)
+
+
+def _multisig(script: bytes) -> tuple[int, list[bytes]] | None:
+    """Return the threshold and keys of a bare multisig: `MatchMultisig`."""
+    if not script or script[-1] != _OP_CHECKMULTISIG:
+        return None
+    ops = _ops(script)
+    if not ops:
+        return None
+    threshold = _number(ops[0][0], ops[0][1], 1, MAX_PUBKEYS_PER_MULTISIG)
+    if threshold is None:
+        return None
+    position = 1
+    keys: list[bytes] = []
+    while position < len(ops) and _sec_size(ops[position][1]) == len(ops[position][1]):
+        keys.append(ops[position][1])
+        position += 1
+    if position == len(ops):
+        return None
+    op_code, data, stop = ops[position]
+    count = _number(op_code, data, threshold, MAX_PUBKEYS_PER_MULTISIG)
+    if count != len(keys) or stop + 1 != len(script):
+        return None
+    return threshold, keys
+
+
+def _multi_a(script: bytes) -> tuple[int, list[bytes]] | None:
+    """Return a ``multi_a()``'s threshold and x-only keys: `MatchMultiA`."""
+    if not script or script[0] != _X_ONLY_SIZE or script[-1] != _OP_NUMEQUAL:
+        return None
+    keys: list[bytes] = []
+    position = 0
+    while len(script) - position >= _X_ONLY_SIZE + 2:
+        if script[position] != _X_ONLY_SIZE:
+            return None
+        keys.append(script[position + 1 : position + 33])
+        position += 33
+        if script[position] != (_OP_CHECKSIGADD if keys[1:] else _OP_CHECKSIG):
+            return None
+        position += 1
+    if not keys or len(keys) > _MAX_MULTI_A_KEYS:
+        return None
+    ops = _ops(script[position:])
+    if not ops or ops[0][2] != len(script) - position - 1:
+        return None
+    threshold = _number(ops[0][0], ops[0][1], 1, len(keys))
+    return None if threshold is None else (threshold, keys)
+
+
+def _solved(script: bytes) -> tuple[str, list[bytes]]:  # noqa: PLR0911
+    """Return the kind of script and what it holds: Core's `Solver`.
+
+    The kinds `infer_descriptor` tells apart. A null data and a
+    non-standard script are both "nonstandard" here, and an anchor and a
+    witness program of an unknown version are both "witness_unknown".
+    """
+    size = len(script)
+    if size == 23 and script[:2] == b"\xa9\x14" and script[22] == 0x87:
+        return "scripthash", [script[2:22]]
+    first = script[:1]
+    if (
+        4 <= size <= 42
+        and (first == b"\x00" or _OP_1 <= script[0] <= _OP_16)
+        and script[1] + 2 == size
+    ):
+        version, program = (0 if first == b"\x00" else script[0] - 0x50), script[2:]
+        if version == 0 and len(program) in (20, 32):
+            kind = (
+                "witness_v0_keyhash" if len(program) == 20 else "witness_v0_scripthash"
+            )
+            return kind, [program]
+        if version == 1 and len(program) == _X_ONLY_SIZE:
+            return "witness_v1_taproot", [program]
+        return ("witness_unknown" if version else "nonstandard"), []
+    if size in (35, 67) and script[0] == size - 2 and script[-1] == _OP_CHECKSIG:
+        pub_key = script[1:-1]
+        if _sec_size(pub_key) == len(pub_key):
+            return "pubkey", [pub_key]
+    if size == 25 and script[:3] == b"\x76\xa9\x14" and script[23:] == b"\x88\xac":
+        return "pubkeyhash", [script[3:23]]
+    multisig = _multisig(script)
+    if multisig is not None:
+        return "multisig", [bytes([multisig[0]]), *multisig[1]]
+    return "nonstandard", []
+
+
+@dataclass(frozen=True)
+class _Known:
+    """A provider's entries, indexed the ways `infer_descriptor` asks."""
+
+    keys: Mapping[bytes, BIP32KeyOrigin | None]
+    scripts: dict[bytes, bytes]
+    # hash160 of a key, and of its x-only form: a tapscript's pkh()
+    # hashes the 32 bytes, and Core files a tapscript key under that hash
+    by_hash: dict[bytes, bytes]
+    by_x_only_hash: dict[bytes, bytes]
+    trees: Mapping[bytes, tuple[bytes, bytes, Mapping[bytes, tuple[bytes, int]]]]
+
+    @classmethod
+    def of(cls, provider: Provider) -> _Known:
+        by_hash: dict[bytes, bytes] = {}
+        by_x_only_hash: dict[bytes, bytes] = {}
+        for sec in provider.keys:
+            by_hash.setdefault(hash160(sec), sec)
+            if len(sec) == 33:
+                by_x_only_hash.setdefault(hash160(sec[1:]), sec)
+        return cls(
+            provider.keys,
+            {hash160(script): script for script in reversed(provider.scripts)},
+            by_hash,
+            by_x_only_hash,
+            provider.trees,
+        )
+
+
+def _inferred_key(sec: bytes, context: str, known: _Known) -> KeyExpression | None:
+    """Return a key behind its origin, Core's `InferPubkey`.
+
+    None for a hybrid key, and for an uncompressed one where only a
+    compressed one may be.
+    """
+    if _sec_size(sec) != len(sec) or sec[0] > 4:
+        return None
+    if context not in (_TOP, _P2SH) and len(sec) != 33:
+        return None
+    return KeyExpression(origin=known.keys.get(sec), pub_key=sec)
+
+
+def _inferred_x_only(x_only: bytes, known: _Known) -> KeyExpression:
+    """Return an x-only key behind its origin, Core's `InferXOnlyPubkey`.
+
+    The origin of either key of that x, the even one first.
+    """
+    origin = known.keys.get(b"\x02" + x_only)
+    if origin is None:
+        origin = known.keys.get(b"\x03" + x_only)
+    return KeyExpression(origin=origin, pub_key=b"\x02" + x_only, x_only=True)
+
+
+def _inferred_node(node: Miniscript, known: _Known) -> Miniscript | None:
+    """Return the miniscript with its keys behind their origins.
+
+    Core's `KeyParser::FromPKBytes` and `FromPKHBytes`. A tapscript
+    ``pkh()`` holds the key Core filed under the hash, written whole.
+    """
+    tapscript = node.context == miniscript.TAPSCRIPT
+    keys: list[KeyExpression] = []
+    for key in node.keys:
+        sec = cast("bytes", key.pub_key)
+        inferred: KeyExpression | None
+        if tapscript and node.fragment == "pk_h":
+            whole = known.by_x_only_hash[hash160(sec[1:])]
+            inferred = _inferred_key(whole, _P2TR, known)
+        elif tapscript:
+            inferred = _inferred_x_only(sec[1:], known)
+        else:
+            inferred = _inferred_key(sec, _P2WSH, known)
+        if inferred is None:
+            return None
+        keys.append(inferred)
+    subs: list[Miniscript] = []
+    for sub in node.subs:
+        inferred_sub = _inferred_node(sub, known)
+        if inferred_sub is None:
+            return None
+        subs.append(inferred_sub)
+    return replace(node, subs=tuple(subs), keys=tuple(keys))
+
+
+def _inferred_miniscript(
+    script: bytes, context: str, known: _Known
+) -> Miniscript | None:
+    """Return the sane miniscript a script is, None where it is none."""
+    tapscript = context == _P2TR
+    key_hashes: dict[Octets, Octets] = {}
+    for key_hash, sec in (known.by_x_only_hash if tapscript else known.by_hash).items():
+        key_hashes[key_hash] = sec[1:] if tapscript else sec
+    try:
+        read = _miniscript_from_script(
+            script, _MINISCRIPT_CONTEXTS[context], key_hashes
+        )
+    except BTClibValueError:
+        return None
+    node = _inferred_node(read, known)
+    return node if node is not None and node.is_sane() else None
+
+
+def _inferred_leaf(script: bytes, known: _Known) -> DescriptorLeaf | None:
+    """Return the leaf a tapscript is, Core's `InferScript` in a ``tr()``."""
+    if len(script) == 34 and script[0] == _X_ONLY_SIZE and script[33] == _OP_CHECKSIG:
+        return _inferred_x_only(script[1:33], known)
+    multi_a = _multi_a(script)
+    if multi_a is not None:
+        threshold, x_only_keys = multi_a
+        keys = tuple(_inferred_x_only(x_only, known) for x_only in x_only_keys)
+        return MultiA(threshold, keys)
+    return _inferred_miniscript(script, _P2TR, known)
+
+
+def _merkle_root(control: bytes, leaf: bytes) -> bytes:
+    """Return the root a control block proves a leaf hash under."""
+    node = leaf
+    for start in range(_CONTROL_BASE_SIZE, len(control), 32):
+        sibling = control[start : start + 32]
+        node = tagged_hash(b"TapBranch", min(node, sibling) + max(node, sibling))
+    return node
+
+
+# Core's null hash, which is how its `TreeNode` says a hash is not known
+_NULL_HASH = bytes(32)
+
+
+@dataclass
+class _TreeNode:
+    """A node of the tree `_taproot_leaves` rebuilds: Core's `TreeNode`."""
+
+    hash: bytes = _NULL_HASH
+    sub: list[_TreeNode] = field(default_factory=list)
+    leaf: tuple[bytes, int] | None = None
+    explored: bool = False
+    inner: bool = False
+    done: bool = False
+
+
+def _proved_leaf(
+    script: bytes, leaf_version: int, control: bytes, merkle_root: bytes
+) -> bytes | None:
+    """Return the leaf hash a control block proves under the root, or None.
+
+    Core skips a record that proves nothing, rather than refusing the tree.
+    """
+    if not 0 <= leaf_version <= 0xFF or leaf_version & 1:
+        return None
+    levels, rest = divmod(len(control) - _CONTROL_BASE_SIZE, 32)
+    if not 0 <= levels <= MAX_TREE_DEPTH or rest or control[0] & 0xFE != leaf_version:
+        return None
+    hashed = leaf_hash(leaf_version, script)
+    return hashed if _merkle_root(control, hashed) == merkle_root else None
+
+
+def _placed(
+    root: _TreeNode, leaf: tuple[bytes, int], control: bytes, hashed: bytes
+) -> bool:
+    """Put a proven leaf where its control block says, False on a clash.
+
+    The control block lists the leaf's siblings from the leaf up, and the
+    walk goes down from the root.
+    """
+    node = root
+    levels = (len(control) - _CONTROL_BASE_SIZE) // 32
+    for depth in range(levels):
+        if node.explored and not node.inner:
+            return False
+        start = _CONTROL_BASE_SIZE + (levels - 1 - depth) * 32
+        sibling = control[start : start + 32]
+        if not node.sub:
+            node.explored = node.inner = True
+            node.sub = [_TreeNode(), _TreeNode(sibling)]
+            node = node.sub[0]
+            continue
+        for i in (0, 1):
+            if node.sub[i].hash == sibling or (
+                node.sub[i].hash == _NULL_HASH and node.sub[1 - i].hash != sibling
+            ):
+                node.sub[i].hash = sibling
+                node = node.sub[1 - i]
+                break
+        else:
+            return False
+    if node.sub:
+        return False
+    node.explored, node.inner = True, False
+    node.leaf, node.hash = leaf, hashed
+    return True
+
+
+def _walked(root: _TreeNode) -> list[tuple[int, bytes, int]] | None:
+    """Return each leaf's depth, script and version, depth first.
+
+    None where a branch is unknown, the tree being incomplete.
+    """
+    leaves: list[tuple[int, bytes, int]] = []
+    stack = [root]
+    while stack:
+        node = stack[-1]
+        if not node.explored:
+            return None
+        if not node.inner:
+            leaves.append((len(stack) - 1, *cast("tuple[bytes, int]", node.leaf)))
+            node.done = True
+            stack.pop()
+            continue
+        left, right = node.sub
+        if (
+            left.done
+            and not right.done
+            and not right.explored
+            and right.hash != _NULL_HASH
+            and tagged_hash(b"TapBranch", right.hash + right.hash) == node.hash
+        ):
+            # two equal subtrees: their leaves have the same control blocks,
+            # so only the left one was rebuilt, and it is walked twice
+            left.done, right.done = False, True
+        elif left.done and right.done:
+            left.done = right.done = False
+            node.done = True
+            stack.pop()
+        else:
+            stack.append(right if left.done else left)
+    return leaves
+
+
+def _taproot_leaves(
+    output_key: bytes,
+    internal_key: bytes,
+    merkle_root: bytes,
+    leaf_scripts: Mapping[bytes, tuple[bytes, int]],
+) -> list[tuple[int, bytes, int]] | None:
+    """Return each leaf's depth, script and version: `InferTaprootTree`.
+
+    In the order Core finds them: the records are read by script and then
+    by control block, shortest first, which is the order of the map and
+    the sets Core holds them in, and the tree they rebuild is walked depth
+    first.
+    """
+    try:
+        tweaked = output_pubkey_from_merkle_root(internal_key, merkle_root)[0]
+    except ValueError:
+        return None
+    if tweaked != output_key:
+        return None
+    if not merkle_root:
+        return []
+    by_leaf: dict[tuple[bytes, int], list[bytes]] = {}
+    for control, leaf in leaf_scripts.items():
+        by_leaf.setdefault(leaf, []).append(control)
+    proven: list[tuple[tuple[bytes, int], bytes, bytes]] = []
+    for (script, leaf_version), controls in sorted(by_leaf.items()):
+        for control in sorted(controls, key=lambda c: (len(c), c)):
+            hashed = _proved_leaf(script, leaf_version, control, merkle_root)
+            if hashed is not None:
+                proven.append(((script, leaf_version), control, hashed))
+    return _rebuilt(merkle_root, proven)
+
+
+def _rebuilt(
+    merkle_root: bytes, proven: list[tuple[tuple[bytes, int], bytes, bytes]]
+) -> list[tuple[int, bytes, int]] | None:
+    """Return the leaves of the tree proven leaves rebuild, None on a clash.
+
+    Each is a leaf, a control block proving it under `merkle_root`, and its
+    leaf hash. Two proofs under one root clash only through a collision of
+    hashes.
+    """
+    root = _TreeNode(merkle_root)
+    for leaf, control, hashed in proven:
+        if not _placed(root, leaf, control, hashed):
+            return None
+    return _walked(root)
+
+
+def _tree_of(leaves: list[tuple[int, DescriptorLeaf]]) -> DescriptorTree:
+    """Return the tree a depth-first walk's leaves and depths describe."""
+    position = 0
+
+    def subtree(depth: int) -> DescriptorTree:
+        nonlocal position
+        if leaves[position][0] == depth:
+            position += 1
+            return leaves[position - 1][1]
+        return (subtree(depth + 1), subtree(depth + 1))
+
+    return subtree(0)
+
+
+def _inferred_tr(
+    output_key: bytes, known: _Known, network: str
+) -> TrDescriptor | RawTrDescriptor | None:
+    """Return the ``tr()`` of a known tree, else the ``rawtr()`` of a point."""
+    if output_key in known.trees:
+        internal_key, merkle_root, leaf_scripts = known.trees[output_key]
+        found = _taproot_leaves(output_key, internal_key, merkle_root, leaf_scripts)
+        if found is not None:
+            leaves: list[tuple[int, DescriptorLeaf]] = []
+            for depth, script, leaf_version in found:
+                leaf = (
+                    _inferred_leaf(script, known)
+                    if leaf_version == _TAPSCRIPT_LEAF_VERSION
+                    else None
+                )
+                if leaf is None:
+                    break
+                leaves.append((depth, leaf))
+            else:
+                return TrDescriptor(
+                    _inferred_x_only(internal_key, known),
+                    _tree_of(leaves) if leaves else None,
+                    network=network,
+                )
+    try:
+        point_from_bip340pub_key(output_key)
+    except ValueError:
+        return None
+    return RawTrDescriptor(_inferred_x_only(output_key, known), network=network)
+
+
+def _inferred(  # noqa: C901, PLR0911, PLR0912
+    script: bytes, context: str, known: _Known, network: str
+) -> Descriptor | None:
+    """Return the descriptor of a script in its context, Core's `InferScript`.
+
+    The context being anything but a ``tr()`` leaf, which `_inferred_leaf`
+    reads.
+    """
+    kind, data = _solved(script)
+    key_contexts = (_TOP, _P2SH, _P2WSH)
+    if kind == "pubkey" and context in key_contexts:
+        key = _inferred_key(data[0], context, known)
+        if key is not None:
+            return PkDescriptor(key, network=network)
+    if kind == "pubkeyhash" and context in key_contexts and data[0] in known.by_hash:
+        key = _inferred_key(known.by_hash[data[0]], context, known)
+        if key is not None:
+            return PkhDescriptor(key, network=network)
+    if (
+        kind == "witness_v0_keyhash"
+        and context in (_TOP, _P2SH)
+        and data[0] in known.by_hash
+    ):
+        key = _inferred_key(known.by_hash[data[0]], _P2WPKH, known)
+        if key is not None:
+            return WpkhDescriptor(key, network=network)
+    if kind == "multisig" and context in key_contexts:
+        keys = [_inferred_key(sec, context, known) for sec in data[1:]]
+        if None not in keys:
+            return MultiDescriptor(
+                data[0][0], tuple(cast("list[KeyExpression]", keys)), network=network
+            )
+    if kind == "scripthash" and context == _TOP and data[0] in known.scripts:
+        inner = _inferred(known.scripts[data[0]], _P2SH, known, network)
+        if inner is not None:
+            return ShDescriptor(inner, network=network)
+    if kind == "witness_v0_scripthash" and context in (_TOP, _P2SH):
+        witness_script = known.scripts.get(ripemd160(data[0]))
+        if witness_script is not None:
+            inner = _inferred(witness_script, _P2WSH, known, network)
+            if inner is not None:
+                return WshDescriptor(inner, network=network)
+    if kind == "witness_v1_taproot" and context == _TOP:
+        tr = _inferred_tr(data[0], known, network)
+        if tr is not None:
+            return tr
+    if context == _P2WSH:
+        node = _inferred_miniscript(script, _P2WSH, known)
+        if node is not None:
+            return MiniscriptDescriptor(node, network=network)
+    if context != _TOP:
+        return None
+    if kind.startswith(("witness", "pubkeyhash", "scripthash")):
+        return AddrDescriptor(ScriptPubKey(script, network).address, network=network)
+    return RawDescriptor(script, network=network)
+
+
+def _assert_provider(provider: Provider) -> None:
+    """Refuse a provider whose entries are not of the types it declares."""
+    assert_type(provider, Provider, "provider")
+    assert_type(provider.keys, Mapping, "provider keys")
+    for sec, origin in provider.keys.items():
+        assert_type(sec, bytes, "provider key")
+        assert_type(origin, (BIP32KeyOrigin, type(None)), "provider key origin")
+    assert_type(provider.scripts, tuple, "provider scripts")
+    for script in provider.scripts:
+        assert_type(script, bytes, "provider script")
+    assert_type(provider.trees, Mapping, "provider trees")
+    for output_key, spend in provider.trees.items():
+        assert_type(output_key, bytes, "taproot output key")
+        assert_type(spend, tuple, "taproot spend data")
+        if len(spend) != 3:
+            raise BTClibValueError(f"invalid taproot spend data: {len(spend)} items")
+        internal_key, merkle_root, leaf_scripts = spend
+        assert_type(internal_key, bytes, "taproot internal key")
+        assert_type(merkle_root, bytes, "taproot merkle root")
+        assert_type(leaf_scripts, Mapping, "taproot leaf scripts")
+        sizes = (len(output_key), len(internal_key), len(merkle_root) or 32)
+        if sizes != (_X_ONLY_SIZE,) * 3:
+            raise BTClibValueError("invalid taproot key or merkle root size")
+        for control, leaf in leaf_scripts.items():
+            assert_type(control, bytes, "control block")
+            assert_type(leaf, tuple, "leaf script")
+            if len(leaf) != 2:
+                raise BTClibValueError(f"invalid leaf script: {len(leaf)} items")
+            assert_type(leaf[0], bytes, "leaf script")
+            assert_type(leaf[1], int, "leaf version")
+
+
+def infer_descriptor(
+    script: Octets, provider: Provider, network: str = "mainnet"
+) -> str:
+    """Return a script's descriptor, checksummed: Core's `InferDescriptor`.
+
+    What `scantxoutset` answers in each `unspents[].desc`, at
+    bitcoin/bitcoin@9be056a8a7 (the v31.1 tag), read from the script and
+    from what `provider` knows. Each key is the public key the script
+    holds, behind its origin where the provider knows one. A sorted
+    multisig is a ``multi()`` of its keys in the script's order. A key in
+    a ``tr()`` is x-only, except in a ``pkh()``, and the leaves are
+    in the order Core rebuilds them. A script nothing else describes is an
+    ``addr()`` where it has an address -- a ``rawtr()`` for a p2tr output
+    whose key is a point -- and a ``raw()`` otherwise.
+    """
+    script = bytes_from_octets(script)
+    _assert_provider(provider)
+    network = validated_network_name(network)
+    inferred = _inferred(script, _TOP, _Known.of(provider), network)
+    return add_checksum(str(inferred))
 
 
 def miniscript_sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
