@@ -414,8 +414,9 @@ unchecked — `tests/integer_policy_test.py` holds the coercion policy.
 
 ### The environment and the gates
 
-uv is the only tool that must be installed; it fetches interpreters,
-linters and packaging tools itself. `uv sync` creates the environment.
+uv is the only tool that must be installed, except on Python 3.15 (below); it
+fetches interpreters, linters and packaging tools itself.
+`uv sync` creates the environment.
 
 ```shell
 uv sync
@@ -465,6 +466,27 @@ command selects — `.venv-3.11` for `--python 3.11`, `.venv-pypy3.11` for
 `--python pypy3.11`.** Without it, `uv run --python <version>` removes
 `.venv`, builds it again on that interpreter and with that command's own
 group set, and leaves it there. `uv sync` restores it.
+
+**On Python 3.15, which `.python-version` names, `uv sync` needs a compiler
+for two locked dependencies with no 3.15 wheel**: `pydantic-core`, which
+`check-wheel-contents` brings in, needs a Rust toolchain recent enough for
+its `rust-version`, and `aiohttp`, which `cosmic-ray` brings in, needs a C
+compiler. Every command that installs the `dev` group needs both, the bare
+`uv run` above among them. The `pyroma` hook installs the `check` group and
+needs the Rust toolchain only. On 3.14 nothing needs a compiler, and the
+prefix rule above applies:
+
+```shell
+UV_PROJECT_ENVIRONMENT=.venv-3.14 uv sync --python 3.14
+UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 pytest
+UV_PROJECT_ENVIRONMENT=.venv-3.14 UV_PYTHON=3.14 \
+    uv run pre-commit run --all-files
+```
+
+The `pyroma` hook's `uv run` follows `UV_PYTHON`, and otherwise reads
+`.python-version`. The documentation build installs neither group and needs
+no compiler. This paragraph goes once `pydantic-core` and `aiohttp` both
+ship a 3.15 wheel.
 
 ### The editor
 

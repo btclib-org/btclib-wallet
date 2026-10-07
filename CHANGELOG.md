@@ -163,6 +163,11 @@ Two `<a;b>` steps in one key path, a step in a key origin, and a `musig()`
 multipath in both participants and path are refused with Core's messages
 (closes #265) (closes #279).
 
+### On Python 3.15, `uv sync` builds `pydantic-core` and `aiohttp` from source
+
+`CONTRIBUTING.md` names the Rust toolchain and C compiler they need, and the
+3.14 environment that needs neither (closes #278).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
