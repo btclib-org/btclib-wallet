@@ -686,10 +686,17 @@ def test_output_keys_refuses_the_address_of_another_network(
         _pay([_address(network=network), _address(network=address_network)], network)
 
 
-def test_output_keys_refuses_an_unknown_network() -> None:
-    """A name no network has is refused, with no address to read."""
-    with pytest.raises(BTClibValueError):
-        _pay([], "mainet")
+def test_output_keys_refuses_an_unknown_network_first() -> None:
+    """The network is checked before any key is read.
+
+    An empty key list is refused by `prv_key_sum` too: the message says
+    which check came first.
+    """
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    with pytest.raises(BTClibValueError, match="sum to zero"):
+        silent_payments.output_keys([], outpoints, [_address()])
+    with pytest.raises(BTClibValueError, match="unknown network: 'mainet'"):
+        silent_payments.output_keys([], outpoints, [_address()], "mainet")
 
 
 @needs_bindings
