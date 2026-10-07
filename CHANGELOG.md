@@ -24,13 +24,19 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
-## v2026.11 (work in progress, not released yet)
+## v2026.10.7
 
-### The nested `thresh()` refusal is timed against a reference parse
+### `infer_descriptor` answers what Bitcoin Core's `InferDescriptor` does
 
-`test_a_wide_and_nested_thresh_is_refused_quickly` bounds the refusal by 12
-times the parse of one of its arguments, timed in the same process, where a
-5 s bound failed on `macos-26-intel` (closes #230).
+`descriptors.infer_descriptor` returns the descriptor Core infers for a
+script, from what a `Provider` knows; `Descriptor.provider` builds one, as
+Core's `Expand` does (closes #256).
+
+### btclib 2026.10.5 is the floor
+
+It fixes GHSA-9r97-9x22-2pp4 and GHSA-rw95-w37r-537w, two slow paths in
+transaction verification, which `bip322.verify` runs on a signature it was
+given.
 
 ### `Bip21` refuses typed parameters passed in `others`
 
@@ -176,6 +182,23 @@ is not that network's, as Bitcoin Core's decoder does: `tsp` under regtest and
 `wallet_policy_descriptor`, `wallet_policy_address` and `wallet_policy` refuse
 `multi()` or `sortedmulti()` at the top and `pk()` inside `sh()`; the first two
 also refuse a top-level `pk()`, `combo()` or `rawtr()` (closes #267).
+
+### A test shows `output_keys` checks the network before it reads a key
+
+`test_output_keys_refuses_an_unknown_network_first` passes only if an unknown
+network is refused before an empty key list is (closes #287).
+
+### The changelog is written at release time
+
+A release's own pull request writes its sections of `CHANGELOG.md` and
+`RELEASE_NOTES.md`, and no other pull request adds an entry. The issue forms
+end with the sign-off notice (issue btclib-org/.github#1623).
+
+### A release is rehearsed once
+
+`RELEASING.md` rehearses a release that breaks the public API from its pull
+request's branch, and again from `main` only where the branch changed after
+that rehearsal (closes #291).
 
 ## v2026.10.4
 
