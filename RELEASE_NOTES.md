@@ -22,14 +22,15 @@ before upgrading, rather than a digit.
 - **`multipath_descriptors` and `parse` refuse a multipath step that is not a
   whole path element.** `<0;1>h`, `<0;1>'`, `0<0;1>`, `<0;1>>` and `<<0;1>`,
   in a key path or a key origin, raise `BTClibValueError` "Key path value is
-  not a valid uint32", as Bitcoin Core does
+  not a valid uint32"
   ([ISS 280](https://github.com/btclib-org/btclib-wallet/issues/280)).
-  v2026.10.7's
+  Bitcoin Core refuses each, with that message except `<0;1>>` and `<<0;1>`
+  in a key origin, which it refuses as a multipath step. v2026.10.7's
   `multipath_descriptors` expanded them, except `<0;1>>` and `<<0;1>` in a
-  key origin. Write a hardened step as `<0h;1h>`. A caller that matches on the
-  message of a step in a key origin finds the step gone from it: the message
-  is "Key path value specifies multipath in a section where multipath is not
-  allowed".
+  key origin, which it refused as Core does. Write a hardened step as
+  `<0h;1h>`. A caller that matches on the message of another step in a key
+  origin finds the step gone from it: the message is "Key path value
+  specifies multipath in a section where multipath is not allowed".
 
 `CHANGELOG.md`'s own `v2026.10.8` section has the rest.
 

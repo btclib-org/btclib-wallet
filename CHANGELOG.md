@@ -28,15 +28,15 @@ more line to edit at every release.
 
 ### A refused step in a key origin is not quoted
 
-A refused multipath step in a key origin was quoted in the message of `parse`
-and `multipath_descriptors`, a private key (WIF) included. The message leaves
-the step out, and so does the one below (#285).
+A refused multipath step in a key origin was quoted, with any private key
+(WIF) in it, in the message of `parse` and `multipath_descriptors`. The message
+leaves the step out, and so does the one below (#285).
 
 ### `multipath_descriptors` and `parse` refuse a step that is not a whole path element
 
-`multipath_descriptors` expanded `<0;1>h`, `<0;1>'` and `0<0;1>` in a key path
-or a key origin. They are refused, with `<0;1>>` and `<<0;1>`, as "Key path
-value is not a valid uint32", as Bitcoin Core does (closes #280).
+`<0;1>h`, `<0;1>'`, `0<0;1>`, `<0;1>>` and `<<0;1>` are refused as "Key path
+value is not a valid uint32", as Bitcoin Core does, except the last two in a
+key origin, which Core refuses as a multipath step (closes #280).
 
 ### The `SIGHASH_DEFAULT` refusal is named in the docstring of `_assert_sendable_sig_hash_types`
 
