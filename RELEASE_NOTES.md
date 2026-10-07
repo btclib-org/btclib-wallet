@@ -54,6 +54,12 @@ before upgrading, rather than a digit.
   output at its index, or ask for another type. `finalize` still checks a
   signature of this kind.
 
+- **A regtest silent payment address starts with `sprt1`**, as Bitcoin Core's
+  regtest requires, where earlier releases give `tsp1`. `keys_from_address`
+  reads both, with the network type `"test"`. Make a stored regtest `tsp1`
+  address again with `address_from_keys(..., "regtest")`, and update any
+  `tsp1` string a test compares against.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or
