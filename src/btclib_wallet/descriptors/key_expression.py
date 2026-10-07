@@ -443,6 +443,17 @@ def _hardening(path: str) -> str:
     return symbols[-1] if symbols else ""
 
 
+def _assert_origin_single_path(path: str) -> None:
+    """Refuse a multipath step in the path of a key origin, as Core does."""
+    for element in path.split("/"):
+        if element.startswith("<") and element.endswith(">"):
+            err_msg = (
+                f"Key path value '{element}' specifies multipath "
+                "in a section where multipath is not allowed"
+            )
+            raise BTClibValueError(err_msg)
+
+
 def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
     """Return the key origin of a `[fingerprint/path]` prefix, and its symbol.
 
@@ -455,6 +466,7 @@ def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
     fingerprint, separator, path = description.partition("/")
     if not _FINGERPRINT.fullmatch(fingerprint):
         raise BTClibValueError("invalid key origin fingerprint: 8 hex digits expected")
+    _assert_origin_single_path(path)
     der_path = _der_path(path.split("/") if separator else [])
     return BIP32KeyOrigin(fingerprint, der_path), _hardening(path)
 
@@ -550,10 +562,16 @@ def _assert_musig_allowed(*, musig_allowed: bool) -> None:
         raise BTClibValueError("musig() is only allowed in tr() and rawtr()")
 
 
+# Bitcoin Core's own message, refusing a key path with two multipath steps
+_MULTIPLE_MULTIPATH = "Multiple multipath key path specifiers found"
+
+
 def _assert_key_characters(rest: str) -> None:
     """Refuse what a KEY expression cannot hold once the origin is off."""
     if "]" in rest:
         raise BTClibValueError("more than one ']' in a single key expression")
+    if rest.count("<") > 1:
+        raise BTClibValueError(_MULTIPLE_MULTIPATH)
     if "<" in rest:
         err_msg = "multipath key expression: use multipath_descriptors first"
         raise BTClibValueError(err_msg)

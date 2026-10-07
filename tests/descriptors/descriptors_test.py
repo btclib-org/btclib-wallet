@@ -643,6 +643,61 @@ def test_invalid_multipath() -> None:
         parse(f"pk({xpub}/<0;1>)")
 
 
+@pytest.mark.parametrize(
+    "path", ["/<0;1>/<2;3>", "/<0;1>/<2;3>/*", "/<0;1>/4/<2;3>/*", "/<0;1>/<2;3>/<4;5>"]
+)
+def test_multipath_refuses_two_steps_in_one_key(path: str) -> None:
+    """Refuse a key path with more than one step, as Bitcoin Core does.
+
+    `ParseKeyPath` answers "Multiple multipath key path specifiers found"
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@9be056a8a7).
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    message = "Multiple multipath key path specifiers found"
+    descriptor = f"pkh({xpub}{path})"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+    # and in the second of two keys
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(f"multi(1,{xpub}/0/*,{xpub}{path})")
+
+
+def test_multipath_refuses_a_musig_multipath_in_participant_and_path() -> None:
+    """Refuse both, with the message of Bitcoin Core's ``musig()`` parser.
+
+    `src/script/descriptor.cpp`, bitcoin/bitcoin@aef8a04966.
+    """
+    message = "Cannot have multipath participant keys"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(f"tr(musig({MUSIG_XPUB_A}/<0;1>,{MUSIG_XPUB_B})/<2;3>)")
+    # either one alone is Core's too, and expands
+    assert (
+        len(multipath_descriptors(f"tr(musig({MUSIG_XPUB_A}/<0;1>,{MUSIG_XPUB_B}))"))
+        == 2
+    )
+    assert (
+        len(multipath_descriptors(f"tr(musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})/<2;3>)"))
+        == 2
+    )
+
+
+def test_multipath_refuses_a_step_in_a_key_origin() -> None:
+    """Refuse it in both functions, with Bitcoin Core's message.
+
+    `ParseKeyPath` is called with `allow_multipath=false` for an origin
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@aef8a04966).
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = f"pkh([deadbeef/<0;1>]{xpub}/0/*)"
+    message = "Key path value '<0;1>' specifies multipath"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
 # BIP388's own Test Vectors section (bitcoin/bips, bip-0388.mediawiki,
 # commit cfff9719405fa35113cab637958809824873750f): every valid policy,
 # its template, its key-information vector as descriptor text -- read the
