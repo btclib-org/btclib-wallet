@@ -2918,7 +2918,6 @@ _POLICY_TOP_LEVEL = (
     WpkhDescriptor,
     ShDescriptor,
     WshDescriptor,
-    MultiDescriptor,
     TrDescriptor,
 )
 
@@ -2926,19 +2925,31 @@ _POLICY_TOP_LEVEL = (
 def _assert_policy_top_level(descriptor: Descriptor) -> None:
     """Refuse a descriptor whose own function BIP388 does not list.
 
-    ``sh``, ``wsh``, ``pkh``, ``wpkh``, ``multi``/``sortedmulti`` and
-    ``tr`` are the SCRIPT functions BIP388 names, the miniscript
-    templates it also lists living inside ``wsh`` or ``tr`` only;
-    ``combo``, ``addr``, ``raw``, a bare ``pk`` and Core's own ``rawtr``
-    extension are not, and none of them is a policy an external signer's
-    registration flow reads.
-    This checks the function alone, not BIP388's position for it --
-    ``multi``/``sortedmulti`` inside ``sh``/``wsh`` only, ``wpkh`` at the
-    top level or inside ``sh`` only, ``pkh`` never inside ``tr`` except
-    as BIP379's fragment -- so a function BIP388 places nowhere the
-    descriptor puts it still passes this and reaches a template no device
-    will register.
+    ``sh``, ``wsh``, ``pkh``, ``wpkh`` and ``tr`` are the SCRIPT functions
+    BIP388 allows at the top level, the miniscript templates it also lists
+    living inside ``wsh`` or ``tr`` only; ``multi``/``sortedmulti`` are
+    SCRIPT functions too, inside ``sh`` or ``wsh`` only, so a top-level one
+    is refused. ``combo``, ``addr``, ``raw``, a bare ``pk`` and Core's own
+    ``rawtr`` extension are not BIP388's, and none of them is a policy an
+    external signer's registration flow reads.
+    One nesting is checked here: a ``pk()`` directly inside ``sh()``, a
+    miniscript where BIP388 allows ``wsh`` or ``tr`` only. `parse` refuses
+    every other nesting BIP388 forbids, reading ``pkh`` under ``tr`` as
+    BIP379's miniscript fragment.
     """
+    if isinstance(descriptor, ShDescriptor) and isinstance(
+        descriptor.inner, PkDescriptor
+    ):
+        err_msg = (
+            "pk() inside sh(): BIP388 allows a miniscript inside wsh() or tr() only"
+        )
+        raise BTClibValueError(err_msg)
+    if isinstance(descriptor, MultiDescriptor):
+        name = "sortedmulti" if descriptor.sort else "multi"
+        err_msg = (
+            f"{name}() at the top level: BIP388 allows it inside sh() or wsh() only"
+        )
+        raise BTClibValueError(err_msg)
     if not isinstance(descriptor, _POLICY_TOP_LEVEL):
         err_msg = f"{type(descriptor).__name__} is not a BIP388 SCRIPT expression"
         raise BTClibValueError(err_msg)
@@ -3227,9 +3238,9 @@ def wallet_policy(
     an earlier use -- each with the fragment that was wrong. So is a
     descriptor whose own function is not one of BIP388's SCRIPT
     expressions -- ``combo()``, ``addr()``, ``raw()``, ``rawtr()`` and a
-    bare ``pk()`` among them. Not checked: BIP388's position for a
-    function within another (`_assert_policy_top_level` says so), and
-    that every key is pairwise distinct from every other.
+    bare ``pk()`` among them; so is a top-level ``multi()`` or
+    ``sortedmulti()``, or a ``pk()`` directly inside ``sh()``. Not
+    checked: that every key is pairwise distinct from every other.
     """
     assert_type(descriptor, Descriptor, "descriptor")
     _assert_policy_top_level(descriptor)
@@ -3348,6 +3359,10 @@ def wallet_policy_descriptor(
     ranged descriptor answers are what `multipath_index` was resolved
     *for*.
 
+    A template whose own function is not one of BIP388's SCRIPT expressions,
+    or is a top-level ``multi()`` or ``sortedmulti()``, or is a ``pk()``
+    directly inside ``sh()``, is refused as `wallet_policy` refuses it.
+
     No `prv_keys`: every wildcard a wallet-policy template writes is
     unhardened, which is the whole of BIP388's "the seed alone is no
     longer enough" guarantee working in reverse -- the account xpub in
@@ -3367,7 +3382,9 @@ def wallet_policy_descriptor(
     )
     if count == 0 or "@" in text:
         raise BTClibValueError("not a BIP388 wallet-policy template")
-    return parse(text, network)
+    descriptor = parse(text, network)
+    _assert_policy_top_level(descriptor)
+    return descriptor
 
 
 def wallet_policy_address(

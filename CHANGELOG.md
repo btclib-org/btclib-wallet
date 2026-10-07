@@ -169,6 +169,12 @@ It takes a `network`, `"mainnet"` by default, and refuses an address whose hrp
 is not that network's, as Bitcoin Core's decoder does: `tsp` under regtest and
 `sprt` under testnet are refused too (closes #270).
 
+### Wallet-policy templates refuse a function BIP388 does not allow there
+
+`wallet_policy_descriptor`, `wallet_policy_address` and `wallet_policy` refuse
+`multi()` or `sortedmulti()` at the top and `pk()` inside `sh()`; the first two
+also refuse a top-level `pk()`, `combo()` or `rawtr()` (closes #267).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
