@@ -2710,6 +2710,10 @@ def _assert_sendable_sig_hash_types(psbt: Psbt, accepted: frozenset[int]) -> Non
     The two checks a signer outside this process cannot be trusted to make:
     the type is one the caller accepts, and it is not SIGHASH_SINGLE with
     no output at the input's index, which no allow-list lifts.
+
+    The first check also refuses an explicit SIGHASH_DEFAULT on an input
+    not known to be taproot, whatever the caller accepts
+    (`_assert_accepted_sig_hash_type`).
     """
     for vin_i, psbt_in in enumerate(psbt.inputs):
         _assert_accepted_sig_hash_type(psbt_in, vin_i, accepted)
