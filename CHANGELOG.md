@@ -24,6 +24,30 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.8
+
+### A refused step in a key origin is not quoted
+
+A refused multipath step in a key origin was quoted, with any private key
+(WIF) in it, in the message of `parse` and `multipath_descriptors`. The message
+leaves the step out, and so does the one below (#285).
+
+### `multipath_descriptors` and `parse` refuse a step that is not a whole path element
+
+`<0;1>h`, `<0;1>'`, `0<0;1>`, `<0;1>>` and `<<0;1>` are refused as "Key path
+value is not a valid uint32", as Bitcoin Core does, except the last two in a
+key origin, which Core refuses as a multipath step (closes #280).
+
+### The `SIGHASH_DEFAULT` refusal is named in the docstring of `_assert_sendable_sig_hash_types`
+
+The docstring says the first check also refuses an explicit `SIGHASH_DEFAULT`
+on an input not known to be taproot (closes #283).
+
+### `CLAUDE.md` points to `CONTRIBUTING.md` for the changelog rule
+
+It names `CONTRIBUTING.md`'s *Pull requests* instead of restating that a pull
+request adds no entry (issue btclib-org/.github#1630).
+
 ## v2026.10.7
 
 ### `infer_descriptor` answers what Bitcoin Core's `InferDescriptor` does
