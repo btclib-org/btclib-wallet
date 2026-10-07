@@ -9,7 +9,14 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
-## v2026.11 (work in progress, not released yet)
+## v2026.10.7
+
+- **btclib-wallet requires btclib 2026.10.5**, which fixes
+  GHSA-9r97-9x22-2pp4 and GHSA-rw95-w37r-537w: verifying a taproot input took
+  time linear in the transaction's inputs, and each legacy or segwit v0
+  signature check computed its hash from scratch. `bip322.verify` runs that
+  verification on a signature it was given. Upgrading btclib-wallet installs
+  it.
 
 - **`request_signatures` refuses to send a psbt asking for a sig_hash type
   other than SIGHASH_ALL or SIGHASH_DEFAULT.** It raises on an input asking
@@ -75,6 +82,21 @@ before upgrading, rather than a digit.
   `request_signatures` refuse SIGHASH_DEFAULT on an input not known to be
   taproot, where a device signed SIGHASH_ALL.
   To sign such a psbt, ask its creator for SIGHASH_ALL or remove the field.
+
+- **`silent_payments.output_keys` refuses an address of another network than
+  its `network` argument**, `"mainnet"` by default, as Bitcoin Core's
+  decoder does. An `sprt`, `tsp` or `sp` address that is not that network's
+  raises `BTClibValueError`, so a caller paying testnet, signet or regtest
+  passes the `network` too.
+
+- **`wallet_policy_descriptor`, `wallet_policy_address` and `wallet_policy`
+  refuse a template BIP388 does not allow.** A top-level `multi()` or
+  `sortedmulti()`, and a `pk()` inside `sh()`, raise `BTClibValueError`; so do
+  a top-level `pk()`, `combo()` or `rawtr()` in the first two, where earlier
+  releases gave a descriptor or an address. Read such a descriptor with
+  `descriptors.parse`.
+
+`CHANGELOG.md`'s own `v2026.10.7` section has the rest.
 
 ## v2026.10.4
 

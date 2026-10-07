@@ -15,7 +15,7 @@ name = "btclib-wallet"
 # it back from the installed metadata. A cycle in progress is the month
 # alone; the release's own pull request replaces it by hand with the date
 # the release is cut, YYYY.M.D, whose month need not be the cycle's
-version = "2026.11"
+version = "2026.10.7"
 description = "Bitcoin wallet functionality built on btclib"
 readme = "README.md"
 # PEP 639: a SPDX expression and the files it refers to. COPYRIGHT is not
@@ -34,11 +34,12 @@ dependencies = [
     # `btclib.kdf` and `btclib.number_theory` do not bind btclib-ecc's own
     # objects (issue btclib-org/btclib#2282), so a `Curve` or a `Sig` built
     # through `btclib_ecc` is not the type btclib's own API returns.
-    # 2026.10.4 is the floor because it fixes GHSA-9fr5-46w5-5f9r, a
-    # tapscript script-path spend that made `script.engine.verify_transaction`
-    # run for minutes. `bip322.verify` runs that engine on a witness it was
-    # given, so it is reached
-    "btclib>=2026.10.4",
+    # 2026.10.5 is the floor because it fixes GHSA-9r97-9x22-2pp4 and
+    # GHSA-rw95-w37r-537w, after 2026.10.4's GHSA-9fr5-46w5-5f9r: each made
+    # `script.engine.verify_transaction` slow on a transaction it was given.
+    # `bip322.verify` runs that engine on a signature it was given, so each
+    # is reached
+    "btclib>=2026.10.5",
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `btclib_ecc.curves`, `btclib_ecc.ecc` less `bms`, which
     # stays btclib's own, `btclib_ecc.hashes`'s `tagged_hash` and
@@ -113,7 +114,7 @@ classifiers = [
 # rather than a dependency for btclib's reason: every delegation declines
 # where the bindings are absent, and the Python arithmetic answers
 # instead. The btclib floor is the one of `dependencies`
-secp256k1 = ["btclib[secp256k1]>=2026.10.4", "btclib-secp256k1>=0.8.0.10"]
+secp256k1 = ["btclib[secp256k1]>=2026.10.5", "btclib-secp256k1>=0.8.0.10"]
 
 [project.urls]
 homepage = "https://btclib-wallet.readthedocs.io/"
@@ -134,7 +135,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.10.4", "btclib-secp256k1>=0.8.0.10"]
+bindings = ["btclib[secp256k1]>=2026.10.7", "btclib-secp256k1>=0.8.0.10"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was

@@ -633,6 +633,72 @@ def test_output_keys_pays_nothing_for_no_addresses() -> None:
     )
 
 
+_NETWORKS = ("mainnet", "testnet", "signet", "testnet4", "regtest")
+_HRPS = {
+    "mainnet": "sp",
+    "testnet": "tsp",
+    "signet": "tsp",
+    "testnet4": "tsp",
+    "regtest": "sprt",
+}
+# (network, the network whose address it is given), with another hrp
+_MISMATCHES = [
+    (network, other)
+    for network in _NETWORKS
+    for other in _NETWORKS
+    if _HRPS[network] != _HRPS[other]
+]
+
+
+def _pay(addresses: list[str], network: str | None = None) -> list[bytes]:
+    """Call `output_keys` from one segwit input, on `network` where given."""
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    prv_keys = [(_B_SCAN_PRV, script_pub_key)]
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    if network is None:
+        return silent_payments.output_keys(prv_keys, outpoints, addresses)
+    return silent_payments.output_keys(prv_keys, outpoints, addresses, network)
+
+
+@pytest.mark.parametrize("network", _NETWORKS)
+def test_output_keys_accepts_the_address_of_its_network(network: str) -> None:
+    """Each network's own address is paid, and the key does not depend on it."""
+    assert _pay([_address(network=network)], network) == _pay([_address()])
+
+
+def test_output_keys_defaults_to_mainnet() -> None:
+    """No `network` is mainnet: an "sp" address is paid, the others refused."""
+    assert len(_pay([_address()])) == 1
+    for network in _NETWORKS[1:]:
+        with pytest.raises(BTClibValueError, match="invalid hrp for mainnet"):
+            _pay([_address(network=network)])
+
+
+@pytest.mark.parametrize("network,address_network", _MISMATCHES)
+def test_output_keys_refuses_the_address_of_another_network(
+    network: str, address_network: str
+) -> None:
+    """The hrp has to be the network's own: "tsp" is not regtest's "sprt"."""
+    with pytest.raises(BTClibValueError, match="invalid hrp for"):
+        _pay([_address(network=address_network)], network)
+    # one wrong address among right ones refuses the whole call
+    with pytest.raises(BTClibValueError, match="invalid hrp for"):
+        _pay([_address(network=network), _address(network=address_network)], network)
+
+
+def test_output_keys_refuses_an_unknown_network_first() -> None:
+    """The network is checked before any key is read.
+
+    An empty key list is refused by `prv_key_sum` too: the message says
+    which check came first.
+    """
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    with pytest.raises(BTClibValueError, match="sum to zero"):
+        silent_payments.output_keys([], outpoints, [_address()])
+    with pytest.raises(BTClibValueError, match="unknown network: 'mainet'"):
+        silent_payments.output_keys([], outpoints, [_address()], "mainet")
+
+
 @needs_bindings
 def test_output_keys_wraps_a_delegated_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     """`create_outputs`'s own ValueError still comes back a BTClibValueError.

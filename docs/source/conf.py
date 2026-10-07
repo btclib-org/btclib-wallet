@@ -124,6 +124,7 @@ nitpick_ignore = [
     ("py:class", "musig2.KeyAggContext"),
     ("py:class", "musig2.SessionContext"),
     ("py:class", "collections.abc.Mapping[bytes"),
+    ("py:class", "tuple[bytes"),
     ("py:class", "btclib_ecc.curves.curve.Curve"),
     ("py:class", "btclib_ecc.curves.curve.PreparedPoint"),
     ("py:class", "btclib_ecc.ecc.dsa.Sig"),

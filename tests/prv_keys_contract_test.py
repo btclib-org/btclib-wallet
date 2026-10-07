@@ -90,6 +90,7 @@ _ROWS: dict[str, Callable[[], object]] = {
     "Descriptor.redeem_script": _call(_DESCRIPTOR.redeem_script, 0),
     "Descriptor.address": _call(_DESCRIPTOR.address, 0),
     "Descriptor.addresses": _call(_DESCRIPTOR.addresses, 0),
+    "Descriptor.provider": _call(_DESCRIPTOR.provider, 0),
     "Descriptor.satisfy": _call(_DESCRIPTOR.satisfy, {}, 0),
     "Descriptor.index_of": _call(_DESCRIPTOR.index_of, b"\x51", -1),
     "Descriptor.update_psbt_input": _call(
