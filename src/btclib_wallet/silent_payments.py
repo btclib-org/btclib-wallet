@@ -272,12 +272,23 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
 
     The network type and not a network: "tsp" (testnet, testnet4, signet)
     and "sprt" (regtest) both answer "test", so the answer does not say
-    which test network an address is for.
+    which test network an address is for. `output_keys` is what refuses
+    an address of another network than the one it is given.
 
     A version above 0 is read as far as v0 defines it -- the first 66
     bytes of the payload, the rest discarded -- so that a v0 sender can
     pay a later address. v31 is refused instead, being the version BIP352
     reserves for a change that breaks exactly that.
+    """
+    B_scan, B_m, hrp = _decode_address(address)
+    network_type: NetworkType = "main" if hrp == _MAINNET_HRP else "test"
+    return B_scan, B_m, network_type
+
+
+def _decode_address(address: String) -> tuple[Point, Point, str]:
+    """Return (B_scan, B_m, hrp) from a silent payment address.
+
+    The hrp is one of the three this module writes.
     """
     # the coercion before the length, as in b32.witness_from_address:
     # `len` of what is neither text nor bytes is a TypeError about a
@@ -296,11 +307,7 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
         raise BTClibValueError("non-ASCII character in address")
 
     hrp, data = decode(addr, BECH32_M_CONST)
-    if hrp == _MAINNET_HRP:
-        network_type: NetworkType = "main"
-    elif hrp in {_TESTNET_HRP, _REGTEST_HRP}:
-        network_type = "test"
-    else:
+    if hrp not in {_MAINNET_HRP, _TESTNET_HRP, _REGTEST_HRP}:
         raise BTClibValueError(f"invalid hrp: {hrp}")
 
     # `decode` was given the checksum constant, so it did not read a
@@ -324,7 +331,7 @@ def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
 
     B_scan = point_from_octets(payload[:_PK_SIZE], secp256k1)
     B_m = point_from_octets(payload[_PK_SIZE:_PAYLOAD_SIZE], secp256k1)
-    return B_scan, B_m, network_type
+    return B_scan, B_m, hrp
 
 
 def label_tweak(b_scan: Integer, m: int) -> int:
@@ -678,8 +685,13 @@ def output_keys(
     prv_keys: Sequence[tuple[Integer, Octets]],
     outpoints: Sequence[OutPoint],
     addresses: Sequence[String],
+    network: str = "mainnet",
 ) -> list[bytes]:
     """Return the x-only taproot output keys to pay a list of addresses.
+
+    Every address must be of `network`, as Bitcoin Core's decoder requires
+    of the chain it runs on: an address with another hrp is refused, and
+    so is a "tsp" address under "regtest" or a "sprt" one under "testnet".
 
     One key per address, in the order the addresses are given;
     `btclib.script.script_pub_key.ScriptPubKey.p2tr` turns each into the
@@ -714,6 +726,7 @@ def output_keys(
     private-key sum or an empty outpoint sequence already has a specific
     message for -- see `_delegated_output_keys`.
     """
+    hrp = _hrp_from_network(network)
     a = prv_key_sum(prv_keys)
     h = input_hash(outpoints, mult(a))
 
@@ -721,7 +734,10 @@ def output_keys(
     # addresses were given and a group's k follows it
     groups: dict[Point, list[Point]] = {}
     for address in addresses:
-        B_scan, B_m, _ = keys_from_address(address)
+        B_scan, B_m, address_hrp = _decode_address(address)
+        if address_hrp != hrp:
+            err_msg = f"invalid hrp for {network}: {address_hrp} instead of {hrp}"
+            raise BTClibValueError(err_msg)
         groups.setdefault(B_scan, []).append(B_m)
 
     for B_m_values in groups.values():

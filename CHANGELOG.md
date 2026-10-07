@@ -10,25 +10,33 @@
   }
 -->
 
-An entry for anything a reader would notice: what changed, and the issue
-it answers. That is section 9 of [the organization standard][std], and it
-is narrower than "every change" — a comment reworded inside a workflow
-changes nothing a reader of this repository meets, and lands without an
-entry. [RELEASE_NOTES.md](./RELEASE_NOTES.md) has the release notes,
-which say what a user has to act on; this file is the record behind them.
+A release's own pull request writes the release's section, from the squash
+subjects since the previous tag, and no other pull request adds an entry
+(sections 9 and 12 of [the organization standard][std]). An entry is for
+anything a reader would notice, and is narrower than "every change": a
+comment reworded inside a workflow changes nothing a reader of this
+repository meets. [RELEASE_NOTES.md](./RELEASE_NOTES.md) has the release
+notes, which say what a user has to act on; this file is the record behind
+them.
 
 [std]: https://github.com/btclib-org/.github
 
-Neither file states how many entries it holds: a stated number is a line
-every open branch has to edit.
+Neither file states how many entries it holds: a stated number is one
+more line to edit at every release.
 
-## v2026.11 (work in progress, not released yet)
+## v2026.10.7
 
-### The nested `thresh()` refusal is timed against a reference parse
+### `infer_descriptor` answers what Bitcoin Core's `InferDescriptor` does
 
-`test_a_wide_and_nested_thresh_is_refused_quickly` bounds the refusal by 12
-times the parse of one of its arguments, timed in the same process, where a
-5 s bound failed on `macos-26-intel` (closes #230).
+`descriptors.infer_descriptor` returns the descriptor Core infers for a
+script, from what a `Provider` knows; `Descriptor.provider` builds one, as
+Core's `Expand` does (closes #256).
+
+### btclib 2026.10.5 is the floor
+
+It fixes GHSA-9r97-9x22-2pp4 and GHSA-rw95-w37r-537w, two slow paths in
+transaction verification, which `bip322.verify` runs on a signature it was
+given.
 
 ### `Bip21` refuses typed parameters passed in `others`
 
@@ -160,14 +168,37 @@ combined in either input order (closes #262).
 ### `multipath_descriptors` refuses a multipath key Bitcoin Core refuses
 
 Two `<a;b>` steps in one key path, a step in a key origin, and a `musig()`
-multipath in both participants and path are refused as Core refuses them
+multipath in both participants and path are refused with Core's messages
 (closes #265) (closes #279).
 
-### `multipath_descriptors` and `parse` refuse `<a;b>` followed by a hardened marker
+### `silent_payments.output_keys` refuses an address of another network
 
-A path element such as `<0;1>h` is refused with Core's "is not a valid
-uint32", and a step in a key origin with Core's message. Neither quotes the
-element, which can hold a private key (closes #280).
+It takes a `network`, `"mainnet"` by default, and refuses an address whose hrp
+is not that network's, as Bitcoin Core's decoder does: `tsp` under regtest and
+`sprt` under testnet are refused too (closes #270).
+
+### Wallet-policy templates refuse a function BIP388 does not allow there
+
+`wallet_policy_descriptor`, `wallet_policy_address` and `wallet_policy` refuse
+`multi()` or `sortedmulti()` at the top and `pk()` inside `sh()`; the first two
+also refuse a top-level `pk()`, `combo()` or `rawtr()` (closes #267).
+
+### A test shows `output_keys` checks the network before it reads a key
+
+`test_output_keys_refuses_an_unknown_network_first` passes only if an unknown
+network is refused before an empty key list is (closes #287).
+
+### The changelog is written at release time
+
+A release's own pull request writes its sections of `CHANGELOG.md` and
+`RELEASE_NOTES.md`, and no other pull request adds an entry. The issue forms
+end with the sign-off notice (issue btclib-org/.github#1623).
+
+### A release is rehearsed once
+
+`RELEASING.md` rehearses a release that breaks the public API from its pull
+request's branch, and again from `main` only where the branch changed after
+that rehearsal (closes #291).
 
 ## v2026.10.4
 

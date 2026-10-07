@@ -868,6 +868,56 @@ def test_bip388_invalid_templates() -> None:
         wallet_policy_descriptor(non_kp, key_info)
 
 
+@pytest.mark.parametrize("name", ["multi", "sortedmulti"])
+def test_wallet_policy_refuses_a_top_level_multi(name: str) -> None:
+    """Refuse `multi()` and `sortedmulti()` outside `sh()` and `wsh()`.
+
+    BIP388 allows them inside `sh` or `wsh` only; `parse` accepts them at
+    the top level, as BIP383 does.
+    """
+    xpubs = (MUSIG_XPUB_A, MUSIG_XPUB_B)
+    key_info = tuple(parse(f"pk({xpub})").key_expressions[0] for xpub in xpubs)
+    template = f"{name}(1,@0/**,@1/**)"
+    message = f"{name}[(][)] at the top level"
+    with pytest.raises(BTClibValueError, match=message):
+        wallet_policy_descriptor(template, key_info)
+    with pytest.raises(BTClibValueError, match=message):
+        wallet_policy_address(template, key_info, 0)
+    with pytest.raises(BTClibValueError, match=message):
+        wallet_policy(parse(f"{name}(1,{xpubs[0]}/*,{xpubs[1]}/*)"))
+    receive = parse(f"{name}(1,{xpubs[0]}/0/*,{xpubs[1]}/0/*)")
+    change = parse(f"{name}(1,{xpubs[0]}/1/*,{xpubs[1]}/1/*)")
+    with pytest.raises(BTClibValueError, match=message):
+        wallet_policy(receive, change)
+    inside = f"wsh({template})"
+    assert (
+        wallet_policy(
+            wallet_policy_descriptor(inside, key_info, 0),
+            wallet_policy_descriptor(inside, key_info, 1),
+        )[0]
+        == inside
+    )
+
+
+def test_wallet_policy_refuses_a_pk_inside_sh() -> None:
+    """Refuse `sh(pk())`: BIP388 allows a miniscript in `wsh` or `tr` only."""
+    key_info = (parse(f"pk({MUSIG_XPUB_A})").key_expressions[0],)
+    message = "pk[(][)] inside sh"
+    with pytest.raises(BTClibValueError, match=message):
+        wallet_policy_descriptor("sh(pk(@0/**))", key_info)
+    receive = parse(f"sh(pk({MUSIG_XPUB_A}/0/*))")
+    change = parse(f"sh(pk({MUSIG_XPUB_A}/1/*))")
+    with pytest.raises(BTClibValueError, match=message):
+        wallet_policy(receive, change)
+    # the same key function as a miniscript inside wsh is allowed
+    inside = "wsh(pk(@0/**))"
+    pair = (
+        wallet_policy_descriptor(inside, key_info, 0),
+        wallet_policy_descriptor(inside, key_info, 1),
+    )
+    assert wallet_policy(*pair)[0] == inside
+
+
 def test_wallet_policy_accepts_a_pkh_leaf_under_tr() -> None:
     """Accept `tr(@0/**,pkh(@1/**))`: BIP388 admits a miniscript in `tr()`.
 
@@ -1007,8 +1057,8 @@ def test_wallet_policy_pair_refuses_what_cannot_pair() -> None:
         BTClibValueError, match="chain digits are not disjoint from an earlier use"
     ):
         wallet_policy(
-            parse(f"multi(1,{xpub}/0/*,{xpub}/0/*)"),
-            parse(f"multi(1,{xpub}/1/*,{xpub}/1/*)"),
+            parse(f"sh(multi(1,{xpub}/0/*,{xpub}/0/*))"),
+            parse(f"sh(multi(1,{xpub}/1/*,{xpub}/1/*))"),
         )
     # the same key at two pairs that share one digit rather than the
     # whole pair: BIP388's own invalid-list entry 6,
@@ -1090,7 +1140,7 @@ def test_wallet_policy_refuses_what_cannot_become_one() -> None:
     # this writes is the single `/*`, so any repeat is BIP388's own
     # invalid shape, `sh(multi(1,@0/**,@0/**))`, over that one suffix
     with pytest.raises(BTClibValueError, match="used more than once"):
-        wallet_policy(parse(f"multi(1,{xpub}/*,{xpub}/*)"))
+        wallet_policy(parse(f"sh(multi(1,{xpub}/*,{xpub}/*))"))
     # derivation before aggregation: BIP390 allows it, BIP388 does not
     with pytest.raises(BTClibValueError, match="derivation before aggregation"):
         wallet_policy(parse(f"tr(musig({xpub}/*,{MUSIG_XPUB_B}/*))"))
