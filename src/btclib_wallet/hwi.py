@@ -41,8 +41,8 @@ first device of this type enumerated", so two devices of one vendor make which
 one signs a question of enumeration order.
 
 Both take a `network: str`, and both put it through
-`network.validated_network_name`, which normalizes it with the
-`strip().lower()` tolerance issue btclib-org/btclib#216 decided to keep: a name
+`network.validated_network_name`, which normalizes it such that the case
+and the ASCII whitespace around the name are ignored: a name
 the rest of the library resolves is resolved here, and one no network answers to
 is refused in the same words whichever of the two took it.
 
