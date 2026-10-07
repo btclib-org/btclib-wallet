@@ -9,6 +9,29 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.8
+
+- **A refused multipath step in a key origin is no longer quoted.** In
+  v2026.10.7, a step such as `[deadbeef/<WIF;1>]` was put in the error message
+  of `descriptors.parse` and `descriptors.multipath_descriptors`, so a private
+  key (WIF) in it was echoed. This release leaves the step out
+  ([ISS 280](https://github.com/btclib-org/btclib-wallet/issues/280),
+  [PR 285](https://github.com/btclib-org/btclib-wallet/pull/285)). Upgrade if
+  you parse descriptors that may hold a private key and log or show the
+  errors. No advisory is published.
+
+- **`multipath_descriptors` and `parse` refuse a multipath step that is not a
+  whole path element.** `<0;1>h`, `<0;1>'`, `0<0;1>`, `<0;1>>` and `<<0;1>`,
+  in a key path or a key origin, raise `BTClibValueError` "Key path value is
+  not a valid uint32", as Bitcoin Core does. v2026.10.7's
+  `multipath_descriptors` expanded them, except `<0;1>>` and `<<0;1>` in a
+  key origin. Write a hardened step as `<0h;1h>`. A caller that matches on the
+  message of a step in a key origin finds the step gone from it: the message
+  is "Key path value specifies multipath in a section where multipath is not
+  allowed".
+
+`CHANGELOG.md`'s own `v2026.10.8` section has the rest.
+
 ## v2026.10.7
 
 - **btclib-wallet requires btclib 2026.10.5**, which fixes
