@@ -538,7 +538,11 @@ ADD = f"{0xBA:02x}"
         ("20" + K1[2:] + "ac" + "4c" + "9c", None),
         ("20" + K1[2:] + "ac" + "52" + "9c", None),
         ("20" + K1[2:] + "ac" + "51" + "9c", (1, [bytes.fromhex(K1[2:])])),
-        ("20" + K1[2:] + "ac" + ("20" + K1[2:] + ADD) * 999 + "51" + "9c", None),
+        pytest.param(
+            "20" + K1[2:] + "ac" + ("20" + K1[2:] + ADD) * 999 + "51" + "9c",
+            None,
+            id="1000-keys",
+        ),
     ],
 )
 def test_match_multi_a(script: str, expected: object) -> None:
