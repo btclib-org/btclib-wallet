@@ -1115,6 +1115,25 @@ def test_another_sig_hash_type_is_sent_only_if_allowed(
     assert argv.exists()
 
 
+# SIGHASH_SINGLE, SINGLE|ANYONECANPAY
+@pytest.mark.parametrize("hash_type", [0x03, 0x83])
+def test_single_past_the_outputs_is_never_sent(tmp_path: Path, hash_type: int) -> None:
+    """The device computes its own hash, so `hwi` is not run for it."""
+    psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
+    tx = psbt.tx
+    tx.vin.append(TxIn(OutPoint(b"\x05" * 32, 0)))
+    longer = Psbt.from_tx(tx)
+    longer.inputs[0] = psbt.inputs[0]
+    longer.inputs[1].sig_hash_type = hash_type  # type: ignore[assignment]
+    device = stand_in(tmp_path, {"signtx": {"psbt": longer.b64encode()}})
+    argv = Path(device[-1]).with_suffix(".argv.json")
+
+    err_msg = "SIGHASH_SINGLE with no output at its index"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        signer(device).sign_psbt(longer, allowed_sig_hash_types={hash_type})
+    assert not argv.exists()
+
+
 # no type, SIGHASH_ALL, SIGHASH_DEFAULT
 @pytest.mark.parametrize("hash_type", [None, 0x01, 0x00])
 def test_all_default_or_no_sig_hash_type_is_sent_unasked(

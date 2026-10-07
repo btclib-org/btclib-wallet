@@ -205,9 +205,11 @@ FROST `partial_sign` sign SIGHASH_ALL, or SIGHASH_DEFAULT for taproot,
 unless `allowed_sig_hash_types` names another type. `request_signatures`
 sends a psbt asking for another type only where its own
 `allowed_sig_hash_types` names it (issue #233). `HwiSigner.sign_psbt`
-checks against its own, before `hwi` runs (issue #243). A legacy
-SIGHASH_SINGLE input with no output at its index is never signed, and a
-returned ECDSA signature of a type other than SIGHASH_ALL is refused
+checks against its own, before `hwi` runs (issue #243). `psbt.sign`
+refuses SIGHASH_SINGLE on an input with no output at its index, and
+`request_signatures` and `HwiSigner.sign_psbt` do not send it, whatever is
+allowed. The MuSig2 and FROST `partial_sign` refuse it too, in btclib's
+taproot hash. A returned ECDSA signature of a type other than SIGHASH_ALL is refused
 where the input names none (GHSA-qq38-77mp-j6wr).
 
 **The network.** `fetch/` is where a backend's own reply crosses in — a

@@ -840,6 +840,42 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
     verify_transaction(spent, extract_tx(finalize(psbt)))
 
 
+@pytest.mark.parametrize("hash_type", [0x03, 0x83])
+def test_single_past_the_outputs_is_refused_whatever_is_allowed(
+    hash_type: Any,
+) -> None:
+    """BIP341 leaves the hash undefined: btclib's taproot hash refuses it.
+
+    The refusal is in `taproot_sig_hash`, which both rounds go through, so
+    no allow-list reaches it.
+    """
+    psbt = internal_key_psbt()
+    longer = deepcopy(psbt)
+    longer.inputs.append(deepcopy(psbt.inputs[0]))
+    longer.inputs[1].previous_tx_id = b"\x09" * 32
+    longer.inputs[1].sig_hash_type = hash_type
+    my_id = SIGNERS[0]
+    share = SEC_SHARES[my_id]
+
+    err_msg = "Sighash single without a corresponding output"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        psbt_frost.nonce_gen(longer, 1, my_id, share, THRESH_PK)
+    longer.inputs[1].sig_hash_type = None
+    sec_nonce = psbt_frost.nonce_gen(longer, 1, my_id, share, THRESH_PK)
+    longer.inputs[1].sig_hash_type = hash_type
+    with pytest.raises(BTClibValueError, match=err_msg):
+        psbt_frost.partial_sign(
+            longer,
+            1,
+            sec_nonce,
+            my_id,
+            share,
+            THRESH_PK,
+            allowed_sig_hash_types={hash_type},
+            require_non_witness_utxo=False,
+        )
+
+
 def test_an_allowed_anyonecanpay_needs_the_non_witness_utxo() -> None:
     """ANYONECANPAY signs its own input's amount, which nothing vouches for.
 

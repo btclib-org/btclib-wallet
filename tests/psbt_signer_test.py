@@ -353,6 +353,34 @@ def test_another_sig_hash_type_is_sent_only_if_allowed(
     assert [sig[-1] for sig in sigs] == [hash_type]
 
 
+def with_an_input_past_the_outputs(psbt: Psbt, hash_type: int) -> Psbt:
+    """Return the psbt with a second input asking for hash_type: one output."""
+    tx = psbt.tx
+    tx.vin.append(TxIn(OutPoint(b"\x05" * 32, 0)))
+    longer = Psbt.from_tx(tx)
+    longer.inputs[0] = psbt.inputs[0]
+    longer.inputs[1].sig_hash_type = hash_type  # type: ignore[assignment]
+    return longer
+
+
+# SIGHASH_SINGLE, SINGLE|ANYONECANPAY
+@pytest.mark.parametrize("hash_type", [0x03, 0x83])
+def test_single_past_the_outputs_is_never_sent(hash_type: int) -> None:
+    """No signature of it is worth having, whatever the caller allows.
+
+    The signer computes its own hash, so nothing downstream would refuse
+    the input `psbt.sign` refuses.
+    """
+    signer = _Willing()
+    psbt, _ = account_psbt(signer)
+    psbt = with_an_input_past_the_outputs(psbt, hash_type)
+
+    err_msg = "SIGHASH_SINGLE with no output at its index"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        request_signatures(signer, psbt, allowed_sig_hash_types={hash_type})
+    assert signer.asked == 0
+
+
 # no type, SIGHASH_ALL, SIGHASH_DEFAULT
 @pytest.mark.parametrize("hash_type", [None, 0x01, 0x00])
 def test_all_default_or_no_sig_hash_type_is_sent_unasked(

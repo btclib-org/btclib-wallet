@@ -47,6 +47,13 @@ before upgrading, rather than a digit.
   A script that downloads it by name, or passes it to
   `gh attestation verify --bundle`, uses the new name.
 
+- **`sign`, `request_signatures` and `HwiSigner.sign_psbt` raise on an input
+  asking for SIGHASH_SINGLE with no output at its index**, whatever
+  `allowed_sig_hash_types` says. Such a signature commits to no output, so
+  whoever holds it can spend the input to any output. Give the input an
+  output at its index, or ask for another type. `finalize` still checks a
+  signature of this kind.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or
