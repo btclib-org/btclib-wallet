@@ -450,8 +450,12 @@ def _assert_whole_multipath_element(element: str) -> None:
     and refuses it as one. The message leaves out the element Core quotes:
     it can hold a private key, which no message here echoes.
     """
+    inner = element[1:-1]
     if ("<" in element or ">" in element) and not (
-        element.startswith("<") and element.endswith(">")
+        element.startswith("<")
+        and element.endswith(">")
+        and "<" not in inner
+        and ">" not in inner
     ):
         raise BTClibValueError("Key path value is not a valid uint32")
 

@@ -705,6 +705,8 @@ def test_multipath_refuses_a_step_in_a_key_origin() -> None:
         ("pkh({xpub}/<0;1>'/*)", "<0;1>'"),
         ("pkh([deadbeef/<0;1>h]{xpub}/0/*)", "<0;1>h"),
         ("pkh({xpub}/0<0;1>/*)", "0<0;1>"),
+        ("pkh({xpub}/<0;1>>/*)", "<0;1>>"),
+        ("pkh({xpub}/<<0;1>/*)", "<<0;1>"),
     ],
 )
 def test_multipath_refuses_a_step_that_is_not_the_whole_element(
@@ -3981,6 +3983,7 @@ UNECHOED = [
     (f"wpkh({XPRV_ROOT}/0/*{WIF})", "^invalid derivation index$"),
     (f"wpkh({XPRV_ROOT}<0;1>/*)", "^Key path value is not a valid uint32$"),
     (f"wpkh({XPRV_ROOT}/0/{WIF}>)", "^Key path value is not a valid uint32$"),
+    (f"wpkh({XPRV_ROOT}/<{WIF};1>>/*)", "^Key path value is not a valid uint32$"),
     (
         f"wpkh([deadbeef/<{WIF};1>]{XPRV_ROOT})",
         "^Key path value specifies multipath in a section where multipath is not allowed$",
