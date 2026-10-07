@@ -684,7 +684,7 @@ def test_multipath_refuses_a_musig_multipath_in_participant_and_path() -> None:
 
 
 def test_multipath_refuses_a_step_in_a_key_origin() -> None:
-    """Refuse it in both functions, with Bitcoin Core's message.
+    """Refuse it in both functions, with Core's message less the element.
 
     `ParseKeyPath` is called with `allow_multipath=false` for an origin
     (`src/script/descriptor.cpp`, bitcoin/bitcoin@aef8a04966).
@@ -699,23 +699,23 @@ def test_multipath_refuses_a_step_in_a_key_origin() -> None:
 
 
 @pytest.mark.parametrize(
-    "template, element",
+    "template",
     [
-        ("pkh({xpub}/<0;1>h/*)", "<0;1>h"),
-        ("pkh({xpub}/<0;1>'/*)", "<0;1>'"),
-        ("pkh([deadbeef/<0;1>h]{xpub}/0/*)", "<0;1>h"),
-        ("pkh({xpub}/0<0;1>/*)", "0<0;1>"),
-        ("pkh({xpub}/<0;1>>/*)", "<0;1>>"),
-        ("pkh({xpub}/<<0;1>/*)", "<<0;1>"),
+        "pkh({xpub}/<0;1>h/*)",
+        "pkh({xpub}/<0;1>'/*)",
+        "pkh([deadbeef/<0;1>h]{xpub}/0/*)",
+        "pkh({xpub}/0<0;1>/*)",
+        "pkh({xpub}/<0;1>>/*)",
+        "pkh({xpub}/<<0;1>/*)",
     ],
 )
 def test_multipath_refuses_a_step_that_is_not_the_whole_element(
-    template: str, element: str
+    template: str,
 ) -> None:
     """Refuse it in both functions, as Bitcoin Core's ``ParseKeyPathElement``.
 
-    Core takes an element not ending in ``>`` for a number and answers
-    "is not a valid uint32" (`src/util/bip32.cpp`,
+    Core reads such an element, or an item of a ``<…>`` element, as a number
+    and answers "is not a valid uint32" (`src/util/bip32.cpp`,
     bitcoin/bitcoin@aef8a04966).
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"

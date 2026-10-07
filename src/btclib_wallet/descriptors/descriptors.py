@@ -3611,7 +3611,7 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     The expansion is textual, as BIP389 defines it, and each result is a
     descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
     key path with two ``<a;b>`` steps, a step in a key origin, a step
-    followed by a hardened marker, and a ``musig()`` multipath in both its
+    that is not a whole path element, and a ``musig()`` multipath in both its
     participants and its path.
     """
     text = strip_checksum(descriptor)

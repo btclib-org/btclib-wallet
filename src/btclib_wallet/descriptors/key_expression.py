@@ -444,11 +444,12 @@ def _hardening(path: str) -> str:
 
 
 def _assert_whole_multipath_element(element: str) -> None:
-    """Refuse a ``<a;b>`` step that is not the whole path element.
+    """Refuse an element holding ``<`` or ``>`` that is not one ``<a;b>`` step.
 
-    Bitcoin Core reads such an element, ``<0;1>h`` for one, as a number
-    and refuses it as one. The message leaves out the element Core quotes:
-    it can hold a private key, which no message here echoes.
+    Bitcoin Core reads ``<0;1>h`` as a number, and ``<0;1>>`` as a step
+    whose ``1>`` is not one: both fail as "not a valid uint32". The message
+    leaves out the element Core quotes: it can hold a private key, which no
+    message here echoes.
     """
     inner = element[1:-1]
     if ("<" in element or ">" in element) and not (
