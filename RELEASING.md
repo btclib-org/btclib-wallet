@@ -26,8 +26,8 @@ grep -L -E '^  (push|pull_request):' .github/workflows/*.yml
 It bites once, on the first release after any of them is written, and it
 inverts the order below: an API-breaking release's rehearsal, which the
 release pull request's branch runs before the merge, can only run after
-it, still before the tag. It also means such a workflow reaches `main`
-having never run.
+it, still before the tag, and is then the release's one rehearsal. It
+also means such a workflow reaches `main` having never run.
 
 ## Which version string is which
 
@@ -268,8 +268,12 @@ result.
    whether the list is right, but whether it is complete:
 
    ```shell
+   tag=v<previous version>
+   ```
+
+   ```shell
    uv run --locked --with griffe griffe check btclib_wallet \
-       -s . -s src -a v<previous version>
+       -s . -s src -a "${tag:?}"
    ```
 
    griffe reads the `-a` revision from a temporary git worktree and
@@ -387,7 +391,8 @@ result.
 
 1. A release that breaks the public API is rehearsed from the release pull
    request's branch, after its notes are written, so that `public-api`
-   reads the release's own section.
+   reads the release's own section. That run is the release's rehearsal;
+   the rehearsal step after the merge says when another is needed.
 
 1. Merge it, with the button, the way every other pull request here
    lands.
@@ -444,7 +449,8 @@ result.
 1. Rehearse on TestPyPI (see above) from `main`, if this cycle touched the
    publish path — that section says which changes make it worth the run,
    and asks that a skip be stated in the release pull request rather than
-   left to be inferred.
+   left to be inferred. A release already rehearsed from its branch needs
+   no second run, unless the branch changed after that rehearsal.
 
 1. Tag the release commit on `main` and push the tag. **Name the
    commit**, and read the tag back before pushing it. The values stand
