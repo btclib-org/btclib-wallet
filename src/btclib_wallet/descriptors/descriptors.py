@@ -2157,11 +2157,12 @@ def _parse_tree(
         # is a script, and what a musig() aggregates to is one key of one
         err_msg = "musig() is a key expression: pk(musig(...)) is the leaf"
         raise BTClibValueError(err_msg)
-    if name in _PARSERS and name != "pk":
+    if name in _PARSERS and _P2TR not in _PARSERS[name][0]:
         # a SCRIPT function where a leaf is expected: a position rule and
         # not something a later release adds, which is what the position
         # table says and Bitcoin Core's own message says too. ``pk()``
-        # allows tr() among its positions and falls through to be read
+        # and ``pkh()`` allow tr() among their positions and fall through
+        # to be read, ``pkh()`` as the BIP379 fragment of that name
         _assert_position(name, _P2TR, _PARSERS[name][0])
     if name != "pk":
         # a leaf that is no BIP386 leaf is a BIP379 miniscript, which is
@@ -2378,7 +2379,7 @@ _PARSERS: dict[
     tuple[tuple[str, ...], Callable[[list[str], str, str, dict[str, str]], Descriptor]],
 ] = {
     "pk": ((_TOP, _P2SH, _P2WSH, _P2TR), _parse_pk),
-    "pkh": ((_TOP, _P2SH, _P2WSH), _parse_pkh),
+    "pkh": ((_TOP, _P2SH, _P2WSH, _P2TR), _parse_pkh),
     "wpkh": ((_TOP, _P2SH), _parse_wpkh),
     "combo": ((_TOP,), _parse_combo),
     "sh": ((_TOP,), _parse_sh),
@@ -2899,9 +2900,10 @@ def _assert_policy_top_level(descriptor: Descriptor) -> None:
     registration flow reads.
     This checks the function alone, not BIP388's position for it --
     ``multi``/``sortedmulti`` inside ``sh``/``wsh`` only, ``wpkh`` at the
-    top level or inside ``sh`` only, ``pkh`` never inside ``tr`` -- so a
-    function BIP388 places nowhere the descriptor puts it still passes
-    this and reaches a template no device will register.
+    top level or inside ``sh`` only, ``pkh`` never inside ``tr`` except
+    as BIP379's fragment -- so a function BIP388 places nowhere the
+    descriptor puts it still passes this and reaches a template no device
+    will register.
     """
     if not isinstance(descriptor, _POLICY_TOP_LEVEL):
         err_msg = f"{type(descriptor).__name__} is not a BIP388 SCRIPT expression"
