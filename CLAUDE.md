@@ -96,11 +96,8 @@ constraints. Do not use Fable unless instructed.
   before is a break in the protocol package's surface, and the question
   is asked of `btclib`'s `RELEASE_NOTES.md` before it is asked of this
   code.
-- **A rebase over a landing that wrote an entry stops on `CHANGELOG.md`
-  or `RELEASE_NOTES.md`**, neither having a merge driver. Rebuild the
-  file as the new base's copy with the branch's block at the end of the
-  open section, and `cmp` it against the committed one: deleting the
-  conflict markers loses a line both blocks share.
+- **A pull request adds no `CHANGELOG.md` entry**: `CONTRIBUTING.md`'s
+  *Pull requests*.
 - **Two branches that each touched `.secrets.baseline` conflict on its
   `generated_at`,** whatever else they changed. Keeping `main`'s value
   resolves it, and the check is that the baseline then differs from
