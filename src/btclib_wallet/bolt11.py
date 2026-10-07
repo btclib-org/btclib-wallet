@@ -32,11 +32,17 @@ after the payment secret. Reproducing an invoice's own bytes on
 tags included, the way `bip21.Bip21.others` keeps a parameter it does not
 recognise rather than dropping it. Every other attribute --
 `payment_hash`, `description`, `fallback_addresses` and the rest -- is a
-property computed from that list, picking the first well-formed
-occurrence of its own tag: BOLT11's own "fields which must be ignored"
-example duplicates `p`, `h`, `s`, `n` and an `f` field of unknown version
-with the wrong length on purpose, and a reader is required to skip each
-malformed repeat rather than fail the whole invoice over it.
+property computed from that list: `fallback_addresses` and `route_hints`
+read every `f` and `r` field, and every other property reads the first
+occurrence of its own tag. An invoice is refused where BOLT11 tells a
+reader to fail it or a writer not to write it, or asks a reader to treat it
+as invalid: a `p`, `s`, `h` or `n` of the wrong length wherever it stands, a
+second `p`, `s`, `d` or `h`, or an `x`, `c` or `9` starting with a zero
+word. Two readers that picked different `p` fields would pay different
+payment hashes. A second `n` is refused too, as Electrum refuses it, though
+BOLT11 only says a writer may include one. BOLT11's own example "Same, but
+including fields which must be ignored" contradicts that reader requirement;
+`tests/_data/README.md` says how it is vendored.
 
 **Millisatoshi is a plain `int`, named for its unit rather than a new
 `btclib.amount` type.** The human-readable part's amount is BTC with a
@@ -66,8 +72,7 @@ would accept it, and `ecc.dsa.verify_` accepts both forms with no flag to
 narrow it, so the low-s check here is this module's own, not delegated.
 Only where no `n` field was stated is `ecc.dsa.recover_pub_key_` asked at
 all, and it accepts either form -- which is why the BOLT's own "public-key
-recovery with high-S signature" example decodes and the "non canonical
-signature ... with 'n' field defined" one does not.
+recovery with high-S signature" example decodes.
 """
 
 from __future__ import annotations
@@ -122,8 +127,9 @@ _NETWORK_FROM_CURRENCY = {v: k for k, v in _CURRENCY_FROM_NETWORK.items()}
 # "tbs" by "tb" when matching a hrp's tail
 _CURRENCIES_BY_LENGTH = sorted(_NETWORK_FROM_CURRENCY, key=len, reverse=True)
 
-_AMOUNT_RE = re.compile(r"([0-9]+)([munp]?)\Z")
-# the most digits of an amount, leading zeros apart: 21 million
+# no leading zero: BOLT11's writer MUST use none
+_AMOUNT_RE = re.compile(r"([1-9][0-9]*)([munp]?)\Z")
+# the most digits of an amount: 21 million
 # bitcoin is 2.1e19 pico-bitcoin. A longer one is refused
 # before `int()`, which raises a built-in `ValueError` past 4300 digits
 _MAX_AMOUNT_DIGITS = 20
@@ -147,6 +153,37 @@ _TAG_PAYEE = 19
 _TAG_DESCRIPTION_HASH = 23
 _TAG_MIN_FINAL_CLTV_EXPIRY = 24
 _TAG_METADATA = 27
+
+# the letter of each tag the checks below name
+_TAG_LETTERS = {
+    _TAG_PAYMENT_HASH: "p",
+    _TAG_PAYMENT_SECRET: "s",
+    _TAG_DESCRIPTION: "d",
+    _TAG_DESCRIPTION_HASH: "h",
+    _TAG_PAYEE: "n",
+    _TAG_EXPIRY: "x",
+    _TAG_MIN_FINAL_CLTV_EXPIRY: "c",
+    _TAG_FEATURES: "9",
+}
+# the `data_length` of the fields that have a fixed one
+_FIXED_WORDS = {
+    _TAG_PAYMENT_HASH: 52,
+    _TAG_PAYMENT_SECRET: 52,
+    _TAG_DESCRIPTION_HASH: 52,
+    _TAG_PAYEE: 53,
+}
+# the fields refused when repeated: one `p`, one `s`, one `d` or `h`, one `n`
+_AT_MOST_ONCE = frozenset(
+    {
+        _TAG_PAYMENT_HASH,
+        _TAG_PAYMENT_SECRET,
+        _TAG_DESCRIPTION,
+        _TAG_DESCRIPTION_HASH,
+        _TAG_PAYEE,
+    }
+)
+# the fields a reader SHOULD refuse with a leading zero word
+_MINIMAL = frozenset({_TAG_EXPIRY, _TAG_MIN_FINAL_CLTV_EXPIRY, _TAG_FEATURES})
 
 _SIGNATURE_WORDS = 104  # 520 bits: 64-byte compact signature + 1-byte recid
 _HOP_SIZE = 33 + 8 + 4 + 4 + 2  # pubkey, short_channel_id, two fees, cltv delta
@@ -176,9 +213,9 @@ def _bytes_to_words(data: bytes) -> tuple[int, ...]:
 
 
 def _minimal_int_words(value: int) -> tuple[int, ...]:
-    """Return `value` with no leading zero word, one zero word if it is 0."""
+    """Return `value` with no leading zero word, none if it is 0."""
     if value == 0:
-        return (0,)
+        return ()
     n_words = (value.bit_length() + 4) // 5
     return _int_to_words(value, n_words)
 
@@ -203,10 +240,9 @@ def _parse_hrp(hrp: str) -> tuple[str, int | None]:
     if not match:
         raise BTClibValueError(f"invalid amount: {amount_part!r}")
     digits, multiplier = match.group(1), match.group(2)
-    digits = digits.lstrip("0")
     if len(digits) > _MAX_AMOUNT_DIGITS:
         raise BTClibValueError(f"invalid amount: more than {_MAX_AMOUNT_DIGITS} digits")
-    value = int(digits or "0")
+    value = int(digits)
     if multiplier == "p":
         if value % 10:
             err_msg = "a pico-bitcoin amount must end in a 0 digit: "
@@ -265,24 +301,25 @@ def _parse_tagged_fields(
 
 
 def _first(
-    fields: Sequence[tuple[int, tuple[int, ...]]],
-    tag: int,
-    expected_length: int | None,
+    fields: Sequence[tuple[int, tuple[int, ...]]], tag: int
 ) -> tuple[int, ...] | None:
-    """Return the first occurrence of `tag`, skipping a malformed length.
+    """Return the first data words of the field `tag`, `None` if it is absent.
 
-    BOLT11's own "fields which must be ignored" example repeats `p`, `h`,
-    `s` and `n` with the wrong `data_length` on purpose, and a reader is
-    required to skip each repeat rather than fail the invoice over it --
-    the first, correctly-sized occurrence is what every typed accessor
-    here reads.
+    Every occurrence of `tag` is checked first, and an invoice the module
+    docstring says is refused raises.
     """
-    for candidate_tag, words in fields:
-        if candidate_tag == tag and (
-            expected_length is None or len(words) == expected_length
-        ):
-            return words
-    return None
+    letter = _TAG_LETTERS.get(tag)
+    expected_length = _FIXED_WORDS.get(tag)
+    occurrences = [words for candidate, words in fields if candidate == tag]
+    for words in occurrences:
+        if expected_length is not None and len(words) != expected_length:
+            err_msg = f"'{letter}' field has {len(words)} words, not {expected_length}"
+            raise BTClibValueError(err_msg)
+        if tag in _MINIMAL and words[:1] == (0,):
+            raise BTClibValueError(f"'{letter}' field has a leading zero word")
+    if len(occurrences) > 1 and tag in _AT_MOST_ONCE:
+        raise BTClibValueError(f"more than one '{letter}' field")
+    return occurrences[0] if occurrences else None
 
 
 def _fallback_field(address: str, network: str) -> tuple[int, tuple[int, ...]]:
@@ -517,7 +554,7 @@ class Bolt11Invoice:
     @property
     def payment_hash(self) -> bytes:
         """Return the 32-byte `p` field, refusing an invoice without one."""
-        words = _first(self.tagged_fields, _TAG_PAYMENT_HASH, 52)
+        words = _first(self.tagged_fields, _TAG_PAYMENT_HASH)
         if words is None:
             raise BTClibValueError("missing payment_hash ('p') field")
         return _words_to_bytes(words)
@@ -525,7 +562,7 @@ class Bolt11Invoice:
     @property
     def payment_secret(self) -> bytes:
         """Return the 32-byte `s` field, refusing an invoice without one."""
-        words = _first(self.tagged_fields, _TAG_PAYMENT_SECRET, 52)
+        words = _first(self.tagged_fields, _TAG_PAYMENT_SECRET)
         if words is None:
             raise BTClibValueError("missing payment_secret ('s') field")
         return _words_to_bytes(words)
@@ -533,7 +570,7 @@ class Bolt11Invoice:
     @property
     def description(self) -> str | None:
         """Return the `d` field, `None` where a `h` field stands in for it."""
-        words = _first(self.tagged_fields, _TAG_DESCRIPTION, None)
+        words = _first(self.tagged_fields, _TAG_DESCRIPTION)
         if words is None:
             return None
         try:
@@ -544,19 +581,19 @@ class Bolt11Invoice:
     @property
     def description_hash(self) -> bytes | None:
         """Return the 32-byte `h` field, `None` where a `d` field stands in."""
-        words = _first(self.tagged_fields, _TAG_DESCRIPTION_HASH, 52)
+        words = _first(self.tagged_fields, _TAG_DESCRIPTION_HASH)
         return None if words is None else _words_to_bytes(words)
 
     @property
     def expiry(self) -> int:
         """Return the `x` field in seconds, BOLT11's default of 3600."""
-        words = _first(self.tagged_fields, _TAG_EXPIRY, None)
+        words = _first(self.tagged_fields, _TAG_EXPIRY)
         return 3600 if words is None else _words_to_int(words)
 
     @property
     def min_final_cltv_expiry(self) -> int:
         """Return the `c` field, BOLT11's default of 18."""
-        words = _first(self.tagged_fields, _TAG_MIN_FINAL_CLTV_EXPIRY, None)
+        words = _first(self.tagged_fields, _TAG_MIN_FINAL_CLTV_EXPIRY)
         return 18 if words is None else _words_to_int(words)
 
     @property
@@ -569,18 +606,18 @@ class Bolt11Invoice:
         invoice checks the assigned bits against what it has itself
         implemented, `btclib_wallet.bolt9.FEATURE_NAMES` being that table.
         """
-        words = _first(self.tagged_fields, _TAG_FEATURES, None)
+        words = _first(self.tagged_fields, _TAG_FEATURES)
         return 0 if words is None else _words_to_int(words)
 
     @property
     def metadata(self) -> bytes | None:
         """Return the `m` field, `None` where the invoice carries none."""
-        words = _first(self.tagged_fields, _TAG_METADATA, None)
+        words = _first(self.tagged_fields, _TAG_METADATA)
         return None if words is None else _words_to_bytes(words)
 
     @property
     def _stated_payee(self) -> bytes | None:
-        words = _first(self.tagged_fields, _TAG_PAYEE, 53)
+        words = _first(self.tagged_fields, _TAG_PAYEE)
         return None if words is None else _words_to_bytes(words)
 
     @property
@@ -589,8 +626,7 @@ class Bolt11Invoice:
 
         A stated `n` field is verified directly and demands a canonical
         low-s signature; absent one, the pubkey is recovered from the
-        signature instead, and either form of s is accepted -- BOLT11's
-        own two examples of exactly this pair, see the module docstring.
+        signature instead, and either form of s is accepted.
 
         The recovery id is always the low-s R's, whichever form of s the
         wire carries: BOLT11's "public-key recovery with high-S

@@ -60,6 +60,15 @@ before upgrading, rather than a digit.
   address again with `address_from_keys(..., "regtest")`, and update any
   `tsp1` string a test compares against.
 
+- **`Bolt11Invoice.from_invoice` refuses malformed or repeated fields.** A `p`,
+  `s`, `h` or `n` of the wrong length, a second `p`, `s`, `d`, `h` or `n`, an
+  `x`, `c` or `9` starting with a zero word, and an amount with a leading zero
+  raise `BTClibValueError`, where earlier releases skipped a wrong-length
+  field, read the first of a repeated one, or read an amount without its
+  leading zeros. This includes an invoice
+  that an earlier `sign` wrote with `expiry=0` or `min_final_cltv_expiry=0`:
+  sign it again.
+
 ## v2026.10.4
 
 - **Signing refuses a sig_hash type other than SIGHASH_ALL or

@@ -135,6 +135,12 @@ A regtest address has the hrp `sprt`, as in Bitcoin Core, and `keys_from_address
 reads it with the network type `"test"`. Earlier releases give regtest `tsp`,
 which Core's regtest refuses. Testnet, testnet4 and signet keep `tsp` (closes #254).
 
+### `Bolt11Invoice` refuses malformed or repeated fields
+
+`from_invoice` refuses a wrong-length or repeated `p`, `s`, `h` or `n`, a second
+`d`, an `x`, `c` or `9` starting with a zero word, and an amount with a leading
+zero. `sign` writes a zero `x` or `c` as an empty field (closes #260).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`

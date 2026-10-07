@@ -1015,7 +1015,7 @@ it, which is also the tip of the path.
 repo    lightning/bolts
 path    11-payment-encoding.md
 commit  14901bdcacee53d95b46dc276b0f09c85d7d71fd  2026-03-09
-ours    375102ed1c93a924639c2e9999bb7e806677c88c
+ours    71a08975ce18ff8134ddff9c007437b41b0b241b
 pulled  2026-09-03
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -1031,6 +1031,21 @@ decoder. `tests/bolt11_test.py` reads both halves.
 Both sections are transcribed whole, the invalid case adding "unknown
 feature 100" included: what refuses that one is `btclib_wallet.bolt9`'s
 assignment table, which `Bolt11Invoice.assert_valid` reads.
+
+The example "Same, but including fields which must be ignored" is
+in `invalid`, though the document lists it under "Examples", and its bytes
+are the document's. It repeats `p`, `h`, `s` and `n` with the wrong length,
+and the document's reader requirement says "MUST fail the payment if any
+field with fixed `data_length` (`p`, `h`, `s`, `n`) does not have the correct
+length", so the example contradicts it. Upstream issue lightning/bolts#1358
+reports it, and lightning/bolts#1357 rewrites the
+example as invalid. Where that lands, this entry is re-pinned and this
+paragraph goes.
+
+The invalid example "non canonical signature (high-S) with 'n' field
+defined" carries a second `s` field, so `Bolt11Invoice` refuses it before
+reading its signature. `tests/bolt11_test.py` tests the low-s rule on an
+invoice of its own.
 
 ### `src/btclib_wallet/bolt9.py`
 

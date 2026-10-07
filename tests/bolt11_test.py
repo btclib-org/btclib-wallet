@@ -8,8 +8,9 @@ BOLT11's own examples (`11-payment-encoding.md`) are the vectors,
 vendored at `tests/_data/bolt11_test_vectors.json` -- `tests/_data/README.md`
 is where the pin lives. Every valid example is parsed, its stated facts
 checked against the BOLT's own breakdown, and re-encoded byte for byte;
-every invalid one is refused. All of them are signed with the BOLT's own
-`priv_key`,
+every invalid one is refused, the example that contradicts the reader
+requirement included (`tests/_data/README.md`). All of them are signed with
+the BOLT's own `priv_key`,
 `e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734`.
 """
 
@@ -21,7 +22,9 @@ import pytest
 from btclib.b32 import power_of_2_base_conversion
 from btclib.bech32 import encode as bech32_encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib_ecc.ecc.dsa import Sig
+from btclib.hashes import sha256
+from btclib_ecc.curves import secp256k1
+from btclib_ecc.ecc.dsa import Sig, sign_recoverable_
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
 from tests import load, vector_id
@@ -92,7 +95,7 @@ def test_bolt11_own_valid_examples(vector: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("vector", _INVALID, ids=_INVALID_IDS)
 def test_bolt11_own_invalid_examples(vector: dict[str, Any]) -> None:
-    """Every invoice BOLT11's own "Examples of Invalid Invoices" refuses."""
+    """Every invalid invoice of BOLT11's own examples is refused."""
     with pytest.raises(VALUE_ERRORS):
         Bolt11Invoice.from_invoice(vector["invoice"])
 
@@ -721,3 +724,141 @@ def test_a_feature_with_its_dependency_is_accepted() -> None:
         features=features,
     )
     assert Bolt11Invoice.from_invoice(invoice.to_invoice()).features == features
+
+
+def _signed(
+    fields: list[tuple[int, tuple[int, ...]]],
+    hrp: str = "lnbc",
+    *,
+    high_s: bool = False,
+) -> str:
+    """Return an invoice carrying exactly `fields`, signed over them.
+
+    `Bolt11Invoice.sign` writes its own fields first, so it cannot put a
+    malformed field before them.
+    """
+    words = [0] * 7
+    for tag, data in fields:
+        words += [tag, len(data) >> 5, len(data) & 31, *data]
+    digest = sha256(hrp.encode() + bytes(power_of_2_base_conversion(words, 5, 8)))
+    sig, recovery_id = sign_recoverable_(digest, _PRV_KEY)
+    s = secp256k1.n - sig.s if high_s else sig.s
+    sig_bytes = sig.r.to_bytes(32, "big") + s.to_bytes(32, "big")
+    words += power_of_2_base_conversion(list(sig_bytes + bytes([recovery_id])), 8, 5)
+    return bech32_encode(hrp, words, m=1).decode("ascii")
+
+
+_P = (1, _pow_2_words(bytes(32)))
+_S = (16, _pow_2_words(b"\x11" * 32))
+_D = (13, _pow_2_words(b"d"))
+_H = (23, _pow_2_words(b"\x22" * 32))
+_N = (
+    19,
+    _pow_2_words(
+        Bolt11Invoice.sign(
+            _PRV_KEY, "mainnet", 0, bytes(32), bytes(32), description="d"
+        ).payee
+    ),
+)
+
+
+def test_signed_helper_builds_an_accepted_invoice() -> None:
+    """The control: the helper's own fields, well formed, are accepted."""
+    invoice = Bolt11Invoice.from_invoice(_signed([_P, _S, _D]))
+    assert invoice.payment_hash == bytes(32)
+    assert invoice.description == "d"
+    assert Bolt11Invoice.from_invoice(_signed([_P, _S, _H, _N])).payee == bytes.fromhex(
+        "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"
+    )
+
+
+@pytest.mark.parametrize(
+    "fields, message",
+    [
+        ([(1, (0,) * 51), _P, _S, _D], "'p' field has 51 words"),
+        ([(1, (0,) * 53), _P, _S, _D], "'p' field has 53 words"),
+        ([_P, (1, (0,) * 51), _S, _D], "'p' field has 51 words"),
+        ([_P, _S, (16, (0,) * 51), _S, _D], "'s' field has 51 words"),
+        ([(1, (0,) * 51), _S, _D], "'p' field has 51 words"),
+        ([_P, _S, (23, (0,) * 51)], "'h' field has 51 words"),
+        ([_P, _S, _D, (19, (0,) * 54)], "'n' field has 54 words"),
+        ([_P, _P, _S, _D], "more than one 'p' field"),
+        ([_P, _S, _S, _D], "more than one 's' field"),
+        ([_P, _S, _D, _D], "more than one 'd' field"),
+        ([_P, _S, _H, _H], "more than one 'h' field"),
+        ([_P, _S, _D, _N, _N], "more than one 'n' field"),
+    ],
+)
+def test_a_fixed_length_field_of_the_wrong_length_or_a_repeat_is_refused(
+    fields: list[tuple[int, tuple[int, ...]]], message: str
+) -> None:
+    """A wrong length or a second `p`, `s`, `d`, `h` or `n` is refused."""
+    with pytest.raises(BTClibValueError, match=message):
+        Bolt11Invoice.from_invoice(_signed(fields))
+
+
+@pytest.mark.parametrize("tag", [6, 24, 5])
+@pytest.mark.parametrize("words", [(0,), (0, 1, 28), (0,) * 50 + (1,)])
+def test_x_c_and_9_starting_with_a_zero_word_are_refused(
+    tag: int, words: tuple[int, ...]
+) -> None:
+    """A reader SHOULD treat a non-minimal `x`, `c` or `9` as invalid."""
+    with pytest.raises(BTClibValueError, match="leading zero word"):
+        Bolt11Invoice.from_invoice(_signed([_P, _S, _D, (tag, words)]))
+
+
+def test_a_minimal_x_c_and_9_are_accepted() -> None:
+    """Control: an empty field is the minimal zero, `[1, 28]` is 60."""
+    invoice = Bolt11Invoice.from_invoice(
+        _signed([_P, _S, _D, (6, ()), (24, (1, 28)), (5, (1, 0))])
+    )
+    assert invoice.expiry == 0
+    assert invoice.min_final_cltv_expiry == 60
+    assert invoice.features == 32
+
+
+def test_sign_writes_a_zero_expiry_as_an_empty_field() -> None:
+    """The minimal `data_length` of 0 is none, which a reader accepts."""
+    invoice = Bolt11Invoice.sign(
+        _PRV_KEY,
+        "mainnet",
+        0,
+        payment_hash=bytes(32),
+        payment_secret=bytes(32),
+        description="d",
+        expiry=0,
+        min_final_cltv_expiry=0,
+    )
+    assert (6, ()) in invoice.tagged_fields
+    assert (24, ()) in invoice.tagged_fields
+
+
+@pytest.mark.parametrize("amount", ["025m", "0m", "00", "0p"])
+def test_an_amount_with_a_leading_zero_is_refused(amount: str) -> None:
+    """BOLT11: a writer MUST use no leading 0s in the amount."""
+    with pytest.raises(BTClibValueError, match="invalid amount"):
+        Bolt11Invoice.from_invoice(_signed([_P, _S, _D], f"lnbc{amount}"))
+
+
+def test_an_amount_without_a_leading_zero_is_accepted() -> None:
+    """Control: the same invoice with `25m`."""
+    invoice = Bolt11Invoice.from_invoice(_signed([_P, _S, _D], "lnbc25m"))
+    assert invoice.amount_msat == 2_500_000_000
+
+
+def test_of_two_x_fields_the_first_is_read() -> None:
+    """BOLT11 asks a writer for the most-preferred field first."""
+    invoice = Bolt11Invoice.from_invoice(
+        _signed([_P, _S, _D, (6, (1, 28)), (6, (31,))])
+    )
+    assert invoice.expiry == 60
+
+
+def test_a_high_s_signature_is_refused_with_a_stated_payee_only() -> None:
+    """The BOLT's high-S example repeats `s`, so this tests the low-s rule."""
+    with pytest.raises(BTClibValueError, match="low-s"):
+        Bolt11Invoice.from_invoice(_signed([_P, _S, _D, _N], high_s=True))
+    invoice = Bolt11Invoice.from_invoice(_signed([_P, _S, _D], high_s=True))
+    assert invoice.payee == bytes.fromhex(
+        "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"
+    )
