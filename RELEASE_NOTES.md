@@ -9,7 +9,14 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
-## v2026.11 (work in progress, not released yet)
+## v2026.10.7
+
+- **btclib-wallet requires btclib 2026.10.5**, which fixes
+  GHSA-9r97-9x22-2pp4 and GHSA-rw95-w37r-537w: verifying a taproot input took
+  time linear in the transaction's inputs, and each legacy or segwit v0
+  signature check computed its hash from scratch. `bip322.verify` runs that
+  verification on a signature it was given. Upgrading btclib-wallet installs
+  it.
 
 - **`request_signatures` refuses to send a psbt asking for a sig_hash type
   other than SIGHASH_ALL or SIGHASH_DEFAULT.** It raises on an input asking
@@ -88,6 +95,8 @@ before upgrading, rather than a digit.
   a top-level `pk()`, `combo()` or `rawtr()` in the first two, where earlier
   releases gave a descriptor or an address. Read such a descriptor with
   `descriptors.parse`.
+
+`CHANGELOG.md`'s own `v2026.10.7` section has the rest.
 
 ## v2026.10.4
 
