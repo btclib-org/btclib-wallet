@@ -111,6 +111,12 @@ It commits to no output, and Bitcoin Core's signer does not make it either
 (bitcoin/bitcoin#35984). `sign`, `request_signatures` and `HwiSigner.sign_psbt`
 refuse it, whatever is allowed (closes #258) (closes #263).
 
+### Corrupted psbts are tested against both readers
+
+`tests/psbt/psbt_mutation_test.py` runs embit's psbt bit-flip and truncation
+cases against `Psbt.parse` and `PsbtView`: both refuse each corrupted psbt, or
+both read it as given (closes #257).
+
 ## v2026.10.4
 
 ### `RELEASING.md`'s griffe step searches `src`
