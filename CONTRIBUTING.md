@@ -451,11 +451,11 @@ group set, and leaves it there. `uv sync` restores it.
 
 **On Python 3.15, which `.python-version` names, `uv sync` builds
 `pydantic-core` from source**, as `uv.lock` pins no cp315 wheel of it.
-`check-wheel-contents` brings it in, and it needs a Rust toolchain recent
-enough for its `rust-version`. Every command that installs the `dev` or the
-`check` group needs that toolchain, the bare `uv run` above and the `pyroma`
-hook among them. On 3.14 nothing needs a compiler, and the prefix rule above
-applies:
+`check-wheel-contents` brings it in, and building it needs a Rust toolchain
+recent enough for its `rust-version`. Every command that installs the `dev` or
+the `check` group needs that toolchain, the bare `uv run` above and the
+`pyroma` hook among them. On 3.14 nothing needs a compiler, and the prefix
+rule above applies:
 
 ```shell
 UV_PROJECT_ENVIRONMENT=.venv-3.14 uv sync --python 3.14
