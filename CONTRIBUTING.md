@@ -467,14 +467,14 @@ command selects — `.venv-3.11` for `--python 3.11`, `.venv-pypy3.11` for
 `.venv`, builds it again on that interpreter and with that command's own
 group set, and leaves it there. `uv sync` restores it.
 
-**On Python 3.15, which `.python-version` names, `uv sync` needs a compiler
-for two locked dependencies with no 3.15 wheel**: `pydantic-core`, which
-`check-wheel-contents` brings in, needs a Rust toolchain recent enough for
-its `rust-version`, and `aiohttp`, which `cosmic-ray` brings in, needs a C
-compiler. Every command that installs the `dev` group needs both, the bare
-`uv run` above among them. The `pyroma` hook installs the `check` group and
-needs the Rust toolchain only. On 3.14 nothing needs a compiler, and the
-prefix rule above applies:
+**On Python 3.15, which `.python-version` names, `uv sync` builds
+`pydantic-core` and `aiohttp` from source**, as `uv.lock` pins no cp315 wheel
+of either. `pydantic-core`, which `check-wheel-contents` brings in, needs a
+Rust toolchain recent enough for its `rust-version`. `aiohttp`, which
+`cosmic-ray` brings in, needs a C compiler. Every command that installs the
+`dev` group needs both, the bare `uv run` above among them. The `pyroma` hook
+installs the `check` group and needs the Rust toolchain only. On 3.14 nothing
+needs a compiler, and the prefix rule above applies:
 
 ```shell
 UV_PROJECT_ENVIRONMENT=.venv-3.14 uv sync --python 3.14
@@ -485,8 +485,15 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 UV_PYTHON=3.14 \
 
 The `pyroma` hook's `uv run` follows `UV_PYTHON`, and otherwise reads
 `.python-version`. The documentation build installs neither group and needs
-no compiler. This paragraph goes once `pydantic-core` and `aiohttp` both
-ship a 3.15 wheel.
+no compiler.
+
+This paragraph and the 3.15 exception above go once `uv.lock` pins a
+`pydantic-core` and an `aiohttp` that each have a cp315 wheel, which is when
+this prints both names:
+
+```shell
+grep -oE '(pydantic_core|aiohttp)-[0-9.]+-cp315' uv.lock | cut -d- -f1 | sort -u
+```
 
 ### The editor
 
