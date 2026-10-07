@@ -6,8 +6,8 @@
 
 A count of its own entries is the one fact in either file nothing
 derives: prose can be reviewed, a number is right or wrong invisibly.
-Checking the number against the entries would make it a line every open
-branch has to edit, so neither file states one -- CHANGELOG.md's preamble
+Checking the number against the entries would make it one more line to
+edit at every release, so neither file states one -- CHANGELOG.md's preamble
 says so -- and this module fails on a count in either.
 
 A test rather than a reading because a count is wrong invisibly: a rebase
