@@ -688,6 +688,10 @@ class HwiSigner:
         SIGHASH_SINGLE with no output at the input's index is never sent,
         whatever is allowed, for any kind of input: the signature commits
         to no output.
+
+        SIGHASH_DEFAULT on an input not known to be taproot is refused
+        whatever allowed_sig_hash_types says: no ECDSA signature has that
+        type.
         """
         accepted = _accepted_sig_hash_types(allowed_sig_hash_types)
         assert_type(psbt, Psbt, "psbt")

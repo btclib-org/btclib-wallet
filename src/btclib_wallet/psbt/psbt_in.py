@@ -411,13 +411,15 @@ _V2_ONLY = frozenset(
 )
 
 # the fields whose absence is None rather than a falsy value: an output
-# index of 0 is the first output of the previous transaction and a
-# sequence of 0 is the one BIP125 signals with, so "write it if it is
-# truthy" -- the rule for every other field here -- would drop exactly
-# what a version 2 input has to carry
+# index of 0 is the first output of the previous transaction, a sequence
+# of 0 is the one BIP125 signals with, and a sig_hash_type of 0 asks for
+# SIGHASH_DEFAULT, where none asks for SIGHASH_ALL on an ECDSA input; so
+# "write it if it is truthy" -- the rule for every other field here --
+# would drop what an input has to carry
 _PRESENT_IF_NOT_NONE = frozenset(
     {
         "output_index",
+        "sig_hash_type",
         "sequence",
         "required_time_lock_time",
         "required_height_lock_time",

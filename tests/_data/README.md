@@ -238,6 +238,9 @@ byte for byte what they were at the previous pin. BIP174 1.4.3 and 1.4.4
 added a commutativity clarification and a new combiner test vector, both
 inside the walk-through this file does not vendor.
 
+The combiner vectors are in `tests/psbt/psbt_test.py`, and each is combined in
+either input order.
+
 The `description` and `encoded psbt` of each entry are upstream's. The
 `error message` of a signer check failure is **not**: the BIP says only
 that these four psbts must fail the check, so that field is btclib's own

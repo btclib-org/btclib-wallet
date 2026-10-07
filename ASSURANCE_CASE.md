@@ -211,6 +211,9 @@ refuses SIGHASH_SINGLE on an input with no output at its index, and
 allowed. The MuSig2 and FROST `partial_sign` refuse it too, in btclib's
 taproot hash. A returned ECDSA signature of a type other than SIGHASH_ALL is refused
 where the input names none (GHSA-qq38-77mp-j6wr).
+`psbt.sign` refuses SIGHASH_DEFAULT on an input not known to be taproot, and
+`request_signatures` and `HwiSigner.sign_psbt` refuse to send it: no ECDSA
+signature has that type, and a device would sign SIGHASH_ALL.
 
 **The network.** `fetch/` is where a backend's own reply crosses in — a
 transaction, a block header, a fee estimate, a UTXO's existence.
