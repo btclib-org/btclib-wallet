@@ -9,6 +9,19 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.9
+
+- **`Descriptor.expand(index, prv_keys)` is new.** It returns the scripts and
+  the provider at `index`, what `script_pub_keys` and `provider` return, from
+  one derivation of each key, as Bitcoin Core's `Descriptor::Expand` does. A
+  caller that needs both can call it instead of the two, and derive every key
+  once rather than twice
+  ([ISS 303](https://github.com/btclib-org/btclib-wallet/issues/303)).
+  `provider` called alone also derives each key once now. Nothing is removed
+  or changed in what the existing methods return.
+
+`CHANGELOG.md`'s own `v2026.10.9` section has the rest.
+
 ## v2026.10.8
 
 - **A refused multipath step in a key origin is no longer quoted.** In
