@@ -208,6 +208,7 @@ from btclib_wallet.descriptors.key_expression import (
     _assert_origin_single_path,
     _assert_prv_keys,
     _assert_whole_multipath_element,
+    _derived_once,
     _expression,
     _offered_signature,
     _parse_key,
@@ -929,10 +930,11 @@ class Descriptor(ABC):
         """
         _assert_prv_keys(prv_keys)
         self._assert_index(index)
-        return [
-            ScriptPubKey(script, self.network)
-            for script in self._scripts(index, prv_keys)
-        ]
+        with _derived_once(prv_keys):
+            return [
+                ScriptPubKey(script, self.network)
+                for script in self._scripts(index, prv_keys)
+            ]
 
     def script_pub_key(
         self, index: int = 0, prv_keys: PrvKeys | None = None
@@ -978,8 +980,25 @@ class Descriptor(ABC):
         keys: dict[bytes, BIP32KeyOrigin | None] = {}
         scripts: dict[bytes, None] = {}
         trees: dict[bytes, tuple[bytes, bytes, Mapping[bytes, tuple[bytes, int]]]] = {}
-        _expand(self, index, prv_keys, keys, scripts, trees)
+        with _derived_once(prv_keys):
+            _expand(self, index, prv_keys, keys, scripts, trees)
         return Provider(keys, tuple(scripts), trees)
+
+    def expand(
+        self, index: int = 0, prv_keys: PrvKeys | None = None
+    ) -> tuple[list[ScriptPubKey], Provider]:
+        """Return the scripts and the provider at `index`, from one derivation.
+
+        Each key is derived once. Bitcoin Core's `Descriptor::Expand`.
+        Calling `script_pub_keys` and then `provider` gives the same answers
+        and derives each key twice.
+        """
+        _assert_prv_keys(prv_keys)
+        with _derived_once(prv_keys):
+            return (
+                self.script_pub_keys(index, prv_keys),
+                self.provider(index, prv_keys),
+            )
 
     def _stack(
         self,
