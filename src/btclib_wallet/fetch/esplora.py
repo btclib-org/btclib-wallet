@@ -53,6 +53,7 @@ this expects text is not compatible in the way that matters.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from urllib.parse import urlsplit
 
@@ -146,10 +147,13 @@ def _checked_base_url(base_url: str) -> str:
     """
     if not isinstance(base_url, str):
         raise BTClibTypeError(f"non-string base_url: {type(base_url).__name__}")
-    try:
+    split = None
+    with contextlib.suppress(ValueError):
         split = urlsplit(base_url)
-    except ValueError:
-        raise BTClibValueError("invalid base_url: not a url") from None
+    if split is None:
+        # raised outside the `except`, so that no `__context__` holds
+        # `urlsplit`'s message, which can quote the credentials
+        raise BTClibValueError("invalid base_url: not a url")
     if "@" in base_url:
         err_msg = "credentials in base_url, which takes none:"
         err_msg += " a transport of the caller's is what adds them"

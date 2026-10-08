@@ -163,6 +163,7 @@ def test_credentials_in_the_base_url_are_refused_unechoed(
     with pytest.raises(BTClibValueError, match=match) as excinfo:
         EsploraFetcher(base_url)
     assert _PASSWORD not in "".join(traceback.format_exception(excinfo.value))
+    assert _PASSWORD not in chained_text(excinfo.value)
 
 
 @pytest.mark.parametrize("timeout", ["soon", None, True])
