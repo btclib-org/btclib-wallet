@@ -40,9 +40,9 @@ half a rescan later:
 Two things are not written, where HWI's `getkeypool` writes them:
 `watchonly` and `keypool` are `importmulti` fields -- the other rpc that
 dict targets -- and `importdescriptors` defines neither. A descriptor
-wallet is watch-only by holding no private key. A descriptor handed here,
-text or `Descriptor`, may hold one, and a wallet created with private keys
-disabled refuses it.
+wallet is watch-only by holding no private key. A text descriptor is
+copied here as written and may hold one, which a wallet created with
+private keys disabled refuses; `descriptors.parse` keeps only public keys.
 
 A multipath descriptor is not built here either: Core takes one and reads
 the second element of a two-element step as the internal descriptor, while
@@ -425,9 +425,8 @@ def assert_imported(
 
     `warnings` is not read, that being what Core says about a request it
     did honour -- "Range not given, using default keypool range" is the one
-    `DEFAULT_RANGE` exists to avoid -- and neither is a refusal turned into
-    a value error: what Core refused is the state of a wallet, which no
-    argument of the caller's spells.
+    `DEFAULT_RANGE` exists to avoid -- and a refusal stays a runtime error:
+    it is Core's answer, read after the call.
     """
     if len(requests) != len(answers):
         err_msg = f"{len(requests)} import requests, {len(answers)} answers"
@@ -438,5 +437,7 @@ def assert_imported(
             # descriptor, as in "key '<xprv>' is not valid"
             error = answer.get("error")
             code = error.get("code") if isinstance(error, Mapping) else None
+            # Core's code is an int; anything else is not quoted
+            code = code if isinstance(code, int) else None
             err_msg = f"import refused for request {position}: error code {code}"
             raise BTClibRuntimeError(err_msg)

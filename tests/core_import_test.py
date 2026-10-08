@@ -454,3 +454,8 @@ def test_a_refusal_names_the_request_and_not_its_descriptor() -> None:
     with pytest.raises(BTClibRuntimeError, match="error code None$") as e:
         assert_imported([request], [{"success": False, "error": message}])
     assert secret not in chained_text(e.value)
+    # a code that is not Core's int is not quoted
+    answer = {"success": False, "error": {"code": message}}
+    with pytest.raises(BTClibRuntimeError, match="error code None$") as e:
+        assert_imported([request], [answer])
+    assert secret not in chained_text(e.value)

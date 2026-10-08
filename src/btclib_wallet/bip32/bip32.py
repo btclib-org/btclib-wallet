@@ -150,8 +150,8 @@ def _cached_base58_decode(address: String) -> bytes:
 
     Every refusal is raised outside the `except`. A bad checksum and a
     non-ASCII character are cut to fixed text: for a mistyped xprv
-    `base58.decode` quotes the right checksum, a hash of the key, and a
-    non-ASCII error carries the whole string.
+    `base58.decode` quotes the right checksum, a hash of the key, and for
+    a non-ASCII one the character and its position in the key.
     """
     try:
         return base58.decode(address)
