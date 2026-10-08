@@ -147,8 +147,17 @@ def _cached_base58_decode(address: String) -> bytes:
     corrupt independent instances decoded from the same string, so
     `b58decode` still has to construct a fresh one on every call. Bytes
     are the one result here nobody can mutate by accident.
+
+    A bad checksum is refused without the two checksums `base58.decode`
+    quotes: for a mistyped xprv the right one is a hash of the key.
     """
-    return base58.decode(address)
+    try:
+        return base58.decode(address)
+    except BTClibValueError as e:
+        if not str(e).startswith("invalid checksum: "):
+            raise
+    # outside the `except`, so that no `__context__` holds the quotation
+    raise BTClibValueError("invalid checksum")
 
 
 def _assert_valid_depth_and_index(
@@ -1039,8 +1048,13 @@ def pub_key_derivation_tweaks(
     # answer for 33 bytes that are not a point is no answer
     try:
         chain = _pub_key_tweak_chain(key)
-    except ValueError as e:
-        raise BTClibValueError(f"invalid public key: {key.hex()}") from e
+    except ValueError:
+        chain = None
+    if chain is None:
+        # the key may be a private scalar: only its prefix is quoted, and
+        # raised outside the `except` so that no `__context__` holds it
+        err_msg = f"invalid public key: not a point, prefix 0x{key[:1].hex()}"
+        raise BTClibValueError(err_msg)
 
     tweaks: list[bytes] = []
     for index in indexes:

@@ -126,7 +126,7 @@ def _assert_valid_index(i: int) -> None:
     if not is_integer(i):
         raise BTClibTypeError(f"invalid derivation index type: {type(i).__name__}")
     if not 0 <= i <= 0xFFFFFFFF:
-        raise BTClibValueError(f"invalid index: {i}")
+        raise BTClibValueError("invalid index: not in 0..2**32-1")
 
 
 def int_from_index_str(s: str, *, bip380_enforced: bool = False) -> int:
@@ -308,7 +308,8 @@ def str_from_der_path(
         else:
             first_element = master_fingerprint.hex()
         if len(first_element) != 8:
-            err_msg = f"invalid master fingerprint length: {first_element}"
+            # the length only: the value is not shown
+            err_msg = f"invalid master fingerprint length: {len(first_element)}"
             raise BTClibValueError(err_msg)
     else:
         first_element = "m"

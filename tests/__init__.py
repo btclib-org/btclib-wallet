@@ -42,6 +42,16 @@ import btclib_wallet
 
 _TESTS_DIR = Path(__file__).parent
 
+
+def chained_text(e: BaseException | None) -> str:
+    """Return the `str` and `repr` of an exception and its chain."""
+    text = ""
+    while e is not None:
+        text += f"{e!s} {e!r} "
+        e = e.__cause__ or e.__context__
+    return text
+
+
 # what `str.strip()` takes and `string.whitespace` does not: U+001C is
 # ASCII and the rest are not. A value padded with one of them is not the
 # value it wraps (issue #102)

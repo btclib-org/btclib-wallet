@@ -40,8 +40,9 @@ half a rescan later:
 Two things are not written, where HWI's `getkeypool` writes them:
 `watchonly` and `keypool` are `importmulti` fields -- the other rpc that
 dict targets -- and `importdescriptors` defines neither. A descriptor
-wallet is watch-only by holding no private key, which `descriptors.parse`
-guarantees of every descriptor it returns.
+wallet is watch-only by holding no private key. A `Descriptor` that
+`descriptors.parse` returned may hold one, and a text descriptor is copied
+verbatim, so the refusal Core gives for a private one is expected.
 
 A multipath descriptor is not built here either: Core takes one and reads
 the second element of a two-element step as the internal descriptor, while
@@ -416,9 +417,10 @@ def assert_imported(
     its owner believes it does, and the first thing to say so is a balance
     short of a deposit.
 
-    The request is what names the failure: an answer carries the error and
-    not the descriptor it was for, so the two are read in step, and a reply
-    of the wrong length is itself a node that did not answer this.
+    An answer carries the error and not the descriptor it was for, so the
+    refusal names the request by its position and not by its descriptor,
+    which may hold a private key. A reply of the wrong length is itself a
+    node that did not answer this.
 
     `warnings` is not read, that being what Core says about a request it
     did honour -- "Range not given, using default keypool range" is the one
@@ -429,7 +431,8 @@ def assert_imported(
     if len(requests) != len(answers):
         err_msg = f"{len(requests)} import requests, {len(answers)} answers"
         raise BTClibRuntimeError(err_msg)
-    for request, answer in zip(requests, answers, strict=True):
+    for position, answer in enumerate(answers):
         if not answer.get("success"):
-            err_msg = f"import refused for {request.get('desc')}: {answer.get('error')}"
+            # named by position: the descriptor may hold a private key
+            err_msg = f"import refused for request {position}: {answer.get('error')}"
             raise BTClibRuntimeError(err_msg)

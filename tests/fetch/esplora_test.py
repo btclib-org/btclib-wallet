@@ -22,6 +22,7 @@ from btclib.tx import OutPoint, Tx
 
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
+from tests import chained_text
 from tests.fetch import (
     LATER_TX_ID,
     SEGWIT_TX_RAW,
@@ -697,3 +698,22 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
         esplora.estimate_fee(1)
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        f"https://user:{_PASSWORD}Part/x@esplora.example",
+        f"https://user:{_PASSWORD}Part#x@esplora.example:8332",
+        f"https://user:{_PASSWORD}Part?x@esplora.example",
+    ],
+)
+def test_a_password_ending_the_netloc_early_is_not_quoted_as_a_port(
+    base_url: str,
+) -> None:
+    """`urlsplit` reads what precedes the `/`, `?` or `#` as host and port."""
+    with pytest.raises(BTClibValueError, match="^invalid base_url port$") as e:
+        EsploraFetcher(base_url)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert f"{_PASSWORD}Part" not in chained_text(e.value)

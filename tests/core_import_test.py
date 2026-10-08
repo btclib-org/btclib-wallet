@@ -46,6 +46,7 @@ from btclib_wallet.descriptors import (
     from_address,
     parse,
 )
+from tests import chained_text
 
 # the "abandon abandon ... about" root of BIP39, which BIP84 publishes:
 # the same key `tests/bip44_test.py` walks, so the account descriptors
@@ -417,7 +418,7 @@ def test_an_import_the_node_refused_is_not_read_as_one_it_did() -> None:
         {"success": True},
         {"success": False, "error": {"message": "no"}},
     ]
-    with pytest.raises(BTClibRuntimeError, match="import refused for wpkh"):
+    with pytest.raises(BTClibRuntimeError, match="import refused for request 1"):
         assert_imported(requests, refused)
     with pytest.raises(BTClibRuntimeError, match="'message': 'no'"):
         assert_imported(requests, refused)
@@ -436,3 +437,14 @@ def test_a_reply_of_the_wrong_length_answered_something_else() -> None:
     requests = account_import_requests(*account_pair())
     with pytest.raises(BTClibRuntimeError, match="2 import requests, 1 answers"):
         assert_imported(requests, [{"success": True}])
+
+
+def test_a_refusal_names_the_request_and_not_its_descriptor() -> None:
+    """A text descriptor may be private: the refusal must not quote it."""
+    secret = XPRV_ROOT[20:]
+    request = import_request(f"wpkh({XPRV_ROOT}/84h/0h/0h/0/*)")
+    assert secret in request["desc"]
+    answer = {"success": False, "error": {"message": "private keys disabled"}}
+    with pytest.raises(BTClibRuntimeError, match="request 1: .*private keys") as e:
+        assert_imported([request, request], [{"success": True}, answer])
+    assert secret not in chained_text(e.value)

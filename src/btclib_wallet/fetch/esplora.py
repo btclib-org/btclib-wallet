@@ -159,11 +159,17 @@ def _checked_base_url(base_url: str) -> str:
         raise BTClibValueError(err_msg)
     if not split.hostname:
         raise BTClibValueError("no host in base_url")
+    port_ok = True
     try:
         # parsed when read, from what follows the credentials refused above
         _ = split.port
-    except ValueError as e:
-        raise BTClibValueError(f"invalid base_url port: {e}") from e
+    except ValueError:
+        port_ok = False
+    if not port_ok:
+        # raised outside the `except`, so that no `__context__` holds the
+        # error: `urlsplit` quotes what it took for the port, which can be
+        # the start of a password whose `/`, `?` or `#` ended the netloc early
+        raise BTClibValueError("invalid base_url port")
     return base_url
 
 
