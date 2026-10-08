@@ -28,8 +28,11 @@ BIP390: https://github.com/bitcoin/bips/blob/master/bip-0390.mediawiki
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from typing import Any, TypeVar
 
 from btclib import b58
 from btclib.base58 import decode as base58_decode
@@ -94,6 +97,51 @@ def _assert_prv_keys(prv_keys: object) -> None:
     `AttributeError` of its missing `get`.
     """
     assert_type(prv_keys, (Mapping, type(None)), "prv_keys")
+
+
+_T = TypeVar("_T")
+
+# the keys derived so far by the expansion in progress, with the `prv_keys`
+# it derives with: `sec` and `aggregate` answer from it instead of deriving
+# again. None outside an expansion, where every call derives
+_DERIVED: ContextVar[tuple[PrvKeys | None, dict[Any, Any]] | None] = ContextVar(
+    "_DERIVED", default=None
+)
+
+
+@contextmanager
+def _derived_once(prv_keys: PrvKeys | None) -> Iterator[None]:
+    """Derive each key once, for every call made inside with these `prv_keys`.
+
+    Bitcoin Core's `Descriptor::Expand` derives each key once and fills the
+    scripts and the provider from it. Here the scripts and the provider are
+    separate methods that each read the keys, some of them more than once,
+    so this is what they share. Nested uses of the same `prv_keys` object
+    share one expansion; another object is another expansion.
+
+    A context variable rather than a parameter, which every fragment's
+    `_scripts` and every `sec` call would otherwise have to carry.
+    """
+    current = _DERIVED.get()
+    if current is not None and current[0] is prv_keys:
+        yield
+        return
+    token = _DERIVED.set((prv_keys, {}))
+    try:
+        yield
+    finally:
+        _DERIVED.reset(token)
+
+
+def _once(key: object, prv_keys: PrvKeys | None, derive: Callable[[], _T]) -> _T:
+    """Return `derive()`, remembered under `key` inside `_derived_once`."""
+    current = _DERIVED.get()
+    if current is None or current[0] is not prv_keys:
+        return derive()
+    derived = current[1]
+    if key not in derived:
+        derived[key] = derive()
+    return derived[key]  # type: ignore[no-any-return]
 
 
 @dataclass(frozen=True)
@@ -225,6 +273,14 @@ class KeyExpression:
         and never both, BIP390 allowing a wildcard on one side only.
         """
         _assert_prv_keys(prv_keys)
+        return _once(
+            ("sec", self, index, network),
+            prv_keys,
+            lambda: self._sec(index, network, prv_keys),
+        )
+
+    def _sec(self, index: int, network: str, prv_keys: PrvKeys | None) -> bytes:
+        """Derive `sec`'s key."""
         if self.participants:
             aggregate = self.aggregate(index, network, prv_keys)
             musig_path = list(self.der_path)
@@ -292,8 +348,12 @@ class KeyExpression:
         answers for.
         """
         _assert_prv_keys(prv_keys)
-        return bytes_from_point(
-            key_agg(self.participant_keys(index, network, prv_keys)).Q, secp256k1
+        return _once(
+            ("aggregate", self, index, network),
+            prv_keys,
+            lambda: bytes_from_point(
+                key_agg(self.participant_keys(index, network, prv_keys)).Q, secp256k1
+            ),
         )
 
     @override
