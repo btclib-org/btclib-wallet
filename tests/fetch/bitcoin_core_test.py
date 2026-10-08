@@ -57,6 +57,7 @@ from tests.fetch import (
     TIP_ID,
     TX_ID,
     Recorded,
+    chain_mismatch,
     recorded_body,
 )
 
@@ -288,7 +289,7 @@ def test_assert_network_refuses_a_node_on_another_chain() -> None:
     returns is then a mainnet address for coins that are not there.
     Nothing else in the exchange says so.
     """
-    with pytest.raises(BTClibValueError, match="reports chain 'test', not the 'main'"):
+    with pytest.raises(BTClibValueError, match=chain_mismatch("test", "main")):
         fetcher(blockchaininfo(chain="test"), network="mainnet").assert_network()
 
 
@@ -300,7 +301,7 @@ def test_assert_network_refuses_a_chain_that_sorts_before_the_label() -> None:
     still refuse that one. Asking for testnet and getting `main`, which
     sorts before it, is the half only a real inequality catches.
     """
-    with pytest.raises(BTClibValueError, match="reports chain 'main', not the 'test'"):
+    with pytest.raises(BTClibValueError, match=chain_mismatch("main", "test")):
         fetcher(blockchaininfo(chain="main"), network="testnet").assert_network()
 
 
@@ -774,7 +775,7 @@ def test_broadcast_verifies_the_network_before_sending_anything() -> None:
     consuming the one scripted reply.
     """
     endpoint = client(blockchaininfo(chain="test"))
-    with pytest.raises(BTClibValueError, match="reports chain 'test', not the 'main'"):
+    with pytest.raises(BTClibValueError, match=chain_mismatch("test", "main")):
         BitcoinCoreFetcher(endpoint, network="mainnet").broadcast(broadcast_tx())
     assert asked(endpoint) == ["getblockchaininfo"]
 
@@ -889,7 +890,7 @@ def test_estimate_fee_refuses_a_non_positive_target(target: int) -> None:
 def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     """The same guard every other question goes through first."""
     endpoint = client(blockchaininfo(chain="test"))
-    with pytest.raises(BTClibValueError, match="reports chain 'test', not the 'main'"):
+    with pytest.raises(BTClibValueError, match=chain_mismatch("test", "main")):
         BitcoinCoreFetcher(endpoint, network="mainnet").estimate_fee(6)
     assert asked(endpoint) == ["getblockchaininfo"]
 
