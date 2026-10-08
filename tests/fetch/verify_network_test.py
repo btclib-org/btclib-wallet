@@ -36,7 +36,7 @@ from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import Fetcher
-from tests.fetch import TIP_HEIGHT, TX_ID, Recorded
+from tests.fetch import TIP_HEIGHT, TX_ID, Recorded, chain_mismatch
 from tests.fetch.bitcoin_core_rest_test import chaininfo
 from tests.fetch.bitcoin_core_rest_test import client as rest_client
 from tests.fetch.bitcoin_core_rest_test import recording as rest_recording
@@ -84,8 +84,8 @@ def _electrum() -> tuple[Fetcher, Sequence[object]]:
 
 
 _BACKENDS = {
-    "BitcoinCoreFetcher": _Backend(_core, "reports chain 'test', not the 'main'"),
-    "BitcoinCoreRestFetcher": _Backend(_rest, "reports chain 'test', not the 'main'"),
+    "BitcoinCoreFetcher": _Backend(_core, chain_mismatch("test", "main")),
+    "BitcoinCoreRestFetcher": _Backend(_rest, chain_mismatch("test", "main")),
     "ElectrumFetcher": _Backend(_electrum, TESTNET_GENESIS),
     "EsploraFetcher": _Backend(_esplora, TESTNET_GENESIS),
 }
