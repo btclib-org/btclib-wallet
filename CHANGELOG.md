@@ -24,6 +24,24 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.9
+
+### `Descriptor.expand` fills the scripts and the provider from one derivation
+
+`Descriptor.expand(index, prv_keys)` returns what `script_pub_keys` and
+`provider` return, as Bitcoin Core's `Descriptor::Expand` does, deriving each
+key once. `provider` alone derives each key once now too (closes #303).
+
+### `CONTRIBUTING.md` names what `uv sync` builds from source on Python 3.15
+
+`pydantic-core` is built from source there, which needs a recent Rust
+toolchain (closes #278).
+
+### `CONTRIBUTING.md` and `REVIEWING.md` on resolving a review thread
+
+The author resolves a review thread once answered (issue
+btclib-org/.github#1620, issue btclib-org/.github#1634).
+
 ## v2026.10.8
 
 ### A refused step in a key origin is not quoted
