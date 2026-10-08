@@ -6,7 +6,7 @@
 # build.sh reads uv.lock through it, and that image carries no uv of its
 # own. astral-sh/uv's own docs, "Installing uv", name digest-pinning the
 # distroless image as the practice over `latest` or a bare version tag.
-FROM ghcr.io/astral-sh/uv@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecca843714a4358fe1bc AS uv
+FROM ghcr.io/astral-sh/uv@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 AS uv
 
 # The container `build.sh` runs in. `base-builder-python` is the image
 # docs/build-integration/python_lang.md names for a Python project --
@@ -23,7 +23,7 @@ FROM ghcr.io/astral-sh/uv@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecc
 # builds with no diff here. Re-read the digest before bumping it rather
 # than trusting the tag: the `Docker-Content-Digest` response header on
 # `gcr.io/v2/oss-fuzz-base/base-builder-python/manifests/latest`.
-FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:cfcc123c40d4ecab777ac0f32f868177cb752950bf9f5d880f55e452adda5106
+FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:7c97d379ceb773b0bd345f0ced72b037d26e9bb6c4a0c9a176525e65975c5694
 
 COPY --from=uv /uv /usr/local/bin/uv
 
