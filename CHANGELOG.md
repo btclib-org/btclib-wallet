@@ -32,6 +32,22 @@ more line to edit at every release.
 `provider` return, as Bitcoin Core's `Descriptor::Expand` does, deriving each
 key once. `provider` alone derives each key once now too (closes #303).
 
+### Refusals no longer quote a key or a password
+
+Errors no longer quote a refused import's descriptor or Core's message, an
+Esplora URL holding `@`, a key that is not a point, a mistyped extended key's
+checksum or text, or a BIP38 password (GHSA-8qrf-j8jh-cx23, #311).
+
+### The btclib floor is 2026.10.8
+
+btclib through 2026.10.7 quotes a refused network name whole
+(GHSA-c6h8-5hv5-3gv7, closes #306).
+
+### The chain-mismatch tests match both wordings of bitcoin-core-rpc's refusal
+
+They pass with the quoted wording, up to bitcoin-core-rpc 2026.10.4, and
+the unquoted one of 2026.10.8 (closes #307).
+
 ### `CONTRIBUTING.md` names what `uv sync` builds from source on Python 3.15
 
 `pydantic-core` is built from source there, which needs a recent Rust
