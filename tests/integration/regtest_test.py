@@ -157,7 +157,9 @@ def test_core_widens_a_range_to_its_keypool_and_refuses_to_be_narrowed(
 
     # and the import that would narrow it back is refused, inside a reply
     narrow = import_request(receive, active=False, key_range=(0, 999))
-    with pytest.raises(BTClibRuntimeError, match="import refused for wpkh"):
+    with pytest.raises(
+        BTClibRuntimeError, match="import refused for request 0: error code -4$"
+    ):
         assert_imported([narrow], watcher.call("importdescriptors", [[narrow]]))
     # where the same wanted range, widened by what the wallet answered, is
     # the import that goes through: a span already inside the range is

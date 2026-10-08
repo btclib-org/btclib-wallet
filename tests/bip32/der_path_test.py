@@ -361,6 +361,6 @@ def test_a_refusal_does_not_quote_the_value() -> None:
 
     with pytest.raises(BTClibValueError) as e:
         str_from_der_path("m/0h", "deadbeef00")
-    assert (
-        str(e.value) == "invalid master fingerprint length: 10 hex digits instead of 8"
+    assert str(e.value) == (
+        "invalid master fingerprint length: 10 characters instead of 8 hex digits"
     )

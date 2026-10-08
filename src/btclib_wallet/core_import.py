@@ -420,8 +420,8 @@ def assert_imported(
     An answer carries the error and not the descriptor it was for, so the
     refusal names the request by its position and not by its descriptor,
     and Core's error by its code and not by its message: both may quote a
-    private key. A reply of the wrong length is itself a
-    node that did not answer this.
+    private key. A reply of the wrong length is itself a node that did not
+    answer this.
 
     `warnings` is not read, that being what Core says about a request it
     did honour -- "Range not given, using default keypool range" is the one

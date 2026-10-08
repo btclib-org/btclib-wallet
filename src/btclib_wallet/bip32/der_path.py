@@ -310,7 +310,7 @@ def str_from_der_path(
         if len(first_element) != 8:
             # the length only: the value is not shown
             err_msg = "invalid master fingerprint length: "
-            err_msg += f"{len(first_element)} hex digits instead of 8"
+            err_msg += f"{len(first_element)} characters instead of 8 hex digits"
             raise BTClibValueError(err_msg)
     else:
         first_element = "m"

@@ -148,9 +148,10 @@ def _cached_base58_decode(address: String) -> bytes:
     `b58decode` still has to construct a fresh one on every call. Bytes
     are the one result here nobody can mutate by accident.
 
-    Every refusal has fixed text, raised outside the `except`: for a
-    mistyped xprv `base58.decode` quotes the right checksum, a hash of the
-    key, or the whole string in the error of a non-ASCII character.
+    Every refusal is raised outside the `except`. A bad checksum and a
+    non-ASCII character are cut to fixed text: for a mistyped xprv
+    `base58.decode` quotes the right checksum, a hash of the key, and a
+    non-ASCII error carries the whole string.
     """
     try:
         return base58.decode(address)
