@@ -44,7 +44,12 @@ from btclib_ecc.curves import bytes_from_point, mult, secp256k1
 
 from btclib_wallet import bip38
 from btclib_wallet.bip38 import BlockCipherF
-from tests import aes_decrypt_block, aes_encrypt_block, aes_expand_key
+from tests import (
+    aes_decrypt_block,
+    aes_encrypt_block,
+    aes_expand_key,
+    chained_text,
+)
 from tests.exception_family_test import VALUE_ERRORS
 
 
@@ -638,3 +643,11 @@ def test_hashlib_scrypt_is_called_only_by_the_helper() -> None:
         source = f.read()
     assert source.count("hashlib.scrypt(") == 1
     assert source.index("def _scrypt(") < source.index("hashlib.scrypt(")
+
+
+def test_a_password_that_is_no_text_is_refused_unquoted() -> None:
+    """A lone surrogate has no UTF-8; the refusal must not quote it."""
+    text = "pw-\ud800-secret"
+    with pytest.raises(BTClibValueError, match="invalid password") as e:
+        bip38._password_bytes(text)
+    assert "secret" not in chained_text(e.value)

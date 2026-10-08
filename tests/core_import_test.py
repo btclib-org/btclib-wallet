@@ -416,11 +416,11 @@ def test_an_import_the_node_refused_is_not_read_as_one_it_did() -> None:
 
     refused: list[dict[str, Any]] = [
         {"success": True},
-        {"success": False, "error": {"message": "no"}},
+        {"success": False, "error": {"code": -4, "message": "no"}},
     ]
     with pytest.raises(BTClibRuntimeError, match="import refused for request 1"):
         assert_imported(requests, refused)
-    with pytest.raises(BTClibRuntimeError, match="'message': 'no'"):
+    with pytest.raises(BTClibRuntimeError, match="error code -4$"):
         assert_imported(requests, refused)
     # an answer that says nothing is not one that said yes
     with pytest.raises(BTClibRuntimeError, match="import refused"):
@@ -444,7 +444,13 @@ def test_a_refusal_names_the_request_and_not_its_descriptor() -> None:
     secret = XPRV_ROOT[20:]
     request = import_request(f"wpkh({XPRV_ROOT}/84h/0h/0h/0/*)")
     assert secret in request["desc"]
-    answer = {"success": False, "error": {"message": "private keys disabled"}}
-    with pytest.raises(BTClibRuntimeError, match="request 1: .*private keys") as e:
+    # Core's parse error quotes the key of the descriptor
+    message = f"wpkh(): key '{XPRV_ROOT}' is not valid"
+    answer = {"success": False, "error": {"code": -5, "message": message}}
+    with pytest.raises(BTClibRuntimeError, match="request 1: error code -5$") as e:
         assert_imported([request, request], [{"success": True}, answer])
+    assert secret not in chained_text(e.value)
+    # an error that is no object has no code
+    with pytest.raises(BTClibRuntimeError, match="error code None$") as e:
+        assert_imported([request], [{"success": False, "error": message}])
     assert secret not in chained_text(e.value)

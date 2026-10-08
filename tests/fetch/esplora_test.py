@@ -703,17 +703,26 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
 @pytest.mark.parametrize(
     "base_url",
     [
+        f"https://user:/{_PASSWORD}Part@esplora.example",
+        f"https://user:8332/{_PASSWORD}Part@esplora.example",
+        f"https://user:#{_PASSWORD}Part@esplora.example",
+        f"https://user:8332?{_PASSWORD}Part@esplora.example",
         f"https://user:{_PASSWORD}Part/x@esplora.example",
         f"https://user:{_PASSWORD}Part#x@esplora.example:8332",
         f"https://user:{_PASSWORD}Part?x@esplora.example",
     ],
 )
-def test_a_password_ending_the_netloc_early_is_not_quoted_as_a_port(
+def test_a_password_after_the_netloc_ended_is_refused_as_credentials(
     base_url: str,
 ) -> None:
-    """`urlsplit` reads what precedes the `/`, `?` or `#` as host and port."""
-    with pytest.raises(BTClibValueError, match="^invalid base_url port$") as e:
+    """`urlsplit` reads no credentials there, but a request would send them."""
+    with pytest.raises(BTClibValueError, match="credentials") as e:
         EsploraFetcher(base_url)
-    assert e.value.__cause__ is None
-    assert e.value.__context__ is None
     assert f"{_PASSWORD}Part" not in chained_text(e.value)
+
+
+def test_a_port_refusal_does_not_quote_the_port() -> None:
+    """`urlsplit` quotes what it could not read as a port."""
+    with pytest.raises(BTClibValueError, match="^invalid base_url port$") as e:
+        EsploraFetcher("https://esplora.example:LongPort9/api")
+    assert "LongPort9" not in chained_text(e.value)

@@ -171,7 +171,12 @@ def _password_bytes(password: str) -> bytes:
     the same string must stretch to the same key.
     """
     assert_type(password, str, "password")
-    return unicodedata.normalize("NFC", password).encode("utf-8")
+    try:
+        return unicodedata.normalize("NFC", password).encode("utf-8")
+    except UnicodeEncodeError:
+        pass
+    # outside the `except`: its `repr` holds the password
+    raise BTClibValueError("invalid password: not encodable as UTF-8")
 
 
 def _xor(a: bytes, b: bytes) -> bytes:

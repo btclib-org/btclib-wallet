@@ -155,6 +155,13 @@ def test_exceptions() -> None:
         pub_keyinfo_from_xkey(xprv)
     # neither checksum, as 0x... hex, is in the message or its chain
     assert "0x" not in chained_text(e.value)
+    # a string base58 cannot encode is refused with fixed text too
+    non_ascii = xprv[:-1] + "\u2019"
+    with pytest.raises(
+        BTClibValueError, match="^non-ascii character in base58 string$"
+    ) as e:
+        pub_keyinfo_from_xkey(non_ascii)
+    assert xprv[:-1] not in chained_text(e.value)
 
     with pytest.raises(BTClibValueError, match="not a private key"):
         xpub = "xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy"

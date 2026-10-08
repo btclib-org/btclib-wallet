@@ -140,9 +140,9 @@ def _checked_base_url(base_url: str) -> str:
     Credentials in the url are refused, as `bitcoin_core_rpc` refuses
     them in its own: the url is echoed by the messages this class raises,
     and a password would travel with it into every traceback and log.
-    Nothing here echoes the url before that refusal, and the refusal of a
-    url `urlsplit` cannot read is raised `from None`, some of its
-    messages quoting the part of the url that holds the credentials.
+    Any `@` is refused, since `urlsplit` ends the netloc at a `/`, `?` or
+    `#` and so reads no credentials in `user:/pw@host`. Nothing here echoes
+    the url, and `urlsplit`'s own messages, which quote it, are not chained.
     """
     if not isinstance(base_url, str):
         raise BTClibTypeError(f"non-string base_url: {type(base_url).__name__}")
@@ -150,7 +150,7 @@ def _checked_base_url(base_url: str) -> str:
         split = urlsplit(base_url)
     except ValueError:
         raise BTClibValueError("invalid base_url: not a url") from None
-    if split.username is not None or split.password is not None:
+    if "@" in base_url:
         err_msg = "credentials in base_url, which takes none:"
         err_msg += " a transport of the caller's is what adds them"
         raise BTClibValueError(err_msg)
@@ -161,14 +161,13 @@ def _checked_base_url(base_url: str) -> str:
         raise BTClibValueError("no host in base_url")
     port_ok = True
     try:
-        # parsed when read, from what follows the credentials refused above
+        # parsed when read; the message of its error quotes the port
         _ = split.port
     except ValueError:
         port_ok = False
     if not port_ok:
         # raised outside the `except`, so that no `__context__` holds the
-        # error: `urlsplit` quotes what it took for the port, which can be
-        # the start of a password whose `/`, `?` or `#` ended the netloc early
+        # quotation of the port
         raise BTClibValueError("invalid base_url port")
     return base_url
 

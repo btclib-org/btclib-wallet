@@ -148,16 +148,18 @@ def _cached_base58_decode(address: String) -> bytes:
     `b58decode` still has to construct a fresh one on every call. Bytes
     are the one result here nobody can mutate by accident.
 
-    A bad checksum is refused without the two checksums `base58.decode`
-    quotes: for a mistyped xprv the right one is a hash of the key.
+    Every refusal has fixed text, raised outside the `except`: for a
+    mistyped xprv `base58.decode` quotes the right checksum, a hash of the
+    key, or the whole string in the error of a non-ASCII character.
     """
     try:
         return base58.decode(address)
     except BTClibValueError as e:
-        if not str(e).startswith("invalid checksum: "):
-            raise
-    # outside the `except`, so that no `__context__` holds the quotation
-    raise BTClibValueError("invalid checksum")
+        # the other messages of `base58.decode` quote nothing of the key
+        refusal = str(e).split(": ", maxsplit=1)[0]
+        if not refusal.startswith(("invalid checksum", "non-ascii character")):
+            refusal = str(e)
+    raise BTClibValueError(refusal)
 
 
 def _assert_valid_depth_and_index(
