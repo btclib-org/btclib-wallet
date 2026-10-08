@@ -11,6 +11,32 @@ before upgrading, rather than a digit.
 
 ## v2026.10.9
 
+- **A refused import, a password in an Esplora URL, a key that is not a
+  point, a mistyped extended key and a BIP38 password are no longer quoted**
+  ([GHSA-8qrf-j8jh-cx23](https://github.com/btclib-org/btclib-wallet/security/advisories/GHSA-8qrf-j8jh-cx23)).
+  Releases 2026.9.24 to 2026.10.8 can put a private key, a hash of one or a
+  password in an exception, the Esplora URL from 2026.9.30
+  ([PR 311](https://github.com/btclib-org/btclib-wallet/pull/311)).
+  Upgrade, and treat a key or password that such an error may have logged or
+  shown as exposed.
+
+- **The messages of those refusals changed.** `core_import.assert_imported`
+  raises `import refused for request {position}: error code {code}`.
+  `EsploraFetcher` refuses any `@` in `base_url`, and an invalid port as
+  `invalid base_url port`. A key that is not a point is refused with its
+  prefix byte only, and a bad checksum or a non-ASCII character in an
+  extended key with fixed text. `bip38` refuses a password that is not
+  UTF-8 with `BTClibValueError` instead of `UnicodeEncodeError`. An
+  out-of-range derivation index and a master fingerprint of the wrong length
+  are refused without their value. A caller that matches on the old
+  messages, or catches `UnicodeEncodeError` from `bip38`, has to change.
+
+- **The btclib floor is 2026.10.8**
+  ([ISS 306](https://github.com/btclib-org/btclib-wallet/issues/306)). Through
+  2026.10.7, btclib quotes a refused network name whole, so
+  `KeyWallet(network=wif)` put the WIF in the error
+  ([GHSA-c6h8-5hv5-3gv7](https://github.com/btclib-org/btclib/security/advisories/GHSA-c6h8-5hv5-3gv7)).
+
 - **`Descriptor.expand(index, prv_keys)` is new.** It returns the scripts and
   the provider at `index`, what `script_pub_keys` and `provider` return, from
   one derivation of each key, as Bitcoin Core's `Descriptor::Expand` does. A
