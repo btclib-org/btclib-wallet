@@ -40,8 +40,9 @@ half a rescan later:
 Two things are not written, where HWI's `getkeypool` writes them:
 `watchonly` and `keypool` are `importmulti` fields -- the other rpc that
 dict targets -- and `importdescriptors` defines neither. A descriptor
-wallet is watch-only by holding no private key, which `descriptors.parse`
-guarantees of every descriptor it returns.
+wallet is watch-only by holding no private key. A text descriptor is
+copied here as written and may hold one, which a wallet created with
+private keys disabled refuses; `descriptors.parse` keeps only public keys.
 
 A multipath descriptor is not built here either: Core takes one and reads
 the second element of a two-element step as the internal descriptor, while
@@ -416,20 +417,27 @@ def assert_imported(
     its owner believes it does, and the first thing to say so is a balance
     short of a deposit.
 
-    The request is what names the failure: an answer carries the error and
-    not the descriptor it was for, so the two are read in step, and a reply
-    of the wrong length is itself a node that did not answer this.
+    An answer carries the error and not the descriptor it was for, so the
+    refusal names the request by its position and not by its descriptor,
+    and Core's error by its code and not by its message: both may quote a
+    private key. A reply of the wrong length is itself a node that did not
+    answer this.
 
     `warnings` is not read, that being what Core says about a request it
     did honour -- "Range not given, using default keypool range" is the one
-    `DEFAULT_RANGE` exists to avoid -- and neither is a refusal turned into
-    a value error: the request was one Core parsed, and what it refused is
-    the state of a wallet, which no argument of the caller's spells.
+    `DEFAULT_RANGE` exists to avoid -- and a refusal stays a runtime error:
+    it is Core's answer, read after the call.
     """
     if len(requests) != len(answers):
         err_msg = f"{len(requests)} import requests, {len(answers)} answers"
         raise BTClibRuntimeError(err_msg)
-    for request, answer in zip(requests, answers, strict=True):
+    for position, answer in enumerate(answers):
         if not answer.get("success"):
-            err_msg = f"import refused for {request.get('desc')}: {answer.get('error')}"
+            # position and code only: Core's message can quote a key of the
+            # descriptor, as in "key '<xprv>' is not valid"
+            error = answer.get("error")
+            code = error.get("code") if isinstance(error, Mapping) else None
+            # Core's code is an int; anything else is not quoted
+            code = code if isinstance(code, int) else None
+            err_msg = f"import refused for request {position}: error code {code}"
             raise BTClibRuntimeError(err_msg)

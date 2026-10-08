@@ -349,3 +349,18 @@ def test_a_step_is_text() -> None:
         err_msg = f"^invalid derivation index type: {type(step).__name__}$"
         with pytest.raises(BTClibTypeError, match=err_msg):
             int_from_index_str(step)  # type: ignore[arg-type]
+
+
+def test_a_refusal_does_not_quote_the_value() -> None:
+    """An index or a fingerprint may be secret: length or range only."""
+    big = 0xFFFFFFFF + 123456789
+    with pytest.raises(BTClibValueError) as e:
+        str_from_index_int(big)
+    assert str(big) not in str(e.value)
+    assert str(e.value) == "invalid index: not in 0..2**32-1"
+
+    with pytest.raises(BTClibValueError) as e:
+        str_from_der_path("m/0h", "deadbeef00")
+    assert str(e.value) == (
+        "invalid master fingerprint length: 10 characters instead of 8 hex digits"
+    )

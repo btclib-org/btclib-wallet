@@ -22,6 +22,7 @@ from btclib.tx import OutPoint, Tx
 
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
+from tests import chained_text
 from tests.fetch import (
     LATER_TX_ID,
     SEGWIT_TX_RAW,
@@ -162,6 +163,7 @@ def test_credentials_in_the_base_url_are_refused_unechoed(
     with pytest.raises(BTClibValueError, match=match) as excinfo:
         EsploraFetcher(base_url)
     assert _PASSWORD not in "".join(traceback.format_exception(excinfo.value))
+    assert _PASSWORD not in chained_text(excinfo.value)
 
 
 @pytest.mark.parametrize("timeout", ["soon", None, True])
@@ -697,3 +699,31 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
         esplora.estimate_fee(1)
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        f"https://user:/{_PASSWORD}Part@esplora.example",
+        f"https://user:8332/{_PASSWORD}Part@esplora.example",
+        f"https://user:#{_PASSWORD}Part@esplora.example",
+        f"https://user:8332?{_PASSWORD}Part@esplora.example",
+        f"https://user:{_PASSWORD}Part/x@esplora.example",
+        f"https://user:{_PASSWORD}Part#x@esplora.example:8332",
+        f"https://user:{_PASSWORD}Part?x@esplora.example",
+    ],
+)
+def test_a_password_after_the_netloc_ended_is_refused_as_credentials(
+    base_url: str,
+) -> None:
+    """`urlsplit` reads no credentials there, but a request would send them."""
+    with pytest.raises(BTClibValueError, match="credentials") as e:
+        EsploraFetcher(base_url)
+    assert f"{_PASSWORD}Part" not in chained_text(e.value)
+
+
+def test_a_port_refusal_does_not_quote_the_port() -> None:
+    """`urlsplit` quotes what it could not read as a port."""
+    with pytest.raises(BTClibValueError, match="^invalid base_url port$") as e:
+        EsploraFetcher("https://esplora.example:LongPort9/api")
+    assert "LongPort9" not in chained_text(e.value)

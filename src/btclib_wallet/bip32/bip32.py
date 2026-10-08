@@ -147,8 +147,20 @@ def _cached_base58_decode(address: String) -> bytes:
     corrupt independent instances decoded from the same string, so
     `b58decode` still has to construct a fresh one on every call. Bytes
     are the one result here nobody can mutate by accident.
+
+    Every refusal is raised outside the `except`. A bad checksum and a
+    non-ASCII character are cut to fixed text: for a mistyped xprv
+    `base58.decode` quotes the right checksum, a hash of the key, and for
+    a non-ASCII one the character and its position in the key.
     """
-    return base58.decode(address)
+    try:
+        return base58.decode(address)
+    except BTClibValueError as e:
+        # the other messages of `base58.decode` quote nothing of the key
+        refusal = str(e).split(": ", maxsplit=1)[0]
+        if not refusal.startswith(("invalid checksum", "non-ascii character")):
+            refusal = str(e)
+    raise BTClibValueError(refusal)
 
 
 def _assert_valid_depth_and_index(
@@ -1039,8 +1051,13 @@ def pub_key_derivation_tweaks(
     # answer for 33 bytes that are not a point is no answer
     try:
         chain = _pub_key_tweak_chain(key)
-    except ValueError as e:
-        raise BTClibValueError(f"invalid public key: {key.hex()}") from e
+    except ValueError:
+        chain = None
+    if chain is None:
+        # the key may be a private scalar: only its prefix is quoted, and
+        # raised outside the `except` so that no `__context__` holds it
+        err_msg = f"invalid public key: not a point, prefix 0x{key[:1].hex()}"
+        raise BTClibValueError(err_msg)
 
     tweaks: list[bytes] = []
     for index in indexes:

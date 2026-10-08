@@ -67,6 +67,7 @@ from btclib_wallet.bip32.bip32 import (
 from btclib_wallet.bip32.der_path import _indexes_from_der_path_str
 from tests import (
     NOT_STRIPPED,
+    chained_text,
     load,
     needs_bindings,
     no_bindings,
@@ -148,10 +149,19 @@ def test_the_three_key_reads_answer_for_one_half_each() -> None:
 
 def test_exceptions() -> None:
     """Refuse a bad checksum, a public key, and seeds of the wrong size."""
-    with pytest.raises(BTClibValueError, match="invalid checksum: "):
+    with pytest.raises(BTClibValueError, match="^invalid checksum$") as e:
         # invalid checksum
         xprv = "xppp9s21ZrQH143K2oxHiQ5f7D7WYgXD9h6HAXDBuMoozDGGiYHWsq7TLBj2yvGuHTLSPCaFmUyN1v3fJRiY2A4YuNSrqQMPVLZKt76goL6LP7L"
         pub_keyinfo_from_xkey(xprv)
+    # neither checksum, as 0x... hex, is in the message or its chain
+    assert "0x" not in chained_text(e.value)
+    # a string base58 cannot encode is refused with fixed text too
+    non_ascii = xprv[:-1] + "\u2019"
+    with pytest.raises(
+        BTClibValueError, match="^non-ascii character in base58 string$"
+    ) as e:
+        pub_keyinfo_from_xkey(non_ascii)
+    assert xprv[:-1] not in chained_text(e.value)
 
     with pytest.raises(BTClibValueError, match="not a private key"):
         xpub = "xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy"
@@ -436,6 +446,12 @@ def test_invalid_bip32_xkeys(xkey: str, err_msg: str) -> None:
     upstream refreshes the keys and never the messages.
     tests/_data/README.md pins the revision.
     """
+    # the pinned file quotes the two checksums; the refusal does not
+    err_msg = (
+        err_msg.split(": 0x", maxsplit=1)[0]
+        if err_msg.startswith("invalid checksum")
+        else err_msg
+    )
     with pytest.raises(BTClibValueError, match=re.escape(err_msg)):
         BIP32KeyData.b58decode(xkey)
 
@@ -1883,3 +1899,13 @@ def test_fingerprint_is_the_children_parent_fingerprint() -> None:
 
     assert fingerprint(xprv) == child.parent_fingerprint
     assert fingerprint(xpub_from_xprv(xprv)) == child.parent_fingerprint
+
+
+def test_pub_key_derivation_tweaks_does_not_quote_a_private_key() -> None:
+    """Handed a private key's bytes, the refusal shows at most the prefix."""
+    prv = b"\x00" + bytes(range(1, 33))
+    with pytest.raises(BTClibValueError, match="^invalid public key: ") as e:
+        pub_key_derivation_tweaks(prv, b"\x01" * 32, [0])
+    text = chained_text(e.value)
+    assert prv[1:].hex() not in text
+    assert prv[1:5].hex() not in text
