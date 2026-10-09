@@ -1,0 +1,11 @@
+# osv-scanner and the Scorecard Vulnerabilities check read this file for
+# requirements-hwi.txt only: a config applies to the directory of the file it
+# scans and not to its children.
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-1325" # CVE-2024-23342, GHSA-wj6h-64fc-37mp: Minerva
+reason = """
+The attack times python-ecdsa signing to recover a P-256 private key. HWI \
+does not sign with python-ecdsa: it verifies, tweaks and derives an ECDH key. \
+CI drives emulators with fixture keys. \
+https://github.com/btclib-org/btclib-wallet/issues/318"""
