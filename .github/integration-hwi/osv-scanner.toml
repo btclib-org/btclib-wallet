@@ -1,0 +1,10 @@
+# osv-scanner and the Scorecard Vulnerabilities check apply this file to the
+# manifests in this directory only.
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-1325" # CVE-2024-23342, GHSA-wj6h-64fc-37mp: Minerva
+reason = """
+The advisory names signing, key generation and ECDH. HWI signs nothing \
+with python-ecdsa, and runs key generation and ECDH only for a Coldcard \
+and a BitBox02. CI drives only Trezor and Ledger emulators, with fixture \
+keys. https://github.com/btclib-org/btclib-wallet/issues/318"""
