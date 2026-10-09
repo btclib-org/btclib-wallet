@@ -56,7 +56,9 @@ before upgrading, rather than a digit.
   key (WIF) in it was echoed. This release leaves the step out
   ([PR 285](https://github.com/btclib-org/btclib-wallet/pull/285)). Upgrade if
   you parse descriptors that may hold a private key and log or show the
-  errors. No advisory is published.
+  errors. Treat a key in such an error from 2026.10.7 as exposed
+  ([GHSA-62jf-v327-86h5](https://github.com/btclib-org/btclib-wallet/security/advisories/GHSA-62jf-v327-86h5),
+  published after this release).
 
 - **`multipath_descriptors` and `parse` refuse a multipath step that is not a
   whole path element.** `<0;1>h`, `<0;1>'`, `0<0;1>`, `<0;1>>` and `<<0;1>`,
