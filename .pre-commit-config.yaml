@@ -131,7 +131,11 @@ repos:
         # reasons in the file they explain. It is not a gap: prettier below
         # is given that directory and fails on what it cannot parse, which
         # is the question this hook asks
-        exclude: ^\.vscode/
+        #
+        # tests/_data/trezor-addresses.json is bitcoin-s's file byte for
+        # byte, and its first line is a comment: tests/bip44_test.py cuts
+        # that line before it parses the rest
+        exclude: ^(\.vscode/|tests/_data/trezor-addresses\.json$)
       # both of this hook's defaults are wrong for this tree: the
       # golden-file fixture writes json.dumps(indent=4) (tests/conftest.py),
       # so at the default --indent=2 the two would rewrite each other on
@@ -150,10 +154,12 @@ repos:
         # rather than by name so that the next file vendored into it is
         # safe before anyone remembers this line; check-json above still
         # answers the question worth asking of them, which is whether they
-        # parse. The lookahead names the files in there with no pinned blob
-        # for a reformat to void, because the default for anything else in
-        # that directory has to stay "not touched". (?x) is verbose mode,
-        # i.e. the newlines below are not part of the pattern.
+        # parse. For trezor-addresses.json, whose first line is a comment,
+        # tests/bip44_test.py does. The lookahead names the files in there
+        # with no pinned blob for a reformat to void, because the default
+        # for anything else in that directory has to stay "not touched".
+        # (?x) is verbose mode, i.e. the newlines below are not part of the
+        # pattern.
         # `.vscode` is the other name in the alternation, for the reason
         # check-json above is given the same exclude: those files are
         # jsonc, this hook parses json, and prettier below is what formats

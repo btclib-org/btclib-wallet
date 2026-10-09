@@ -13,7 +13,10 @@ function; what is tested here is that the two agree on published values.
 
 from __future__ import annotations
 
-from typing import get_args
+import dataclasses
+import json
+from pathlib import Path
+from typing import Any, get_args
 
 import pytest
 from btclib import b32
@@ -28,6 +31,7 @@ from btclib_wallet.bip44 import (
     address_from_der_path,
 )
 from btclib_wallet.descriptors import account_descriptors
+from btclib_wallet.mnemonic.bip39 import mxprv_from_mnemonic
 
 # the "abandon abandon ... about" seed of BIP39, which BIP84 and BIP86
 # publish as a root key: the same key, spelled with two versions
@@ -266,3 +270,48 @@ def test_root_xpub() -> None:
     err_msg = "invalid hardened derivation from public key"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xpub, "m/84h/0h/0h/0/0")
+
+
+# A Trezor's own replies, recorded by bitcoin-s: the account xpubs of one
+# mnemonic and addresses of each. tests/_data/README.md pins the file. Its
+# first line is a comment, so it is not JSON as it stands.
+_TREZOR_MNEMONIC = (
+    "stage boring net gather radar radio arrest eye ask risk girl country"
+)
+_TREZOR_PURPOSE = {"legacy": 44, "p2sh-segwit": 49, "segwit": 84}
+_TREZOR_FILE = Path(__file__).parent / "_data" / "trezor-addresses.json"
+_TREZOR_ACCOUNTS = json.loads(
+    _TREZOR_FILE.read_text(encoding="ascii").split("\n", 1)[1]
+)
+
+
+def _without_version(xkey: str) -> tuple[Any, ...]:
+    """Return the fields of an extended key but its version."""
+    return dataclasses.astuple(bip32.BIP32KeyData.b58decode(xkey))[1:]
+
+
+@pytest.mark.parametrize(
+    "account",
+    [pytest.param(a, id=f"{a['pathType']}-{a['account']}") for a in _TREZOR_ACCOUNTS],
+)
+def test_trezor_addresses(account: dict[str, Any]) -> None:
+    """Reproduce a Trezor's addresses from the account xpub and the mnemonic.
+
+    The file spells the keys of purposes 49 and 84 as SLIP132's ypub and
+    zpub. The key derived here is an xpub, so the two are compared but for
+    the version bytes.
+    """
+    purpose = _TREZOR_PURPOSE[account["pathType"]]
+    root = mxprv_from_mnemonic(_TREZOR_MNEMONIC, "")
+    account_path = f"m/{purpose}h/0h/{account['account']}h"
+    derived = bip32.xpub_from_xprv(bip32.derive(root, account_path))
+    assert account["xpub"][:4] == {44: "xpub", 49: "ypub", 84: "zpub"}[purpose]
+    assert _without_version(derived) == _without_version(account["xpub"])
+
+    assert len(account["addresses"]) == 6
+    for entry in account["addresses"]:
+        path = entry["path"].replace("'", "h")
+        chain = {"External": 0, "Change": 1}[entry["chain"]]
+        assert path == f"{account_path}/{chain}/{entry['addressIndex']}"
+        assert address_from_der_path(account["xpub"], path) == entry["address"]
+        assert address_from_der_path(root, path) == entry["address"]

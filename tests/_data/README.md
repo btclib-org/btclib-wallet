@@ -73,7 +73,9 @@ to compare against says so in prose instead. The verdicts used:
   compare, so the entry says what stands in for one. *composed locally*
   is a case written here, naming the third implementation that answered
   it; *recorded* is one reply a program gave, kept verbatim, naming the
-  program and the calls that ask it again.
+  program and the calls that ask it again. A recording another project
+  publishes is pinned to that project like any other file, and its entry
+  gives both verdicts.
 
 `pulled` is the date of the btclib commit that put the current content in
 btclib's tree, from `git log --follow --diff-filter=A` there: the files
@@ -1050,6 +1052,47 @@ defined" carries a second `s` field, so `Bolt11Invoice` refuses it before
 reading its signature. `tests/bolt11_test.py` tests the low-s rule on an
 invoice of its own.
 
+### `tests/_data/trezor-addresses.json`
+
+```text
+repo    bitcoin-s/bitcoin-s
+path    wallet-test/src/test/resources/trezor-addresses.json
+commit  5819f4016eab00e4e5e0d82d8b2b84fb0e92defb  2019-06-20
+blob    11d42fd91d68c2f5bfb760b7ac22a27efa7d80e2
+pulled  2026-10-09
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **recorded**, and byte for byte **identical** to the file at that
+commit, whose first line is a `//` comment naming the mnemonic, so the file
+is not JSON until that line is cut: `tests/bip44_test.py` does.
+
+What a Trezor answered, for one mnemonic: the xpub of the accounts under
+each of the purposes BIP44, BIP49 and BIP84 (`legacy`, `p2sh-segwit`,
+`segwit`), and the first addresses of the receive and of the change chain of
+each.
+bitcoin-s's [`GetAddresses.scala`][getaddresses], added in the same
+commit, asked a Trezor emulator with `trezorctl get-public-node` and
+`trezorctl get-address`. The firmware version is not recorded. Trezor publishes
+no such file: its own address cases are Python assertions over a device, in
+`trezor/trezor-firmware`'s `tests/device_tests/bitcoin/test_getaddress*.py`,
+on another seed.
+
+The account keys use SLIP132's spelling: `xpub`, `ypub` and `zpub` by
+purpose. `tests/bip44_test.py` compares them to its own `xpub` but for the
+version bytes.
+
+The refresh is the fetch:
+
+```shell
+path=wallet-test/src/test/resources/trezor-addresses.json
+gh api -H 'Accept: application/vnd.github.raw' \
+    "/repos/bitcoin-s/bitcoin-s/contents/${path}?ref=master" \
+    > tests/_data/trezor-addresses.json
+```
+
+[getaddresses]: https://github.com/bitcoin-s/bitcoin-s/blob/5819f4016eab00e4e5e0d82d8b2b84fb0e92defb/wallet-test/src/test/scala/org/bitcoins/wallet/util/GetAddresses.scala
+
 ### `src/btclib_wallet/bolt9.py`
 
 ```text
@@ -1326,6 +1369,7 @@ Against a pinned upstream blob:
 - identical but for a trailing newline: `vectors.json`,
   `sign_verify_vectors.json` and the BIP322 vector files.
 - JSON-equal, reformatted: `test_JP_BIP39.json`.
+- identical, and recorded from a Trezor emulator: `trezor-addresses.json`.
 
 Not checked byte for byte against one:
 

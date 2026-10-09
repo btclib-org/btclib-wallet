@@ -11,6 +11,7 @@ tests/_data/descriptor_checksums.json -text
 tests/_data/generated-test-vectors.json -text
 tests/_data/miniscript_fixed_tests.json -text
 tests/_data/send_and_receive_test_vectors.json -text
+tests/_data/trezor-addresses.json -text
 tests/bip32/_data/bip32_invalid_keys.json -text
 tests/bip32/_data/bip32_test_vectors.json -text
 tests/ecc/_data/bip445/sign_verify_vectors.json -text
