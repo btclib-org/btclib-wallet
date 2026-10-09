@@ -64,10 +64,10 @@ updates:
     cooldown:
       default-days: 7
 
-  # the ClusterFuzzLite build container: base-builder-python and uv,
-  # both pinned by digest in .clusterfuzzlite/Dockerfile. Once a `FROM`
-  # line names a digest, dependabot's docker ecosystem is the only thing
-  # that moves it forward again.
+  # the ClusterFuzzLite build container: base-builder-python, pinned by
+  # digest in .clusterfuzzlite/Dockerfile. Once a `FROM` line names a
+  # digest, dependabot's docker ecosystem is the only thing that moves it
+  # forward again.
   - package-ecosystem: docker
     directory: /.clusterfuzzlite
     schedule:
