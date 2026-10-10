@@ -590,10 +590,11 @@ def nonce_gen(
     parts = _session_parts(psbt, vin_i, thresh_pk, leaf_hash)
     sec_nonce, pub_nonce = frost.nonce_gen(
         sec_share,
-        _pub_share(parts.info, my_id),
-        parts.tweaked_x_only,
-        parts.msg,
-        extra_in,
+        signer_id=my_id,
+        pub_share=_pub_share(parts.info, my_id),
+        thresh_pk_xonly=parts.tweaked_x_only,
+        msg=parts.msg,
+        extra_in=extra_in,
     )
     key = _record_key(FROST_PUB_NONCE, my_id, thresh_pk + leaf_hash)
     psbt.inputs[vin_i].unknown[key] = pub_nonce
@@ -647,10 +648,14 @@ def partial_sign(
         raise BTClibValueError(err_msg)
 
     session = session_context(psbt, vin_i, thresh_pk, leaf_hash=leaf_hash)
-    psig = frost.sign(sec_nonce, sec_share, my_id, session)
+    psig = frost.sign(sec_nonce, sec_share, signer_id=my_id, session_ctx=session)
     pub_share = _pub_share(threshold_info(psbt_in, thresh_pk), my_id)
     if not frost.partial_sig_verify_(
-        psig, my_id, pub_nonces[my_id], pub_share, session
+        psig,
+        signer_id=my_id,
+        pub_nonce=pub_nonces[my_id],
+        pub_share=pub_share,
+        session_ctx=session,
     ):
         # unreachable short of a defect in either this module or `sign`:
         # the context is the one the signature was just made against.
@@ -688,7 +693,13 @@ def partial_sig_verify(
         raise BTClibValueError(err_msg)
     session = session_context(psbt, vin_i, thresh_pk, leaf_hash=leaf_hash)
     pub_share = _pub_share(threshold_info(psbt_in, thresh_pk), my_id)
-    return frost.partial_sig_verify_(psig, my_id, pub_nonce, pub_share, session)
+    return frost.partial_sig_verify_(
+        psig,
+        signer_id=my_id,
+        pub_nonce=pub_nonce,
+        pub_share=pub_share,
+        session_ctx=session,
+    )
 
 
 def partial_sigs_agg(

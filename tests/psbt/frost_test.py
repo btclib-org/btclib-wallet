@@ -239,7 +239,7 @@ def test_a_whole_session_is_run_over_the_psbt() -> None:
         )
         # spent, and the bytearray says so: a second signature under one
         # secnonce is what hands out the secret share
-        with pytest.raises(VALUE_ERRORS, match="secnonce value is out of range"):
+        with pytest.raises(VALUE_ERRORS, match="secnonce.* is out of range"):
             psbt_frost.partial_sign(
                 psbt, 0, sec_nonces[my_id], my_id, SEC_SHARES[my_id], THRESH_PK
             )
