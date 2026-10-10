@@ -368,14 +368,14 @@ secp256k1 = [
 
 [[package]]
 name = "btclib-ecc"
-version = "2026.10.2"
+version = "2026.10.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/be/77ac0e91b2731435936194f26991818b91c03b62cc8716764d8e1bf95b96/btclib_ecc-2026.10.2.tar.gz", hash = "sha256:26e483624245acbe6c28c355e29ce85b874a9b93a7399fe7267f262794372e72", size = 1907150, upload-time = "2026-10-02T11:44:07.52Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/2f/e9e5379337728fe3d125096b9040f5d3f0f16a2c2690f62dd6ca9b3ef96c/btclib_ecc-2026.10.10.tar.gz", hash = "sha256:c236c64b0742d9d9a895efb95d0eeb6e547d2dafc7da269a2a273774141b5567", size = 1951652, upload-time = "2026-10-10T20:25:36.398Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/37/ba8075dc6ffebb9db206e0648829c4abb629ead74893aac3d553a29da613/btclib_ecc-2026.10.2-py3-none-any.whl", hash = "sha256:3fcfd3319ffada8abb12174fdace6bc4ea81efec8a2e45831d49ccbd73c97cda", size = 278337, upload-time = "2026-10-02T11:44:05.718Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/06/2d6d3a259a08895a974cbee0c1c9813d4aa22793886c4c9e7f6861667614/btclib_ecc-2026.10.10-py3-none-any.whl", hash = "sha256:7851602f4bddc77776ee660451f6c7eb280d198cf82115f4f64520c34676f07f", size = 294107, upload-time = "2026-10-10T20:25:34.573Z" },
 ]
 
 [package.optional-dependencies]
@@ -564,7 +564,7 @@ requires-dist = [
     { name = "bitcoin-core-rpc", specifier = ">=2026.9.3" },
     { name = "btclib", specifier = ">=2026.10.8" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", specifier = ">=2026.10.8" },
-    { name = "btclib-ecc", specifier = ">=2026.10.2" },
+    { name = "btclib-ecc", specifier = ">=2026.10.10" },
     { name = "btclib-mnemonics", specifier = ">=2026.9.29" },
     { name = "btclib-secp256k1", marker = "extra == 'secp256k1'", specifier = ">=0.8.0.10" },
     { name = "typing-extensions", specifier = ">=4.10" },
