@@ -41,10 +41,10 @@ first device of this type enumerated", so two devices of one vendor make which
 one signs a question of enumeration order.
 
 Both take a `network: str`, and both put it through
-`network.validated_network_name`, which normalizes it such that the case
-and the ASCII whitespace around the name are ignored: a name
-the rest of the library resolves is resolved here, and one no network answers to
-is refused in the same words whichever of the two took it.
+`network.validated_network_name`, which ignores the case and the ASCII
+whitespace around the name, the tolerance btclib-org/btclib#216 decided to
+keep: a name the rest of the library resolves is resolved here, and one no
+network answers to is refused in the same words whichever of the two took it.
 
 The subprocess is bounded twice. `timeout` is how long a command may run
 -- a device waiting for a button press is the ordinary case, so the
