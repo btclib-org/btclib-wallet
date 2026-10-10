@@ -579,8 +579,8 @@ def nonce_gen(
     The nonce is bound to everything BIP445 lets it be bound to -- the
     signer's secret share, its identifier and public share, the tweaked
     threshold public key of the session and the message -- because all
-    five are here, and a nonce derived from fewer of them is one a faulty
-    random source can repeat across sessions. The identifier is the
+    of them are here, and a nonce derived from fewer of them is one a
+    faulty random source can repeat across sessions. The identifier is the
     caller's, as it is everywhere in `btclib_ecc.ecc.frost`.
     `btclib_ecc.ecc.frost.sign` checks in round 2 that it is this secret
     share's identifier, against the public share the session names for it.
