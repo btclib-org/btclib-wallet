@@ -46,9 +46,11 @@ dependencies = [
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `btclib_ecc.curves`, `btclib_ecc.ecc` less `bms`, which
     # stays btclib's own, `btclib_ecc.hashes`'s `tagged_hash` and
-    # `reduce_to_hlen`, and `btclib_ecc.exceptions`. The floor is the one
-    # btclib's own pyproject.toml declares for it; the bindings stay
-    # requested through `btclib[secp256k1]` below
+    # `reduce_to_hlen`, and `btclib_ecc.exceptions`. The floor is the first
+    # release whose `frost` follows BIP445 0.12.0: `nonce_gen` takes
+    # `signer_id` second, and `sign` and `partial_sig_verify_` take it where
+    # they took `my_id`. The bindings stay requested through
+    # `btclib[secp256k1]` below
     "btclib-ecc>=2026.10.10",
     # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
     # `bip85` and the four seed-to-key functions under
