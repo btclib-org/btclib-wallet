@@ -49,7 +49,7 @@ dependencies = [
     # `reduce_to_hlen`, and `btclib_ecc.exceptions`. The floor is the one
     # btclib's own pyproject.toml declares for it; the bindings stay
     # requested through `btclib[secp256k1]` below
-    "btclib-ecc>=2026.10.2",
+    "btclib-ecc>=2026.10.10",
     # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
     # `bip85` and the four seed-to-key functions under
     # `btclib_wallet.mnemonic` build on. The floor is its first release
