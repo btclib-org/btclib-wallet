@@ -8,7 +8,7 @@ import base64
 import dataclasses
 import inspect
 import string
-from collections.abc import Sequence
+from collections.abc import Callable, MutableMapping, Sequence
 from copy import deepcopy
 from io import BytesIO
 from typing import Any
@@ -4545,12 +4545,12 @@ def test_an_answer_that_changes_a_context_field_is_refused(
 
 
 def test_an_answer_that_overwrites_one_entry_of_a_map_is_refused() -> None:
-    """The sharp edge `combine` has: `_combine_field` does dict.update.
+    """The sharp edge `combine` has: the first psbt wins a shared key.
 
     A field that is several key-value pairs is merged pair by pair, so an
     answer cannot add a whole `hd_key_paths` where the request had one --
-    but it can replace the origin filed under a single public key, and
-    the merge takes it.
+    but an answer combined ahead of the request replaces the origin filed
+    under a single public key.
     """
     request, returned = _request_and_answer()
     returned.inputs[0].hd_key_paths[_PUB_KEY] = BIP32KeyOrigin(b"\xff" * 4, "m/9")
@@ -6250,3 +6250,42 @@ def test_an_ecdsa_signature_of_another_type_is_refused_without_the_field() -> No
         assert_signed(answer)
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(answer)
+
+
+def test_a_combine_keeps_the_first_value_of_a_conflicting_key() -> None:
+    """The first psbt wins a key both hold, as in Bitcoin Core's Merge.
+
+    A key only the second psbt holds is added.
+    """
+    base = Psbt.b64decode(NO_SIG_HASH_TYPE)
+    pub_key = bytes.fromhex(
+        "023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e73"
+    )
+    maps: dict[str, Callable[[Psbt], MutableMapping[Any, Any]]] = {
+        "global unknown": lambda p: p.unknown,
+        "input unknown": lambda p: p.inputs[0].unknown,
+        "output unknown": lambda p: p.outputs[0].unknown,
+    }
+    first, second = deepcopy(base), deepcopy(base)
+    for get in maps.values():
+        get(first)[b"\xf0key"] = b"first"
+        get(second)[b"\xf0key"] = b"second"
+        get(second)[b"\xf1only"] = b"second only"
+    # the global key is an extended public key, 78 bytes (BIP174)
+    xpub = b"\x04\x88\xb2\x1e" + bytes(41) + pub_key
+    origins: dict[str, tuple[Callable[[Psbt], MutableMapping[Any, Any]], bytes]] = {
+        "global hd_key_paths": (lambda p: p.hd_key_paths, xpub),
+        "input hd_key_paths": (lambda p: p.inputs[0].hd_key_paths, pub_key),
+        "output hd_key_paths": (lambda p: p.outputs[0].hd_key_paths, pub_key),
+    }
+    for get, key in origins.values():
+        get(first)[key] = BIP32KeyOrigin(b"beef", "m/42/1")
+        get(second)[key] = BIP32KeyOrigin(b"beef", "m/42/2")
+
+    for order in ((first, second), (second, first)):
+        combined = combine([deepcopy(p) for p in order])
+        for name, get in maps.items():
+            assert get(combined)[b"\xf0key"] == get(order[0])[b"\xf0key"], name
+            assert get(combined)[b"\xf1only"] == b"second only", name
+        for name, (get, key) in origins.items():
+            assert get(combined)[key] == get(order[0])[key], name

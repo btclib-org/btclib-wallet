@@ -456,7 +456,7 @@ def test_a_session_survives_the_combiner() -> None:
 
     # the counterfactual, on the very same copies: the identifier taken
     # out of the key data leaves the two signers writing one key, and the
-    # union then keeps whichever psbt was merged last
+    # union then keeps the first psbt's
     keyed_by_subtype = [deepcopy(round_2[my_id]) for my_id in SIGNERS]
     key = proprietary_key(PARTIAL_SIG, THRESH_PK)
     for copy, my_id in zip(keyed_by_subtype, SIGNERS, strict=True):
@@ -465,8 +465,8 @@ def test_a_session_survives_the_combiner() -> None:
             proprietary_key(PARTIAL_SIG, record_key_data(my_id))
         )
     merged = combine(keyed_by_subtype)
-    assert merged.inputs[0].unknown[key] == keyed_by_subtype[-1].inputs[0].unknown[key]
-    assert merged.inputs[0].unknown[key] != keyed_by_subtype[0].inputs[0].unknown[key]
+    assert merged.inputs[0].unknown[key] == keyed_by_subtype[0].inputs[0].unknown[key]
+    assert merged.inputs[0].unknown[key] != keyed_by_subtype[-1].inputs[0].unknown[key]
 
 
 def test_two_participants_knowledge_of_one_group_is_merged() -> None:
@@ -475,7 +475,7 @@ def test_two_participants_knowledge_of_one_group_is_merged() -> None:
     `ThresholdInfo` is what one holder knows, and two holders need not
     know the same shares. Keyed by the group alone the two records would
     be one key, and BIP174's Combiner resolves one key by keeping a
-    side: whichever psbt was merged last, with the other participant's
+    side: the first psbt's, with the other participant's
     knowledge gone and nothing raised. The writer's identifier in the
     key data is what makes the union the right merge here as it is for
     the two session records, and the second half of this test is that
@@ -509,7 +509,7 @@ def test_two_participants_knowledge_of_one_group_is_merged() -> None:
     verify_transaction(spent, extract_tx(finalize(merged)))
 
     # the counterfactual, on those same two records: with the writer out
-    # of the key data both land on one key, and the union keeps the last
+    # of the key data both land on one key, and the union keeps the first
     keyed_by_group = [deepcopy(left), deepcopy(right)]
     key = proprietary_key(THRESHOLD_INFO, THRESH_PK)
     for copy, writer in zip(keyed_by_group, (0, 2), strict=True):
@@ -521,13 +521,13 @@ def test_two_participants_knowledge_of_one_group_is_merged() -> None:
 
     assert len(erased.inputs[0].unknown) == 1
     surviving = erased.inputs[0].unknown[key]
-    assert surviving == keyed_by_group[-1].inputs[0].unknown[key]
+    assert surviving == keyed_by_group[0].inputs[0].unknown[key]
     # and what it costs, read off the record's own layout: the pair
-    # naming participant 0 is in the record the union dropped and in no
+    # naming participant 2 is in the record the union dropped and in no
     # other, so that share is gone with nothing raised
-    pair_0 = (0).to_bytes(4, "big") + bytes(PUB_SHARES[0] or b"")
-    assert pair_0 in keyed_by_group[0].inputs[0].unknown[key]
-    assert pair_0 not in surviving
+    pair_2 = (2).to_bytes(4, "big") + bytes(PUB_SHARES[2] or b"")
+    assert pair_2 in keyed_by_group[-1].inputs[0].unknown[key]
+    assert pair_2 not in surviving
 
 
 def test_two_writers_that_disagree_are_refused() -> None:

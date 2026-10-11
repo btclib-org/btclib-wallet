@@ -1679,11 +1679,13 @@ def _combine_field(
     of the PSBTs", so a field that is *several* key-value pairs -- a map
     keyed by pub key, by hash, by control block -- is the union of the
     two, merged pair by pair. A field that is one pair is taken when out
-    has none and kept when out has one, which is the arbitrary choice the
-    BIP allows a Combiner "when conflicts occur" and the choice Bitcoin
-    Core's PSBTInput::Merge makes.
+    has none and kept when out has one, and a map keeps out's pair under a
+    key both hold. Both are the arbitrary choice the BIP allows a Combiner
+    "when conflicts occur", made as Bitcoin Core's PSBTInput::Merge,
+    PSBTOutput::Merge and PartiallySignedTransaction::Merge make it: the
+    first psbt of the sequence wins.
 
-    A final_script_witness is one of the latter, and it survives the
+    A final_script_witness is a field of one pair, and it survives the
     combine either way round because a Witness is sized: an empty one is
     falsy, so the input finalized in the other psbt is the one taken. It
     is not merged element-wise, which is the one wrong answer here -- a
@@ -1697,7 +1699,8 @@ def _combine_field(
     if not attr:
         setattr(out, key, item)
     elif isinstance(item, dict):
-        attr.update(item)
+        for key_, value in item.items():
+            attr.setdefault(key_, value)
 
 
 def _combine_optional_field(
@@ -1759,7 +1762,7 @@ def _combine_musig2_participants(
     """Merge the participant lists, refusing two of them under one key.
 
     Not `_combine_field`'s union, which for a map takes each side's pairs
-    and lets the second write over the first: an aggregate key is
+    and keeps the first on a shared key: an aggregate key is
     computed from its participants, so two different lists filed under
     one key are not a conflict to resolve by picking. One of the two says
     that key aggregates something it does not, and nothing in either psbt

@@ -59,8 +59,9 @@ is a subset of the group: the identifiers, and the public share of each.
 what makes BIP174's Combiner the merge these fields survive.
 `psbt.combine` takes the union of two `unknown` maps pair by pair, so
 what two participants wrote into their own copies is all there
-afterwards; a record keyed without the identifier is last-writer-wins,
-and one participant's contribution silently replaces the other's.
+afterwards; a record keyed without the identifier keeps the first
+psbt's value, and the other participant's contribution is silently
+dropped.
 `psbt.join` is a different operation and not one a session goes through:
 it concatenates the inputs of psbts of different transactions, and the
 `unknown: same key, different value` refusal of its consistency check
