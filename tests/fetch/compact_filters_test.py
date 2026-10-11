@@ -498,10 +498,13 @@ def test_the_network_may_be_left_unasked() -> None:
 
 
 def test_the_network_is_asked_for_by_name() -> None:
-    """`assert_network` asks for the headers after the genesis block."""
-    fetcher, peer = build()
+    """`assert_network` asks from the genesis block, on a synced fetcher too."""
+    fetcher, peer = build(verify_network=False)
+    assert fetcher.get_block_count() == TIP
     fetcher.assert_network()
-    assert len(peer.requests("getheaders")) == 1
+    request = peer.requests("getheaders")[-1]
+    locator = GetHeaders.parse(request.payload).locator
+    assert list(locator) == [CHAIN.hashes[0]]
 
 
 def test_headers_that_connect_to_nothing_held_are_refused() -> None:

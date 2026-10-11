@@ -409,7 +409,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def _connect(self, batch: list[BlockHeader]) -> int:
         """Add a batch of headers to the chain, returning how many were new.
 
-        The batch has to start at a block held. A header already held is
+        The first header's parent has to be held. A header already held is
         passed over, and a header that differs from the one held at its
         height replaces it and everything above it.
         """
