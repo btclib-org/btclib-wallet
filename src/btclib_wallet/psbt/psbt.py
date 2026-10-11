@@ -72,6 +72,7 @@ from btclib.utils import (
     list_from_json_array,
     str_from_string,
 )
+from btclib_ecc.curves import sec_point
 from btclib_ecc.ecc import dsa, ssa
 
 from btclib_wallet.bip32 import (
@@ -157,6 +158,7 @@ PSBT_MAGIC_BYTES = b"psbt\xff"
 
 PSBT_GLOBAL_UNSIGNED_TX = b"\x00"
 PSBT_GLOBAL_XPUB = b"\x01"
+_XPUB_SIZE = 78
 PSBT_GLOBAL_TX_VERSION = b"\x02"
 PSBT_GLOBAL_FALLBACK_LOCKTIME = b"\x03"
 PSBT_GLOBAL_INPUT_COUNT = b"\x04"
@@ -483,6 +485,30 @@ _V2_GLOBAL_PARSERS: dict[bytes, tuple[str, str, Callable[[bytes, bytes, str], in
 }
 
 
+def _assert_valid_global_xpubs(hd_key_paths: Mapping[bytes, BIP32KeyOrigin]) -> None:
+    """Refuse a global key that is not a 78-byte serialized xpub.
+
+    BIP174 makes this key data a 78-byte serialized xpub, while an
+    input's or an output's is a public key. As in Bitcoin Core, the public
+    key at the end of the xpub must be a point of the curve.
+    """
+    for xpub, origin in hd_key_paths.items():
+        # a key that is not a point may be an xprv, so the message names
+        # the entry by its origin and prints no byte of the key
+        name = f"global xpub of {origin.description}"
+        if len(xpub) != _XPUB_SIZE:
+            err_msg = f"invalid {name}: length {len(xpub)}"
+            raise BTClibValueError(err_msg)
+        # outside the `except`: the exception is not chained
+        on_curve = True
+        try:
+            sec_point.point_from_octets(xpub[-33:])
+        except ValueError:
+            on_curve = False
+        if not on_curve:
+            raise BTClibValueError(f"invalid {name}: public key is not a point")
+
+
 def _parse_global_map(
     global_map: Mapping[bytes, bytes], version: int
 ) -> tuple[
@@ -540,7 +566,10 @@ def _parse_global_map(
         elif type_ == PSBT_GLOBAL_VERSION:
             pass  # read before this loop, the map having no order
         elif type_ == PSBT_GLOBAL_XPUB:
-            hd_key_paths[k[1:]] = BIP32KeyOrigin.parse(v)
+            origin = BIP32KeyOrigin.parse(v)
+            # here and not in either reader, which both call this
+            _assert_valid_global_xpubs({k[1:]: origin})
+            hd_key_paths[k[1:]] = origin
         elif type_ == PSBT_GLOBAL_SP_ECDH_SHARE:
             # the key data is the recipient's scan key, so a psbt paying
             # two silent payment addresses with different scan keys
@@ -1242,6 +1271,7 @@ class Psbt:
             _assert_valid_utxo(psbt_in)
 
         assert_valid_hd_key_paths(self.hd_key_paths)
+        _assert_valid_global_xpubs(self.hd_key_paths)
         assert_valid_sp_scan_key_map(
             self.sp_ecdh_shares, SP_ECDH_SHARE_SIZE, "silent payment global ecdh share"
         )

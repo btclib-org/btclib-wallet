@@ -72,7 +72,7 @@ from btclib_wallet.psbt.psbt_in import _V2_FIELDS as _V2_INPUT_FIELDS
 from btclib_wallet.psbt.psbt_in import LOCK_TIME_THRESHOLD
 from btclib_wallet.psbt.psbt_out import _V2_FIELDS as _V2_OUTPUT_FIELDS
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR, PSBT_V2
-from tests import EXCESS_PADDING, NOT_STRIPPED, load, padding_bits_set
+from tests import EXCESS_PADDING, NOT_STRIPPED, chained_text, load, padding_bits_set
 from tests.conftest import JsonGolden
 from tests.psbt import psbt_vectors
 
@@ -2055,8 +2055,9 @@ def test_join() -> None:
     pub_key = bytes.fromhex(
         "023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e73"
     )
-    psbt1.hd_key_paths[pub_key] = BIP32KeyOrigin(fingerprint, "m/42/0/0/1")
-    psbt2.hd_key_paths[pub_key] = BIP32KeyOrigin(fingerprint, "m/42/0/0/2")
+    xpub = b"\x04\x88\xb2\x1e" + bytes(41) + pub_key
+    psbt1.hd_key_paths[xpub] = BIP32KeyOrigin(fingerprint, "m/42/0/0/1")
+    psbt2.hd_key_paths[xpub] = BIP32KeyOrigin(fingerprint, "m/42/0/0/2")
     with pytest.raises(
         BTClibValueError, match="hd_key_paths: same pub_key, different key_origin"
     ):
@@ -2076,8 +2077,10 @@ def test_join() -> None:
     pubkey2 = bytes.fromhex(
         "03089dc10c7ac6db54f91329af617333db388cead0c231f723379d1b99030b02dc"
     )
-    psbt1.hd_key_paths[pubkey1] = BIP32KeyOrigin(fingerprint, "m/42/0/0/1")
-    psbt2.hd_key_paths[pubkey2] = BIP32KeyOrigin(fingerprint, "m/42/0/0/1")
+    xpub1 = b"\x04\x88\xb2\x1e" + bytes(41) + pubkey1
+    xpub2 = b"\x04\x88\xb2\x1e" + bytes(41) + pubkey2
+    psbt1.hd_key_paths[xpub1] = BIP32KeyOrigin(fingerprint, "m/42/0/0/1")
+    psbt2.hd_key_paths[xpub2] = BIP32KeyOrigin(fingerprint, "m/42/0/0/1")
     with pytest.raises(
         BTClibValueError, match="hd_key_paths: same key_origin, different pub_key"
     ):
@@ -2267,6 +2270,8 @@ _PUB_KEY = bytes.fromhex(
 )
 # a second key, for the inputs that hold more than one signature
 _OTHER_PRV_KEY = _PRV_KEY + 1
+# the key data of a global xpub record: 78 bytes, as BIP174 says
+_XPUB = b"\x04\x88\xb2\x1e" + bytes(41) + _PUB_KEY
 _OTHER_PUB_KEY = PrvKeyData(_OTHER_PRV_KEY).pub.sec
 
 
@@ -4690,7 +4695,7 @@ def test_an_answer_that_changes_a_global_field_or_an_output_is_refused() -> None
         assert_signatures_only(request, returned)
 
     request, returned = _request_and_answer()
-    returned.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\xff" * 4, "m/9")}
+    returned.hd_key_paths = {_XPUB: BIP32KeyOrigin(b"\xff" * 4, "m/9")}
     with pytest.raises(BTClibValueError, match="global hd_key_paths were changed"):
         assert_signatures_only(request, returned)
 
@@ -6290,3 +6295,61 @@ def test_a_combine_keeps_the_first_value_of_a_conflicting_key() -> None:
             assert get(combined)[b"\xf1only"] == b"second only", name
         for name, (get, key) in origins.items():
             assert get(combined)[key] == get(order[0])[key], name
+
+
+def _global_xpub_readers(psbt: Psbt) -> list[Callable[[], object]]:
+    """Read back `psbt`, serialized unchecked, with each reader of a psbt."""
+    raw = psbt.serialize(check_validity=False)
+    return [lambda: Psbt.parse(raw), lambda: PsbtView(raw)]
+
+
+def test_a_global_xpub_key_is_78_bytes() -> None:
+    """BIP174 defines the key data as the serialized extended public key.
+
+    Bitcoin Core's PSBT_GLOBAL_XPUB branch refuses any other size, so a
+    33-byte public key is refused by `assert_valid`, by the parser and by
+    `PsbtView`, where an input's or an output's hd_key_paths takes one.
+    """
+    psbt = Psbt.b64decode(NO_SIG_HASH_TYPE)
+    psbt.hd_key_paths[_XPUB] = BIP32KeyOrigin(b"beef", "m/42/1")
+    assert Psbt.b64decode(psbt.b64encode()).hd_key_paths == psbt.hd_key_paths
+    assert PsbtView(psbt.serialize()).hd_key_paths == psbt.hd_key_paths
+
+    psbt.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"beef", "m/42/1")}
+    err_msg = "invalid global xpub of .*: length 33"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        psbt.assert_valid()
+    for read in _global_xpub_readers(psbt):
+        with pytest.raises(BTClibValueError, match=err_msg):
+            read()
+
+
+def test_a_global_xpub_public_key_is_on_the_curve() -> None:
+    """Bitcoin Core refuses an xpub whose public key is not a point."""
+    psbt = Psbt.b64decode(NO_SIG_HASH_TYPE)
+    off_curve = b"\x04\x88\xb2\x1e" + bytes(41) + b"\x02" + bytes(31) + b"\x05"
+    psbt.hd_key_paths = {off_curve: BIP32KeyOrigin(b"beef", "m/42/1")}
+    err_msg = "invalid global xpub of .*: public key is not a point"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        psbt.assert_valid()
+    for read in _global_xpub_readers(psbt):
+        with pytest.raises(BTClibValueError, match=err_msg):
+            read()
+
+
+def test_a_refused_global_xpub_prints_no_byte_of_the_key() -> None:
+    """A 78-byte key that is not a point may be an xprv: `00 || k` ends it."""
+    chain_code = bytes(range(1, 33))
+    k = bytes(range(101, 133))
+    xprv = b"\x04\x88\xad\xe4" + bytes(9) + chain_code + b"\x00" + k
+    assert len(xprv) == 78
+    psbt = Psbt.b64decode(NO_SIG_HASH_TYPE)
+    psbt.hd_key_paths = {xprv: BIP32KeyOrigin(b"beef", "m/42/1")}
+    for refuse in [psbt.assert_valid, *_global_xpub_readers(psbt)]:
+        with pytest.raises(BTClibValueError) as exc_info:
+            refuse()
+        text = chained_text(exc_info.value)
+        assert "global xpub of" in text
+        assert k.hex() not in text
+        assert chain_code.hex() not in text
+        assert xprv.hex() not in text
