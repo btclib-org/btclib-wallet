@@ -1124,12 +1124,12 @@ addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
 bitcoin-s gives a checksum, Core's is the same.
 Core's `getdescriptorinfo` refuses every case the test expects refused.
 
-The test's strings are the pinned files' strings. From the repository
-root, the first command fetches the files and prints the test's strings
-that they do not hold. A key expression is looked for without its
-`pkh()`, and a checksum case as its payload and its checksum apart. The
-scripts of the accepted cases and the checksum of the ranged one are
-looked for too. It prints an empty list.
+The test's strings are the pinned files' strings. From the repository root,
+the first command fetches the files and prints the test's strings that they
+do not hold. A key expression is looked for without its `pkh()`, and a
+checksum case as its payload and its checksum apart. The scripts of the
+accepted cases, the checksum of the ranged one, and each accepted case that
+the files write with a checksum are looked for too. It prints an empty list.
 
 ```shell
 commit=32eaf31e48b092e29edb29cc882aada7d561f606
@@ -1153,6 +1153,7 @@ cases += [d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED]
 for d, _ in t.CHECKSUM_REFUSED:
     cases += [d[4 : d.index(")")], d.partition(")")[2].lstrip("#")]
 cases += [s for *_, s in t.ACCEPTED] + [t.RANGED_CHECKSUM]
+cases += [f"{d}#{c}" for d, c, _ in t.ACCEPTED if f"{d}#" in text]
 print([c for c in cases if c and c not in text])
 PY
 ```

@@ -4,11 +4,9 @@
 
 """Tests for the descriptor cases of bitcoin-s that no other test here has.
 
-bitcoin-s's `DescriptorTest.scala`, `DescriptorChecksumTest.scala`,
-`ScriptDescriptorTest.scala` and `KeyExpressionTest.scala`, under
-`core-test/src/test/scala/org/bitcoins/core/protocol/script/descriptor/`.
-`tests/_data/README.md` says which cases are here, where their checksums
-and addresses come from, the revision and the licence.
+The cases come from bitcoin-s's descriptor tests. `tests/_data/README.md`
+says which files and which cases are here, where their checksums and
+addresses come from, the revision and the licence.
 
 The key expressions of `KeyExpressionTest.scala` that are here are written
 as the argument of ``pkh()``.
