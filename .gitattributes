@@ -23,3 +23,6 @@ tests/psbt/_data/bip370_test_vectors.json -text
 tests/psbt/_data/bip371_test_vectors.json -text
 tests/psbt/_data/bip373_test_vectors.json -text
 tests/psbt/_data/bip375_test_vectors.json -text
+tests/dlc/_data/dlc_fee_test.json -text
+tests/dlc/_data/dlc_tx_test.json -text
+tests/dlc/_data/dlc_test.json -text

@@ -919,6 +919,65 @@ Not in a release: `INVALID_POLICY` (-19). The rest of the table is in
 name that differs and a number that does not, and the number is what
 `tests/hwi_test.py` asserts on.
 
+## discreetlogcontracts/dlcspecs
+
+Read at the repository's tip, 9cd9148938c616690c79d99ec6f330e213c246c5.
+bitcoin-s generated these files, and at bitcoin-s/bitcoin-s@727f1acbe carries
+its own copies of them in
+`core-test/.jvm/src/test/scala/org/bitcoins/core/dlc/testgen/`. Its
+`dlc_fee_test.json` is these bytes; its other files differ and hold
+serial ids, which these do not. `tests/dlc/dlc_vectors_test.py` gives the
+serial ids that reproduce the files' order.
+
+### `tests/dlc/_data/dlc_fee_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/dlc_fee_test.json
+commit  0b69c3ed784d6a95df12b159ff699b05d150ffc3  2020-10-29
+blob    2770a6006d3345e0f245ad4a75862ed8042eca8d
+ours    f4023c3a8af4ccdd58ffffdc1b8887249489c75b
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical but for a trailing newline**. Every case, both
+parties' funding and closing fee.
+
+### `tests/dlc/_data/dlc_tx_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/dlc_tx_test.json
+commit  0b69c3ed784d6a95df12b159ff699b05d150ffc3  2020-10-29
+blob    f016bb95baf2878c374c140d809dda087fc29c12
+ours    a95780ee2274aa3fc550ef1e3473e6adb1705c34
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical but for a trailing newline**. Every case: the funding
+transaction, the CETs and the refund, byte for byte.
+
+### `tests/dlc/_data/dlc_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/dlc_test.json
+commit  0b69c3ed784d6a95df12b159ff699b05d150ffc3  2020-10-29
+blob    7c20686d203b07e5de34553b880a30c1e1f551da
+ours    c863f93e4641e44021797127784650ce62318715
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical but for a trailing newline**. Every case. The unsigned
+transactions are reproduced byte for byte. The signed ones are not, and their
+signatures are held to the script engine instead: a plain signature in them is
+not the deterministic one, with or without low-R grinding, and the adaptor
+signatures in their messages are in a layout `btclib_ecc.ecc.ecdsa_adaptor`
+does not parse.
+
 ## Other projects
 
 ### `tests/mnemonic/_data/bip39_test_vectors.json`
@@ -1367,7 +1426,8 @@ Against a pinned upstream blob:
 - identical byte for byte: `bip39_test_vectors.json`,
   `send_and_receive_test_vectors.json` and `bip375_test_vectors.json`.
 - identical but for a trailing newline: `vectors.json`,
-  `sign_verify_vectors.json` and the BIP322 vector files.
+  `sign_verify_vectors.json`, the BIP322 vector files and the dlcspecs files
+  under `tests/dlc/_data/`.
 - JSON-equal, reformatted: `test_JP_BIP39.json`.
 - identical, and recorded from a Trezor emulator: `trezor-addresses.json`.
 

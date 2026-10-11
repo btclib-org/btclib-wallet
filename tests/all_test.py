@@ -150,6 +150,10 @@ CHILD_MODULES = {
         "groups": ["miniscript"],
         "unpublished": ["descriptors", "key_expression"],
     },
+    "btclib_wallet.dlc": {
+        "groups": [],
+        "unpublished": ["signing", "transactions"],
+    },
     "btclib_wallet.fetch": {
         "groups": [],
         "unpublished": [

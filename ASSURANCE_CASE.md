@@ -115,6 +115,8 @@ first, never a key or a nonce.
 - A co-signer in MuSig2 or FROST, or the other side of BIP352's key
   agreement, choosing what it contributes after seeing what this package
   already committed to.
+- The other party of a DLC, sending a signature, an adaptor signature or a
+  transaction other than the agreed one.
 - A backend `fetch/` talks to — a node, an explorer, an Electrum server —
   answering a question about the chain with something false; SECURITY.md's
   *A backend is trusted, and not every backend alike* states which

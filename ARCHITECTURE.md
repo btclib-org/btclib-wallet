@@ -130,6 +130,18 @@ and `wallet.script_wallet` are addressed by the BIP44 branch and index a
 `RangedWallet` puts below an account, one from an output descriptor and
 one from a script template.
 
+## Discreet log contracts
+
+`dlc/` builds the transactions of a DLC as dlcspecs' `Transactions.md`
+writes them, and signs them. `dlc.transactions` is the funding
+transaction, a contract execution transaction (CET) per outcome and the
+refund transaction, with the fee each party pays, built from terms two
+parties agree on so that both get the same bytes. `dlc.signing` is the
+ECDSA adaptor signatures of the CETs, through `btclib_ecc.ecc.ecdsa_adaptor`,
+the signature of the refund, and the witnesses that complete each
+transaction. It signs no funding input: that is the signer's, whatever
+the script. `dlc/` has no counterparty and opens nothing.
+
 ## The signing boundary
 
 `psbt_signer.py` declares the `PsbtSigner` protocol every external
@@ -190,7 +202,8 @@ btclib_mnemonics'; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 — the wallets that remember what they have handed out, the one contract
-an external signer answers to, and the clients that reach a node, an
+an external signer answers to, the transactions and signatures of a
+discreet log contract, and the clients that reach a node, an
 explorer or an Electrum server for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
 holds every parser named here to one contract: it fails the way the

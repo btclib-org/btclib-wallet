@@ -58,6 +58,7 @@ __all__ = [
     "coin_selection",
     "core_import",
     "descriptors",
+    "dlc",
     "fetch",
     "hwi",
     "minikey",
