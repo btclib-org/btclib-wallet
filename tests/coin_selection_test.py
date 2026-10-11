@@ -22,6 +22,8 @@ small enough to verify by inspection, against two of Core's own
 way as the waste vectors), and against the property every one of them
 shares: every candidate a selection returns is one of the candidates it
 was given, and the effective value of the selection covers the target.
+`branch_and_bound` is also checked against a brute-force search over a
+small pool, as Core's `bnb_finds_min_waste` does.
 
 **The pair with `tx_builder.build_psbt`** is checked the way the issue
 that asked for this module says to: a selection is turned into `PsbtIn`
@@ -32,6 +34,7 @@ rate exactly as `tx_builder_test.py` asserts it independently.
 from __future__ import annotations
 
 import inspect
+import itertools
 import random
 from collections.abc import Callable, Sequence
 
@@ -41,6 +44,8 @@ from btclib.fee import DUST_RELAY_FEE_RATE, FeeRate, dust_threshold, fee_from_vs
 from btclib.key import PubKeyData
 from btclib.script import ScriptPubKey, Witness
 from btclib.tx import OutPoint, TxOut, input_weight
+from hypothesis import event, given
+from hypothesis import strategies as st
 
 import btclib_wallet.coin_selection as coin_selection_module
 from btclib_wallet.coin_selection import (
@@ -48,6 +53,8 @@ from btclib_wallet.coin_selection import (
     Candidate,
     SelectionResult,
     _branch_and_bound,
+    _change_cost,
+    _eligible,
     _waste,
     branch_and_bound,
     knapsack,
@@ -1048,3 +1055,128 @@ def test_select_coins_with_a_single_algorithm_skips_the_other_two() -> None:
     )
     assert result.algorithm == "bnb"
     assert result.selected == (exact,)
+
+
+@st.composite
+def _bnb_cases(
+    draw: st.DrawFn,
+) -> tuple[list[Candidate], list[TxOut], FeeRate, FeeRate, int | None]:
+    """Draw a pool of up to 12 candidates, the payment and the two rates.
+
+    The change spend weight is `None` for an exact-match window. Some
+    payments are aimed so that the target falls up to `cost_of_change`
+    below the effective value of a drawn subset of the eligible
+    candidates; the rest are drawn at random. A payment below 1 sat is
+    raised to 1, and its subset may then miss the window.
+    """
+    fee_rate = _rate(draw(st.integers(1, 20)))
+    long_term_fee_rate = _rate(draw(st.integers(1, 20)))
+    weights = draw(st.lists(st.integers(4, 2_000), min_size=1, max_size=12))
+    candidates = [
+        candidate(draw(st.integers(1, 20_000)), i + 1, weight)
+        for i, weight in enumerate(weights)
+    ]
+    change_spend_weight = draw(st.none() | st.integers(1, 400))
+    cost_of_change = (
+        0
+        if change_spend_weight is None
+        else _change_cost(
+            CHANGE_SCRIPT.script, change_spend_weight, fee_rate, long_term_fee_rate
+        )
+    )
+    # what the target adds to the payment's value
+    overhead = _target([TxOut(0, PAY_SCRIPT)], fee_rate, len(candidates))
+    if draw(st.integers(0, 3)):
+        aimed = sum(
+            c.effective_value(fee_rate)
+            for c, take in zip(
+                candidates,
+                draw(
+                    st.lists(
+                        st.booleans(),
+                        min_size=len(candidates),
+                        max_size=len(candidates),
+                    )
+                ),
+                strict=True,
+            )
+            if take and c.effective_value(fee_rate) > 0
+        )
+        offset = draw(st.integers(-cost_of_change, 0))
+        value = aimed - overhead + offset
+    else:
+        value = draw(st.integers(1, 400_000))
+    outputs = [TxOut(max(value, 1), PAY_SCRIPT)]
+    return candidates, outputs, fee_rate, long_term_fee_rate, change_spend_weight
+
+
+@given(case=_bnb_cases())
+def test_branch_and_bound_matches_a_brute_force_search(
+    case: tuple[list[Candidate], list[TxOut], FeeRate, FeeRate, int | None],
+) -> None:
+    """`branch_and_bound` matches a brute force; with no match, it raises.
+
+    The brute force walks every subset of the eligible pool, scoring the
+    ones in `[target, target + cost_of_change]` with the module's own
+    `_waste` and no change, which is what the search minimises. It skips
+    a superset of a solution found earlier, as Core's `bnb_finds_min_waste`
+    does, so the assertion is equality. A superset S'
+    of a match S that is itself in the window has a prefix, its first |S|
+    inputs in descending order, that is also a match. The search shifts at
+    that prefix and never reaches S', so the brute force's solutions are
+    exactly what the search can return. Where the long-term rate exceeds
+    the rate, such an S' can waste less and is not found. A pool of 12 has
+    at most 2**13 nodes, far under `_BNB_TOTAL_TRIES`, so the
+    iteration bound cannot make the search miss a solution here: the
+    property says nothing about pools large enough to reach it.
+    """
+    candidates, outputs, fee_rate, long_term_fee_rate, change_spend_weight = case
+    target = _target(outputs, fee_rate, len(candidates))
+    change_script = None if change_spend_weight is None else CHANGE_SCRIPT.script
+    cost_of_change = (
+        0
+        if change_spend_weight is None
+        else _change_cost(
+            CHANGE_SCRIPT.script, change_spend_weight, fee_rate, long_term_fee_rate
+        )
+    )
+    pool = _eligible(candidates, fee_rate)
+
+    best: int | None = None
+    solutions: list[frozenset[int]] = []
+    for size in range(len(pool) + 1):
+        for indices in itertools.combinations(range(len(pool)), size):
+            chosen = frozenset(indices)
+            if any(solution <= chosen for solution in solutions):
+                continue
+            subset = [pool[i] for i in indices]
+            total = sum(c.effective_value(fee_rate) for c in subset)
+            if target <= total <= target + cost_of_change:
+                solutions.append(chosen)
+                waste = _waste(subset, target, fee_rate, long_term_fee_rate, 0, 0)
+                best = waste if best is None else min(best, waste)
+
+    event("window hit" if best is not None else "window miss")
+    if best is None:
+        with pytest.raises(BTClibValueError, match="no changeless selection"):
+            branch_and_bound(
+                candidates,
+                outputs,
+                fee_rate,
+                long_term_fee_rate,
+                change_script,
+                change_spend_weight,
+            )
+        return
+    result = branch_and_bound(
+        candidates,
+        outputs,
+        fee_rate,
+        long_term_fee_rate,
+        change_script,
+        change_spend_weight,
+    )
+    total = sum(c.effective_value(fee_rate) for c in result.selected)
+    assert target <= total <= target + cost_of_change
+    waste = _waste(result.selected, target, fee_rate, long_term_fee_rate, 0, 0)
+    assert waste == best
