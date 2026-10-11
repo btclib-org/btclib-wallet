@@ -32,6 +32,7 @@ the parser test asks is that each one expands and that every address it
 produces is the address of that very script.
 """
 
+import time
 import traceback
 from dataclasses import fields, is_dataclass, replace
 from typing import get_args
@@ -683,19 +684,103 @@ def test_multipath_refuses_a_musig_multipath_in_participant_and_path() -> None:
     )
 
 
-def test_multipath_refuses_a_step_in_a_key_origin() -> None:
+@pytest.mark.parametrize("step", ["<0;1>", "<0;1>>", "<<0;1>"])
+def test_multipath_refuses_a_step_in_a_key_origin(step: str) -> None:
     """Refuse it in both functions, with Core's message less the element.
 
-    `ParseKeyPath` is called with `allow_multipath=false` for an origin
-    (`src/script/descriptor.cpp`, bitcoin/bitcoin@aef8a04966).
+    `ParseKeyPath` is called with `allow_multipath=false` for an origin and
+    tests for a `<`...`>` element before it reads any number, so ``<0;1>>``
+    and ``<<0;1>`` get the multipath message, not the uint32 one
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf).
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
-    descriptor = f"pkh([deadbeef/<0;1>]{xpub}/0/*)"
-    message = "Key path value specifies multipath"
+    descriptor = f"pkh([deadbeef/{step}]{xpub}/0/*)"
+    message = "^Key path value specifies multipath in a section where multipath is not allowed$"
     with pytest.raises(BTClibValueError, match=message):
         multipath_descriptors(descriptor)
     with pytest.raises(BTClibValueError, match=message):
         parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "pkh({xpub}<0;1>/*)",
+        "pkh({xpub}<0;1>)",
+        "pkh({xpub}>/*)",
+        "pkh([deadbeef/0]{xpub}<0;1>/*)",
+        "wsh(multi(1,{xpub},{xpub}<0;1>/*))",
+    ],
+)
+def test_multipath_refuses_a_step_glued_to_a_key(template: str) -> None:
+    """Refuse it in both functions as an invalid key.
+
+    Core reads the item before the first ``/`` as the key, and refuses it
+    with "key '...' is not valid" (`ParsePubkeyInner`,
+    `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf). The message
+    leaves out the key.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = template.format(xpub=xpub)
+    with pytest.raises(BTClibValueError, match="^key is not valid$"):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match="^key is not valid$"):
+        parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        (
+            "wsh(multi(1,{xpub}/<0;1>>/*,[deadbeef/<0;1>]{xpub}/0))",
+            "^Key path value is not a valid uint32$",
+        ),
+        (
+            "wsh(multi(1,[deadbeef/<0;1>]{xpub}/0,{xpub}/<0;1>>/*))",
+            "^Key path value specifies multipath in a section where multipath is not allowed$",
+        ),
+    ],
+)
+def test_multipath_reports_the_first_fault_from_the_left(
+    template: str, message: str
+) -> None:
+    """Report the leftmost fault of two keys, as Core parses left to right."""
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = template.format(xpub=xpub)
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
+def test_multipath_descriptors_reads_a_long_text_quickly() -> None:
+    """Read a long text in well under the bound.
+
+    The bound is far above a pass that reads each element once, so load does
+    not fail it, and below one that rescans the text before each element.
+    """
+    text = "raw(" + ",".join(["0"] * 160_000) + ")"
+    start = time.perf_counter()
+    assert multipath_descriptors(text) == [add_checksum(text)]
+    assert time.perf_counter() - start < 15
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "wsh(and_v(v:pk({xpub}/<0;1>/*),older(<1;2>)))",
+        "wsh(and_v(v:pk({xpub}/0/*),older(<1;2>)))",
+    ],
+)
+def test_multipath_refuses_a_step_in_a_function_argument(template: str) -> None:
+    """Refuse a step in a function argument, which Core refuses too.
+
+    The message is the key one, not Core's, which differs by function.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = template.format(xpub=xpub)
+    with pytest.raises(BTClibValueError, match="^key is not valid$"):
+        multipath_descriptors(descriptor)
 
 
 @pytest.mark.parametrize(
@@ -3981,11 +4066,19 @@ UNECHOED = [
     ),
     (f"wpkh([deadbeef/{WIF}]{XPRV_ROOT})", "^invalid derivation index$"),
     (f"wpkh({XPRV_ROOT}/0/*{WIF})", "^invalid derivation index$"),
-    (f"wpkh({XPRV_ROOT}<0;1>/*)", "^Key path value is not a valid uint32$"),
+    (f"wpkh({XPRV_ROOT}<0;1>/*)", "^key is not valid$"),
     (f"wpkh({XPRV_ROOT}/0/{WIF}>)", "^Key path value is not a valid uint32$"),
     (f"wpkh({XPRV_ROOT}/<{WIF};1>>/*)", "^Key path value is not a valid uint32$"),
     (
         f"wpkh([deadbeef/<{WIF};1>]{XPRV_ROOT})",
+        "^Key path value specifies multipath in a section where multipath is not allowed$",
+    ),
+    (
+        f"wpkh([deadbeef/<{WIF};1>>]{XPRV_ROOT})",
+        "^Key path value specifies multipath in a section where multipath is not allowed$",
+    ),
+    (
+        f"wpkh([deadbeef/<<{WIF};1>]{XPRV_ROOT})",
         "^Key path value specifies multipath in a section where multipath is not allowed$",
     ),
     (
@@ -4081,6 +4174,8 @@ def test_a_refusal_echoes_no_private_key(descriptor: str, message: str) -> None:
         f"wpkh({XPRV_ROOT}<0;1>/*)",
         f"wpkh({XPRV_ROOT}/0/{WIF}>)",
         f"wpkh([deadbeef/<{WIF};1>]{XPRV_ROOT})",
+        f"wpkh([deadbeef/<{WIF};1>>]{XPRV_ROOT})",
+        f"wpkh([deadbeef/<<{WIF};1>]{XPRV_ROOT})",
     ],
 )
 def test_multipath_descriptors_refusal_echoes_no_private_key(descriptor: str) -> None:

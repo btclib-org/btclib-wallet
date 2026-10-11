@@ -203,6 +203,7 @@ from btclib_wallet.descriptors.key_expression import (
     _MULTIPLE_MULTIPATH,
     KeyExpression,
     PrvKeys,
+    _assert_key_item,
     _assert_musig_allowed,
     _assert_network,
     _assert_origin_single_path,
@@ -3634,11 +3635,20 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     participants and its path.
     """
     text = strip_checksum(descriptor)
-    for element in re.findall(r"[^/\[\](),{}]+", text):
-        _assert_whole_multipath_element(element)
+    in_origin = False
+    for match in re.finditer(r"[\[\]]|[^/\[\](),{}]+", text):
+        element, start = match[0], match.start()
+        if element in {"[", "]"}:
+            in_origin = element == "["
+        elif in_origin:
+            _assert_origin_single_path(element)
+        elif text[start - 1 : start] in {"]", "(", ","}:
+            # a key follows "]", "(" or ","; nothing else there holds "<" or ">"
+            # in a valid descriptor
+            _assert_key_item(element)
+        else:
+            _assert_whole_multipath_element(element)
     _assert_musig_one_multipath(text)
-    for origin in re.finditer(r"\[([^\]]*)\]", text):
-        _assert_origin_single_path(origin[1])
     pieces = _MULTIPATH_STEP.split(text)
     # re.split with a capturing pattern alternates text and separator, so
     # the odd positions are the multipath steps and the even ones the

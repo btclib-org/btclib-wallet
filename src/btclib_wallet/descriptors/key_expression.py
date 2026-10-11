@@ -503,11 +503,24 @@ def _hardening(path: str) -> str:
     return symbols[-1] if symbols else ""
 
 
-def _assert_whole_multipath_element(element: str) -> None:
-    """Refuse an element holding ``<`` or ``>`` that is not one ``<a;b>`` step.
+def _assert_key_item(key: str) -> None:
+    """Refuse a key holding ``<`` or ``>``, as Core does for its key item.
 
-    Bitcoin Core reads ``<0;1>h`` as a number, and ``<0;1>>`` as a step
-    whose ``1>`` is not one: both fail as "not a valid uint32". The message
+    Core splits a key expression on ``/`` and reads the first item as the
+    key: with a multipath step glued to it, as in ``xprv...<0;1>/*``, it is
+    "key '...' is not valid". The message leaves out the key, which can be
+    a private one, as no message here echoes one.
+    """
+    if "<" in key or ">" in key:
+        raise BTClibValueError("key is not valid")
+
+
+def _assert_whole_multipath_element(element: str) -> None:
+    """Refuse a path element holding ``<`` or ``>`` but not one ``<a;b>`` step.
+
+    In a key path, Bitcoin Core reads ``<0;1>h`` as a number, and ``<0;1>>``
+    as a step whose ``1>`` is not one: both fail as "not a valid uint32".
+    A key origin has its own check, `_assert_origin_single_path`. The message
     leaves out the element Core quotes: it can hold a private key, which no
     message here echoes.
     """
@@ -524,17 +537,19 @@ def _assert_whole_multipath_element(element: str) -> None:
 def _assert_origin_single_path(path: str) -> None:
     """Refuse a multipath step in the path of a key origin, as Core does.
 
-    The message leaves out the element, as `_assert_whole_multipath_element`
-    does.
+    Core checks for an element that starts with ``<`` and ends with ``>``
+    first, so ``<0;1>>`` and ``<<0;1>`` get the multipath message here, not
+    the uint32 one. The message leaves out the element, as
+    `_assert_whole_multipath_element` does.
     """
     for element in path.split("/"):
-        _assert_whole_multipath_element(element)
         if element.startswith("<") and element.endswith(">"):
             err_msg = (
                 "Key path value specifies multipath "
                 "in a section where multipath is not allowed"
             )
             raise BTClibValueError(err_msg)
+        _assert_whole_multipath_element(element)
 
 
 def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
@@ -653,7 +668,9 @@ def _assert_key_characters(rest: str) -> None:
     """Refuse what a KEY expression cannot hold once the origin is off."""
     if "]" in rest:
         raise BTClibValueError("more than one ']' in a single key expression")
-    for element in rest.split("/"):
+    key, *steps = rest.split("/")
+    _assert_key_item(key)
+    for element in steps:
         _assert_whole_multipath_element(element)
     if rest.count("<") > 1:
         raise BTClibValueError(_MULTIPLE_MULTIPATH)
