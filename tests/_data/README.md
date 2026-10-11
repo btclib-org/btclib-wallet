@@ -1093,6 +1093,36 @@ gh api -H 'Accept: application/vnd.github.raw' \
 
 [getaddresses]: https://github.com/bitcoin-s/bitcoin-s/blob/5819f4016eab00e4e5e0d82d8b2b84fb0e92defb/wallet-test/src/test/scala/org/bitcoins/wallet/util/GetAddresses.scala
 
+### Not vendored as a file: bitcoin-s's descriptor cases
+
+```text
+repo    bitcoin-s/bitcoin-s
+path    core-test/src/test/scala/org/bitcoins/core/protocol/script/descriptor
+commit  32eaf31e48b092e29edb29cc882aada7d561f606  2025-03-06
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, and **composed locally** for what bitcoin-s does
+not state. `tests/descriptors/bitcoin_s_test.py` holds these cases from
+that directory's test files:
+
+- each quoted `name(...)` string, checksum removed, that `git grep -F`
+  finds neither elsewhere in this suite's `tests/` nor in Bitcoin Core's
+  `src/test` at a8b69bdeafdf;
+- the key expressions of `KeyExpressionTest.scala` that the same search
+  finds in neither;
+- the bad checksums of `DescriptorChecksumTest.scala`.
+
+An accepted descriptor's script is bitcoin-s's. Its checksum, and its
+addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
+`getdescriptorinfo` and `deriveaddresses`, run with no chain on mainnet. Where
+bitcoin-s gives a checksum, Core's is the same.
+
+Not vendored as a file because the strings are literals in Scala source.
+bitcoin-s is under the MIT licence (its `LICENSE`), the licence of this
+package.
+
 ### `src/btclib_wallet/bolt9.py`
 
 ```text
