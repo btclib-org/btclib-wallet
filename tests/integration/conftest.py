@@ -265,12 +265,13 @@ def broadcast(node: BitcoinCoreRpcClient, psbt: Psbt) -> str:
 # found by name could be the wrong program.
 # `.github/workflows/integration-electrs.yml` builds the commit it pins.
 # The wait for the server to follow the node is a poll: `electrs` asks its
-# node for new blocks every five seconds.
+# node for new blocks every five seconds (`src/bin/electrs.rs:199` at
+# dd09701e, the commit the workflow pins).
 
 ELECTRS_ENV = "BTCLIB_ELECTRS"
 
-# how long the server is given to catch up with the node: two polling
-# periods of its own and a margin, bounding the failure case only
+# how long the server is given to catch up with the node: a generous bound
+# on the failure case only
 _SYNC_TIMEOUT = 60.0
 
 

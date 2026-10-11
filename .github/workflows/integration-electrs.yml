@@ -37,6 +37,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review, closed]
     paths:
       - .github/workflows/integration-electrs.yml
+      - tests/conftest.py
       - tests/integration/conftest.py
       - uv.lock
       - pyproject.toml
