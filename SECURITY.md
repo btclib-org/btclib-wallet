@@ -161,12 +161,10 @@ used to teach and to prototype as much as to build.
     transaction's id is recomputed from the bytes that came back and
     refused unless it matches, and an output's amount is derived from
     that same transaction. A block header is parsed and its proof
-    of work checked against the limit of the fetcher's network: real work
-    on mainnet, testnet and testnet4, about a thousandth of that on
-    signet, and one hash in two on regtest. None of these says it is the
-    header at the height asked for. A height, and the tip hash from every
-    backend but `ElectrumFetcher`, rest on the backend's word.
-    The work each limit stands for, in bits, is:
+    of work checked against the limit of the fetcher's network. Neither
+    check says it is the header at the height asked for. A height, and
+    the tip hash from every backend but `ElectrumFetcher`, rest on the
+    backend's word. The work each network's limit stands for, in bits, is:
 
     ```shell
     uv run python -c "
