@@ -11,8 +11,8 @@ bitcoin-s's `DescriptorTest.scala`, `DescriptorChecksumTest.scala`,
 and addresses come from, the revision and the licence.
 
 The key expressions of `KeyExpressionTest.scala` are written as the
-argument of ``pkh()``. Core and this package agree on every case, and
-none is left out: ``combo()``, ``addr()`` and ``raw()`` are all supported.
+argument of ``pkh()``. None is left out: ``combo()``, ``addr()`` and
+``raw()`` are all supported.
 """
 
 import pytest
@@ -267,7 +267,7 @@ def test_accepted(descriptor: str, expected_checksum: str, script: str) -> None:
     ],
 )
 def test_refused(descriptor: str, message: str) -> None:
-    """Refuse the descriptors bitcoin-s refuses, as Core does."""
+    """Refuse the descriptors bitcoin-s refuses."""
     with pytest.raises(VALUE_ERRORS, match=message):
         parse(descriptor)
 
@@ -317,6 +317,6 @@ def test_key_accepted(descriptor: str, addresses: list[str]) -> None:
     ],
 )
 def test_key_refused(descriptor: str, message: str) -> None:
-    """Refuse the key expressions bitcoin-s refuses, as Core does."""
+    """Refuse the key expressions bitcoin-s refuses."""
     with pytest.raises(VALUE_ERRORS, match=message):
         parse(descriptor)

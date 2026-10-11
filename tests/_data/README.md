@@ -1120,6 +1120,37 @@ addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
 bitcoin-s gives a checksum, Core's is the same.
 Core's `getdescriptorinfo` refuses every case the test expects refused.
 
+The files at the pin:
+
+```shell
+commit=32eaf31e48b092e29edb29cc882aada7d561f606
+dir=core-test/src/test/scala/org/bitcoins/core/protocol/script/descriptor
+gh api "repos/bitcoin-s/bitcoin-s/contents/${dir}?ref=${commit:?}" \
+    --jq '.[].name'
+```
+
+The selection, for a descriptor `d` with its checksum removed: a case is
+selected where both searches print nothing and exit with status one.
+
+```shell
+git grep -F -l -- "$d" -- tests/ ':!tests/descriptors/bitcoin_s_test.py'
+git -C <bitcoin> grep -F -l -- "$d" a8b69bdeafdf -- src/test
+```
+
+Core, on a node of its own with no chain, wallet or peers:
+
+```shell
+datadir=$(mktemp -d)
+bitcoind -datadir="$datadir" -rpcport=18999 -disablewallet -connect=0 \
+    -listen=0 -dnsseed=0 -daemonwait
+bitcoin-cli -datadir="$datadir" -rpcport=18999 getdescriptorinfo "$d"
+checksum=<the checksum getdescriptorinfo prints>
+# a ranged descriptor also takes a range, "[0,2]"
+bitcoin-cli -datadir="$datadir" -rpcport=18999 \
+    deriveaddresses "${d}#${checksum:?}"
+bitcoin-cli -datadir="$datadir" -rpcport=18999 stop
+```
+
 Not vendored as a file because the strings are literals in Scala source.
 bitcoin-s is under the MIT licence (its `LICENSE`), the licence of this
 package.
