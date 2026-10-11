@@ -1121,7 +1121,6 @@ def test_branch_and_bound_matches_a_brute_force_search(
     ones in `[target, target + cost_of_change]` with the module's own
     `_waste` and no change, which is what the search minimises. It skips
     a superset of a solution found earlier, as Core's `bnb_finds_min_waste`
-    (`coinselection.cpp:217`)
     does, so the assertion is equality. A superset S'
     of a match S that is itself in the window has a prefix, its first |S|
     inputs in descending order, that is also a match. The search shifts at
