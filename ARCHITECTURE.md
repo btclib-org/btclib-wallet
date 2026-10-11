@@ -132,16 +132,13 @@ one from a script template.
 
 ## Discreet log contracts
 
-`dlc/` builds the transactions of a DLC as dlcspecs' `Transactions.md`
-writes them, and signs them. `dlc.transactions` is the funding
-transaction, a contract execution transaction (CET) per outcome and the
-refund transaction, with the fee each party pays, built from terms two
-parties agree on so that both get the same bytes. `dlc.signing` is the
-ECDSA adaptor signatures of the CETs, through `btclib_ecc.ecc.ecdsa_adaptor`,
-the signature of the refund, and the witnesses that complete each
-transaction. It signs no funding input: that is the signer's, whatever
-the script. `dlc/` opens nothing: the messages exchanged with the other
-party are the caller's.
+`dlc/` holds what a DLC needs offline: `dlc.transactions` builds its
+transactions from terms two parties agree on so that both get the same
+bytes, `dlc.signing` signs the CETs and the refund and completes all
+three kinds of transaction, and `dlc.oracle` reads, signs and checks what
+its oracle publishes. Each module's docstring says what it holds. `dlc/`
+opens nothing: the messages exchanged with the other party are the
+caller's.
 
 ## The signing boundary
 

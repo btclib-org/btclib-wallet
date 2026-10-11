@@ -117,6 +117,8 @@ first, never a key or a nonce.
   already committed to.
 - The other party of a DLC, sending a signature, an adaptor signature or a
   transaction other than the agreed one.
+- An oracle, or a peer relaying its announcement, sending an announcement
+  or an attestation that is not the oracle's.
 - A backend `fetch/` talks to — a node, an explorer, an Electrum server —
   answering a question about the chain with something false; SECURITY.md's
   *A backend is trusted, and not every backend alike* states which

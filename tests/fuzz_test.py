@@ -38,6 +38,7 @@ from btclib_wallet.bip32.der_path import indexes_from_der_path
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.bolt11 import _SIGNATURE_WORDS, Bolt11Invoice
 from btclib_wallet.descriptors import miniscript
+from btclib_wallet.dlc import oracle
 from btclib_wallet.psbt import psbt_utils
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn
@@ -72,6 +73,9 @@ BINARY_PARSERS: dict[str, Callable[[bytes], Any]] = {
     "psbt_utils.parse_taproot_bip32": psbt_utils.parse_taproot_bip32,
     "BIP32KeyData.parse": BIP32KeyData.parse,
     "BIP32KeyOrigin.parse": BIP32KeyOrigin.parse,
+    "OracleEvent.parse": oracle.OracleEvent.parse,
+    "OracleAnnouncement.parse": oracle.OracleAnnouncement.parse,
+    "OracleAttestation.parse": oracle.OracleAttestation.parse,
     # no bip322.Sig.parse: that class has none, its three payloads being
     # three unrelated serializations told apart by the prefix of the text
     # form alone, so the text entry point below is where it is read

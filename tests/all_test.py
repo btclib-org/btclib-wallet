@@ -152,7 +152,7 @@ CHILD_MODULES = {
     },
     "btclib_wallet.dlc": {
         "groups": [],
-        "unpublished": ["signing", "transactions"],
+        "unpublished": ["oracle", "signing", "transactions"],
     },
     "btclib_wallet.fetch": {
         "groups": [],

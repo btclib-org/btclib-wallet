@@ -27,8 +27,10 @@ from typing import Any
 import pytest
 from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.curves import mult
 
 from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin
+from btclib_wallet.dlc import oracle
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut
 from tests import public_classes_with
 from tests.exception_family_test import RUNTIME_ERRORS, TYPE_ERRORS, VALUE_ERRORS
@@ -53,6 +55,19 @@ def _psbt() -> Psbt:
     )
 
 
+_ORACLE_KEY = 7
+_ORACLE_NONCE = 11
+_ORACLE_EVENT = oracle.OracleEvent(
+    nonces=(mult(_ORACLE_NONCE)[0].to_bytes(32, "big"),),
+    maturity_epoch=1,
+    descriptor=oracle.EnumEventDescriptor(outcomes=("a", "b")),
+    event_id="e",
+)
+_ORACLE_ANNOUNCEMENT = oracle.sign_announcement(_ORACLE_EVENT, _ORACLE_KEY)
+_ORACLE_ATTESTATION = oracle.sign_attestation(
+    _ORACLE_ANNOUNCEMENT, ("a",), _ORACLE_KEY, (_ORACLE_NONCE,)
+)
+
 # every object with a fixed-width field in it or a length of its own,
 # with the class whose `parse` reads it back: (name, class, serialization).
 # The class and not the bound method, so that the inventory says which
@@ -62,6 +77,13 @@ _CASES: list[tuple[str, type[Any], bytes]] = [
     ("psbt", Psbt, _psbt().serialize()),
     ("psbt_in", PsbtIn, PsbtIn(redeem_script=b"\x51").serialize()),
     ("psbt_out", PsbtOut, PsbtOut(redeem_script=b"\x51").serialize()),
+    ("oracle_event", oracle.OracleEvent, _ORACLE_EVENT.serialize()),
+    (
+        "oracle_announcement",
+        oracle.OracleAnnouncement,
+        _ORACLE_ANNOUNCEMENT.serialize(),
+    ),
+    ("oracle_attestation", oracle.OracleAttestation, _ORACLE_ATTESTATION.serialize()),
 ]
 
 _IDS = [case[0] for case in _CASES]

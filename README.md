@@ -132,7 +132,8 @@ The address is the first one BIP84 lists for that mnemonic.
   payment URIs, and the BOLT11 invoices and BOLT9 feature bits they carry
 - [dlcspecs](https://github.com/discreetlogcontracts/dlcspecs)
   discreet log contracts: the funding, execution and refund transactions,
-  and the CETs' adaptor signatures
+  the CETs' adaptor signatures, and an oracle's announcements and
+  attestations
 - coin selection and a transaction builder
 - wallets: an extended key at a BIP44 account, a set of individual keys,
   an output descriptor per chain, a script template

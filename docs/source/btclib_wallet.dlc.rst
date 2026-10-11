@@ -4,6 +4,13 @@ btclib\_wallet.dlc package
 Submodules
 ----------
 
+btclib\_wallet.dlc.oracle module
+--------------------------------
+
+.. automodule:: btclib_wallet.dlc.oracle
+   :members:
+   :show-inheritance:
+
 btclib\_wallet.dlc.signing module
 ---------------------------------
 

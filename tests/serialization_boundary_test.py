@@ -65,6 +65,7 @@ from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import descriptors, miniscript
+from btclib_wallet.dlc import oracle
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut
 from btclib_wallet.psbt.psbt_utils import PSBT_V0, PSBT_V2
 from tests import module_names, public_classes_with
@@ -138,6 +139,9 @@ _OCTETS_DECODERS = (
     ("PsbtOut.parse", PsbtOut, "parse"),
     ("BIP32KeyData.parse", BIP32KeyData, "parse"),
     ("BIP32KeyOrigin.parse", BIP32KeyOrigin, "parse"),
+    ("OracleEvent.parse", oracle.OracleEvent, "parse"),
+    ("OracleAnnouncement.parse", oracle.OracleAnnouncement, "parse"),
+    ("OracleAttestation.parse", oracle.OracleAttestation, "parse"),
 )
 
 _OCTETS_IDS = tuple(label for label, _, _ in _OCTETS_DECODERS)

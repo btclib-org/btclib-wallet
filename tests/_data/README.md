@@ -981,6 +981,187 @@ not the deterministic one, with or without low-R grinding, and the adaptor
 signatures in their messages are in a layout `btclib_ecc.ecc.ecdsa_adaptor`
 does not parse.
 
+### `tests/dlc/_data/test_vectors/`
+
+The announcements of `test/test_vectors/`, one file per contract shape.
+`enum_and_numerical_with_diff_3_of_5_test.json` and
+`three_of_five_oracle_numerical_with_diff_test.json` are over the size
+that `check-added-large-files` allows. They are kept because they hold
+announcements that no other file does, and the tests read every
+announcement. `tests/dlc/dlc_oracle_vectors_test.py` reads the files.
+
+The signature scheme of the announcements is the one
+`btclib_wallet.dlc.oracle` names. Each file below is identical but for a
+trailing newline.
+
+### `tests/dlc/_data/test_vectors/enum_3_of_3_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_3_of_3_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    53f41ddd82fed40e570369e1b29fdf8d51869d05
+ours    29e121cf7841dd941fc3081f671adf50026b99a5
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/enum_3_of_5_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_3_of_5_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    3d72d99a97dc8c84577b4b93e041178c4a6ecdcf
+ours    392285ac9b0f26c9f27ec857d39e1f76796c8ce1
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/enum_and_numerical_3_of_5_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_and_numerical_3_of_5_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    cd7ce619d614e1c6022b2abe2cd8c70fc9ee18e2
+ours    e333f1f55641839c0c4fa69afeb2e6ff2a47d958
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/enum_and_numerical_5_of_5_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_and_numerical_5_of_5_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    f2689f9fb195722f590bf50e938c870b25a72c0c
+ours    9d754b9fdc33a3526f611debfa92e655558c1b91
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/enum_and_numerical_with_diff_3_of_5_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_and_numerical_with_diff_3_of_5_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    47f4aa75f4de7dce43b7e56e62fb982c6c2ac323
+ours    4aa2dca55e282105d89fee7344eae34b8c37d11a
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/enum_and_numerical_with_diff_5_of_5_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_and_numerical_with_diff_5_of_5_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    d7f848e4f38ca6303c568938be37494e0aa627f2
+ours    2d2807f6ba1359cf0755bf1ec07a11b5ddfeebc2
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/enum_single_oracle_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/enum_single_oracle_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    edd6c655d3b986e4f10f6db2acea265e0ef295dd
+ours    f7461f28522645432811507bb0dc5ae2d9af5fc9
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/single_oracle_numerical_hyperbola_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/single_oracle_numerical_hyperbola_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    ff24bbe9d5491dc270bbe77db05d28057481d5c6
+ours    9f45e81a40808a5349af1204876f37ba31e98140
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/single_oracle_numerical_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/single_oracle_numerical_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    067dd3dd6aeee13dc189afbd828a5b527ce45b6f
+ours    7773e6891d490310120c54cdcdacb02be1124bae
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/three_of_five_oracle_numerical_with_diff_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/three_of_five_oracle_numerical_with_diff_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    2883222b6d31e653c85511a4036f2fb84660915c
+ours    f708d74399f4a2b90bc5fcb3ec466031728321a4
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/three_of_three_oracle_numerical_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/three_of_three_oracle_numerical_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    a9f0cbfbc2798138cf576e6b26fc7705b51817c5
+ours    243db340ba63f458fdd4daee2bba59171849aa80
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/three_of_three_oracle_numerical_with_diff_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/three_of_three_oracle_numerical_with_diff_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    c8238383cc7dfccb14d4f82caaa857220d016c7f
+ours    0582c463c2a285e229c62977837b8882ec321a27
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/two_of_five_oracle_numerical_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/two_of_five_oracle_numerical_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    12c723a7db837b7b855c05dafbf152b80fb3034c
+ours    c3c53f2b06d2f17908d6089be43bc881df845b79
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+### `tests/dlc/_data/test_vectors/two_of_five_oracle_numerical_with_diff_test.json`
+
+```text
+repo    discreetlogcontracts/dlcspecs
+path    test/test_vectors/two_of_five_oracle_numerical_with_diff_test.json
+commit  8ecdf2aa55e6e7ed862398446d2ef7bba03950d1  2022-06-12
+blob    9f0ab3c369efe7b1d484e6f03351b875484396dc
+ours    014fef78adae4cf680c06be57b6f0de27ba45ee8
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
 ## Other projects
 
 ### `tests/mnemonic/_data/bip39_test_vectors.json`
@@ -1345,6 +1526,23 @@ commit is one a reader at upstream's tip accepts and btclib refuses. The
 module points here for the revision and carries none of its own, which
 is what puts the pin where the weekly workflow reads it.
 
+### `tests/dlc/_data/bitcoin_s_oracle_vectors.json`
+
+```text
+repo    bitcoin-s/bitcoin-s
+path    dlc-oracle-test/src/test/scala/org/bitcoins/dlc/oracle/AttestationVerificationTest.scala
+commit  afddf73c48d12515d44d11e959ac6d995fdbe61f  2024-04-21
+ours    1f2d8ccb38724d927ee8824670695ed4e35fa896
+pulled  2026-10-11
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**. The hex strings of the announcements and the
+attestations of that Scala test, which names which attestation it expects to
+verify. Every string is in the source, as one literal or as the literals
+its `val` concatenates, and the source's blob is
+`e10a3fdaeeb75896b3cc1503c94d5339d2a3a3a3`.
+
 ## Chain data, not a repository
 
 These are consensus bytes. There is no upstream repository to pin and no
@@ -1608,7 +1806,7 @@ Not checked byte for byte against one:
   `bip174_test_vectors.json`, `bip370_test_vectors.json`,
   `bip371_test_vectors.json`, `bip373_test_vectors.json`,
   `bip85_test_vectors.json`, `miniscript_fixed_tests.json`,
-  `bolt11_test_vectors.json`, `bolt9.py`.
+  `bolt11_test_vectors.json`, `bolt9.py`, `bitcoin_s_oracle_vectors.json`.
 - chain data, identified by block hash: the blocks under
   `tests/block/_data/`.
 - response bodies under `tests/fetch/_data/`, whose envelopes are

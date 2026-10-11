@@ -2,16 +2,31 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""Discreet log contracts: the transactions and signatures of a DLC.
+"""Discreet log contracts: transactions, signatures and oracle data.
 
 https://github.com/discreetlogcontracts/dlcspecs
 
-`transactions` and `signing` are the modules: each says what it holds.
+`oracle`, `transactions` and `signing` are the modules: each says what it
+holds.
 
 The flat surface is this package's: the names are read off
 `btclib_wallet.dlc`, the modules being where they are written.
 """
 
+from btclib_wallet.dlc.oracle import (
+    PLAIN_SHA256,
+    TAGGED,
+    DigitDecompositionEventDescriptor,
+    EnumEventDescriptor,
+    OracleAnnouncement,
+    OracleAttestation,
+    OracleEvent,
+    outcome_message,
+    sign_announcement,
+    sign_attestation,
+    verify_announcement,
+    verify_attestation,
+)
 from btclib_wallet.dlc.signing import (
     adaptor_sign,
     complete_cet,
@@ -41,10 +56,17 @@ from btclib_wallet.dlc.transactions import (
 __all__ = [
     "CET_SEQUENCE",
     "DUST_LIMIT",
+    "PLAIN_SHA256",
+    "TAGGED",
+    "DigitDecompositionEventDescriptor",
     "Dlc",
     "DlcParty",
     "DlcTransactions",
+    "EnumEventDescriptor",
     "FundingInput",
+    "OracleAnnouncement",
+    "OracleAttestation",
+    "OracleEvent",
     "adaptor_sign",
     "build_cet",
     "build_funding_tx",
@@ -57,7 +79,12 @@ __all__ = [
     "funding_fee",
     "funding_script",
     "funding_script_pub_key",
+    "outcome_message",
     "sig_hash",
     "sign",
+    "sign_announcement",
+    "sign_attestation",
     "verify_adaptor",
+    "verify_announcement",
+    "verify_attestation",
 ]
