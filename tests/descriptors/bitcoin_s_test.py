@@ -10,9 +10,11 @@ bitcoin-s's `DescriptorTest.scala`, `DescriptorChecksumTest.scala`,
 `tests/_data/README.md` says which cases are here, where their checksums
 and addresses come from, the revision and the licence.
 
-The key expressions of `KeyExpressionTest.scala` are written as the
-argument of ``pkh()``. None is left out: ``combo()``, ``addr()`` and
-``raw()`` are all supported.
+The key expressions of `KeyExpressionTest.scala` that are here are written
+as the argument of ``pkh()``.
+
+No case is left out as unsupported: ``combo()``, ``addr()`` and ``raw()``
+are all supported.
 """
 
 import pytest
@@ -133,6 +135,13 @@ RANGED_ADDRESSES = [
     "bc1qgxexg7pg982urq8ekk3l8lq65zh7vwsrc9kgp9",
     "bc1q5vf6dw2d9heezqxrjp6jkefveprg90uhgulqj4",
 ]
+
+# bitcoin-s's tr() with a pkh() leaf, without its space, and Core's address
+TR_PKH_LEAF = (
+    "tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,"
+    "pkh(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1))"
+)
+TR_PKH_LEAF_ADDRESS = "bc1p0j6yfyle528z65m9dshtd7e6q5a04gzl3t37736rjtv8t8xh3daqn4ux0n"
 
 # each: the descriptor, Core's addresses at index 0, and at 1 and 2 where ranged
 KEY_ACCEPTED = [
@@ -287,10 +296,7 @@ def test_a_space_in_a_tr_tree_is_what_is_refused() -> None:
     space: it reads `` pkh(KEY)`` as the name of a function. Without the
     space Core accepts a ``pkh()`` leaf, and so does this package.
     """
-    internal = "a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
-    leaf = "pkh(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1)"
-    address = "bc1p0j6yfyle528z65m9dshtd7e6q5a04gzl3t37736rjtv8t8xh3daqn4ux0n"
-    assert parse(f"tr({internal},{leaf})").address() == address
+    assert parse(TR_PKH_LEAF).address() == TR_PKH_LEAF_ADDRESS
 
 
 @pytest.mark.parametrize(

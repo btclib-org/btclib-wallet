@@ -1110,9 +1110,13 @@ that directory's test files:
 - each quoted `name(...)` string, checksum removed, that `git grep -F`
   finds neither elsewhere in this suite's `tests/` nor in Bitcoin Core's
   `src/test` at a8b69bdeafdf;
-- the key expressions of `KeyExpressionTest.scala` that the same search
-  finds in neither;
+- the key expressions, not the bare key origins, of `KeyExpressionTest.scala`
+  that the same search finds in neither;
 - the bad checksums of `DescriptorChecksumTest.scala`.
+
+Only the cases bitcoin-s runs count: its commented-out ones are left out,
+among them the public-key cases of `KeyExpressionTest.scala` that derive
+hardened steps.
 
 An accepted descriptor's script is bitcoin-s's. Its checksum, and its
 addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
@@ -1120,35 +1124,134 @@ addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
 bitcoin-s gives a checksum, Core's is the same.
 Core's `getdescriptorinfo` refuses every case the test expects refused.
 
-The files at the pin:
+The test's strings are the pinned files' strings. From the repository
+root, the first command fetches the files and prints the test's strings
+that they do not hold. A key expression is looked for without its
+`pkh()`, and a checksum case as its payload and its checksum apart. The
+scripts of the accepted cases and the checksum of the ranged one are
+looked for too. It prints an empty list.
 
 ```shell
 commit=32eaf31e48b092e29edb29cc882aada7d561f606
 dir=core-test/src/test/scala/org/bitcoins/core/protocol/script/descriptor
-gh api "repos/bitcoin-s/bitcoin-s/contents/${dir}?ref=${commit:?}" \
-    --jq '.[].name'
+scala=$(mktemp -d)
+for f in $(gh api "repos/bitcoin-s/bitcoin-s/contents/${dir}?ref=${commit:?}" \
+        --jq '.[].name'); do
+    gh api -H 'Accept: application/vnd.github.raw' \
+        "repos/bitcoin-s/bitcoin-s/contents/${dir}/${f}?ref=${commit}" \
+        > "$scala/$f"
+done
+uv run python - "$scala" <<'PY'
+import sys
+from pathlib import Path
+
+from tests.descriptors import bitcoin_s_test as t
+
+text = "".join(f.read_text() for f in Path(sys.argv[1]).glob("*.scala"))
+cases = [d for d, *_ in t.ACCEPTED + t.REFUSED] + [t.RANGED]
+cases += [d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED]
+for d, _ in t.CHECKSUM_REFUSED:
+    cases += [d[4 : d.index(")")], d.partition(")")[2].lstrip("#")]
+cases += [s for *_, s in t.ACCEPTED] + [t.RANGED_CHECKSUM]
+print([c for c in cases if c and c not in text])
+PY
 ```
 
-The selection, for a descriptor `d` with its checksum removed: a case is
-selected where both searches print nothing and exit with status one.
+The second command is the selection, on the same files, in the same
+shell. It applies the rule above to each string of the pinned files and
+prints the selected ones that the test does not hold. It prints an empty
+list. `bitcoin` is a checkout of Bitcoin Core.
 
 ```shell
-git grep -F -l -- "$d" -- tests/ ':!tests/descriptors/bitcoin_s_test.py'
-git -C <bitcoin> grep -F -l -- "$d" a8b69bdeafdf -- src/test
+bitcoin=${bitcoin:-../bitcoin}
+uv run python - "${scala:?}" "$bitcoin" <<'PY'
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+from tests.descriptors import bitcoin_s_test as t
+
+
+def found(*command):
+    return subprocess.run(command, capture_output=True).returncode == 0
+
+
+def selected(s):
+    here = ("git", "grep", "-qF", "--", s, "--", "tests/")
+    core = ("git", "-C", sys.argv[2], "grep", "-qF", "--", s)
+    return not found(*here, ":!tests/descriptors/bitcoin_s_test.py") and not found(
+        *core, "a8b69bdeafdf", "--", "src/test"
+    )
+
+
+held = {d for d, *_ in t.ACCEPTED + t.REFUSED} | {t.RANGED}
+held |= {d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED}
+missing = []
+for path in Path(sys.argv[1]).glob("*.scala"):
+    source = re.sub(r"/\*.*?\*/", "", path.read_text(), flags=re.S)
+    source = re.sub(r"(?m)^\s*//.*$", "", source)
+    for s in re.findall(r'"([^"\n]*)"', source):
+        s = re.sub(r"#[a-z0-9]{8}$", "", s)
+        key = path.name == "KeyExpressionTest.scala" and " " not in s
+        key = key and not s.endswith("]")
+        if (key or re.match(r"[a-z]{2,8}\(.*\)", s)) and selected(s):
+            missing += [s] * (s not in held)
+print(missing)
+PY
+rm -r "${scala:?}"
 ```
 
-Core, on a node of its own with no chain, wallet or peers:
+Core, on a node of its own with no chain, wallet or peers. From the
+repository root, the command prints the cases whose checksum or addresses
+differ from the test's, and those expected refused that Core accepts; it
+prints an empty list.
 
 ```shell
 datadir=$(mktemp -d)
 bitcoind -datadir="$datadir" -rpcport=18999 -disablewallet -connect=0 \
     -listen=0 -dnsseed=0 -daemonwait
-bitcoin-cli -datadir="$datadir" -rpcport=18999 getdescriptorinfo "$d"
-checksum=<the checksum getdescriptorinfo prints>
-# a ranged descriptor also takes a range, "[0,2]"
-bitcoin-cli -datadir="$datadir" -rpcport=18999 \
-    deriveaddresses "${d}#${checksum:?}"
+uv run python - "$datadir" <<'PY'
+import json
+import subprocess
+import sys
+
+from tests.descriptors import bitcoin_s_test as t
+
+
+def cli(*args):
+    return subprocess.run(
+        ["bitcoin-cli", f"-datadir={sys.argv[1]}", "-rpcport=18999", *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def info(d):
+    done = cli("getdescriptorinfo", d)
+    return json.loads(done.stdout)["checksum"] if done.returncode == 0 else None
+
+
+def addresses(d, count):
+    args = ["[0,2]"] if count > 1 else []
+    done = cli("deriveaddresses", f"{d}#{info(d)}", *args)
+    return json.loads(done.stdout)
+
+
+wrong = [d for d, checksum, _ in t.ACCEPTED if info(d) != checksum]
+wrong += [d for d, _ in t.REFUSED + t.CHECKSUM_REFUSED + t.KEY_REFUSED if info(d)]
+wrong += [t.RANGED] * (
+    (info(t.RANGED), addresses(t.RANGED, 3)) != (t.RANGED_CHECKSUM, t.RANGED_ADDRESSES)
+)
+wrong += [d for d, a in t.KEY_ACCEPTED if addresses(d, len(a)) != a]
+wrong += [t.TR_PKH_LEAF] * (
+    addresses(t.TR_PKH_LEAF, 1) != [t.TR_PKH_LEAF_ADDRESS]
+)
+print(wrong)
+PY
 bitcoin-cli -datadir="$datadir" -rpcport=18999 stop
+while [ -e "$datadir/bitcoind.pid" ]; do sleep 1; done
+rm -r "${datadir:?}"
 ```
 
 Not vendored as a file because the strings are literals in Scala source.
