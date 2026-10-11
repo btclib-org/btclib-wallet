@@ -62,10 +62,25 @@ BTCLIB_INTEGRATION=1 BTCLIB_HWI=hwi BTCLIB_HWI_SIGN=1 \
 reached with `BTCLIB_HWI="hwi --emulators"`. `-n0` because there is one
 device, and `addopts` passes `-n auto`.
 
+The fetcher tests need a server beside the node. `BTCLIB_ELECTRS` names
+Blockstream's `electrs`, which serves the Electrum protocol and Esplora's
+HTTP api; there is no `PATH` fallback, since romanz's `electrs` has the
+same name and no HTTP:
+
+```shell
+BTCLIB_INTEGRATION=1 BTCLIB_ELECTRS=/path/to/electrs \
+    uv run pytest tests/integration/electrs_test.py \
+    tests/integration/electrs_reorg_test.py -n0
+```
+
+The reorg test starts a node and a server of its own, so the reorg
+changes no other test's chain. `integration-electrs.yml`
+builds the pinned `electrs`.
+
 These tests are outside the coverage ratchet, which `pyproject.toml`
-says where it omits them. `integration-bitcoind.yml` and
-`integration-hwi.yml` run them unattended, and each job fails if its
-tests skipped rather than ran.
+says where it omits them. `integration-bitcoind.yml`,
+`integration-hwi.yml` and `integration-electrs.yml` run them unattended,
+and each job fails if its tests skipped rather than ran.
 
 ## Fuzzing, and replaying a crash it finds
 

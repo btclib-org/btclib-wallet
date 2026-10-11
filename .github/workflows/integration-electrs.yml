@@ -1,0 +1,141 @@
+---
+name: integration-electrs
+
+# Asks a live server what the fetchers' recorded answers cannot: whether a
+# field was renamed, an error changed shape or a reorg replaced a block.
+# `tests/integration/electrs_test.py` runs ElectrumFetcher and
+# EsploraFetcher against Blockstream's electrs, which answers the Electrum
+# protocol and Esplora's HTTP api from one index, on a regtest bitcoind;
+# `electrs_reorg_test.py` reorganizes that chain under them.
+#
+# Not a required check, and not in REPOSITORY.md's table: the server is
+# built from source and its repository is a third party's to break. The
+# bitcoind half of `tests/integration/` is integration-bitcoind.yml's.
+#
+# The trigger is a pull request touching a path `paths:` lists, the push
+# to main, and the dispatch. There is no schedule: the calendar of section
+# 10 of btclib-org/.github gives a workflow its day, and this one has none.
+#
+# Pinned like integration-bitcoind.yml's node:
+#
+# - bitcoind is the same release and the same sha256, installed by
+#   btclib-org/.github's script;
+# - electrs publishes no release binary and no checksum, so it is built
+#   from the commit pinned below. A commit id names its whole tree, and
+#   `--locked` takes every dependency from Cargo.lock, whose crates.io
+#   checksums cargo verifies. The build is cached on the commit, and a run
+#   restores what main or its own branch saved.
+#
+# `tests/integration/conftest.py` reads `BTCLIB_ELECTRS` for the binary, and
+# the step after the tests fails the job if one of them skipped.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+    paths:
+      - .github/workflows/integration-electrs.yml
+      - tests/integration/conftest.py
+      - uv.lock
+      - pyproject.toml
+      - .python-version
+      - tests/integration/electrs_*.py
+      - src/btclib_wallet/fetch/**
+
+# least privilege for the GITHUB_TOKEN: nothing here writes
+permissions:
+  contents: read
+
+env:
+  # the release integration-bitcoind.yml pins, and the sha256 of its linux
+  # tarball as the guix builders attested it in bitcoin-core/guix.sigs
+  BITCOIND_VERSION: "31.1"
+  BITCOIND_SHA256: >-
+    b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+  # the tip of Blockstream/electrs's new-index branch on 2026-10-05.
+  # Raising it is a commit
+  ELECTRS_COMMIT: dd09701e84dc88a2c58a1365f798222b66e13772
+
+# named literally rather than through github.workflow, as everywhere else
+concurrency:
+  group: integration-electrs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  electrs:
+    name: Electrum and Esplora against electrs
+    # a draft pull request spends no runner, and neither does a closed one:
+    # that event is taken only to cancel the run it supersedes
+    if: ${{ !github.event.pull_request.draft && github.event.action != 'closed' }}
+    runs-on: ubuntu-latest
+    # the tests are seconds. The bound is the cold build of electrs and its
+    # rocksdb, and a hung job holding a runner
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out btclib-org/.github's scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/.github
+          ref: main
+          path: standard
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Setup uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - name: Install bitcoind
+        id: bitcoind
+        run: |
+          daemon=$(uv run --no-project --python 3.15 \
+            standard/.github/scripts/install_bitcoind.py \
+            "$BITCOIND_VERSION" "$BITCOIND_SHA256")
+          echo "path=$daemon" >> "$GITHUB_OUTPUT"
+          "$daemon" -version | head -n 1
+      - name: Restore the electrs build
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: electrs-install
+          key: electrs-${{ env.ELECTRS_COMMIT }}-${{ runner.os }}-${{ runner.arch }}
+      - name: Build electrs
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --bin electrs \
+            --git https://github.com/Blockstream/electrs \
+            --rev "$ELECTRS_COMMIT" --root electrs-install electrs
+      # what answered, in the log of the run that used it
+      - name: Show the electrs version
+        run: |
+          electrs-install/bin/electrs --version
+      - name: Run the integration tests
+        env:
+          BTCLIB_BITCOIND: ${{ steps.bitcoind.outputs.path }}
+        run: |
+          export BTCLIB_INTEGRATION=1
+          export BTCLIB_ELECTRS="$PWD/electrs-install/bin/electrs"
+          uv run --locked --no-default-groups --group test \
+            pytest tests/integration/electrs_test.py \
+            tests/integration/electrs_reorg_test.py \
+            --junitxml=integration.xml
+      # pytest exits 0 for a test that skipped itself, and a job whose
+      # fixture stopped finding the server would stay green asking it
+      # nothing. No prefix is exempt here: every skip fails
+      - name: Fail if the server tests did not run
+        run: |
+          uv run --no-project --python 3.15 \
+            standard/.github/scripts/check_node_ran.py integration.xml
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-electrs-report
+          path: integration.xml
+          if-no-files-found: error
+          retention-days: 90

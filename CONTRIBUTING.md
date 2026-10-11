@@ -634,8 +634,32 @@ BTCLIB_INTEGRATION=1 BTCLIB_BITCOIND=/path/to/bitcoind \
 
 A step after it reads that report and fails the job if a regtest test
 skipped, pytest exiting 0 for a module that skipped itself. The HWI tests
-skip there by design, and the step accepts a skip whose message starts
-`set BTCLIB_HWI`, which both HWI switches' messages do.
+skip there by design, and so do the electrs tests, whose job is
+`integration-electrs.yml`. The step accepts a skip whose message starts
+`set BTCLIB_`, which the messages of the HWI switches and of
+`BTCLIB_ELECTRS` do.
+
+`integration-electrs.yml` — `ElectrumFetcher` and `EsploraFetcher` against
+Blockstream's `electrs` on a regtest `bitcoind`, a reorg included. The
+`bitcoind` is the pinned release of the job above. `electrs` publishes no
+release binary, so the job builds the commit the workflow pins, and
+`BTCLIB_ELECTRS` names the result:
+
+```shell
+cargo install --locked --bin electrs \
+    --git https://github.com/Blockstream/electrs \
+    --rev <commit> --root /path/to/electrs-install electrs
+BTCLIB_INTEGRATION=1 BTCLIB_BITCOIND=/path/to/bitcoind \
+    BTCLIB_ELECTRS=/path/to/electrs-install/bin/electrs \
+    uv run --locked --no-default-groups --group test \
+    pytest tests/integration/electrs_test.py \
+    tests/integration/electrs_reorg_test.py --junitxml=integration.xml
+```
+
+A step after it fails the job if one of these tests skipped. The job is not
+a required check: it builds a third party's server. Its `pull_request`
+trigger runs it on a pull request touching a path its `paths:` lists, and
+`gh workflow run integration-electrs.yml --ref <branch>` runs it by hand.
 
 `integration-hwi.yml` — the HWI tests against a Trezor emulator and
 against a Ledger one under Speculos, each beside the same node. The
@@ -684,6 +708,7 @@ reliance `REVIEWING.md` provides for.
 | `deps-latest` | weekly | dependencies upgraded |
 | `deps-oldest` | weekly | the floor interpreter, dependencies at their floors |
 | `integration-hwi` | weekly, push to main | two emulators |
+| `integration-electrs` | pull request on its paths, push to main | — |
 | `scorecard` | weekly, push to main | — |
 | `links` | weekly | — |
 | `mutation` | weekly | — |

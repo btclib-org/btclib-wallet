@@ -220,7 +220,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         raw = self._call(
             "getblockheader", [block_hash, False], max_body_size=_MAX_SMALL_REPLY
         )
-        return block_header_from_raw(raw, height)
+        return block_header_from_raw(raw, height, network=self.network)
 
     @override
     def assert_network(self) -> None:

@@ -28,11 +28,19 @@ from bitcoin_core_rpc import (
     chain_from_network,
 )
 from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, HttpError
+from btclib.network import NETWORKS
 from btclib.tx import OutPoint
 
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.broadcaster import Broadcaster
-from tests.fetch import TIP_HEIGHT, TIP_ID, TX_ID, Recorded, recorded_body
+from tests.fetch import (
+    REGTEST_GENESIS_HEADER_RAW,
+    TIP_HEIGHT,
+    TIP_ID,
+    TX_ID,
+    Recorded,
+    recorded_body,
+)
 
 # a custom signet differs from the default one in its challenge alone,
 # which is what the name `signet` cannot separate; the default one is the
@@ -238,6 +246,18 @@ def test_get_block_header_asks_blockhashbyheight_then_headers() -> None:
         f"{URL}/rest/blockhashbyheight/{TIP_HEIGHT}.bin",
         f"{URL}/rest/headers/{TIP_ID}.bin?count=1",
     ]
+
+
+def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
+    """The fetcher's network is the limit its headers are held to."""
+    answers = (
+        (200, recorded_body("rest_blockhashbyheight.bin")),
+        (200, bytes.fromhex(REGTEST_GENESIS_HEADER_RAW)),
+    )
+    regtest = fetcher(*answers, network="regtest")
+    assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        fetcher(*answers).get_block_header(0)
 
 
 def test_get_block_header_refuses_a_height_with_no_block() -> None:

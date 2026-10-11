@@ -160,10 +160,25 @@ used to teach and to prototype as much as to build.
 - **The answers a fetch makes are checked to different degrees.** A
     transaction's id is recomputed from the bytes that came back and
     refused unless it matches, and an output's amount is derived from
-    that same transaction. A block header is parsed and checked for a
-    real proof of work, which says it cost real work and not that it is
-    the header at the height asked for. A height, and the tip hash from
-    every backend but `ElectrumFetcher`, rest on the backend's word.
+    that same transaction. A block header is parsed and its proof
+    of work checked against the limit of the fetcher's network: real work
+    on mainnet, testnet and testnet4, about a thousandth of that on
+    signet, and one hash in two on regtest. None of these says it is the
+    header at the height asked for. A height, and the tip hash from every
+    backend but `ElectrumFetcher`, rest on the backend's word.
+    The work each limit stands for, in bits, is:
+
+    ```shell
+    uv run python -c "
+    from math import log2
+    from btclib.block.proof_of_work import target_from_bits
+    from btclib.network import NETWORKS
+    for name, net in NETWORKS.items():
+        limit = int.from_bytes(target_from_bits(net.consensus.pow_limit_bits))
+        print(name, round(256 - log2(limit + 1)))
+    "
+    ```
+
 - **`ElectrumFetcher` is the one backend that can prove an answer.**
     `get_tx_merkle` and `verify_tx` check a transaction's branch against
     a header the fetcher fetched itself, so a caller who runs the check

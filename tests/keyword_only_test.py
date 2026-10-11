@@ -133,6 +133,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.descriptors:TrDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:WpkhDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:WshDescriptor.__init__": ["network"],
+    "btclib_wallet.fetch.fetcher:block_header_from_raw": ["network"],
     "btclib_wallet.fetch.fetcher:NetworkVerifyingFetcher.__init__": ["verify_network"],
     "btclib_wallet.fetch.transport:http_request": [
         "data",

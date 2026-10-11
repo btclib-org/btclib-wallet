@@ -220,8 +220,8 @@ class Fetcher(ABC):
         already avoid.
 
         Checked on arrival: `assert_valid` and `assert_valid_pow`, so a
-        well-formed header answers for eighty bytes that took a real hash
-        to produce. `assert_valid_time` is not among them -- it
+        well-formed header answers for eighty bytes within the network's
+        proof-of-work limit. `assert_valid_time` is not among them -- it
         compares against the local clock, and a header that is genuinely
         on the chain should not start failing this because the machine
         running it has drifted.
@@ -396,7 +396,7 @@ def block_header_height(height: int) -> int:
     return height
 
 
-def block_header_from_raw(raw: Octets, height: int) -> BlockHeader:
+def block_header_from_raw(raw: Octets, height: int, *, network: str) -> BlockHeader:
     """Return the header a serialization holds, checked on arrival.
 
     Every backend answers with the raw serialization rather than a
@@ -405,11 +405,17 @@ def block_header_from_raw(raw: Octets, height: int) -> BlockHeader:
     it against the way `tx_from_raw` recomputes a txid. What is checked
     instead is what `Fetcher.get_block_header` promises:
     `BlockHeader.assert_valid`, for eighty well-formed bytes, and
-    `assert_valid_pow`, for a hash that took real work to find. Its
-    docstring is where what neither check establishes is written down.
+    `assert_valid_pow`, for a hash within `network`'s
+    `consensus.pow_limit_bits`. SECURITY.md says what each limit is worth.
+    `Fetcher.get_block_header`'s docstring is where what neither check
+    establishes is written down.
+
+    `network` is resolved with `network_from_name`, so a name no network
+    has is a `BTClibValueError`.
     """
+    pow_limit_bits = network_from_name(network).consensus.pow_limit_bits
     with fetch_errors(f"block header {height}"):
         header = BlockHeader.parse(raw, check_validity=False)
         header.assert_valid()
-        header.assert_valid_pow()
+        header.assert_valid_pow(pow_limit_bits)
     return header

@@ -25,6 +25,7 @@ from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
 from tests import chained_text
 from tests.fetch import (
     LATER_TX_ID,
+    REGTEST_GENESIS_HEADER_RAW,
     SEGWIT_TX_RAW,
     TIP_HEADER_RAW,
     TIP_HEIGHT,
@@ -306,6 +307,21 @@ def test_get_block_header_refuses_a_non_integer_height(height: object) -> None:
     with pytest.raises(BTClibTypeError, match="invalid height type"):
         esplora.get_block_header(height)  # type: ignore[arg-type]
     assert transport.requests == []
+
+
+def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
+    """The fetcher's network is the limit its headers are held to."""
+    answers = (
+        (200, recorded_body("esplora_block_height_hash.txt")),
+        (200, REGTEST_GENESIS_HEADER_RAW.encode()),
+    )
+    regtest = EsploraFetcher(
+        BASE, network="regtest", transport=Recorded(*answers), verify_network=False
+    )
+    assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
+    mainnet = EsploraFetcher(BASE, transport=Recorded(*answers), verify_network=False)
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        mainnet.get_block_header(0)
 
 
 def test_a_header_that_did_not_mine_the_bits_it_claims_is_refused() -> None:

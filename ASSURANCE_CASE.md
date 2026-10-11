@@ -19,7 +19,9 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   pinned Trezor emulator and a pinned Ledger under Speculos
   (`.github/workflows/integration-hwi.yml`) and
   `tests/integration/regtest_test.py` against a disposable regtest
-  `bitcoind` (`.github/workflows/integration-bitcoind.yml`).
+  `bitcoind` (`.github/workflows/integration-bitcoind.yml`), and the
+  Electrum and Esplora fetchers against a live `electrs`, a reorg
+  included (`.github/workflows/integration-electrs.yml`).
   `tests/_data/README.md` pins every vendored vector to the upstream
   commit it was copied from and says whether the two still match.
   `.github/workflows/vendored-vectors.yml` runs weekly: it hashes each
@@ -220,8 +222,9 @@ transaction, a block header, a fee estimate, a UTXO's existence.
 SECURITY.md's *A backend is trusted, and not every backend alike* is the
 full statement of what is checked at that boundary and what is not:
 a transaction id is recomputed and refused unless it matches, a header's
-proof of work is checked, and a height or a tip hash rests on the
-backend's word except through `ElectrumFetcher`'s own merkle proof.
+proof of work is checked against its network's limit, and a height or a
+tip hash rests on the backend's word except through `ElectrumFetcher`'s own
+merkle proof.
 `TlsLineTransport` verifies the server's certificate and host name by
 default. `Broadcaster.broadcast` checks that the backend named the txid
 this package computed and nothing checks that the transaction went on to

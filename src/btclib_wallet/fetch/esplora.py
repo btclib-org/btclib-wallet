@@ -21,10 +21,10 @@ is the one answer that checks itself completely, in `tx_from_raw` -- the
 serialization comes back and the id is recomputed from it, so a
 substituted transaction is caught. `get_block_header` checks less:
 `block_header_from_raw` only asks whether the eighty bytes are
-well-formed and cost a real hash to mine, which is cheap for a host to
-fabricate compared with the transaction it would have to forge to pass
-the id check. The height and the tip hash have nothing here to check
-them against at all, and are taken on trust.
+well-formed and within the network's proof-of-work limit, which is
+cheap for a host to fabricate compared with the transaction it would
+have to forge to pass the id check. The height and the tip hash have
+nothing here to check them against at all, and are taken on trust.
 
 Which chain the explorer serves is a separate question from the answers
 above, and `verify_network` is what asks it: declared once on
@@ -304,7 +304,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             reply = self.text(f"/block-height/{height}", _MAX_HASH_BODY)
             block_hash = bytes_from_octets(reply, 32).hex()
         raw = self.text(f"/block/{block_hash}/header", _MAX_HEADER_BODY)
-        return block_header_from_raw(raw, height)
+        return block_header_from_raw(raw, height, network=self.network)
 
     @override
     def assert_network(self) -> None:

@@ -27,7 +27,13 @@ from btclib.tx import OutPoint
 
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT
-from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT, TIP_ID, TX_ID
+from tests.fetch import (
+    REGTEST_GENESIS_HEADER_RAW,
+    TIP_HEADER_RAW,
+    TIP_HEIGHT,
+    TIP_ID,
+    TX_ID,
+)
 
 # block 481824's transaction at index 1 -- btclib's own
 # tests/electrum_test.py says how the branch below was derived, with its
@@ -290,6 +296,18 @@ def test_get_block_header_asks_block_header() -> None:
     request = json.loads(transport_of(endpoint).requests[0])
     assert request["method"] == "blockchain.block.header"
     assert request["params"] == [TIP_HEIGHT]
+
+
+def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
+    """The fetcher's network is the limit its headers are held to."""
+    regtest = fetcher(REGTEST_GENESIS_HEADER_RAW, network="regtest")
+    assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
+    tip = {"height": 0, "hex": REGTEST_GENESIS_HEADER_RAW}
+    assert fetcher(tip, network="regtest").get_best_block_id() == (
+        NETWORKS["regtest"].genesis_block
+    )
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        fetcher(REGTEST_GENESIS_HEADER_RAW).get_block_header(0)
 
 
 @pytest.mark.parametrize("height", [-1, -481824])

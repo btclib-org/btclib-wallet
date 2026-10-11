@@ -49,6 +49,21 @@ TIP_HEADER_RAW = (
     "0040d1ca077fefe7fb797711baa0c063eca9b8ed9469ae0128982b44ad0c253864913"
     "29e59e93c011822ff5422"
 )
+# the header of regtest's genesis block, as `bitcoind -regtest` serves it
+# at height 0. Its bits, 0x207fffff, are an easier target than mainnet's
+# limit allows, which is what makes it a vector for the network a header
+# is checked against. `NETWORKS["regtest"].genesis_block` is its hash
+REGTEST_GENESIS_HEADER_RAW = (
+    "0100000000000000000000000000000000000000000000000000000000000000000000"
+    "003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a"
+    "dae5494dffff7f2002000000"
+)
+# the header of signet's genesis block: bits 0x1e0377ae, an easier target
+# than mainnet's limit allows. `NETWORKS["signet"].genesis_block` is its hash
+SIGNET_GENESIS_HEADER_RAW = (
+    "0100000000000000000000000000000000000000000000000000000000000000000000003ba3"
+    "edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203"
+)
 # transaction 22 of block 481824, read out of
 # tests/block/_data/block_481824_complete.bin: a P2SH-P2WPKH spend, and
 # the transaction the broadcasts announce. A witness is what separates

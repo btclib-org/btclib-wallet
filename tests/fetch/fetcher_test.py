@@ -14,6 +14,7 @@ from btclib.exceptions import (
     BTClibValueError,
     FetchError,
 )
+from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxOut
 
@@ -28,6 +29,8 @@ from btclib_wallet.fetch.fetcher import (
     tx_id_hex,
 )
 from tests.fetch import (
+    REGTEST_GENESIS_HEADER_RAW,
+    SIGNET_GENESIS_HEADER_RAW,
     TIP_HEADER_RAW,
     TIP_HEIGHT,
     TIP_ID,
@@ -224,7 +227,7 @@ def test_block_header_height_refuses_a_non_integer_height(height: object) -> Non
 
 def test_block_header_from_raw_returns_a_checked_header() -> None:
     """Parse the serialization and pass it through assert_valid_pow."""
-    header = block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT)
+    header = block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network="mainnet")
     assert header.hash.hex() == TIP_ID
 
 
@@ -240,7 +243,37 @@ def test_block_header_from_raw_returns_a_checked_header() -> None:
 def test_block_header_from_raw_reports_what_is_not_a_header(raw: str) -> None:
     """Wrap an unparsable body in a FetchError naming the height."""
     with pytest.raises(FetchError, match=f"block header {TIP_HEIGHT}:"):
-        block_header_from_raw(raw, TIP_HEIGHT)
+        block_header_from_raw(raw, TIP_HEIGHT, network="mainnet")
+
+
+def test_block_header_from_raw_checks_the_work_against_the_network_given() -> None:
+    """Regtest's genesis is within regtest's limit and beyond mainnet's."""
+    header = block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="regtest")
+    assert header.hash == NETWORKS["regtest"].genesis_block
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="mainnet")
+
+
+def test_block_header_from_raw_holds_signet_to_signets_limit() -> None:
+    """Signet's genesis is within signet's limit and beyond mainnet's."""
+    header = block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, 0, network="signet")
+    assert header.hash == NETWORKS["signet"].genesis_block
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, 0, network="mainnet")
+
+
+def test_block_header_from_raw_refuses_a_regtest_header_for_signet() -> None:
+    """Signet's limit is not regtest's."""
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="signet")
+
+
+def test_block_header_from_raw_resolves_the_network_name() -> None:
+    """A name is resolved like any network name; an unknown one is refused."""
+    header = block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network=" MainNet ")
+    assert header.hash.hex() == TIP_ID
+    with pytest.raises(BTClibValueError):
+        block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network="foo")
 
 
 def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
@@ -252,7 +285,7 @@ def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
     """
     forged = TIP_HEADER_RAW[:-8] + "00000000"
     with pytest.raises(FetchError, match=f"block header {TIP_HEIGHT}: invalid proof"):
-        block_header_from_raw(forged, TIP_HEIGHT)
+        block_header_from_raw(forged, TIP_HEIGHT, network="mainnet")
 
 
 def test_the_interface_is_abstract() -> None:

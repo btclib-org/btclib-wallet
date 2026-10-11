@@ -295,4 +295,4 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         raw = self._get_bin(
             f"/headers/{block_hash}.bin?count=1", max_body_size=_MAX_HEADER_BODY
         )
-        return block_header_from_raw(raw, height)
+        return block_header_from_raw(raw, height, network=self.network)

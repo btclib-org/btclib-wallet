@@ -52,6 +52,7 @@ from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
 from tests.fetch import (
     LATER_TX_ID,
+    REGTEST_GENESIS_HEADER_RAW,
     SEGWIT_TX_RAW,
     TIP_HEIGHT,
     TIP_ID,
@@ -569,6 +570,16 @@ def test_get_block_header_asks_getblockhash_then_getblockheader() -> None:
     assert isinstance(header_request_data, bytes)
     assert json.loads(hash_request_data)["params"] == [TIP_HEIGHT]
     assert json.loads(header_request_data)["params"] == [TIP_ID, False]
+
+
+def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
+    """The fetcher's network is the limit its headers are held to."""
+    reply = json.dumps({"jsonrpc": "2.0", "result": REGTEST_GENESIS_HEADER_RAW})
+    answers = ((200, recorded_body("getblockhash.json")), (200, reply.encode()))
+    regtest = fetcher(*answers, network="regtest")
+    assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
+    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+        fetcher(*answers).get_block_header(0)
 
 
 @pytest.mark.parametrize("height", [-1, -481824])
