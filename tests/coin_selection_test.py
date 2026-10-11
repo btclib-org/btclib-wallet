@@ -23,7 +23,8 @@ way as the waste vectors), and against the property every one of them
 shares: every candidate a selection returns is one of the candidates it
 was given, and the effective value of the selection covers the target.
 `branch_and_bound` is also checked against a brute-force search over a
-small pool, as Core's `bnb_finds_min_waste` does.
+small pool, as Core's `bnb_finds_min_waste` does
+(`bitcoin/bitcoin@a8b69bdeaf`, `src/wallet/test/fuzz/coinselection.cpp:217`).
 
 **The pair with `tx_builder.build_psbt`** is checked the way the issue
 that asked for this module says to: a selection is turned into `PsbtIn`
@@ -1120,15 +1121,16 @@ def test_branch_and_bound_matches_a_brute_force_search(
     ones in `[target, target + cost_of_change]` with the module's own
     `_waste` and no change, which is what the search minimises. It skips
     a superset of a solution found earlier, as Core's `bnb_finds_min_waste`
+    (`coinselection.cpp:217`)
     does, so the assertion is equality. A superset S'
     of a match S that is itself in the window has a prefix, its first |S|
     inputs in descending order, that is also a match. The search shifts at
     that prefix and never reaches S', so the brute force's solutions are
     exactly what the search can return. Where the long-term rate exceeds
-    the rate, such an S' can waste less and is not found. A pool of 12 has
-    at most 2**13 nodes, far under `_BNB_TOTAL_TRIES`, so the
-    iteration bound cannot make the search miss a solution here: the
-    property says nothing about pools large enough to reach it.
+    the rate, such an S' can waste less and is not found. The assertion
+    on the pool size holds the search tree under `_BNB_TOTAL_TRIES`, so
+    the iteration bound cannot make it miss a solution here: the property
+    says nothing about pools large enough to reach it.
     """
     candidates, outputs, fee_rate, long_term_fee_rate, change_spend_weight = case
     target = _target(outputs, fee_rate, len(candidates))
@@ -1141,6 +1143,8 @@ def test_branch_and_bound_matches_a_brute_force_search(
         )
     )
     pool = _eligible(candidates, fee_rate)
+    # a try adds one input, so a pool of n takes at most 2**n - 1 tries
+    assert 2 ** len(pool) <= coin_selection_module._BNB_TOTAL_TRIES
 
     best: int | None = None
     solutions: list[frozenset[int]] = []
