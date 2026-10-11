@@ -78,6 +78,22 @@ BTCLIB_INTEGRATION=1 BTCLIB_ELECTRS=/path/to/electrs \
 `bitcoind` and `electrs`, and `addopts` passes `-n auto`.
 `integration-electrs.yml` builds the pinned `electrs`.
 
+`ElectrumFetcher` is also run against Floresta. `florestad` follows a chain
+only through `utreexod`, so the stack adds two programs to `bitcoind`, named by
+`BTCLIB_FLORESTAD` and `BTCLIB_UTREEXOD`:
+
+```shell
+BTCLIB_INTEGRATION=1 BTCLIB_FLORESTAD=/path/to/florestad \
+    BTCLIB_UTREEXOD=/path/to/utreexod \
+    uv run pytest tests/integration/floresta_test.py -n 0
+```
+
+`-n 0` because each worker that takes one of these tests starts its own
+three programs, and `addopts` passes `-n auto`.
+
+`integration-floresta.yml` builds the pinned `florestad` and downloads the
+pinned `utreexod`.
+
 `tests/integration/qa_assets_test.py` needs a checkout of
 [bitcoin-core/qa-assets](https://github.com/bitcoin-core/qa-assets),
 Core's fuzz corpora, or of
@@ -97,9 +113,10 @@ The module's docstring says how each corpus directory is read.
 
 These tests are outside the coverage ratchet, which `pyproject.toml`
 says where it omits them. `integration-bitcoind.yml`,
-`integration-hwi.yml` and `integration-electrs.yml` run them unattended,
-and each job fails if its tests skipped rather than ran. `qa-assets.yml`
-runs the replay weekly, and it fails on a directory its checkout lacks.
+`integration-hwi.yml`, `integration-electrs.yml` and
+`integration-floresta.yml` run them unattended, and each job fails if its
+tests skipped rather than ran. `qa-assets.yml` runs the replay weekly, and
+it fails on a directory its checkout lacks.
 
 ## Generated PSBT interoperability
 

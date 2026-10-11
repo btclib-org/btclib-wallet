@@ -39,14 +39,15 @@ invisible to it entirely. Naming any one entry as a constant would
 repeat the mistake `BLOCKSTREAM_INFO` already refuses.
 
 **A question the interface does not declare, answered by nothing else in
-this package.** `get_tx_merkle` and `verify_tx` are not on `Fetcher`:
-adding a return type no other backend can honor is what the interface's
-abstract methods, each with a return type of its own, already exist to
-avoid, and both the issue and issue btclib-org/btclib#1193 hold the interface
-itself unchanged. What `Fetcher`'s own class docstring calls "evidence beside
-the data" is what these two are -- a merkle branch checked against a header this
-fetcher fetched on its own, which is a different kind of answer from the other
-backends' word for it, and the reason this backend exists.
+this package.** `get_tx_merkle`, `verify_tx` and `get_block_headers` are
+not on `Fetcher`. For the first two, adding a return type no other backend
+can honor is what the interface's abstract methods, each with a return type
+of its own, already exist to avoid. For all three, both the issue and issue
+btclib-org/btclib#1193 hold the interface itself unchanged.
+What `Fetcher`'s own class docstring calls "evidence beside
+the data" is what the first two are -- a merkle branch checked against a header
+this fetcher fetched on its own, which is a different kind of answer from the
+other backends' word for it, and the reason this backend exists.
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import Tx
+from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
@@ -91,6 +93,10 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     `get_block_header` runs.
     `get_block_header` is `blockchain.block.header`, `cp_height` left
     unsent.
+
+    `get_block_headers` is `blockchain.block.headers`: up to a server's
+    own maximum of consecutive headers in one answer, each checked as
+    `get_block_header` checks one, and each chained to the one before it.
 
     `get_tx_merkle` is `blockchain.transaction.get_merkle`, returning the
     branch and position `btclib.electrum.MerkleProof` carries.
@@ -217,6 +223,43 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """Return the header at this height, via `blockchain.block.header`."""
         self._verify_once()
         return self._header_at(block_header_height(height))
+
+    def get_block_headers(self, start_height: int, count: int) -> list[BlockHeader]:
+        """Return up to `count` consecutive headers from `start_height`.
+
+        `blockchain.block.headers`, through `btclib.electrum`'s
+        `block_headers_request` and `block_headers_response`, whose
+        docstring says which answer shape is read and what it refuses. A
+        server may answer fewer than asked, by its own maximum or by
+        reaching its tip, so the list can be shorter than `count`, or
+        empty. Each header is then checked by `block_header_from_raw`, and
+        each must name the hash of the one before it as its
+        `previous_block_hash`. The first header's parent is not checked:
+        the chunk carries no header below it.
+        """
+        self._verify_once()
+        start_height = block_header_height(start_height)
+        if not is_integer(count):
+            raise BTClibTypeError(f"invalid count type: {type(count).__name__}")
+        if count < 1:
+            raise BTClibValueError(f"invalid count: {count}")
+        request_id = self._next_request_id()
+        line = self._round_trip(
+            electrum.block_headers_request(request_id, start_height, count)
+        )
+        source = f"block headers {start_height}+{count}"
+        with fetch_errors(source):
+            raws = electrum.block_headers_response(line, request_id, count)
+        headers = [
+            block_header_from_raw(raw, start_height + i, network=self.network)
+            for i, raw in enumerate(raws)
+        ]
+        for i in range(1, len(headers)):
+            if headers[i].previous_block_hash != headers[i - 1].hash:
+                err_msg = f"{source}: header {start_height + i} does not follow"
+                err_msg += f" header {start_height + i - 1}"
+                raise FetchError(err_msg)
+        return headers
 
     @override
     def assert_network(self) -> None:

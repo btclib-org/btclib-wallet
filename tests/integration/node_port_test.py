@@ -36,7 +36,7 @@ def test_bitcoind_is_started_again_where_its_rpc_port_is_taken(
             stack_module, "_free_port", lambda: next(ports, None) or real()
         )
         process, client, port = start_on_free_ports(
-            lambda: _start_node([bitcoind_path], datadir)
+            lambda: _start_node([bitcoind_path], datadir, None)
         )
     try:
         assert port != held

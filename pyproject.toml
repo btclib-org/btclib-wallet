@@ -44,7 +44,10 @@ dependencies = [
     # (GHSA-c6h8-5hv5-3gv7).
     # 2026.10.16 is the floor because through 2026.10.9 btclib imports
     # `point_from_octets` and `point_from_bip340pub_key` from btclib-ecc,
-    # which the btclib-ecc floor below no longer has
+    # which the btclib-ecc floor below no longer has.
+    # 2026.10.16 is also the first release with `btclib.electrum`'s
+    # `block_headers_request` and `block_headers_response`, which
+    # `ElectrumFetcher.get_block_headers` asks through
     "btclib>=2026.10.16",
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `btclib_ecc.curves`, `btclib_ecc.ecc` less `bms`, which

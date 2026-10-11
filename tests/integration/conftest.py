@@ -29,6 +29,7 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import time
 import urllib.request
@@ -52,6 +53,7 @@ from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import NetworkVerifyingFetcher
+from btclib_wallet.fetch.transport import LineTransport, TlsLineTransport
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 
 # how long the node is given to answer its first rpc call: a regtest
@@ -86,12 +88,19 @@ def bitcoind_path() -> str:
     return path
 
 
-def _bitcoind_args(bitcoind: Sequence[str], datadir: Path, port: int) -> list[str]:
+def _bitcoind_args(
+    bitcoind: Sequence[str], datadir: Path, port: int, p2p_port: int | None
+) -> list[str]:
     """Return the command line of a throwaway regtest node, `node`'s own.
 
     `bitcoind` is the command that runs the program, as `electrs` is to
-    `_start_server`: the program's path, for the real one.
+    `_start_server`: the program's path, for the real one. With a
+    `p2p_port` the node listens on it, on loopback, for a peer that syncs
+    from it.
     """
+    listen = ["-listen=0"]
+    if p2p_port is not None:
+        listen = ["-listen=1", f"-port={p2p_port}", "-bind=127.0.0.1"]
     return [
         *bitcoind,
         "-regtest",
@@ -103,7 +112,7 @@ def _bitcoind_args(bitcoind: Sequence[str], datadir: Path, port: int) -> list[st
         # `127.0.0.1` is taken, which the start-again on a taken port
         # cannot see
         "-rpcallowip=127.0.0.1",
-        "-listen=0",
+        *listen,
         "-natpmp=0",
         "-discover=0",
         "-listenonion=0",
@@ -136,7 +145,7 @@ def node(
     """
     datadir = tmp_path_factory.mktemp("regtest")
     process, client, _ = start_on_free_ports(
-        lambda: _start_node([bitcoind_path], datadir)
+        lambda: _start_node([bitcoind_path], datadir, None)
     )
     try:
         yield client
@@ -463,9 +472,11 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
 
 
 def _start_node(
-    bitcoind: Sequence[str], datadir: Path
+    bitcoind: Sequence[str], datadir: Path, p2p_port: int | None
 ) -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
     """Return a node, a client of it and its rpc port, once it answers.
+
+    `p2p_port` is `_bitcoind_args`'s.
 
     The node is stopped again where it does not get there, `PortTaken`
     included, so that the next try does not leave it behind.
@@ -474,7 +485,9 @@ def _start_node(
     # a try that failed left its log behind, and its complaint must not be
     # read as this one's
     (datadir / "regtest" / "debug.log").unlink(missing_ok=True)
-    process = _start(_bitcoind_args(bitcoind, datadir, port), datadir / "stdout.log")
+    process = _start(
+        _bitcoind_args(bitcoind, datadir, port, p2p_port), datadir / "stdout.log"
+    )
     client = BitcoinCoreRpcClient(
         f"http://127.0.0.1:{port}", cookie_path=datadir / "regtest" / ".cookie"
     )
@@ -544,7 +557,7 @@ def running_stack(
     datadir = tmp_path_factory.mktemp("stack-node")
     index = tmp_path_factory.mktemp("stack-index")
     node_process, client, rpc_port = start_on_free_ports(
-        lambda: _start_node([bitcoind], datadir)
+        lambda: _start_node([bitcoind], datadir, None)
     )
     stack: Stack | None = None
     try:
@@ -561,3 +574,233 @@ def running_stack(
         if stack is not None:
             _stop(stack.server)
         _stop(node_process)
+
+
+# The Floresta stack: a `bitcoind` that mines, `utreexod` that syncs from
+# it, and `florestad` whose only peer is `utreexod`.
+#
+# Floresta validates blocks with utreexo proofs, which `bitcoind` does not
+# serve, so given `bitcoind` alone it follows headers and no blocks.
+# `utreexod` serves them. Each program's switch is the path of its binary.
+# `.github/workflows/integration-floresta.yml` builds one and downloads the
+# other.
+#
+# Floresta's Electrum server is a wallet's: it answers for the scripts it
+# watches and no others. The first `blockchain.scriptpubkey.get_history`
+# for a script queues it for a scan and answers `null`, which is how a
+# test makes the server watch one.
+
+FLORESTAD_ENV = "BTCLIB_FLORESTAD"
+UTREEXOD_ENV = "BTCLIB_UTREEXOD"
+
+
+def floresta_binaries() -> tuple[str, str]:
+    """Return the `florestad` and `utreexod` to run, skipping without both."""
+    paths = []
+    for name, what in ((FLORESTAD_ENV, "florestad"), (UTREEXOD_ENV, "utreexod")):
+        path = os.environ.get(name)
+        if not path:
+            pytest.skip(f"set {name} to the {what} binary")
+        paths.append(path)
+    return paths[0], paths[1]
+
+
+class JsonRpc2Transport:
+    """A `LineTransport` that marks its requests JSON-RPC 2.0.
+
+    Floresta answers a request without `"jsonrpc": "2.0"` with a parse
+    error, and `btclib.electrum` does not write the member. The Electrum
+    spec does not require it either (spesmilo/electrum-protocol,
+    `docs/protocol-basics.rst`), so the fetcher reaches Floresta only
+    through this wrapper.
+    """
+
+    def __init__(self, inner: LineTransport) -> None:
+        self.inner = inner
+
+    def __call__(self, request: bytes, timeout: float) -> bytes:
+        """Send the request as JSON-RPC 2.0 and return the line answering."""
+        body = json.loads(request)
+        body["jsonrpc"] = "2.0"
+        return self.inner(json.dumps(body).encode("utf-8") + b"\n", timeout)
+
+
+@dataclass
+class FlorestaStack:
+    """A `bitcoind` on regtest and the `florestad` following it."""
+
+    node: BitcoinCoreRpcClient
+    reward_address: str
+    electrum: LineTransport
+    tls: LineTransport
+    server: subprocess.Popen[bytes]
+    server_log: Path
+    peer_log: Path
+
+    def mine(self, blocks: int = 1) -> list[str]:
+        """Mine blocks on the node and wait until the server has them."""
+        ids = self.node.call("generatetoaddress", [blocks, self.reward_address])
+        self.wait_synced()
+        return [str(block_id) for block_id in ids]
+
+    def wait_synced(self) -> None:
+        """Poll until the server's tip is the node's, by height and hash."""
+        deadline = time.monotonic() + _FLORESTA_SYNC_TIMEOUT
+        while True:
+            want = str(self.node.call("getbestblockhash"))
+            height = int(self.node.call("getblockcount"))
+            try:
+                line = self.electrum(electrum.headers_subscribe_request(1), 10)
+                tip = electrum.headers_subscribe_response(line, 1)
+                if (tip.height, BlockHeader.parse(tip.header).hash.hex()) == (
+                    height,
+                    want,
+                ):
+                    return
+            except (OSError, FetchError, ValueError):
+                pass
+            if self.server.poll() is not None:
+                log = self.server_log.read_text(encoding="utf-8", errors="replace")
+                pytest.fail(f"florestad exited with {self.server.returncode}: {log}")
+            if time.monotonic() > deadline:
+                # drop the electrum_protocol lines this loop's own connections
+                # write
+                kept = [
+                    line
+                    for line in self.server_log.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                    if "electrum_protocol" not in line
+                ]
+                log = "\n".join(kept)[-6000:]
+                log += (
+                    "\n--\n"
+                    + self.peer_log.read_text(encoding="utf-8", errors="replace")[
+                        -6000:
+                    ]
+                )
+                err_msg = (
+                    f"florestad did not reach {height} in {_FLORESTA_SYNC_TIMEOUT} s"
+                )
+                pytest.fail(f"{err_msg}: {log}")
+            time.sleep(0.5)
+
+    def request(self, method: str, params: list[Any], *, tls: bool = False) -> Any:
+        """Return the result of one Electrum call, plain or over TLS."""
+        line = (self.tls if tls else self.electrum)(
+            electrum.encode_request(1, method, params), 10
+        )
+        return electrum.decode_response(line, 1)
+
+
+def _wait_for_file(path: Path, process: subprocess.Popen[bytes]) -> None:
+    """Poll until `path` exists, or fail with what the process did instead."""
+    deadline = time.monotonic() + _STARTUP_TIMEOUT
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        if process.poll() is not None:
+            pytest.fail(f"{path.name} not written: exit {process.returncode}")
+        time.sleep(0.1)
+    pytest.fail(f"{path} not written within {_STARTUP_TIMEOUT} s")
+
+
+def _wait_for_log(path: Path, text: str, process: subprocess.Popen[bytes]) -> None:
+    """Poll until `text` is in the log at `path`, or fail with the log."""
+    deadline = time.monotonic() + _FLORESTA_SYNC_TIMEOUT
+    while time.monotonic() < deadline:
+        log = path.read_text(encoding="utf-8", errors="replace")
+        if text in log:
+            return
+        if process.poll() is not None:
+            pytest.fail(f"exit {process.returncode} before {text!r}: {log[-3000:]}")
+        time.sleep(0.2)
+    pytest.fail(f"no {text!r} in {path.name} within {_FLORESTA_SYNC_TIMEOUT} s")
+
+
+# how long the server is given to follow the node: `utreexod` relays a
+# block when it has it, so the wait is for the two hops
+_FLORESTA_SYNC_TIMEOUT = 120.0
+
+
+@contextmanager
+def running_floresta_stack(
+    bitcoind: str,
+    florestad: str,
+    utreexod: str,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[FlorestaStack]:
+    """Yield a node with 101 blocks and a `florestad` that has followed them."""
+    datadir = tmp_path_factory.mktemp("floresta-node")
+    utreexo_dir = tmp_path_factory.mktemp("floresta-utreexod")
+    floresta_dir = tmp_path_factory.mktemp("floresta-data")
+    p2p_port = _free_port()
+    utreexo_p2p, utreexo_rpc = _free_port(), _free_port()
+    electrum_port, tls_port = _free_port(), _free_port()
+    node_process, client, _ = start_on_free_ports(
+        lambda: _start_node([bitcoind], datadir, p2p_port)
+    )
+    processes = [node_process]
+    try:
+        client.call("createwallet", ["miner"])
+        miner = client.for_wallet("miner")
+        address = str(miner.call("getnewaddress"))
+        miner.call("generatetoaddress", [101, address])
+        processes.append(
+            _start(
+                [
+                    utreexod,
+                    "--regtest",
+                    f"--datadir={utreexo_dir}",
+                    "--rpcuser=u",
+                    "--rpcpass=p",
+                    f"--rpclisten=127.0.0.1:{utreexo_rpc}",
+                    "--utreexoproofindex",
+                    "--prune=0",
+                    f"--listen=127.0.0.1:{utreexo_p2p}",
+                    f"--connect=127.0.0.1:{p2p_port}",
+                    "--notls",
+                    "--nobanning",
+                ],
+                utreexo_dir / "utreexod.log",
+            )
+        )
+        server = _start(
+            [
+                florestad,
+                "--network=regtest",
+                f"--data-dir={floresta_dir}",
+                f"--connect=127.0.0.1:{utreexo_p2p}",
+                "--allow-v1-fallback",
+                f"--electrum-address=127.0.0.1:{electrum_port}",
+                "--enable-electrum-tls",
+                f"--electrum-address-tls=127.0.0.1:{tls_port}",
+                "--generate-cert",
+                f"--rpc-address=127.0.0.1:{_free_port()}",
+            ],
+            floresta_dir / "florestad.log",
+        )
+        processes.append(server)
+        # florestad writes the certificate it generates under its data
+        # directory, and signs it for `localhost`
+        cert = floresta_dir / "regtest" / "tls" / "cert.pem"
+        _wait_for_file(cert, server)
+        context = ssl.create_default_context(cafile=str(cert))
+        stack = FlorestaStack(
+            miner,
+            address,
+            JsonRpc2Transport(PlainLineTransport("127.0.0.1", electrum_port)),
+            JsonRpc2Transport(TlsLineTransport("localhost", tls_port, context=context)),
+            server,
+            floresta_dir / "florestad.log",
+            utreexo_dir / "utreexod.log",
+        )
+        stack.wait_synced()
+        # a block that arrives while Floresta is still ending its initial
+        # sync is never requested, so nothing is mined before it says it
+        # is running
+        _wait_for_log(floresta_dir / "florestad.log", "starting running node", server)
+        yield stack
+    finally:
+        for process in reversed(processes):
+            _stop(process)
