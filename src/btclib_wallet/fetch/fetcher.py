@@ -75,7 +75,8 @@ def client_errors() -> Iterator[None]:
     `transport` rather than a call into this package directly: a
     `LineTransport` that cannot answer raises this same vocabulary, its
     own docstring says so, and this is where that translation happens
-    for every one of that fetcher's calls.
+    for every one of that fetcher's calls. `CompactFilterFetcher`'s `_send`,
+    `_next` and `close` are the same wrap over a `PeerTransport`.
 
     The fields are what make this a translation rather than a blanket
     wrap: `status` and `code` are the whole reason those two classes

@@ -103,6 +103,7 @@ from btclib_wallet.fetch.bitcoin_core_rest import (
     BitcoinCoreRestClient,
     BitcoinCoreRestFetcher,
 )
+from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.hwi import HwiSigner, enumerate_devices
@@ -125,6 +126,7 @@ from tests.exception_family_test import TYPE_ERRORS
 from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
+from tests.fetch.peer_chain_test import Chain, ScriptedPeer
 from tests.psbt import frost_test as psbt_frost_test
 from tests.psbt import musig2_test as psbt_musig2_test
 from tests.psbt import psbt_cases
@@ -623,6 +625,15 @@ _TRUTHS = (
         reason="whether the server is asked which chain it serves; the"
         " same check again, over the header at height 0 this backend"
         " hashes rather than a chain name it would be told",
+    ),
+    _Case(
+        "btclib_wallet.fetch.compact_filters.CompactFilterFetcher.__init__",
+        "verify_network",
+        CompactFilterFetcher,
+        {"transport": ScriptedPeer(Chain())},
+        reason="whether the peer is asked which chain it serves; the first"
+        " sync refuses a chain that does not follow the genesis block in"
+        " any case",
     ),
     _Case(
         "btclib_wallet.bip32.bip32.derive_from_account",

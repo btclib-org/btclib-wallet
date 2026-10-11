@@ -166,8 +166,9 @@ def _argument_less_bools() -> dict[str, bool]:
 # - `to_*` converts, and hands back a new object rather than a read of
 #   this one
 # - `close` and `clear` are each an action with a side effect
+# - `sync` talks to a peer and keeps what it hears
 _NOT_A_READ = ("assert_", "get_", "to_")
-_AN_ACTION = frozenset({"clear", "close"})
+_AN_ACTION = frozenset({"clear", "close", "sync"})
 
 
 def _is_a_read(decorated: set[str]) -> bool:

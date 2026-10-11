@@ -168,9 +168,10 @@ used to teach and to prototype as much as to build.
     that same transaction. A block header is parsed and its proof of
     work checked: its hash within the target its bits claim, and that
     target within the limit of the fetcher's network. Neither check says
-    it is the header at the height asked for. A height, and
-    the tip hash from every backend but `ElectrumFetcher`, rest on the
-    backend's word. The work each network's limit stands for, in bits, is:
+    it is the header at the height asked for. A height, and the tip hash
+    from every backend but `ElectrumFetcher` and `CompactFilterFetcher`,
+    rest on the backend's word. `CompactFilterFetcher`'s tip is the one
+    with most work among the chains its one peer showed it. The work each network's limit stands for, in bits, is:
 
     ```shell
     uv run python -c "
@@ -183,13 +184,30 @@ used to teach and to prototype as much as to build.
     "
     ```
 
-- **`ElectrumFetcher` is the one backend that can prove an answer.**
+- **`ElectrumFetcher` can prove an answer.**
     `get_tx_merkle` and `verify_tx` check a transaction's branch against
     a header the fetcher fetched itself, so a caller who runs the check
     learns that the transaction is in the block that header names. That
     is the trade the Esplora backend's fallback makes: it cannot say a
     transaction is confirmed. `TlsLineTransport` verifies the server's
     certificate and host name by default.
+- **`CompactFilterFetcher` checks the chain it follows and trusts one
+    peer for the rest.** Every header is checked for its proof of work and
+    for the bits the retarget rules require, a fork is followed only with
+    more work than the chain held, and a chain below the network's minimum
+    work is refused. Every filter is checked against the filter header
+    held, and every block downloaded against its header's merkle root. The
+    filter headers are the peer's word: BIP157 compares them
+    with the checkpoints of other peers, this fetcher has one, and a peer
+    that lies in them can hide a block that pays the wallet. A peer that
+    can out-work the honest chain from a fork point can serve a chain of
+    its own and invent a payment in it. It can keep a synchronization
+    going, and the fetcher's headers growing in memory, for as long as it
+    sends headers that pass the checks, the minimum work being checked
+    when it stops
+    ([ISS 354](https://github.com/btclib-org/btclib-wallet/issues/354)).
+    It also decides which blocks are downloaded, up to the `max_blocks` of
+    the call, and sees which they are; it is given no script.
 - **An explorer learns every txid and outpoint you look up**, which is a
     good deal of what a wallet is. A public deployment is named as a
     constant and never as a default, so nothing here contacts anyone

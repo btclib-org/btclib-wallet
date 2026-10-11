@@ -4,7 +4,8 @@
 
 """The transports a fetcher does its I/O with, and the network policy of each.
 
-Two seams, one per wire shape. `HttpTransport` is re-exported under
+Two seams here, one per wire shape; a p2p peer's is
+`btclib_wallet.fetch.peer_transport`. `HttpTransport` is re-exported under
 btclib's name with its implementations; `LineTransport` is declared here
 and `TlsLineTransport` implements it here.
 
@@ -115,9 +116,9 @@ MAX_TIMEOUT = 2_147_483
 def valid_timeout(timeout: float) -> float:
     """Return `timeout`, refusing what no socket will wait for.
 
-    The check `TlsLineTransport`, `EsploraFetcher` and `ElectrumFetcher`
-    make of the timeout they take. A bool is not a duration,
-    `timeout=True` being one second.
+    The check `TlsLineTransport`, `TcpPeerTransport`, `EsploraFetcher`,
+    `ElectrumFetcher` and `CompactFilterFetcher` make of the timeout they
+    take. A bool is not a duration, `timeout=True` being one second.
 
     The bound is `MAX_TIMEOUT`, a timeout a socket takes on every
     platform: past it, a socket raises an `OverflowError`, which is no

@@ -12,7 +12,7 @@ call is a statement every `verify_network=False` test executes and
 returns from at once -- which is what issue btclib-org/btclib#1701 measured, and
 why the call sites here are read out of the source rather than listed by hand.
 
-Each case builds a fetcher whose scripted host serves testnet under a
+Each case builds a fetcher whose scripted host serves another chain under a
 mainnet label, calls one entry point, and asserts both halves: the
 refusal, and that the host was asked once. One request is the chain
 question alone, so the fetch behind it never went out.
@@ -30,9 +30,11 @@ from pathlib import Path
 
 import pytest
 from btclib.exceptions import BTClibValueError
+from btclib.p2p import magic_from_network
 
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
+from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import Fetcher
@@ -45,6 +47,7 @@ from tests.fetch.bitcoin_core_test import client as rpc_client
 from tests.fetch.bitcoin_core_test import recording as rpc_recording
 from tests.fetch.electrum_test import TESTNET_GENESIS_HEADER, LineRecorded
 from tests.fetch.esplora_test import BASE, TESTNET_GENESIS
+from tests.fetch.peer_chain_test import Chain, ScriptedPeer
 
 _FETCH = Path(__file__).parents[2] / "src" / "btclib_wallet" / "fetch"
 
@@ -83,15 +86,23 @@ def _electrum() -> tuple[Fetcher, Sequence[object]]:
     return ElectrumFetcher("mainnet", transport=transport), transport.requests
 
 
+def _compact_filters() -> tuple[Fetcher, Sequence[object]]:
+    """Return a mainnet fetcher over a peer whose chain is regtest's."""
+    peer = ScriptedPeer(Chain().extend(2), magic=magic_from_network("mainnet"))
+    return CompactFilterFetcher("mainnet", transport=peer), peer.getheaders
+
+
 _BACKENDS = {
     "BitcoinCoreFetcher": _Backend(_core, chain_mismatch("test", "main")),
     "BitcoinCoreRestFetcher": _Backend(_rest, chain_mismatch("test", "main")),
+    "CompactFilterFetcher": _Backend(_compact_filters, "not the genesis"),
     "ElectrumFetcher": _Backend(_electrum, TESTNET_GENESIS),
     "EsploraFetcher": _Backend(_esplora, TESTNET_GENESIS),
 }
 
-# the questions `Fetcher` declares, which every backend answers and
-# every backend checks the chain in front of
+# the questions `Fetcher` declares, which every backend answers, except
+# where `_UNSERVED` says otherwise, and every backend checks the chain in
+# front of
 _QUESTIONS: dict[str, Callable[[Fetcher], object]] = {
     "get_best_block_id": lambda endpoint: endpoint.get_best_block_id(),
     "get_block_count": lambda endpoint: endpoint.get_block_count(),
@@ -106,8 +117,12 @@ _QUESTIONS: dict[str, Callable[[Fetcher], object]] = {
 # `test_get_tx_merkle_and_verify_tx_are_refused_on_another_chain_too` in
 # `electrum_test.py`, and
 # `test_estimate_fee_verifies_the_network_before_asking_anything` in all
-# three of `bitcoin_core_test.py`, `electrum_test.py` and `esplora_test.py`
+# three of `bitcoin_core_test.py`, `electrum_test.py` and `esplora_test.py`,
+# and `test_sync_and_scan_blocks_verify_the_network_first` in
+# `compact_filters_test.py`
 _ELSEWHERE = {
+    ("CompactFilterFetcher", "scan_blocks"),
+    ("CompactFilterFetcher", "sync"),
     ("BitcoinCoreFetcher", "broadcast"),
     ("BitcoinCoreFetcher", "estimate_fee"),
     ("ElectrumFetcher", "estimate_fee"),
@@ -135,8 +150,19 @@ def _call_sites() -> set[tuple[str, str]]:
     return found
 
 
-@pytest.mark.parametrize("backend", sorted(_BACKENDS))
-@pytest.mark.parametrize("question", sorted(_QUESTIONS))
+# a question that is refused before any host is asked: a filter client
+# holds no transaction to look up, and says so without a message
+_UNSERVED = {("CompactFilterFetcher", "get_tx")}
+
+_CASES = sorted(
+    (backend, question)
+    for backend in _BACKENDS
+    for question in _QUESTIONS
+    if (backend, question) not in _UNSERVED
+)
+
+
+@pytest.mark.parametrize("backend, question", _CASES)
 def test_no_question_is_answered_by_a_host_on_another_chain(
     backend: str, question: str
 ) -> None:
@@ -161,9 +187,7 @@ def test_every_call_site_is_pinned() -> None:
     that never calls the check leaves no call site to compare, so it is
     the gap this module's docstring names and not one this test closes.
     """
-    pinned = {
-        (backend, question) for backend in _BACKENDS for question in _QUESTIONS
-    } | _ELSEWHERE
+    pinned = set(_CASES) | _ELSEWHERE
     found = _call_sites()
     assert found == pinned, (
         f"not pinned by a test: {sorted(found - pinned)};"

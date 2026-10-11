@@ -11,8 +11,15 @@ the chain tip. `Fetcher` is the interface, implemented once per
 backend -- `BitcoinCoreFetcher` over a full node's JSON-RPC,
 `BitcoinCoreRestFetcher` over the same node's unauthenticated `-rest`
 interface, `EsploraFetcher` over a block explorer's HTTP api,
-`ElectrumFetcher` over an Electrum server -- so that calling code takes a
+`ElectrumFetcher` over an Electrum server, `CompactFilterFetcher` over a
+p2p peer serving BIP157 filters -- so that calling code takes a
 `Fetcher` and never branches on which one it got.
+
+**`CompactFilterFetcher` answers the questions a header chain answers and
+adds `scan_blocks`.** It gives a peer no script and asks it for no
+transaction, so `get_tx` and `get_tx_out` raise `FetchError`, and
+`scan_blocks` returns the blocks that may touch a wallet's scripts, for
+the caller to read the transactions of.
 
 **`Broadcaster` is the one place that announces a transaction rather than
 asking about one**, and is a `typing.Protocol` rather than another
@@ -33,12 +40,13 @@ need not be the target asked for.
 
 **It adds no dependency.** The standard library is the whole of every
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`
-for the Electrum protocol's line. The HTTP client's canonical
-implementation is the `bitcoin-core-rpc` package, which btclib depends on
-and does not contain, and its transport exports here are aliases to that
-same source, not another implementation; `TlsLineTransport` is implemented
-in `btclib_wallet.fetch.transport` itself. The seam lets the test suite exercise
-all of this while opening no socket.
+for the Electrum protocol's line, `socket` for the p2p stream. The HTTP
+client's canonical implementation is the `bitcoin-core-rpc` package, which
+btclib depends on and does not contain, and its transport exports here are
+aliases to that same source, not another implementation;
+`TlsLineTransport` is implemented in `btclib_wallet.fetch.transport`
+itself. The seam lets the test suite exercise all of this while opening no
+socket.
 
 **A protocol's code is split in three, and where each part lives is one
 rule for every protocol.** The codec -- the framing, the envelope and the
@@ -46,7 +54,8 @@ shape of each answer -- is pure and sits beside `btclib.p2p`, outside this
 package, as `btclib.electrum` does: this `__init__` imports every fetcher,
 so a server importing anything under `btclib_wallet.fetch` would load `urllib`,
 `ssl` and `socket` with it. The client transport is this package's, in
-`btclib_wallet.fetch.transport`, which states its network policy once. The
+`btclib_wallet.fetch.transport`, which states its network policy once, and
+for the p2p stream in `btclib_wallet.fetch.peer_transport`. The
 socket a server listens on is not btclib's at all: btclib-node holds its own,
 over `btclib.p2p`'s codec. The HTTP transport is `bitcoin-core-rpc`'s instead,
 because a transport useful without btclib belongs to that package: it is a
@@ -80,11 +89,13 @@ the clients a Bitcoin Core node is reached through --
 for `-rest` -- and the transport seam:
 the timeout, the protocols a substitute has to satisfy and the
 implementations that open a socket -- over HTTP one connection per call
-and one kept open across calls, and `TlsLineTransport` for
-`LineTransport`, `ElectrumFetcher`'s own protocol. That last group is
-here because the seam is the supported way to test calling code without
-a node, and because a transport is how `ElectrumFetcher` is told which
-server to reach, neither being a detail of the fetcher implementations.
+and one kept open across calls, `TlsLineTransport` for `LineTransport`,
+`ElectrumFetcher`'s own protocol, and `TcpPeerTransport` for
+`PeerTransport`, `CompactFilterFetcher`'s. That last group is here
+because the seam is the supported way to test calling code without a
+node, and because a transport is how `ElectrumFetcher` and
+`CompactFilterFetcher` are told which server to reach, neither being a
+detail of the fetcher implementations.
 
 `bitcoin_core.cookie_auth` is deliberately not here:
 `BitcoinCoreRpcClient` takes a `cookie_path` and reads that file at every
@@ -117,11 +128,13 @@ from bitcoin_core_rpc import BitcoinCoreRestClient, BitcoinCoreRpcClient
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.broadcaster import Broadcaster
+from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.decorators import CachingFetcher, FallbackFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.fee_estimator import FeeEstimator, FeeQuote
 from btclib_wallet.fetch.fetcher import Fetcher
+from btclib_wallet.fetch.peer_transport import PeerTransport, TcpPeerTransport
 from btclib_wallet.fetch.transport import (
     DEFAULT_TIMEOUT,
     HttpTransport,
@@ -140,6 +153,7 @@ __all__ = [
     "BitcoinCoreRpcClient",
     "Broadcaster",
     "CachingFetcher",
+    "CompactFilterFetcher",
     "ElectrumFetcher",
     "EsploraFetcher",
     "FallbackFetcher",
@@ -148,7 +162,9 @@ __all__ = [
     "Fetcher",
     "HttpTransport",
     "LineTransport",
+    "PeerTransport",
     "SessionTransport",
+    "TcpPeerTransport",
     "TlsLineTransport",
     "urlopen_transport",
 ]

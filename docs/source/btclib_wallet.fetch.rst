@@ -41,6 +41,13 @@ btclib_wallet.fetch.broadcaster module
    :members:
    :show-inheritance:
 
+btclib_wallet.fetch.compact_filters module
+------------------------------------------
+
+.. automodule:: btclib_wallet.fetch.compact_filters
+   :members:
+   :show-inheritance:
+
 btclib_wallet.fetch.decorators module
 -------------------------------------
 
@@ -73,6 +80,13 @@ btclib_wallet.fetch.fetcher module
 ----------------------------------
 
 .. automodule:: btclib_wallet.fetch.fetcher
+   :members:
+   :show-inheritance:
+
+btclib_wallet.fetch.peer_transport module
+-----------------------------------------
+
+.. automodule:: btclib_wallet.fetch.peer_transport
    :members:
    :show-inheritance:
 

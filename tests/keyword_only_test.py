@@ -266,6 +266,12 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "verify_network",
         "signet_challenge",
     ],
+    "btclib_wallet.fetch:CompactFilterFetcher.scan_blocks": ["max_blocks"],
+    "btclib_wallet.fetch:CompactFilterFetcher.__init__": [
+        "transport",
+        "verify_network",
+        "timeout",
+    ],
     "btclib_wallet.fetch:ElectrumFetcher.__init__": [
         "transport",
         "verify_network",

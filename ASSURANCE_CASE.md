@@ -80,11 +80,13 @@ EOF
 Beside this package's imports of its own modules, its dependencies
 `btclib`, `btclib_ecc`, `btclib_mnemonics`, `bitcoin_core_rpc` and
 `typing_extensions`, and btclib's `btclib_secp256k1`, what it lists is
-the standard library: `subprocess` is `hwi.py`'s alone, `socket` and `ssl` are `fetch.transport`'s,
-`urllib` is `bip21.py`'s percent-encoding of a payment URI, and `random`
-is `coin_selection.py`'s shuffle, marked `# noqa: S311` at both call
-sites because what it orders is which of the caller's own utxos is spent
-first, never a key or a nonce.
+the standard library: `subprocess` is `hwi.py`'s alone, `ssl` is
+`fetch.transport`'s, `socket` is `fetch.transport`'s and
+`fetch.peer_transport`'s, `urllib` is `bip21.py`'s percent-encoding of a
+payment URI and `fetch.esplora`'s check of its base URL, and `random` is
+`coin_selection.py`'s shuffle, marked `# noqa: S311` at both call sites
+because what it orders is which of the caller's own utxos is spent first,
+never a key or a nonce.
 
 **What is defended.**
 
@@ -146,7 +148,9 @@ time ends* and *A backend is trusted, and not every backend alike*:
 - the resistance to side channels of whatever cipher a caller passes
   `btclib_wallet.bip38`, which takes AES-256 as two callables
 - the privacy of a lookup against `EsploraFetcher`, `BitcoinCoreRestFetcher`
-  or `ElectrumFetcher`: each learns every txid and outpoint asked of it
+  or `ElectrumFetcher`: each learns every txid and outpoint asked of it;
+  and against `CompactFilterFetcher`'s peer, which learns which blocks are
+  downloaded
 - the operating system, the interpreter, or the HWI binary or hardware
   device this package's caller names
 
@@ -234,7 +238,8 @@ full statement of what is checked at that boundary and what is not:
 a transaction id is recomputed and refused unless it matches, a header's
 proof of work is checked, and a height or a
 tip hash rests on the backend's word except through `ElectrumFetcher`'s own
-merkle proof.
+merkle proof and the header chain of `CompactFilterFetcher`, which a single
+peer can still replace by out-working the honest chain from a fork point.
 `TlsLineTransport` verifies the server's certificate and host name by
 default. `Broadcaster.broadcast` checks that the backend named the txid
 this package computed and nothing checks that the transaction went on to
