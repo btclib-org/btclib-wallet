@@ -16,8 +16,8 @@ p2p peer serving BIP157 filters -- so that calling code takes a
 `Fetcher` and never branches on which one it got.
 
 **`CompactFilterFetcher` answers the questions a header chain answers and
-adds `scan_blocks`.** It gives a peer no script and asks it for no
-transaction, so `get_tx` and `get_tx_out` raise `FetchError`, and
+adds `scan_blocks`.** `get_tx` and `get_tx_out` raise `FetchError`, for the
+reason the module docstring of `compact_filters` gives, and
 `scan_blocks` returns the blocks that may touch a wallet's scripts, for
 the caller to read the transactions of.
 

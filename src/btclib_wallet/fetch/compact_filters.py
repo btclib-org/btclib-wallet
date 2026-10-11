@@ -71,9 +71,10 @@ from the header chain, which is synchronized on each call.
 **One peer, one thread.** The connection is opened by the first call and
 greeted with a `version` exchange; a `FetchError` closes it, and the next
 call opens it again and keeps the chain already held. Bitcoin Core drops
-a connection idle for 20 minutes and the fetcher answers no ping between
-calls, so the first call after an idle stretch raises `FetchError` and the
-next one reconnects. A peer is refused unless it advertises
+a connection idle for its `TIMEOUT_INTERVAL` (`CConnman::InactivityCheck`
+of `net.cpp`), and the fetcher answers no ping between calls, so the
+first call after an idle stretch raises `FetchError` and the next one
+reconnects. A peer is refused unless it advertises
 `NODE_COMPACT_FILTERS` and `NODE_NETWORK`. Calls are not safe to make from
 two threads.
 
