@@ -2109,9 +2109,9 @@ def _pushed_sigs(psbt_in: PsbtIn) -> list[bytes]:
     where the dummy belongs (issue btclib-org/btclib#431).
 
     Nothing about `partial_sigs` gives that order. A dict holds what it
-    was given in the order it was given, and `combine` merges with an
-    update, so for a coordinator it is the order the copies came back
-    in.
+    was given in the order it was given, and `combine` adds a copy's new
+    keys after the ones already there, so for a coordinator it is the
+    order the copies came back in.
 
     A signature whose key the script does not list is dropped rather
     than refused: the Finalizer builds the spend this script asks for,

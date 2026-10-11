@@ -474,8 +474,8 @@ def test_two_participants_knowledge_of_one_group_is_merged() -> None:
 
     `ThresholdInfo` is what one holder knows, and two holders need not
     know the same shares. Keyed by the group alone the two records would
-    be one key, and BIP174's Combiner resolves one key by keeping a
-    side: the first psbt's, with the other participant's
+    be one key, and `combine` resolves one key by keeping the first
+    psbt's side, with the other participant's
     knowledge gone and nothing raised. The writer's identifier in the
     key data is what makes the union the right merge here as it is for
     the two session records, and the second half of this test is that

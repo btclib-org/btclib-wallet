@@ -2617,8 +2617,9 @@ def test_a_multisig_input_is_spent_in_the_order_the_script_lists_its_keys(
     OP_CHECKMULTISIG walks the keys forward and never goes back, so the
     signatures have to arrive in the order the script lists the keys they
     belong to. `partial_sigs` cannot supply it: a dict holds what it was
-    given in the order it was given, and `combine` merges with an update,
-    so for a coordinator it is the order the copies came back in.
+    given in the order it was given, and `combine` adds a copy's new keys
+    after the ones already there, so for a coordinator it is the order
+    the copies came back in.
 
     Reversing the map is that coordinator, and the engine is the
     authority on the result.
