@@ -150,8 +150,8 @@ def _call_sites() -> set[tuple[str, str]]:
     return found
 
 
-# a question that is refused before any host is asked: a filter client
-# holds no transaction to look up, and says so without a message
+# a question refused before any host is asked: a filter client holds no
+# transaction to look up
 _UNSERVED = {("CompactFilterFetcher", "get_tx")}
 
 _CASES = sorted(

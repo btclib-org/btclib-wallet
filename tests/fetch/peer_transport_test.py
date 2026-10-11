@@ -13,6 +13,7 @@ records what is written. No socket is opened.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from btclib.p2p import Ping
 from btclib.p2p.limits import MAX_PROTOCOL_MESSAGE_LENGTH
 
 from btclib_wallet.fetch import peer_transport
+from btclib_wallet.fetch import transport as fetch_transport
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport
 
 MAGIC = b"\xfa\xbf\xb5\xda"
@@ -70,6 +72,12 @@ class FakeSocket:
     def close(self) -> None:
         """Count the closes."""
         self.closed += 1
+
+
+def set_clock(monkeypatch: pytest.MonkeyPatch, clock: Callable[[], float]) -> None:
+    """Replace the clock of the deadline and of the time left before it."""
+    monkeypatch.setattr(peer_transport, "monotonic", clock)
+    monkeypatch.setattr(fetch_transport, "monotonic", clock)
 
 
 def connect_to(
@@ -196,7 +204,7 @@ def test_a_send_that_outlasts_its_timeout_is_a_fetch_error(
     fake = FakeSocket([])
     connect_to(monkeypatch, fake)
     ticks = itertools.count()
-    monkeypatch.setattr(peer_transport, "monotonic", lambda: next(ticks) * 10.0)
+    set_clock(monkeypatch, lambda: next(ticks) * 10.0)
     transport = peer()
     with pytest.raises(FetchError, match="timeout expired"):
         transport.send(MESSAGE, 5)
@@ -263,7 +271,7 @@ def test_a_peer_that_trickles_is_a_fetch_error(
     transport = peer()
     transport.send(MESSAGE, 5)
     ticks = itertools.chain([0.0, 1.0], itertools.repeat(100.0))
-    monkeypatch.setattr(peer_transport, "monotonic", lambda: next(ticks))
+    set_clock(monkeypatch, lambda: next(ticks))
     with pytest.raises(FetchError, match="timeout expired"):
         transport.receive(5)
     assert not transport.is_open
@@ -279,7 +287,7 @@ def test_a_message_announcing_too_much_is_refused_before_it_is_read(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="4000001 octets announced"):
+    with pytest.raises(FetchError, match="invalid payload length: 4000001"):
         transport.receive(5)
     assert not transport.is_open
     assert fake.chunks == []

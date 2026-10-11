@@ -7,49 +7,16 @@
 `CompactFilterFetcher` asks a peer for the header chain and for the BIP157
 filter header of every block, then for the BIP158 filter of every block in
 the range being scanned, and downloads only the blocks whose filter may
-hold one of the scripts it was given. The peer learns that a client is
-scanning and which blocks it then asks for, and is never given a script.
+hold one of the scripts it was given.
 
 `btclib.p2p` is the codec of the messages and `btclib.block.block_filter`
 the filter; `PeerTransport` is the socket. This module is the protocol
 over them.
 
-**What is checked, and what is not.**
+**What is checked, and what one peer can still do** is stated once, in
+`SECURITY.md`, under *A backend is trusted, and not every backend alike*.
 
-- every header connects to the one before it, carries the work its bits
-  claim, and carries the bits the retarget rules require
-  (`btclib.block.header_context.next_bits_required`). The median time past
-  and the clock are not asked;
-- every `cfheaders` answers the request it came from and chains from the
-  filter header already held;
-- every `cfilter` is the filter of the block it was asked for, and its
-  hash, chained to the filter header before it, is the filter header held.
-  A filter that does not hash to it is refused;
-- every block downloaded is one that was asked for and is a well-formed
-  block under `Block.assert_valid_structure`, whose header is the one in
-  the chain.
-
-A fork from the chain held is followed only if it ends with more work than
-the chain it displaces, and the chain held is put back otherwise. No chain
-with less work than the network's `minimum_chain_work` is accepted.
-
-**What one peer can still do.** It can
-
-- hide a block that pays the wallet, by lying in the filter headers. BIP157
-  has a client compare them with the checkpoints of other peers, and this
-  fetcher has one peer;
-- serve a chain of its own, and invent a payment in it, where it can
-  out-work the honest chain from the fork point: a fork needs more work than
-  the chain held, and a chain from the genesis block needs at least the
-  network's `minimum_chain_work` as well;
-- keep a synchronization going, and the fetcher's header chain growing in
-  memory, for as long as it sends headers that pass the checks: the
-  network's `minimum_chain_work` is checked when it stops (issue #354);
-- decide which blocks a call downloads, up to its `max_blocks`.
-
-Use a peer the caller trusts, or run several fetchers and compare.
-
-Two limits are not defended against. Bitcoin Core answers nothing to a
+**Not defended against.** Bitcoin Core answers nothing to a
 `getcfheaders` or `getcfilters` for blocks its filter index has not
 reached (`ProcessGetCFHeaders` and `ProcessGetCFilters` of
 `net_processing.cpp`), so a call times out while the peer builds its
@@ -170,8 +137,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
 
     `scan_blocks` is the reason to use it, and `sync` is the part of it
     that costs: the headers and the filter headers of the whole chain,
-    kept for the life of the fetcher. The module docstring says what is
-    checked and what a single peer can still do.
+    kept for the life of the fetcher. `SECURITY.md` says what is checked
+    and what a single peer can still do.
 
     The `Fetcher` questions that a header chain answers are served from
     it: `get_block_count`, `get_best_block_id` and `get_block_header`.
@@ -453,30 +420,33 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             self._displaced = None
 
     def _assert_enough_work(self) -> None:
-        """Refuse a fork with no more work than the chain it displaced.
+        """Refuse a chain that is not worth following.
 
-        Equal work is refused too, as Bitcoin Core keeps the chain it saw
-        first. A chain with less work than the network's minimum is refused
-        whether or not it displaced one, and dropped, so that it does not
-        stay in memory and grow.
+        A chain, and the chain it displaced if it displaced one, both with
+        less work than the network's minimum are refused and dropped, so
+        that they do not stay in memory and grow. A fork with no more work
+        than the chain it displaced, which has the minimum, is refused and
+        that chain put back; equal work is refused too, as Bitcoin Core
+        keeps the chain it saw first.
         """
-        if self._displaced is not None and self._work[-1] <= self._displaced[2]:
-            raise FetchError("a fork with no more work than the chain held")
         minimum = self._consensus.minimum_chain_work
-        if self._work[-1] < minimum:
+        displaced_work = 0 if self._displaced is None else self._displaced[2]
+        if max(self._work[-1], displaced_work) < minimum:
             err_msg = f"a chain of work {self._work[-1]}, below the {minimum}"
             err_msg += f" of {self.network}"
-            # a chain a fork displaced had less work still, and goes too
             self._displaced = None
             self._truncate(1)
             raise FetchError(err_msg)
+        if self._displaced is not None and self._work[-1] <= displaced_work:
+            raise FetchError("a fork with no more work than the chain held")
 
     def _sync_headers(self) -> int:
         """Follow the peer's chain if it has more work than the one held.
 
-        Returns the height of the tip. A fork is followed as it arrives; the
-        chain held is put back if the fork ends with no more work, or if
-        anything interrupts it.
+        Returns the height of the tip. A fork is followed as it arrives. The
+        chain held is put back if anything interrupts the fork, or if the
+        fork ends with no more work and the chain held has the network's
+        minimum work.
         """
         self._displaced = None
         followed = False
@@ -679,8 +649,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def get_block_header(self, height: int) -> BlockHeader:
         """Return the header at this height, from the header chain.
 
-        Its work and its bits are checked on arrival. The module docstring
-        says what is not checked and what the peer can still do.
+        Its work and its bits are checked on arrival. `SECURITY.md` says
+        what is not checked and what the peer can still do.
         """
         height = block_header_height(height)
         self._verify_once()

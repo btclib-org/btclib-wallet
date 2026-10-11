@@ -13,8 +13,8 @@ test replaces the seam with an object that answers from a script, as it replaces
 **A peer transport is a connection and not a call.** `LineTransport` is
 one request and one answer on a connection of its own; a p2p peer sends
 what it likes when it likes, and the handshake that opens a connection is
-state both ends keep. So `PeerTransport` is three methods, `send`,
-`receive` and `close`, and the connection is the object's.
+state both ends keep. So `PeerTransport` is `send`, `receive` and
+`close`, and the connection is the object's.
 
 **The connection is opened by the first `send` and again after any
 failure.** A failure closes it, because a read cut short leaves the
@@ -42,28 +42,28 @@ from time import monotonic
 from typing import Protocol, Self
 
 from bitcoin_core_rpc import FetchError
-from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.p2p.limits import MAX_PROTOCOL_MESSAGE_LENGTH
+from btclib.exceptions import (
+    BTClibTypeError,
+    BTClibValueError,
+    IncompleteMessageError,
+)
 from btclib.p2p.message import Message
 from btclib.utils import is_integer
 
-from btclib_wallet.fetch.transport import valid_timeout
+from btclib_wallet.fetch.transport import (
+    _MAX_PORT,
+    _READ_CHUNK,
+    _time_left,
+    valid_timeout,
+)
 
 __all__ = [
     "PeerTransport",
     "TcpPeerTransport",
 ]
 
-_MAX_PORT = 65535
-
-# a message header: four octets of magic, twelve of command, four of length
-# and four of checksum, `btclib.p2p.message`'s own layout
+# the size of a message header, `btclib.p2p.message`'s own layout
 _HEADER_SIZE = 24
-_LENGTH_AT = 16
-_LENGTH_SIZE = 4
-
-# how much one read asks for: a recv allocates what it is asked for
-_READ_CHUNK = 64 * 1024
 
 
 class PeerTransport(Protocol):
@@ -177,9 +177,12 @@ class TcpPeerTransport:
         deadline = monotonic() + timeout
         try:
             header = _read(sock, _HEADER_SIZE, deadline, where)
-            length = _announced_length(header, where)
-            payload = _read(sock, length, deadline, where)
-            return Message.parse(header + payload)
+            try:
+                # refuses a length over the bound before any payload is read
+                return Message.parse(header)
+            except IncompleteMessageError as e:
+                rest = _read(sock, e.missing, deadline, where)
+            return Message.parse(header + rest)
         except OSError as e:
             self.close()
             raise FetchError(f"no message from {where}: {e}") from e
@@ -189,18 +192,6 @@ class TcpPeerTransport:
         except FetchError:
             self.close()
             raise
-
-
-def _announced_length(header: bytes, where: str) -> int:
-    """Return the payload length a header announces, refusing an excess."""
-    length = int.from_bytes(
-        header[_LENGTH_AT : _LENGTH_AT + _LENGTH_SIZE], byteorder="little"
-    )
-    if length > MAX_PROTOCOL_MESSAGE_LENGTH:
-        err_msg = f"{where}: message of {length} octets announced,"
-        err_msg += f" at most {MAX_PROTOCOL_MESSAGE_LENGTH} are sent"
-        raise FetchError(err_msg)
-    return length
 
 
 def _read(sock: socket, size: int, deadline: float, where: str) -> bytes:
@@ -213,11 +204,3 @@ def _read(sock: socket, size: int, deadline: float, where: str) -> bytes:
             raise FetchError(f"{where}: connection closed before a whole message")
         buffer.extend(chunk)
     return bytes(buffer)
-
-
-def _time_left(deadline: float, where: str) -> float:
-    """Return the seconds left before `deadline`, refusing none or fewer."""
-    remaining = deadline - monotonic()
-    if remaining <= 0:
-        raise FetchError(f"{where}: timeout expired")
-    return remaining

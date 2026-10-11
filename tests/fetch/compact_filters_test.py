@@ -95,7 +95,7 @@ def unsolved(header: BlockHeader) -> BlockHeader:
 # construction
 
 
-def test_a_transport_has_three_methods_and_a_timeout_is_a_duration() -> None:
+def test_a_transport_and_a_timeout_are_checked() -> None:
     """A bad transport, timeout or network is refused at construction."""
     with pytest.raises(BTClibTypeError, match="not a peer transport"):
         CompactFilterFetcher("regtest", transport=object())  # type: ignore[arg-type]
@@ -669,6 +669,63 @@ def test_a_fork_below_the_minimum_work_takes_the_displaced_chain_with_it(
     peer.chain = CHAIN
     assert fetcher.get_block_count() == TIP
     assert fetcher.get_block_header(1) == CHAIN.blocks[1].header
+
+
+def test_two_chains_below_the_minimum_work_are_both_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fork of no more work does not put back a chain below the minimum."""
+    monkeypatch.setattr(compact_filters, "MAX_HEADERS_RESULTS", 3)
+    fetcher, peer = build(verify_network=False)
+    required = replace(fetcher._consensus, minimum_chain_work=10**80)
+    monkeypatch.setattr(fetcher, "_consensus", required)
+    fork = CHAIN.fork(1).extend(2, salt=b"cheap")
+    batches = iter([CHAIN.blocks[1:4], fork.blocks[2:4]])
+
+    def reply(_payload: bytes) -> list[Message]:
+        return headers_message(peer, *[b.header for b in next(batches, [])])
+
+    says_with(peer, "reply_getheaders", reply)
+    with pytest.raises(FetchError, match="below the 1000000"):
+        fetcher.get_block_count()
+    assert len(fetcher._hashes) == 1
+
+
+def test_a_fork_of_less_work_puts_back_a_chain_at_the_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chain held at the minimum work is put back, not dropped."""
+    fetcher, peer = build()
+    fetcher.get_block_count()
+    held = replace(fetcher._consensus, minimum_chain_work=fetcher._work[-1])
+    monkeypatch.setattr(fetcher, "_consensus", held)
+    peer.chain = CHAIN.fork(9).extend(3, salt=b"cheap")
+    with pytest.raises(FetchError, match="no more work"):
+        fetcher.get_block_count()
+    assert len(fetcher._hashes) == TIP + 1
+
+
+def test_a_fork_that_reaches_the_minimum_work_replaces_a_chain_below_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the chain a synchronization ends with has to reach the minimum."""
+    monkeypatch.setattr(compact_filters, "MAX_HEADERS_RESULTS", 3)
+    reference, _ = build(verify_network=False)
+    reference.get_block_count()
+    fetcher, peer = build(verify_network=False)
+    required = replace(fetcher._consensus, minimum_chain_work=reference._work[-1])
+    monkeypatch.setattr(fetcher, "_consensus", required)
+    fork = CHAIN.fork(1).extend(TIP)
+    batches = iter(
+        [CHAIN.blocks[1:4]]
+        + [fork.blocks[i : i + 3] for i in range(2, fork.height + 1, 3)]
+    )
+
+    def reply(_payload: bytes) -> list[Message]:
+        return headers_message(peer, *[b.header for b in next(batches, [])])
+
+    says_with(peer, "reply_getheaders", reply)
+    assert fetcher.get_block_count() == fork.height
 
 
 def test_a_fork_interrupted_half_way_is_put_back(
