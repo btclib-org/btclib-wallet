@@ -422,24 +422,10 @@ result.
    A dependent that fails gets its fix ready first. The release is tagged,
    then the dependent releases with its floor raised to it.
 
-1. Merge it, with the button, the way every other pull request here
-   lands.
-
-   "Squash and merge" is the only method either the repository setting
-   or the ruleset accepts, and auto-merge presses it once the review and
-   the checks are in. Branch protection requires an approving review,
-   and GitHub does not let an author approve their own: the release pull
-   request waits for somebody other than its author, like every other.
-   The `main-self-merge` bypass in `pull_request` mode is for an
-   emergency only. A direct push to `main` is refused for everyone.
-
-   Name the release commit's title and body explicitly, rather than leave
-   them to `squash_merge_commit_message`'s repository default, which
-   concatenates the branch's commit messages: `gh pr merge <n> --squash
-   --match-head-commit <head> --body-file <path> --subject <title>`.
-   In an emergency `--admin` replaces the wait, the pair REPOSITORY.md's
-   "Branch protection" describes: `enforce_admins` `false` together with
-   holding `admin`.
+1. Merge it as `CONTRIBUTING.md`'s *Landing it* says, adding
+   `--body-file <path> --subject <title>` to its command: the repository
+   default, `squash_merge_commit_message`, concatenates the branch's
+   commit messages.
 
    That the commit is composed by GitHub and signed with its web-flow
    key rather than yours costs nothing. What `main-integrity` requires
