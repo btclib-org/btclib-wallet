@@ -1118,6 +1118,7 @@ An accepted descriptor's script is bitcoin-s's. Its checksum, and its
 addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
 `getdescriptorinfo` and `deriveaddresses`, run with no chain on mainnet. Where
 bitcoin-s gives a checksum, Core's is the same.
+Core's `getdescriptorinfo` refuses every case the test expects refused.
 
 Not vendored as a file because the strings are literals in Scala source.
 bitcoin-s is under the MIT licence (its `LICENSE`), the licence of this
