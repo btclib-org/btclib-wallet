@@ -160,9 +160,10 @@ used to teach and to prototype as much as to build.
 - **The answers a fetch makes are checked to different degrees.** A
     transaction's id is recomputed from the bytes that came back and
     refused unless it matches, and an output's amount is derived from
-    that same transaction. A block header is parsed and its proof
-    of work checked against the limit of the fetcher's network. Neither
-    check says it is the header at the height asked for. A height, and
+    that same transaction. A block header is parsed and its proof of
+    work checked: its hash within the target its bits claim, and that
+    target within the limit of the fetcher's network. Neither check says
+    it is the header at the height asked for. A height, and
     the tip hash from every backend but `ElectrumFetcher`, rest on the
     backend's word. The work each network's limit stands for, in bits, is:
 

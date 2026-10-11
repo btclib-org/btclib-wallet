@@ -222,7 +222,7 @@ transaction, a block header, a fee estimate, a UTXO's existence.
 SECURITY.md's *A backend is trusted, and not every backend alike* is the
 full statement of what is checked at that boundary and what is not:
 a transaction id is recomputed and refused unless it matches, a header's
-proof of work is checked against its network's limit, and a height or a
+proof of work is checked, and a height or a
 tip hash rests on the backend's word except through `ElectrumFetcher`'s own
 merkle proof.
 `TlsLineTransport` verifies the server's certificate and host name by

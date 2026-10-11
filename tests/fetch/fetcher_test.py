@@ -268,6 +268,17 @@ def test_block_header_from_raw_refuses_a_regtest_header_for_signet() -> None:
         block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="signet")
 
 
+def test_block_header_from_raw_holds_the_hash_to_the_target_its_bits_claim() -> None:
+    """Within the network's limit is not enough: the bits' own target counts.
+
+    Regtest's genesis with bits 0x1d00ffff and nonce 1: its hash is
+    below regtest's limit, and above the target those bits name.
+    """
+    claimed = REGTEST_GENESIS_HEADER_RAW[:-16] + "ffff001d" + "01000000"
+    with pytest.raises(FetchError, match="block header 0: invalid proof-of-work"):
+        block_header_from_raw(claimed, 0, network="regtest")
+
+
 def test_block_header_from_raw_resolves_the_network_name() -> None:
     """A name is resolved like any network name; an unknown one is refused."""
     header = block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network=" MainNet ")

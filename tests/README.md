@@ -70,12 +70,12 @@ same name and no HTTP:
 ```shell
 BTCLIB_INTEGRATION=1 BTCLIB_ELECTRS=/path/to/electrs \
     uv run pytest tests/integration/electrs_test.py \
-    tests/integration/electrs_reorg_test.py -n0
+    tests/integration/electrs_reorg_test.py -n 2
 ```
 
-The reorg test starts a node and a server of its own, so the reorg
-changes no other test's chain. `integration-electrs.yml`
-builds the pinned `electrs`.
+`-n 2` because each worker that takes one of these tests starts its own
+`bitcoind` and `electrs`, and `addopts` passes `-n auto`.
+`integration-electrs.yml` builds the pinned `electrs`.
 
 These tests are outside the coverage ratchet, which `pyproject.toml`
 says where it omits them. `integration-bitcoind.yml`,

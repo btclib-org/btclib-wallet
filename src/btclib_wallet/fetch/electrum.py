@@ -87,8 +87,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     answers the tip's height together with its header rather than a
     separate hash field, so the id `get_best_block_id` returns is not the
     server's word -- it is `BlockHeader.hash` of the header
-    `block_header_from_raw` has already checked is well-formed and within
-    the network's proof-of-work limit, the same check `get_block_header` runs.
+    `block_header_from_raw` has already checked, the same check
+    `get_block_header` runs.
     `get_block_header` is `blockchain.block.header`, `cp_height` left
     unsent.
 
@@ -168,9 +168,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         and not through `get_block_header`, which calls `_verify_once`.
 
         `block_header_from_raw` is what checks the eighty bytes, so the
-        header a caller compares or hashes is one that is well-formed and
-        within the network's proof-of-work limit, and not the server's word
-        for either.
+        header a caller compares or hashes is one that passed its checks,
+        and not the server's word.
         """
         request_id = self._next_request_id()
         line = self._round_trip(electrum.block_header_request(request_id, height))

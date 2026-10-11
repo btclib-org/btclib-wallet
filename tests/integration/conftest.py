@@ -264,9 +264,8 @@ def broadcast(node: BitcoinCoreRpcClient, psbt: Psbt) -> str:
 # romanz's `electrs` has the same name and serves no HTTP, so a binary
 # found by name could be the wrong program.
 # `.github/workflows/integration-electrs.yml` builds the commit it pins.
-# The wait for the server to follow the node is a poll: `electrs` asks its
-# node for new blocks every five seconds (`src/bin/electrs.rs:199` at
-# dd09701e, the commit the workflow pins).
+# The wait for the server to follow the node is a poll: `electrs` polls its
+# node for new blocks.
 
 ELECTRS_ENV = "BTCLIB_ELECTRS"
 
