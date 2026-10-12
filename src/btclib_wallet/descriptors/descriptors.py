@@ -403,8 +403,9 @@ _MULTIPATH_STEP = re.compile(r"(<[^<>]*>)")
 # what ends a key expression, and with it a key path
 _KEY_END = re.compile(r"[,(){}]")
 # what `multipath_descriptors` reads, left to right: a "[" with the
-# fingerprint after it, up to the first "/" or "]" as Core reads it; a
-# "]" or a key end; or the text up to the next "[", "]", key end or "/"
+# fingerprint after it, up to the first "/" or "]", as `ParsePubkey`
+# reads it; a "]" or a key end; or the text up to the next "[", "]", key
+# end or "/"
 _MULTIPATH_ITEM = re.compile(r"\[[^/\]]*|[\](),{}]|[^/\[\](),{}]+")
 
 
@@ -430,11 +431,9 @@ def _assert_musig_one_multipath(text: str) -> None:
 
 
 def _assert_multipath_items(text: str) -> None:
-    """Refuse what `multipath_descriptors` refuses item by item, left to right.
+    """Refuse the faults `multipath_descriptors` lists, but the ``musig()`` one.
 
-    A key origin fingerprint, a step in a key origin, a step glued to a
-    key, a step that is not a whole path element, and a second step in one
-    key path. One pass, so of two of these faults the leftmost is the one
+    One pass, item by item, so of two faults the leftmost is the one
     reported, which is the order Core's parser reads them in.
     """
     in_origin = False
@@ -3663,9 +3662,9 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     The expansion is textual, as BIP389 defines it, and each result is a
     descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
     key origin fingerprint that is not 8 hex digits, a key path with two
-    ``<a;b>`` steps, a step in a key origin, a step that is not a whole
-    path element, and a ``musig()`` multipath in both its participants and
-    its path.
+    ``<a;b>`` steps, a step in a key origin, a step glued to a key, a step
+    that is not a whole path element, and a ``musig()`` multipath in both
+    its participants and its path.
     """
     text = strip_checksum(descriptor)
     _assert_multipath_items(text)
