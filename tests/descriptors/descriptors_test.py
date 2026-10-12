@@ -665,6 +665,63 @@ def test_multipath_refuses_two_steps_in_one_key(path: str) -> None:
         multipath_descriptors(f"multi(1,{xpub}/0/*,{xpub}{path})")
 
 
+@pytest.mark.parametrize(
+    "template",
+    [
+        "pkh({xpub}/<0;1>/<2;3>>/*)",
+        "wsh(multi(1,{xpub}/<0;1>/<2;3>/*,{xpub}<0;1>/*))",
+        "wsh(multi(1,{xpub}/<0;1>/<2;3>/*,{xpub}/<0;1>>/*))",
+    ],
+)
+def test_multipath_refuses_a_second_step_before_any_later_fault(
+    template: str,
+) -> None:
+    """Refuse a second step in both functions before reading past it.
+
+    `ParseKeyPath` reads a key path left to right, and an element starting
+    with ``<`` and ending with ``>`` after a step is "Multiple multipath key
+    path specifiers found", whatever it holds. Core parses the keys of
+    ``multi()`` left to right (`src/script/descriptor.cpp`,
+    bitcoin/bitcoin@a8b69bdeaf).
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = template.format(xpub=xpub)
+    message = "^Multiple multipath key path specifiers found$"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "[<0;1>]",
+        "[<0;1>>/0]",
+        "[dead<0;1>beef/0]",
+        "[deadbeef(<0;1>)/0]",
+        "[deadbeef(x)/0]",
+        "[/deadbeef/<0;1>]",
+    ],
+)
+def test_multipath_refuses_a_fingerprint_before_the_origin_path(origin: str) -> None:
+    """Refuse the fingerprint in both functions, before the origin's path.
+
+    `ParsePubkey` checks that the fingerprint, the text between ``[`` and
+    the first ``/`` or ``]``, is 8 hex characters before it reads the
+    origin's path
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf). In the last
+    case the fingerprint is empty.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = f"pkh({origin}{xpub}/0/*)"
+    message = "^invalid key origin fingerprint: 8 hex digits expected$"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
 def test_multipath_refuses_a_musig_multipath_in_participant_and_path() -> None:
     """Refuse both, with the message of Bitcoin Core's ``musig()`` parser.
 

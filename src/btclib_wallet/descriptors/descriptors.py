@@ -200,15 +200,15 @@ from btclib_wallet.bip44 import (
 )
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.descriptors.key_expression import (
-    _MULTIPLE_MULTIPATH,
     KeyExpression,
     PrvKeys,
+    _assert_fingerprint,
     _assert_key_item,
+    _assert_key_path_element,
     _assert_musig_allowed,
     _assert_network,
     _assert_origin_single_path,
     _assert_prv_keys,
-    _assert_whole_multipath_element,
     _derived_once,
     _expression,
     _offered_signature,
@@ -400,9 +400,12 @@ _THRESHOLD = re.compile(r"[0-9]+")
 # the BIP389 multipath step, brackets included: re.split hands back what
 # it split on when the pattern captures it
 _MULTIPATH_STEP = re.compile(r"(<[^<>]*>)")
-# what ends a key expression: between two steps without one, both steps
-# are in the same key path
+# what ends a key expression, and with it a key path
 _KEY_END = re.compile(r"[,(){}]")
+# what `multipath_descriptors` reads, left to right: a "[" with the
+# fingerprint after it, up to the first "/" or "]" as Core reads it; a
+# "]" or a key end; or the text up to the next "[", "]", key end or "/"
+_MULTIPATH_ITEM = re.compile(r"\[[^/\]]*|[\](),{}]|[^/\[\](),{}]+")
 
 
 def _assert_musig_one_multipath(text: str) -> None:
@@ -424,6 +427,35 @@ def _assert_musig_one_multipath(text: str) -> None:
                 "if musig() is also multipath"
             )
             raise BTClibValueError(err_msg)
+
+
+def _assert_multipath_items(text: str) -> None:
+    """Refuse what `multipath_descriptors` refuses item by item, left to right.
+
+    A key origin fingerprint, a step in a key origin, a step glued to a
+    key, a step that is not a whole path element, and a second step in one
+    key path. One pass, so of two of these faults the leftmost is the one
+    reported, which is the order Core's parser reads them in.
+    """
+    in_origin = False
+    after_step = False
+    for match in _MULTIPATH_ITEM.finditer(text):
+        element, start = match[0], match.start()
+        if element.startswith("["):
+            in_origin = True
+            _assert_fingerprint(element[1:])
+        elif element == "]":
+            in_origin = False
+        elif _KEY_END.fullmatch(element):
+            after_step = False
+        elif in_origin:
+            _assert_origin_single_path(element)
+        elif text[start - 1 : start] in {"]", "(", ","}:
+            # a key follows "]", "(" or ","; nothing else there holds "<" or ">"
+            # in a valid descriptor
+            _assert_key_item(element)
+        elif _assert_key_path_element(element, after_step=after_step):
+            after_step = True
 
 
 @dataclass(frozen=True)
@@ -3630,33 +3662,19 @@ def multipath_descriptors(descriptor: str) -> list[str]:
 
     The expansion is textual, as BIP389 defines it, and each result is a
     descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
-    key path with two ``<a;b>`` steps, a step in a key origin, a step
-    that is not a whole path element, and a ``musig()`` multipath in both its
-    participants and its path.
+    key origin fingerprint that is not 8 hex digits, a key path with two
+    ``<a;b>`` steps, a step in a key origin, a step that is not a whole
+    path element, and a ``musig()`` multipath in both its participants and
+    its path.
     """
     text = strip_checksum(descriptor)
-    in_origin = False
-    for match in re.finditer(r"[\[\]]|[^/\[\](),{}]+", text):
-        element, start = match[0], match.start()
-        if element in {"[", "]"}:
-            in_origin = element == "["
-        elif in_origin:
-            _assert_origin_single_path(element)
-        elif text[start - 1 : start] in {"]", "(", ","}:
-            # a key follows "]", "(" or ","; nothing else there holds "<" or ">"
-            # in a valid descriptor
-            _assert_key_item(element)
-        else:
-            _assert_whole_multipath_element(element)
+    _assert_multipath_items(text)
     _assert_musig_one_multipath(text)
     pieces = _MULTIPATH_STEP.split(text)
     # re.split with a capturing pattern alternates text and separator, so
     # the odd positions are the multipath steps and the even ones the
     # descriptor around them
     steps = [piece[1:-1].split(";") for piece in pieces[1::2]]
-    # one multipath step per key path, as Core's ParseKeyPath requires
-    if any(not _KEY_END.search(between) for between in pieces[2:-1:2]):
-        raise BTClibValueError(_MULTIPLE_MULTIPATH)
     if not steps:
         return [add_checksum(pieces[0])]
     lengths = {len(step) for step in steps}

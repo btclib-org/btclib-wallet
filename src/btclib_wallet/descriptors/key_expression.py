@@ -552,6 +552,16 @@ def _assert_origin_single_path(path: str) -> None:
         _assert_whole_multipath_element(element)
 
 
+def _assert_fingerprint(fingerprint: str) -> None:
+    """Refuse a key origin fingerprint that is not 8 hex digits.
+
+    Bitcoin Core's ``ParsePubkey`` checks it before the origin's path, so
+    an origin wrong in both is refused for its fingerprint.
+    """
+    if not _FINGERPRINT.fullmatch(fingerprint):
+        raise BTClibValueError("invalid key origin fingerprint: 8 hex digits expected")
+
+
 def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
     """Return the key origin of a `[fingerprint/path]` prefix, and its symbol.
 
@@ -562,8 +572,7 @@ def _key_origin(description: str) -> tuple[BIP32KeyOrigin, str]:
     and `serialize` both have to keep saying so.
     """
     fingerprint, separator, path = description.partition("/")
-    if not _FINGERPRINT.fullmatch(fingerprint):
-        raise BTClibValueError("invalid key origin fingerprint: 8 hex digits expected")
+    _assert_fingerprint(fingerprint)
     _assert_origin_single_path(path)
     der_path = _der_path(path.split("/") if separator else [])
     return BIP32KeyOrigin(fingerprint, der_path), _hardening(path)
@@ -664,16 +673,31 @@ def _assert_musig_allowed(*, musig_allowed: bool) -> None:
 _MULTIPLE_MULTIPATH = "Multiple multipath key path specifiers found"
 
 
+def _assert_key_path_element(element: str, *, after_step: bool) -> bool:
+    """Refuse a key path element as Core does, and answer whether it is a step.
+
+    Core's ``ParseKeyPath`` reads a key path left to right, and takes an
+    element that starts with ``<`` and ends with ``>`` as a multipath
+    step. Where one was read already, it refuses the element as a second
+    step before it reads anything inside it.
+    """
+    is_step = element.startswith("<") and element.endswith(">")
+    if is_step and after_step:
+        raise BTClibValueError(_MULTIPLE_MULTIPATH)
+    _assert_whole_multipath_element(element)
+    return is_step
+
+
 def _assert_key_characters(rest: str) -> None:
     """Refuse what a KEY expression cannot hold once the origin is off."""
     if "]" in rest:
         raise BTClibValueError("more than one ']' in a single key expression")
     key, *steps = rest.split("/")
     _assert_key_item(key)
+    after_step = False
     for element in steps:
-        _assert_whole_multipath_element(element)
-    if rest.count("<") > 1:
-        raise BTClibValueError(_MULTIPLE_MULTIPATH)
+        if _assert_key_path_element(element, after_step=after_step):
+            after_step = True
     if "<" in rest:
         err_msg = "multipath key expression: use multipath_descriptors first"
         raise BTClibValueError(err_msg)
