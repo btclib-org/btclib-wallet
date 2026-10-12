@@ -19,6 +19,7 @@ from btclib.utils import (
     list_from_json_array,
     read_exactly,
 )
+from btclib_ecc.curves import sec_point
 from typing_extensions import override
 
 from btclib_wallet.bip32.der_path import (
@@ -171,6 +172,19 @@ class BIP32KeyOrigin:
 HdKeyPaths = MutableMapping[bytes, BIP32KeyOrigin]
 
 
+def _is_point(pub_key: bytes) -> bool:
+    """Return whether the SEC octets are a point of the curve.
+
+    As in Bitcoin Core, a hybrid key (prefix 0x06 or 0x07) is a point when
+    its prefix gives the parity of its y coordinate.
+    """
+    try:
+        sec_point.point_from_octets(pub_key, hybrid=True)
+    except ValueError:
+        return False
+    return True
+
+
 def assert_valid_hd_key_paths(hd_key_paths: Mapping[bytes, BIP32KeyOrigin]) -> None:
     """Raise an exception if the dataclass element is not valid."""
     if len(hd_key_paths.values()) > len(
@@ -178,12 +192,14 @@ def assert_valid_hd_key_paths(hd_key_paths: Mapping[bytes, BIP32KeyOrigin]) -> N
     ):
         raise BTClibValueError("Duplicated key origin values in hd_key_paths")
     for pub_key, key_origin in hd_key_paths.items():
-        # the length and not the point: BIP174 test vector 6 carries a
-        # pub_key that is not on the curve, so parsing it here would
-        # refuse a psbt the specification calls valid
         if len(pub_key) not in {78, 33, 65}:
             err_msg = f"invalid public key length: {len(pub_key)}"
             raise BTClibValueError(err_msg)
+        # a 78-octet key belongs in the global map, where `psbt.py` checks
+        # its point; in an input's or an output's map it is not refused here
+        # (issue btclib-org/btclib-wallet#377)
+        if len(pub_key) != 78 and not _is_point(pub_key):
+            raise BTClibValueError("invalid public key: not a point")
         key_origin.assert_valid()
 
 

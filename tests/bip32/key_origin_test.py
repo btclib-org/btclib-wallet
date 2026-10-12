@@ -11,6 +11,8 @@ from typing import cast
 import pytest
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
+from btclib_ecc.curves import secp256k1
+from btclib_ecc.curves.sec_point import bytes_from_point
 
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
@@ -22,6 +24,10 @@ from btclib_wallet.bip32 import (
 from btclib_wallet.bip32.der_path import _HARDENING
 from tests import NOT_STRIPPED
 from tests.conftest import JsonGolden
+
+# the secp256k1 generator, compressed and uncompressed
+_G33 = bytes_from_point(secp256k1.G, compressed=True)
+_G65 = bytes_from_point(secp256k1.G, compressed=False)
 
 
 def test_bip32_key_origin() -> None:
@@ -167,7 +173,7 @@ def test_decode_hd_key_paths_reads_the_map_it_is_given() -> None:
     should not.
     """
     key_origin = BIP32KeyOrigin("deadbeef", [0])
-    pub_key = bytes(33)
+    pub_key = _G33
     populated: dict[Octets, BIP32KeyOrigin] = {pub_key: key_origin}
 
     assert decode_hd_key_paths(populated) == populated
@@ -183,13 +189,41 @@ def test_assert_valid_hd_key_paths_checks_the_pub_key_length() -> None:
     `NumberReplacer` reaches.
     """
     key_origin = BIP32KeyOrigin("deadbeef", [0])
-    for length in (78, 65, 33):
-        hd_key_paths = {bytes(length): key_origin}
+    for pub_key in (bytes(78), _G65, _G33):
+        hd_key_paths = {pub_key: key_origin}
         assert_valid_hd_key_paths(hd_key_paths)
     for length in (77, 79, 64, 66, 32, 34):
         hd_key_paths = {bytes(length): key_origin}
         with pytest.raises(BTClibValueError, match="invalid public key length: "):
             assert_valid_hd_key_paths(hd_key_paths)
+
+
+def test_assert_valid_hd_key_paths_checks_the_point() -> None:
+    """A 33 or 65-octet key that is not a point is refused, as in Core.
+
+    Core's `IsFullyValid` refuses it in both PSBT_IN_BIP32_DERIVATION and
+    PSBT_OUT_BIP32_DERIVATION. A hybrid key is a point when its prefix
+    gives the parity of y, and Core accepts it.
+    """
+    key_origin = BIP32KeyOrigin("deadbeef", [0])
+    x_off_curve = (5).to_bytes(32, "big")  # x**3 + 7 is not a square mod p
+    y_even = _G65[33:]
+    assert y_even[-1] & 1 == 0  # the generator's y is even
+    odd_prefix = b"\x07" + _G65[1:]
+    off_curve = (
+        b"\x02" + x_off_curve,
+        b"\x03" + x_off_curve,
+        b"\x04" + x_off_curve + y_even,
+        b"\x06" + x_off_curve + y_even,
+        b"\x02" + bytes(32),
+        _G65[:-1] + b"\x00",  # x on the curve, y not
+        odd_prefix,  # hybrid, but the prefix gives the wrong parity
+        b"\x04" + _G33[1:],  # a compressed key's octets under a wrong prefix
+    )
+    for pub_key in off_curve:
+        with pytest.raises(BTClibValueError, match="invalid public key: not a point"):
+            assert_valid_hd_key_paths({pub_key: key_origin})
+    assert_valid_hd_key_paths({b"\x06" + _G65[1:]: key_origin})
 
 
 def test_assert_valid_hd_key_paths_checks_every_entry() -> None:
@@ -203,7 +237,7 @@ def test_assert_valid_hd_key_paths_checks_every_entry() -> None:
     good = BIP32KeyOrigin("deadbeef", [0])
     good2 = BIP32KeyOrigin("deadbeef", [1])  # a different origin: no duplicate
     bad_pub_key = bytes(32)  # neither 78, 65 nor 33 octets
-    hd_key_paths = {bytes(33): good, bad_pub_key: good2}
+    hd_key_paths = {_G33: good, bad_pub_key: good2}
     with pytest.raises(BTClibValueError, match="invalid public key length: "):
         assert_valid_hd_key_paths(hd_key_paths)
 
