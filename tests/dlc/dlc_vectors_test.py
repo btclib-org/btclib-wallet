@@ -204,7 +204,6 @@ def test_signed_transactions(case: dict[str, Any]) -> None:
     assert [_hex(c) for c in built.cets] == case["unsignedTxs"]["cets"]
     assert _hex(built.refund_tx) == case["unsignedTxs"]["refundTx"]
     funding_out = built.funding_tx.vout[built.funding_vout]
-    value = funding_out.value
 
     # the funding transaction: the vector's, and ours, each input signed
     vector_funding = Tx.parse(bytes.fromhex(case["signedTxs"]["fundingTx"]))
@@ -239,7 +238,7 @@ def test_signed_transactions(case: dict[str, Any]) -> None:
     # the refund
     refund = dlc.complete_spend(
         built.refund_tx,
-        {pubs[w]: dlc.sign(built.refund_tx, value, keys[w]) for w in keys},
+        {pubs[w]: dlc.sign(terms, built.refund_tx, keys[w]) for w in keys},
     )
     vector_refund = Tx.parse(bytes.fromhex(case["signedTxs"]["refundTx"]))
     verify_transaction([funding_out], refund)
@@ -268,13 +267,13 @@ def test_signed_transactions(case: dict[str, Any]) -> None:
         case["signedTxs"]["cets"],
         strict=True,
     ):
-        adaptor = dlc.adaptor_sign(cet, value, keys[remote], point, _AUX)
-        assert dlc.verify_adaptor(adaptor, cet, value, pubs[remote], point)
-        assert not dlc.verify_adaptor(adaptor, cet, value, pubs[local], point)
+        adaptor = dlc.adaptor_sign(terms, cet, keys[remote], point, _AUX)
+        assert dlc.verify_adaptor(terms, cet, adaptor, pubs[remote], point)
+        assert not dlc.verify_adaptor(terms, cet, adaptor, pubs[local], point)
         signed = dlc.complete_cet(
             cet,
             local_pub_key=pubs[local],
-            local_sig=dlc.sign(cet, value, keys[local]),
+            local_sig=dlc.sign(terms, cet, keys[local]),
             remote_pub_key=pubs[remote],
             remote_adaptor_sig=adaptor,
             decryption_key=secret,

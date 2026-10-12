@@ -65,12 +65,11 @@ _BIP322_SIG = bip322.sign(_MSG, PrvKeyData(_Q), _ADDR)
 _DLC_TERMS = _dlc(_TX[0]["inputs"])
 _DLC_BUILT = dlc.build_transactions(_DLC_TERMS)
 _DLC_TX = _DLC_BUILT.refund_tx
-_DLC_VALUE = _DLC_BUILT.funding_tx.vout[_DLC_BUILT.funding_vout].value
 _DLC_KEY = int(_TX[0]["inputs"]["offerParams"]["fundingPrivKey"], 16)
 _DLC_PUB = _DLC_TERMS.offer.funding_pub_key
 _DLC_POINT = mult(5)
-_DLC_ADAPTOR = dlc.adaptor_sign(_DLC_TX, _DLC_VALUE, _DLC_KEY, _DLC_POINT, bytes(32))
-_DLC_OTHER = dlc.adaptor_sign(_DLC_TX, _DLC_VALUE, _DLC_KEY, mult(6), bytes(32))
+_DLC_ADAPTOR = dlc.adaptor_sign(_DLC_TERMS, _DLC_TX, _DLC_KEY, _DLC_POINT, bytes(32))
+_DLC_OTHER = dlc.adaptor_sign(_DLC_TERMS, _DLC_TX, _DLC_KEY, mult(6), bytes(32))
 
 # a value of a declared type that no valid input carries, spelled per
 # position because a hand-written call knows which alias each of its
@@ -115,21 +114,19 @@ _CASES = (
     _Case(
         "dlc.verify_adaptor",
         dlc.verify_adaptor,
-        (_DLC_ADAPTOR, _DLC_TX, _DLC_VALUE, _DLC_PUB, _DLC_POINT),
-        # an adaptor signature under another point, a CET in place of the
-        # refund, a funding value plus one, another key, another point
+        (_DLC_TERMS, _DLC_TX, _DLC_ADAPTOR, _DLC_PUB, _DLC_POINT),
+        # a CET in place of the refund, an adaptor signature under another
+        # point, another key, another point
         {
-            0: _DLC_OTHER,
             1: _DLC_BUILT.cets[0],
-            2: _DLC_VALUE + 1,
+            2: _DLC_OTHER,
             3: _DLC_TERMS.accept.funding_pub_key,
             4: mult(6),
         },
-        # a truncated adaptor signature, a negative amount, a key and a
-        # point that are on no curve
+        # a truncated adaptor signature, a key and a point that are on no
+        # curve
         {
-            0: _DLC_ADAPTOR[:-1],
-            2: -1,
+            2: _DLC_ADAPTOR[:-1],
             3: b"\2" + b"\xff" * 32,
             4: (1, 2),
         },

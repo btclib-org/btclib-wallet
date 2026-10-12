@@ -9,13 +9,14 @@ https://github.com/discreetlogcontracts/dlcspecs/blob/master/ECDSA-adaptor.md
 Each party gives the other an adaptor signature of every CET, encrypted
 under the outcome's signature point (`btclib_ecc.ecc.ecdsa_adaptor`), so
 whoever holds the oracle's attestation decrypts it into an ordinary
-signature. The refund
-transaction is signed outright. All of them spend the funding output
-with SIGHASH_ALL.
+signature. The refund transaction is signed outright. All of them spend
+the funding output with SIGHASH_ALL.
 
-**The functions take the unsigned transaction
-`btclib_wallet.dlc.transactions` builds**: its input's witness is the
-funding script, which is the script code signed.
+**Only the agreed transactions are signed.** `sig_hash`, `sign`,
+`adaptor_sign` and `verify_adaptor` take the `Dlc` and the unsigned
+transaction, and refuse any that `btclib_wallet.dlc.transactions` does
+not build from those terms: a CET of one of their payouts, or the refund.
+The script code and the funding value come from the terms.
 
 **Funding inputs are not signed here.** The wallet's signer signs them,
 whatever the script; `complete_funding_tx` only places the witnesses it
@@ -39,7 +40,13 @@ from btclib.tx import OutPoint, Tx, TxIn
 from btclib.utils import assert_type
 from btclib_ecc.ecc import dsa, ecdsa_adaptor
 
-from btclib_wallet.dlc.transactions import _MAX_VALUE, _assert_int
+from btclib_wallet.dlc.transactions import (
+    Dlc,
+    build_cet,
+    build_funding_tx,
+    build_refund_tx,
+    funding_script,
+)
 
 __all__ = [
     "adaptor_sign",
@@ -60,22 +67,42 @@ def _funding_script(tx: Tx) -> bytes:
     return tx.vin[0].script_witness.stack[-1]
 
 
-def sig_hash(tx: Tx, funding_value: int) -> bytes:
-    """Return the BIP143 SIGHASH_ALL hash of the funding input of tx."""
-    script = _funding_script(tx)
-    _assert_int(funding_value, "funding value", low=0, high=_MAX_VALUE)
-    return segwit_v0(script, tx, 0, ALL, funding_value)
+def _funding_value(dlc: Dlc, tx: Tx) -> int:
+    """Return the funding output's value, if tx is one the terms agree on."""
+    assert_type(tx, Tx, "tx")
+    funding_tx, vout = build_funding_tx(dlc)
+    total = dlc.offer.collateral + dlc.accept.collateral
+    payouts = set(dlc.offer_payouts)
+    # a CET's offerer payout is one of its output values, or the rest of
+    # the total: a payout under the dust limit has no output
+    values = {o.value for o in tx.vout}
+    candidates = {p for v in values for p in (v, total - v) if p in payouts}
+    agreed = [build_refund_tx(dlc, funding_tx, vout)]
+    agreed += [build_cet(dlc, funding_tx, vout, p) for p in candidates]
+    if tx not in agreed:
+        raise BTClibValueError("not a transaction of this DLC's terms")
+    return funding_tx.vout[vout].value
 
 
-def sign(tx: Tx, funding_value: int, prv_key: Integer) -> bytes:
+def sig_hash(dlc: Dlc, tx: Tx) -> bytes:
+    """Return the BIP143 SIGHASH_ALL hash of the funding input of tx.
+
+    tx is a CET of the terms' payouts or their refund, as built.
+    """
+    value = _funding_value(dlc, tx)
+    script = funding_script(dlc.offer.funding_pub_key, dlc.accept.funding_pub_key)
+    return segwit_v0(script, tx, 0, ALL, value)
+
+
+def sign(dlc: Dlc, tx: Tx, prv_key: Integer) -> bytes:
     """Return the signature of tx's funding input, DER and SIGHASH_ALL."""
-    sig = dsa.sign_(sig_hash(tx, funding_value), prv_key)
+    sig = dsa.sign_(sig_hash(dlc, tx), prv_key)
     return sig.serialize() + bytes([ALL])
 
 
 def adaptor_sign(
+    dlc: Dlc,
     tx: Tx,
-    funding_value: int,
     prv_key: Integer,
     sig_point: Point,
     aux: Octets | None = None,
@@ -85,25 +112,23 @@ def adaptor_sign(
     `aux` is 32 octets of randomness, fresh when absent. Fixing it makes
     the signature repeatable: do it only to check a vector.
     """
-    return ecdsa_adaptor.encrypt(sig_hash(tx, funding_value), prv_key, sig_point, aux)
+    return ecdsa_adaptor.encrypt(sig_hash(dlc, tx), prv_key, sig_point, aux)
 
 
 def verify_adaptor(
-    adaptor_sig: Octets,
+    dlc: Dlc,
     tx: Tx,
-    funding_value: int,
+    adaptor_sig: Octets,
     pub_key: Octets,
     sig_point: Point,
 ) -> bool:
     """Return whether adaptor_sig decrypts to pub_key's signature of tx.
 
-    The adaptor signature is encrypted under sig_point. A funding_value
-    out of range raises, as any malformed argument does, rather than
-    answering False.
+    The adaptor signature is encrypted under sig_point. A transaction the
+    terms do not agree on raises, as any malformed argument does, rather
+    than answering False.
     """
-    return ecdsa_adaptor.verify(
-        adaptor_sig, sig_hash(tx, funding_value), pub_key, sig_point
-    )
+    return ecdsa_adaptor.verify(adaptor_sig, sig_hash(dlc, tx), pub_key, sig_point)
 
 
 def complete_spend(tx: Tx, sigs: Mapping[bytes, bytes]) -> Tx:

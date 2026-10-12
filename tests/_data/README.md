@@ -924,10 +924,13 @@ name that differs and a number that does not, and the number is what
 Read at the repository's tip, 9cd9148938c616690c79d99ec6f330e213c246c5.
 bitcoin-s generated these files, and at bitcoin-s/bitcoin-s@727f1acbe carries
 its own copies of them in
-`core-test/.jvm/src/test/scala/org/bitcoins/core/dlc/testgen/`. Its
-`dlc_fee_test.json` is these bytes; its other files differ and hold
-serial ids, which these do not. `tests/dlc/dlc_vectors_test.py` gives the
-serial ids that reproduce the files' order.
+`core-test/.jvm/src/test/scala/org/bitcoins/core/dlc/testgen/`, under the
+blobs `2770a6006d3345e0f245ad4a75862ed8042eca8d` for `dlc_fee_test.json`,
+`5fb2a5c7620a5088c8aa7ca8f4314aa2fe042394` for `dlc_tx_test.json` and
+`6af571b72a36ac3eb198a239faec9272464899c3` for `dlc_test.json`. Only the
+first is the blob below. The others hold serial ids, which these do
+not. `tests/dlc/dlc_vectors_test.py` gives the serial ids that reproduce
+the files' order.
 
 ### `tests/dlc/_data/dlc_fee_test.json`
 

@@ -6,14 +6,7 @@
 
 https://github.com/discreetlogcontracts/dlcspecs
 
-`transactions` and `signing` make it up:
-
-- `transactions` is the funding transaction, the contract execution
-  transactions (CETs) and the refund transaction, built from the terms
-  two parties agree on, with the fee each of them pays;
-- `signing`, which imports it, is the adaptor signatures that make a CET
-  spendable by whoever holds the oracle's attestation, the signature of
-  the refund, and the witnesses that complete each transaction.
+`transactions` and `signing` are the modules: each says what it holds.
 
 The flat surface is this package's: the names are read off
 `btclib_wallet.dlc`, the modules being where they are written.

@@ -108,12 +108,11 @@ def test_a_refusal_does_not_print_a_secret() -> None:
     """Keep a refused private key and a refused adaptor out of the message."""
     terms = _terms()
     built = dlc.build_transactions(terms)
-    value = built.funding_tx.vout[0].value
     key = 0xDEADBEEF * 2**200
     refused = key + 2**256
     for call in (
-        lambda: dlc.sign(built.cets[0], value, 0),
-        lambda: dlc.sign(built.cets[0], value, refused),
+        lambda: dlc.sign(terms, built.cets[0], 0),
+        lambda: dlc.sign(terms, built.cets[0], refused),
         lambda: dlc.complete_cet(
             built.cets[0],
             local_pub_key=terms.offer.funding_pub_key,
@@ -198,11 +197,11 @@ def test_the_serial_ids_and_the_inputs_are_distinct() -> None:
 
 
 def test_the_signing_functions_check_their_transactions() -> None:
-    """Refuse a transaction without the funding script, wrong witnesses."""
+    """Refuse a transaction that is not a CET or the refund, wrong witnesses."""
     terms = _terms()
     built = dlc.build_transactions(terms)
-    with pytest.raises(BTClibValueError, match="spending the funding output"):
-        dlc.sig_hash(built.funding_tx, 1)
+    with pytest.raises(BTClibValueError, match="this DLC's terms"):
+        dlc.sig_hash(terms, built.funding_tx)
     with pytest.raises(BTClibValueError, match="not those of the inputs"):
         dlc.complete_funding_tx(built.funding_tx, {})
 
@@ -245,28 +244,136 @@ def test_the_funding_output_is_where_the_serial_ids_put_it() -> None:
         assert tx.vin[0].prev_out == OutPoint(built.funding_tx.id, 1)
 
 
-@pytest.mark.parametrize("value", [1.5, "x", True, -1, 2**63])
-def test_the_funding_value_is_checked(value: Any) -> None:
-    """Raise on a funding value that is not an amount, for every signer."""
+def _hand(
+    tx: Tx,
+    *,
+    version: int | None = None,
+    lock_time: int | None = None,
+    vin: list[TxIn] | None = None,
+    vout: list[TxOut] | None = None,
+) -> Tx:
+    """Return tx with fields replaced, as a counterparty would send it."""
+    return Tx(
+        tx.version if version is None else version,
+        tx.lock_time if lock_time is None else lock_time,
+        tx.vin if vin is None else vin,
+        tx.vout if vout is None else vout,
+    )
+
+
+def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
+    """Require every function that takes a key or a signature to refuse tx."""
+    point = (1, 2)
+    key = terms.offer.funding_pub_key
+    for call in (
+        lambda: dlc.sig_hash(terms, tx),
+        lambda: dlc.sign(terms, tx, 1),
+        lambda: dlc.adaptor_sign(terms, tx, 1, point),
+        lambda: dlc.verify_adaptor(terms, tx, b"\0" * 162, key, point),
+    ):
+        with pytest.raises(BTClibValueError, match="this DLC's terms"):
+            call()
+
+
+def test_the_agreed_transactions_are_signed() -> None:
+    """Sign the built CETs and the refund, and nothing else."""
     terms = _terms()
     built = dlc.build_transactions(terms)
-    tx = built.refund_tx
-    err = (BTClibTypeError, BTClibValueError)
-    with pytest.raises(err):
-        dlc.sig_hash(tx, value)
-    with pytest.raises(err):
-        dlc.sign(tx, value, 1)
-    point = (1, 2)
-    with pytest.raises(err):
-        dlc.adaptor_sign(tx, value, 1, point)
-    with pytest.raises(err):
-        dlc.verify_adaptor(
-            b"\0" * 162,
-            tx,
-            value,
-            terms.offer.funding_pub_key,
-            point,
-        )
+    key = 0xDEADBEEF
+    for tx in (*built.cets, built.refund_tx):
+        sig = dlc.sign(terms, tx, key)
+        assert sig[-1] == 1
+    assert len({dlc.sig_hash(terms, t) for t in (*built.cets, built.refund_tx)}) == (
+        len(built.cets) + 1
+    )
+
+
+def test_a_changed_output_is_not_signed() -> None:
+    """Refuse a CET and a refund that pay somebody else, or something else."""
+    terms = _terms()
+    built = dlc.build_transactions(terms)
+    for tx in (built.cets[0], built.refund_tx):
+        thief = TxOut(tx.vout[0].value, b"\x00\x14" + bytes(20))
+        _every_signer(terms, _hand(tx, vout=[thief, *tx.vout[1:]]))
+        richer = TxOut(tx.vout[0].value + 1, tx.vout[0].script_pub_key)
+        _every_signer(terms, _hand(tx, vout=[richer, *tx.vout[1:]]))
+        _every_signer(terms, _hand(tx, vout=[*tx.vout, tx.vout[0]]))
+        _every_signer(terms, _hand(tx, lock_time=tx.lock_time + 1))
+        _every_signer(terms, _hand(tx, version=1))
+
+
+def test_another_outpoint_is_not_signed() -> None:
+    """Refuse a spend of any output but the funding output."""
+    terms = _terms()
+    built = dlc.build_transactions(terms)
+    for tx in (built.cets[0], built.refund_tx):
+        spent = tx.vin[0]
+        for prev_out in (
+            OutPoint(spent.prev_out.tx_id, spent.prev_out.vout + 1),
+            OutPoint(b"\2" * 32, spent.prev_out.vout),
+        ):
+            vin = TxIn(prev_out, spent.script_sig, spent.sequence, spent.script_witness)
+            _every_signer(terms, _hand(tx, vin=[vin]))
+
+
+def test_another_script_is_not_signed() -> None:
+    """Refuse a witness that is not the funding script alone."""
+    terms = _terms()
+    built = dlc.build_transactions(terms)
+    for tx in (built.cets[0], built.refund_tx):
+        spent = tx.vin[0]
+        script = spent.script_witness.stack[-1]
+        for stack in (
+            [script, script],
+            [b"\x51"],
+            [b"", script],
+            [script[:-1] + b"\xad"],
+            [],
+        ):
+            vin = TxIn(spent.prev_out, spent.script_sig, spent.sequence, Witness(stack))
+            _every_signer(terms, _hand(tx, vin=[vin]))
+        vin = TxIn(spent.prev_out, b"\x51", spent.sequence, spent.script_witness)
+        _every_signer(terms, _hand(tx, vin=[vin]))
+        vin = TxIn(spent.prev_out, b"", 0xFFFFFFFF, spent.script_witness)
+        _every_signer(terms, _hand(tx, vin=[vin]))
+
+
+def test_a_cet_of_an_unagreed_outcome_is_not_signed() -> None:
+    """Refuse a CET built for a payout the terms do not list."""
+    terms = _terms()
+    built = dlc.build_transactions(terms)
+    vout = built.funding_vout
+    total = terms.offer.collateral + terms.accept.collateral
+    for payout in (1000, 999, total - 999, total // 2):
+        assert payout not in terms.offer_payouts
+        cet = dlc.build_cet(terms, built.funding_tx, vout, payout)
+        _every_signer(terms, cet)
+
+
+def test_a_signed_transaction_is_not_signed_again() -> None:
+    """Refuse a completed refund: only the unsigned one is agreed."""
+    terms = _terms()
+    built = dlc.build_transactions(terms)
+    script = built.refund_tx.vin[0].script_witness.stack[-1]
+    done = dlc.complete_spend(
+        built.refund_tx,
+        {
+            terms.offer.funding_pub_key: b"x",
+            terms.accept.funding_pub_key: b"y",
+        },
+    )
+    assert done.vin[0].script_witness.stack[-1] == script
+    _every_signer(terms, done)
+
+
+def test_the_signing_functions_check_their_types() -> None:
+    """Raise a type error on a transaction or terms of the wrong type."""
+    terms = _terms()
+    built = dlc.build_transactions(terms)
+    with pytest.raises(BTClibTypeError):
+        dlc.sign(terms, b"x", 1)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError):
+        dlc.sign(built, built.refund_tx, 1)  # type: ignore[arg-type]
 
 
 def test_the_signatures_are_a_mapping() -> None:
@@ -486,12 +593,15 @@ def test_a_party_takes_funding_inputs_only() -> None:
 
 def test_the_signing_functions_count_inputs_and_witnesses() -> None:
     """Refuse a spend of two inputs, and witnesses beyond the inputs'."""
-    built = dlc.build_transactions(_terms())
+    terms = _terms()
+    built = dlc.build_transactions(terms)
     refund = built.refund_tx
     other = TxIn(OutPoint(b"\2" * 32, 0), b"", 0, refund.vin[0].script_witness)
     two = Tx(2, 0, [refund.vin[0], other], refund.vout)
+    with pytest.raises(BTClibValueError, match="this DLC's terms"):
+        dlc.sig_hash(terms, two)
     with pytest.raises(BTClibValueError, match="spending the funding output"):
-        dlc.sig_hash(two, 1)
+        dlc.complete_spend(two, {})
     witnesses = {i.prev_out: Witness([b"x"]) for i in built.funding_tx.vin}
     done = dlc.complete_funding_tx(built.funding_tx, witnesses)
     assert [i.script_witness.stack for i in done.vin] == [(b"x",)] * len(done.vin)
