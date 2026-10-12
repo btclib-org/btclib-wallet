@@ -142,6 +142,7 @@ from __future__ import annotations
 import operator
 import re
 from abc import ABC, abstractmethod
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, replace
@@ -200,21 +201,29 @@ from btclib_wallet.bip44 import (
 )
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.descriptors.key_expression import (
+    _MISSING_ORIGIN_END,
+    _ONE_ITEM_STEP,
+    _RANGED_PARTICIPANT,
+    _SEVERAL_ORIGIN_ENDS,
+    _WILDCARDS,
     KeyExpression,
     PrvKeys,
     _assert_fingerprint,
     _assert_key_item,
+    _assert_key_path,
     _assert_key_path_element,
     _assert_musig_allowed,
     _assert_network,
-    _assert_origin_single_path,
+    _assert_origin_path_element,
     _assert_prv_keys,
     _derived_once,
     _expression,
+    _is_extended_key,
     _offered_signature,
     _parse_key,
     _split_arguments,
     _split_function,
+    _split_wildcard,
 )
 from btclib_wallet.descriptors.miniscript import (
     Miniscript,
@@ -404,57 +413,216 @@ _MULTIPATH_STEP = re.compile(r"(<[^<>]*>)")
 _KEY_END = re.compile(r"[,(){}]")
 # what `multipath_descriptors` reads, left to right: a "[" with the
 # fingerprint after it, up to the first "/" or "]", as `ParsePubkey`
-# reads it; a "]" or a key end; or the text up to the next "[", "]", key
-# end or "/"
-_MULTIPATH_ITEM = re.compile(r"\[[^/\]]*|[\](),{}]|[^/\[\](),{}]+")
+# reads it; a "]" or a key end; the text up to the next "[", "]", key
+# end or "/"; or a "/" with nothing after it, which ends an empty element
+_MULTIPATH_ITEM = re.compile(r"\[[^/\]]*|[\](),{}]|[^/\[\](),{}]+|/(?=[/\[\](),{}]|$)")
+_MUSIG_ONE_MULTIPATH = (
+    "musig(): Cannot have multipath participant keys if musig() is also multipath"
+)
+# the functions whose whole argument Core reads as one key, "," included,
+# where the ending "(" is at `endpos`: the descriptor ones and miniscript's
+_WHOLE_KEY_FUNCTION = re.compile(r"(?:^|[(,{:])(?:pk|pkh|wpkh|combo|pk_k|pk_h)\($")
 
 
-def _assert_musig_one_multipath(text: str) -> None:
-    """Refuse a ``musig()`` multipath in its participants and in its path.
+def _argument_ends(text: str) -> tuple[list[int], dict[int, int], dict[int, int]]:
+    """Return where each argument of `text` starts, ends and closes.
 
-    The message is Bitcoin Core's. The participants are inside the
-    parentheses; the aggregate key's path follows them.
+    An argument starts at the start of the text and after each of
+    ",(){}". It ends where Bitcoin Core's ``Expr`` ends it: at the first
+    ",", ")" or "}" outside the brackets it opens itself. One that starts
+    after "(" or "{" closes at the ")" or "}" alone, which is where it ends
+    when read whole. One that neither ends nor closes runs to the end of
+    the text, and is in neither map. One pass over the delimiters: an
+    argument waits, by bracket depth, for what ends it.
     """
-    for opening in re.finditer(r"musig\(", text):
-        depth = 1
-        end = opening.end()
-        while depth and end < len(text):
-            depth += {"(": 1, ")": -1}.get(text[end], 0)
-            end += 1
-        path = _KEY_END.split(text[end:], maxsplit=1)[0]
-        if "<" in text[opening.end() : end] and "<" in path:
-            err_msg = (
-                "musig(): Cannot have multipath participant keys "
-                "if musig() is also multipath"
-            )
-            raise BTClibValueError(err_msg)
+    starts = [0]
+    ends: dict[int, int] = {}
+    closes: dict[int, int] = {}
+    waiting: dict[int, list[int]] = {0: [0]}
+    opened: dict[int, list[int]] = {}
+    depth = 0
+    for match in _KEY_END.finditer(text):
+        char, at = match[0], match.start()
+        starts.append(at + 1)
+        if char in "({":
+            depth += 1
+            waiting.setdefault(depth, []).append(at + 1)
+            opened.setdefault(depth, []).append(at + 1)
+            continue
+        for start in waiting.pop(depth, []):
+            ends[start] = at
+        if char != ",":
+            for start in opened.pop(depth, []):
+                closes[start] = at
+            depth -= 1
+        waiting.setdefault(depth, []).append(at + 1)
+    return starts, ends, closes
+
+
+def _count(positions: list[int], start: int, end: int) -> int:
+    """Count the sorted `positions` from `start` up to `end`."""
+    return bisect_left(positions, end) - bisect_left(positions, start)
+
+
+def _whole_argument(
+    text: str, start: int, ends: dict[int, int], closes: dict[int, int]
+) -> range:
+    """Return where the argument at `start` lies, if Core reads it whole.
+
+    That is the argument of a `_WHOLE_KEY_FUNCTION` holding a "," of its
+    own, which then starts no key. The range is empty otherwise. `ends`
+    and `closes` are `_argument_ends`'s.
+    """
+    # the longest name, "combo(", and the character before it
+    if not _WHOLE_KEY_FUNCTION.search(text, max(start - 7, 0), start):
+        return range(-1, -1)
+    close = closes.get(start, len(text))
+    if close == ends.get(start, len(text)):
+        return range(-1, -1)
+    return range(start, close)
+
+
+def _assert_one_origin_end(origin_ends: int) -> None:
+    """Refuse a key whose "[" has no "]", or more than one, as Core does."""
+    if origin_ends != 1:
+        err_msg = _SEVERAL_ORIGIN_ENDS if origin_ends else _MISSING_ORIGIN_END
+        raise BTClibValueError(err_msg)
+
+
+def _reads_past_origin(key: str) -> bool:
+    """Answer whether Core reads past a key's origin.
+
+    It does where the key has no "]" or opens with "[": a key that opens
+    with "[" holds exactly one "]" by then.
+    """
+    return "]" not in key or key.startswith("[")
+
+
+def _musig_ends(text: str) -> dict[int, int]:
+    """Map the ")" closing each ``musig(`` to where its participants start.
+
+    One pass, pairing each ")" with the last "(" still open; one with none
+    open pairs with the start of the text, where no ``musig(`` ends.
+    """
+    ends = {}
+    opened = []
+    for match in re.finditer(r"[()]", text):
+        if match[0] == "(":
+            opened.append(match.end())
+            continue
+        start = opened.pop() if opened else 0
+        if text.endswith("musig(", 0, start):
+            ends[match.start()] = start
+    return ends
+
+
+def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> None:
+    """Refuse a ``musig()``'s path, and the faults Core reads with it.
+
+    The participants are from `start` to the ")" at `close`, and `steps`
+    is where the text holds a "<". Core reads these faults after the
+    participants: a ranged participant beside a path, then the path, as
+    `_parse_musig` does, and then a multipath in both the participants
+    and the path. It reads the path's elements only where every
+    participant is an extended key and the wildcard is not hardened, and
+    so does this.
+    """
+    path_end = _KEY_END.search(text, close + 1)
+    path = text[close + 1 : path_end.start() if path_end else len(text)]
+    if path.startswith("/"):
+        keys = text[start:close].split(",")
+        derives = all(
+            _reads_past_origin(key)
+            and _is_extended_key(key.rpartition("]")[2].partition("/")[0])
+            for key in keys
+        )
+        if derives and any(key.rpartition("/")[2] in _WILDCARDS for key in keys):
+            raise BTClibValueError(_RANGED_PARTICIPANT)
+        elements, _, wildcard_hardening = _split_wildcard(path[1:].split("/"))
+        if derives and not wildcard_hardening:
+            try:
+                _assert_key_path(elements, numeric=True)
+            except BTClibValueError as e:
+                raise BTClibValueError(f"musig(): {e}") from e
+    if "<" in path and _count(steps, start, close):
+        raise BTClibValueError(_MUSIG_ONE_MULTIPATH)
 
 
 def _assert_multipath_items(text: str) -> None:
-    """Refuse the faults `multipath_descriptors` lists, but the ``musig()`` one.
+    """Refuse the faults `multipath_descriptors` lists, but one.
 
-    One pass, item by item, so of two faults the leftmost is the one
-    reported, which is the order Core's parser reads them in.
+    A step with fewer than two elements outside an extended key's path is
+    left to `multipath_descriptors`, which refuses it once it has every
+    step. One pass, item by item, so of two faults the leftmost is the one
+    reported, which is the order Core's parser reads them in. The elements
+    of a key's path are read as numbers where `_assert_key_path_element`
+    says Core does, and once Core is past the key's origin.
+    `_assert_musig_path` reads the path of a ``musig()``.
+
+    Where Core reads a function's whole argument as one key and that holds
+    a "," of its own, no element in it is read as a number.
     """
-    in_origin = False
-    after_step = False
+    # everything the pass asks of what lies ahead is worked out once, here,
+    # so that no item reads the text again
+    starts, ends, closes = _argument_ends(text)
+    origin_ends = [match.start() for match in re.finditer(r"\]", text)]
+    steps = [match.start() for match in re.finditer("<", text)]
+    musig_ends = _musig_ends(text)
+    in_origin = after_step = numeric = False
+    key_start = 0
+    whole = range(-1, -1)
     for match in _MULTIPATH_ITEM.finditer(text):
-        element, start = match[0], match.start()
-        if element.startswith("["):
+        item, start, end = match[0], match.start(), match.end()
+        if item.startswith("["):
+            # the key runs from here as from the argument it is in
+            argument = starts[bisect_right(starts, start) - 1]
+            key_end = (closes if start == whole.start else ends).get(
+                argument, len(text)
+            )
+            _assert_one_origin_end(_count(origin_ends, start, key_end))
             in_origin = True
-            _assert_fingerprint(element[1:])
-        elif element == "]":
+            _assert_fingerprint(item[1:])
+        elif item == "]":
             in_origin = False
-        elif _KEY_END.fullmatch(element):
-            after_step = False
+        elif _KEY_END.fullmatch(item):
+            after_step = numeric = False
+            key_start = end
+            whole = _whole_argument(text, end, ends, closes) or whole
+            if text.endswith("musig(", 0, end):
+                # where Core reads a musig(), before anything inside it
+                allowed = text.startswith(("tr(", "rawtr("))
+                _assert_musig_allowed(musig_allowed=allowed)
+            if start in musig_ends:
+                _assert_musig_path(text, musig_ends[start], start, steps)
         elif in_origin:
-            _assert_origin_single_path(element)
-        elif text[start - 1 : start] in {"]", "(", ","}:
+            # a lone "/" is the empty element after it
+            _assert_origin_path_element("" if item == "/" else item)
+        elif item != "/" and text[start - 1 : start] in {"]", "(", ","}:
             # a key follows "]", "(" or ","; nothing else there holds "<" or ">"
             # in a valid descriptor
-            _assert_key_item(element)
-        elif _assert_key_path_element(element, after_step=after_step):
-            after_step = True
+            _assert_key_item(item)
+            key_end = ends.get(key_start, len(text))
+            numeric = (
+                text[end : end + 1] == "/"
+                and _is_extended_key(item)
+                and key_start not in whole
+                and (
+                    text.startswith("[", key_start)
+                    or not _count(origin_ends, key_start, key_end)
+                )
+            )
+        else:
+            element = "" if item == "/" else item
+            # Core reads a final wildcard as no element of the path
+            read = (
+                numeric
+                and (item == "/" or text[start - 1 : start] == "/")
+                and not (element in _WILDCARDS and text[end : end + 1] != "/")
+            )
+            is_step = _assert_key_path_element(
+                element, after_step=after_step, numeric=read
+            )
+            after_step = after_step or is_step
 
 
 @dataclass(frozen=True)
@@ -3661,14 +3829,18 @@ def multipath_descriptors(descriptor: str) -> list[str]:
 
     The expansion is textual, as BIP389 defines it, and each result is a
     descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
-    key origin fingerprint that is not 8 hex digits, a key path with two
-    ``<a;b>`` steps, a step in a key origin, a step glued to a key, a step
-    that is not a whole path element, and a ``musig()`` multipath in both
-    its participants and its path.
+    key whose "[" has no "]" or more than one, a key origin fingerprint
+    that is not 8 hex digits, a key origin path element that is a step or
+    no index, a step glued to a key, a step that is not a whole path
+    element, a key path with two ``<a;b>`` steps, a step with fewer than
+    two elements, an element of an extended key's path that is no index
+    or a step there with a repeated value, a ``musig()`` outside ``tr()``
+    and ``rawtr()``, a ``musig()`` path beside a ranged participant where
+    every participant is an extended key, and a ``musig()`` multipath in
+    both its participants and its path.
     """
     text = strip_checksum(descriptor)
     _assert_multipath_items(text)
-    _assert_musig_one_multipath(text)
     pieces = _MULTIPATH_STEP.split(text)
     # re.split with a capturing pattern alternates text and separator, so
     # the odd positions are the multipath steps and the even ones the
@@ -3682,7 +3854,7 @@ def multipath_descriptors(descriptor: str) -> list[str]:
         raise BTClibValueError(err_msg)
     length = lengths.pop()
     if length < 2:
-        raise BTClibValueError("a multipath step takes at least two elements")
+        raise BTClibValueError(_ONE_ITEM_STEP)
     descriptors = []
     for i in range(length):
         pieces[1::2] = [step[i] for step in steps]
