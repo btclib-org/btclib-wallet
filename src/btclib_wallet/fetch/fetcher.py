@@ -211,14 +211,13 @@ class Fetcher(ABC):
     def get_block_header(self, height: int) -> BlockHeader:
         """Return the header of the block at this height.
 
-        Height, and not hash: every backend here answers for a hash and
-        maps a height to one with a second call -- `getblockhash`,
-        `/block-height/<height>`, `/blockhashbyheight/<height>.bin` --
-        but the Electrum protocol's `blockchain.block.header` takes a
-        height and publishes no call that takes a hash at all. A hash-only
-        signature would be one an Electrum backend could never answer, which is
-        the `NotImplementedError`-in-an-ABC outcome the questions above
-        already avoid.
+        Height, and not hash: the Electrum protocol's
+        `blockchain.block.header` takes a height and publishes no call that
+        takes a hash, so a hash-only signature would be one an Electrum
+        backend could never answer, which is the
+        `NotImplementedError`-in-an-ABC outcome the questions above already
+        avoid. A node or an explorer maps a height to a hash with a second
+        call.
 
         Checked on arrival by `block_header_from_raw`, which says how.
         `assert_valid_time` is not among the checks -- it compares against

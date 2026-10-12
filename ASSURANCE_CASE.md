@@ -238,8 +238,7 @@ full statement of what is checked at that boundary and what is not:
 a transaction id is recomputed and refused unless it matches, a header's
 proof of work is checked, and a height or a
 tip hash rests on the backend's word except through `ElectrumFetcher`'s own
-merkle proof and the header chain of `CompactFilterFetcher`, which a single
-peer can still replace by out-working the honest chain from a fork point.
+merkle proof and the header chain of `CompactFilterFetcher`.
 `TlsLineTransport` verifies the server's certificate and host name by
 default. `Broadcaster.broadcast` checks that the backend named the txid
 this package computed and nothing checks that the transaction went on to

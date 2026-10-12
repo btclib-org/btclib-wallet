@@ -1,8 +1,7 @@
-# The fetch boundary, mutated: every backend that reaches a host over the
-# transport, and the fetcher module they all call into. `transport.py` is in
-# `module-path` and enumerates nothing -- it is imports, a `Callable` alias and
-# `__all__`, no expression a mutation operator can reach -- so it is named there
-# for a body it may grow rather than for anything measured below. Issue
+# The fetch boundary, mutated: the backends that judge a host's reply,
+# `transport.py`, and the fetcher module they all call into.
+# `compact_filters.py` and `peer_transport.py` are left to
+# btclib-org/btclib-wallet#346. Issue
 # btclib-org/btclib#327 proposed this scope directly -- a response-size limit
 # weakened, a status check turned into an acceptance, a tx-id verification
 # skipped -- as the same class of gap btclib-org/btclib#219 found in the

@@ -15,11 +15,9 @@ interface, `EsploraFetcher` over a block explorer's HTTP api,
 p2p peer serving BIP157 filters -- so that calling code takes a
 `Fetcher` and never branches on which one it got.
 
-**`CompactFilterFetcher` answers the questions a header chain answers and
-adds `scan_blocks`.** `get_tx` and `get_tx_out` raise `FetchError`, for the
-reason the module docstring of `compact_filters` gives, and
-`scan_blocks` returns the blocks that may touch a wallet's scripts, for
-the caller to read the transactions of.
+**`CompactFilterFetcher` adds `scan_blocks`**, which returns the blocks that
+may touch a wallet's scripts.
+What it serves of `Fetcher` is in its own docstrings.
 
 **`Broadcaster` is the one place that announces a transaction rather than
 asking about one**, and is a `typing.Protocol` rather than another

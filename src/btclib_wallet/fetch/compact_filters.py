@@ -30,10 +30,7 @@ Core serves a transaction by id only from its mempool and from its latest
 block (`FindTxForGetData` of `net_processing.cpp`), and a filter client
 holds the transactions of the blocks it downloaded and no others.
 `get_tx_out` is the interface's derivation from `get_tx` and raises with
-it. The blocks `scan_blocks` returns are where a wallet reads its
-transactions.
-`get_block_count`, `get_best_block_id` and `get_block_header` are served
-from the header chain, which is synchronized on each call.
+it.
 
 **One peer, one thread.** The connection is opened by the first call and
 greeted with a `version` exchange; a `FetchError` closes it, and the next
@@ -41,14 +38,9 @@ call opens it again and keeps the chain already held. Bitcoin Core drops
 a connection idle for its `TIMEOUT_INTERVAL` (`CConnman::InactivityCheck`
 of `net.cpp`), and the fetcher answers no ping between calls, so the
 first call after an idle stretch raises `FetchError` and the next one
-reconnects. A peer is refused unless it advertises
-`NODE_COMPACT_FILTERS` and `NODE_NETWORK`. Calls are not safe to make from
-two threads.
+reconnects. Calls are not safe to make from two threads.
 
-**`verify_network`** asks the peer for the headers after the genesis block
-of the fetcher's network and refuses a chain whose first header does not
-follow it. A peer with no block after the genesis block has nothing to
-compare, and passes.
+**`verify_network`** is `assert_network`, whose docstring says what it asks.
 """
 
 from __future__ import annotations
@@ -141,8 +133,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     and what a single peer can still do.
 
     The `Fetcher` questions that a header chain answers are served from
-    it: `get_block_count`, `get_best_block_id` and `get_block_header`.
-    `get_tx` and `get_tx_out` are not served.
+    it, synchronized on each call: `get_block_count`, `get_best_block_id`
+    and `get_block_header`. The module docstring says why `get_tx` and
+    `get_tx_out` raise.
 
     `transport` is required, keyword-only, and has no default, as it is
     for `ElectrumFetcher`: which peer sees this client is not this
@@ -345,10 +338,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             return list(Headers.parse(message.payload).headers)
 
     def _check_header(self, header: BlockHeader, parent_height: int) -> None:
-        """Refuse a header that does not owe the chain what it claims.
+        """Refuse a header without the work its bits claim, or with other bits.
 
-        Work enough for its own bits, and the bits the retarget rules ask
-        of a block on this parent.
+        The bits are those the retarget rules ask of a block on this parent.
         """
         parent = self._headers[parent_height]
         with fetch_errors(f"header {parent_height + 1}"):
@@ -444,9 +436,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         """Follow the peer's chain if it has more work than the one held.
 
         Returns the height of the tip. A fork is followed as it arrives. The
-        chain held is put back if anything interrupts the fork, or if the
-        fork ends with no more work and the chain held has the network's
-        minimum work.
+        chain held is put back if anything interrupts the fork, or if
+        `_assert_enough_work` refuses it for no more work than the chain
+        held.
         """
         self._displaced = None
         followed = False
@@ -571,7 +563,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         """Return the blocks, by height, whose filter may hold one of `scripts`.
 
         Both ends are included, and the end defaults to the tip. A filter
-        answers "may": about one block in 784931 per script that does not
+        answers "may": about one block in
+        `btclib.block.block_filter.BASIC_FILTER_M` per script that does not
         touch the wallet is downloaded all the same, and a block that does
         touch it spends from the script or pays to it, which the caller
         finds by reading the transactions.
@@ -649,8 +642,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def get_block_header(self, height: int) -> BlockHeader:
         """Return the header at this height, from the header chain.
 
-        Its work and its bits are checked on arrival. `SECURITY.md` says
-        what is not checked and what the peer can still do.
+        `SECURITY.md` says what is checked of it and what the peer can
+        still do.
         """
         height = block_header_height(height)
         self._verify_once()

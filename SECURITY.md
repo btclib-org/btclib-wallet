@@ -170,8 +170,8 @@ used to teach and to prototype as much as to build.
     target within the limit of the fetcher's network. Neither check says
     it is the header at the height asked for. A height, and the tip hash
     from every backend but `ElectrumFetcher` and `CompactFilterFetcher`,
-    rest on the backend's word. `CompactFilterFetcher`'s tip is the one
-    with most work among the chains its one peer showed it. The work each network's limit stands for, in bits, is:
+    rest on the backend's word. The work each network's limit stands for,
+    in bits, is:
 
     ```shell
     uv run python -c "
@@ -207,9 +207,10 @@ used to teach and to prototype as much as to build.
     (its merkle root and witness commitment among the checks). The filter
     headers are the peer's word: BIP157 compares them with the checkpoints
     of other peers, this fetcher has one, and a peer that lies in them can
-    hide a block that pays the wallet. A peer that can out-work the honest
-    chain from a fork point can serve a chain of its own and invent a
-    payment in it. It can keep a synchronization going, and the fetcher's
+    hide a block that pays the wallet. A peer can hold back the network's
+    newer blocks and serve blocks of its own on the tip it showed, and
+    invent a payment in them; that costs the work of those blocks, not a
+    majority of the network's. It can keep a synchronization going, and the fetcher's
     headers growing in memory, for as long as it sends headers that pass the
     checks, the minimum work being checked when a synchronization ends
     without failing ([ISS

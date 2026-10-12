@@ -16,20 +16,15 @@ what it likes when it likes, and the handshake that opens a connection is
 state both ends keep. So `PeerTransport` is `send`, `receive` and
 `close`, and the connection is the object's.
 
-**The connection is opened by the first `send` and again after any
-failure.** A failure closes it, because a read cut short leaves the
-stream in the middle of a message, and the caller learns that from the
-exception and greets the peer again. A transport raises
-`bitcoin_core_rpc`'s `FetchError`, the vocabulary `LineTransport` states,
-which `btclib_wallet.fetch.fetcher.client_errors` translates.
+**A failure closes the connection**: a read cut short leaves the stream
+in the middle of a message. `PeerTransport` says what the caller sees.
 
-**The network policy**, the one `TlsLineTransport` keeps:
+**The network policy is `TlsLineTransport`'s**, except:
 
 - the length a message announces is compared with
   `MAX_PROTOCOL_MESSAGE_LENGTH` before any of its payload is read;
-- a timeout over each call, connect included, rather than per socket
-  operation, so a peer sending one octet at a time cannot hold a call open;
-- no proxy from the environment: `socket.create_connection` reads none;
+- a timeout over each call, connect included, rather than over an exchange:
+  `send` and `receive` are separate calls;
 - the stream is plain TCP, as the p2p v1 transport is. A peer is anonymous
   and its messages are checked by the fetcher against what it already
   holds, which is the reason this layer authenticates nothing.

@@ -172,9 +172,8 @@ over the same node's unauthenticated `-rest` interface, `EsploraFetcher`
 over a block explorer's HTTP API, `ElectrumFetcher` over an Electrum
 server, `CompactFilterFetcher` over a peer's BIP157 filters — so calling
 code takes a `Fetcher` and never branches on which one it got.
-`CompactFilterFetcher` serves the questions a header chain answers and
-raises `FetchError` for a transaction by id, and its module docstring says
-why; its `scan_blocks` returns the blocks that may touch a wallet's scripts.
+`CompactFilterFetcher`'s docstrings say what it serves of `Fetcher` and what
+its `scan_blocks` does.
 `Broadcaster` and `FeeEstimator` are two further protocols a
 backend may or may not satisfy: `BitcoinCoreRestFetcher` answers neither,
 Core's `-rest` interface being read-only and carrying no fee estimation.
@@ -182,8 +181,7 @@ Core's `-rest` interface being read-only and carrying no fee estimation.
 kept open across calls, and `TlsLineTransport` for the Electrum line
 protocol — and `fetch.peer_transport` is the seam of the p2p peer:
 `TcpPeerTransport` holds one TCP connection to it, plain and without
-authentication, so `CompactFilterFetcher` checks every header, filter and
-block against what it already holds. The codec each backend speaks
+authentication. The codec each backend speaks
 belongs to `btclib.p2p` or `btclib.electrum`, outside this package, and
 opens no socket: importing `fetch` costs `urllib`, `ssl` and `socket`,
 never the reverse.
