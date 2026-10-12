@@ -30,7 +30,8 @@ owned by btclib would have to be as careful as the bytearray already is,
 with a lifetime the library cannot see the end of -- so the decision is
 to own no state at all, which is also the answer the libsecp256k1 musig
 module gives (an opaque secnonce its own API invalidates after use) and
-the shape an interactive threshold scheme needs (issue btclib-org/btclib#257).
+the shape an interactive threshold scheme needs: `btclib_wallet.psbt.frost`
+keeps no state either.
 
 What a psbt says, and what it therefore need not be told, is how the
 aggregate key reaches the output being spent. Four ways, and BIP373
