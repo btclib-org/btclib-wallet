@@ -406,8 +406,10 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             raise BTClibValueError(err_msg)
         with fetch_errors("fee-estimates"):
             payload = json.loads(self.text("/fee-estimates", _MAX_FEE_ESTIMATES_BODY))
-            if not isinstance(payload, dict) or not payload:
-                raise BTClibTypeError(f"fee-estimates: not an object: {payload!r}")
+            if not isinstance(payload, dict):
+                raise BTClibTypeError(f"not an object: {payload!r}")
+            if not payload:
+                raise FetchError("fee-estimates: no target quoted")
             available = {int(key): value for key, value in payload.items()}
             quoted_target = min((t for t in available if t >= target), default=None)
             if quoted_target is None:

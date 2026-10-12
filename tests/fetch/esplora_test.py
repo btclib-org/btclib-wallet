@@ -693,11 +693,23 @@ def test_estimate_fee_refuses_a_target_the_deployment_has_no_quote_for() -> None
         fetcher((200, fee_estimates(**{"1": 10, "2": 5}))).estimate_fee(1008)
 
 
-@pytest.mark.parametrize("body", [b"[1, 2]", b"{}", b"not json", b"null"])
+@pytest.mark.parametrize("body", [b"[1, 2]", b"not json", b"null"])
 def test_estimate_fee_refuses_a_malformed_payload(body: bytes) -> None:
-    """A payload that is not a non-empty object is refused, not misread."""
+    """A payload that is not an object is refused, not misread."""
     with pytest.raises(FetchError, match="fee-estimates:"):
         fetcher((200, body)).estimate_fee(1)
+
+
+def test_estimate_fee_says_not_an_object_for_a_reply_that_is_not_one() -> None:
+    """A list is named as what it is, with the reply quoted."""
+    with pytest.raises(FetchError, match=r"^fee-estimates: not an object: \[1, 2\]$"):
+        fetcher((200, b"[1, 2]")).estimate_fee(1)
+
+
+def test_estimate_fee_says_no_target_quoted_for_an_empty_object() -> None:
+    """An empty object is an object: it quotes no target, and is called so."""
+    with pytest.raises(FetchError, match=r"^fee-estimates: no target quoted$"):
+        fetcher((200, b"{}")).estimate_fee(1)
 
 
 def test_estimate_fee_requests_the_endpoint_and_nothing_else() -> None:
