@@ -1062,7 +1062,7 @@ def test_select_coins_with_a_single_algorithm_skips_the_other_two() -> None:
 def _bnb_cases(
     draw: st.DrawFn,
 ) -> tuple[list[Candidate], list[TxOut], FeeRate, FeeRate, int | None]:
-    """Draw a pool of up to 12 candidates, the payment and the two rates.
+    """Draw a small pool of candidates, the payment and the two rates.
 
     The change spend weight is `None` for an exact-match window. Some
     payments are aimed so that the target falls up to `cost_of_change`
