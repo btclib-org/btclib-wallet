@@ -200,10 +200,10 @@ JSON
 
 `main-self-merge` requires a pull request, with the maintainer as the
 only bypass actor, in **`pull_request` mode**: it excuses that rule only
-while merging a pull request.
-[`GOVERNANCE.md`'s *How a decision is made*](https://github.com/btclib-org/.github/blob/main/GOVERNANCE.md#how-a-decision-is-made)
-says when the maintainer uses it. A direct push to `main` is refused for
-everyone.
+while merging a pull request. btclib-org/.github's
+[`GOVERNANCE.md`](https://github.com/btclib-org/.github/blob/main/GOVERNANCE.md#how-a-decision-is-made),
+*How a decision is made*, says when the maintainer uses it. A direct push
+to `main` is refused for everyone.
 
 ```shell
 gh api -X POST repos/btclib-org/btclib-wallet/rulesets --input - <<'JSON'
