@@ -85,10 +85,10 @@ being the endpoint's generic `Not Found` document.
 
 **Never name matrix contexts in the branch rule.** The rule lives outside
 the repository, so a context that stops being produced blocks every merge
-that waits for the checks, with nothing in the tree to explain why.
-`test: every job passed` is an aggregate job at the end of `test.yml`
-that `needs` every other job there; a new job in `test.yml` belongs in
-that job's `needs`, or it gates nothing.
+with nothing in the tree to explain why. `test: every job passed` is an
+aggregate job at the end of `test.yml` that `needs` every other job there;
+a new job in `test.yml` belongs in that job's `needs`, or it gates
+nothing.
 
 `main` requires these checks and nothing else:
 
@@ -100,6 +100,9 @@ that job's `needs`, or it gates nothing.
 | `regtest / Regtest against Bitcoin Core` | `integration-bitcoind.yml` |
 | `lint / Dependency review` | `lint.yml`, calling `reusable-lint.yml` |
 | `lint / Sign-off` | `lint.yml`, calling `reusable-lint.yml` |
+
+A merge through the maintainer's bypass waits for none of these
+checks, as `CONTRIBUTING.md`'s *Landing it* says.
 
 A job whose whole body is a call to a reusable workflow contributes no
 name of its own: the context joins the calling job's id to the called
