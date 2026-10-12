@@ -281,7 +281,7 @@ repos:
   # reports: the pragma survives autoupdate, which keeps a trailing
   # comment, where a baseline entry would match only the one sha
   - repo: https://github.com/btclib-org/.github
-    rev: 70f5915abed3b982009996ae52254fbc68c00dfc # pragma: allowlist secret
+    rev: 9e89a1daa5e9cc59bd22bd8664eb20b621e15fc5 # pragma: allowlist secret
     hooks:
       - id: check-changelog
         args: [--grandfathered, "0"]
@@ -433,7 +433,7 @@ repos:
   # and that is also what parses them -- check-json above cannot read a
   # comment, and prettier fails on a file it cannot parse
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.9
+    rev: v3.9.10
     hooks:
       - id: prettier
         name: prettier (yaml and jsonc, in place fixes)
@@ -586,7 +586,7 @@ repos:
   # docformatter, flake8, isort, pydocstringformatter, pydocstyle, pylint,
   # pyupgrade, and yesqa
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.10
+    rev: v0.17.0
     hooks:
       - id: ruff-check
         name: ruff check (in place fixes)
@@ -607,7 +607,7 @@ repos:
   # the fixtures it takes, and .github/scripts is read from the source
   # tree by whoever changes it
   - repo: https://github.com/jsh9/pydoclint
-    rev: 0.11.0
+    rev: 0.11.1
     hooks:
       - id: pydoclint
         name: pydoclint (arguments and return values)
@@ -671,7 +671,7 @@ repos:
         pass_filenames: false
         require_serial: true
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.12.23
+    rev: 0.13.0
     hooks:
       # keep uv.lock in sync with pyproject.toml
       - id: uv-lock
