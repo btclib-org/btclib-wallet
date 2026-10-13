@@ -24,6 +24,12 @@ the TLVs, and `verify_announcement` and `verify_attestation` check them.
 
 A signature under one scheme is not valid under the other.
 
+**The caller pins the oracle's key.** `verify_announcement` checks the
+signature against the key the announcement carries, and
+`verify_attestation` accepts that same key, so anyone can re-sign an event
+under a key of their own and both answer `True`. A caller compares
+`announcement.public_key` with the oracle's key it already trusts.
+
 **An attestation signs each outcome** as a BIP340 signature, with the
 nonce the announcement committed to, of the tagged hash
 `DLC/oracle/attestation/v0` of the outcome's UTF-8 text. The signatures
@@ -410,7 +416,8 @@ class OracleAnnouncement:
     """An oracle's event, with its key and the signature of that event.
 
     Whether the signature is valid is `verify_announcement`'s to say, under
-    the scheme the caller names.
+    the scheme the caller names. Whose key it is, is the caller's to pin: see
+    the module docstring.
     """
 
     signature: bytes
@@ -479,7 +486,11 @@ def sign_announcement(
 def verify_announcement(
     announcement: OracleAnnouncement, *, scheme: _Scheme = TAGGED
 ) -> bool:
-    """Return whether the announcement's signature is valid under the scheme."""
+    """Return whether the announcement's signature is valid under the scheme.
+
+    It is checked against `announcement.public_key`, which the caller pins as
+    the module docstring says.
+    """
     assert_type(announcement, OracleAnnouncement, "announcement")
     announcement.assert_valid()
     _assert_scheme(scheme)
