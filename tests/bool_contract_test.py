@@ -66,9 +66,7 @@ _BIP322_SIG = bip322.sign(_MSG, PrvKeyData(_Q), _ADDR)
 _DLC_TERMS = _dlc(_TX[0]["inputs"])
 _DLC_BUILT = dlc.build_transactions(_DLC_TERMS)
 _DLC_TX = _DLC_BUILT.refund_tx
-_DLC_UNAGREED = Tx(
-    _DLC_TX.version, _DLC_TX.lock_time + 1, _DLC_TX.vin, _DLC_TX.vout
-)
+_DLC_UNAGREED = Tx(_DLC_TX.version, _DLC_TX.lock_time + 1, _DLC_TX.vin, _DLC_TX.vout)
 _DLC_KEY = int(_TX[0]["inputs"]["offerParams"]["fundingPrivKey"], 16)
 _DLC_PUB = _DLC_TERMS.offer.funding_pub_key
 _DLC_POINT = mult(5)

@@ -7,14 +7,15 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from typing import Any
 
 import pytest
+from btclib.alias import Point
 from btclib.exceptions import BTClibException, BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib.alias import Point
 from btclib_ecc.curves import mult
 from btclib_ecc.exceptions import BTClibEccException
 
@@ -265,15 +266,16 @@ def _hand(
 
 
 def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
-    """Require every signing function to refuse tx; verify_adaptor answers False."""
-    point = mult(5)
+    """Require the signers to refuse tx, and verify_adaptor to answer False."""
+    point: Point = mult(5)
     key = terms.offer.funding_pub_key
     adaptor = _adaptor(terms, point)
-    for call in (
+    calls: tuple[Callable[[], object], ...] = (
         lambda: dlc.sig_hash(terms, tx),
         lambda: dlc.sign(terms, tx, 1),
         lambda: dlc.adaptor_sign(terms, tx, 1, point),
-    ):
+    )
+    for call in calls:
         with pytest.raises(BTClibValueError, match="this DLC's terms"):
             call()
     # verify_adaptor signs nothing: a wrong value answers False
@@ -291,7 +293,7 @@ def test_an_unagreed_transaction_does_not_excuse_a_bad_argument() -> None:
     terms = _terms()
     refund = dlc.build_transactions(terms).refund_tx
     unagreed = _hand(refund, lock_time=refund.lock_time + 1)
-    point = mult(5)
+    point: Point = mult(5)
     adaptor = _adaptor(terms, point)
     key = terms.offer.funding_pub_key
     for tx in (refund, unagreed):
