@@ -140,6 +140,10 @@ def verify_adaptor(
     """
     value = _agreed_funding_value(dlc, tx)
     if value is None:
+        # the signature, key and point are still checked, against a zero
+        # digest, so that a malformed one raises as it does for an agreed
+        # transaction; the answer is False whatever it says
+        ecdsa_adaptor.verify(adaptor_sig, bytes(32), pub_key, sig_point)
         return False
     return ecdsa_adaptor.verify(
         adaptor_sig, _sig_hash(dlc, tx, value), pub_key, sig_point

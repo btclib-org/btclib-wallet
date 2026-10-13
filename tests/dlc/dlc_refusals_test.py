@@ -14,10 +14,13 @@ from btclib.exceptions import BTClibException, BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib.alias import Point
+from btclib_ecc.curves import mult
 from btclib_ecc.exceptions import BTClibEccException
 
 from btclib_wallet import dlc
 from tests.dlc.dlc_vectors_test import _TX, _dlc
+from tests.exception_family_test import TYPE_ERRORS, VALUE_ERRORS
 
 
 def _terms() -> dlc.Dlc:
@@ -263,8 +266,9 @@ def _hand(
 
 def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
     """Require every signing function to refuse tx; verify_adaptor answers False."""
-    point = (1, 2)
+    point = mult(5)
     key = terms.offer.funding_pub_key
+    adaptor = _adaptor(terms, point)
     for call in (
         lambda: dlc.sig_hash(terms, tx),
         lambda: dlc.sign(terms, tx, 1),
@@ -273,7 +277,34 @@ def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
         with pytest.raises(BTClibValueError, match="this DLC's terms"):
             call()
     # verify_adaptor signs nothing: a wrong value answers False
-    assert dlc.verify_adaptor(terms, tx, b"\0" * 162, key, point) is False
+    assert dlc.verify_adaptor(terms, tx, adaptor, key, point) is False
+
+
+def _adaptor(terms: dlc.Dlc, point: Point) -> bytes:
+    """Return a valid adaptor signature of the terms' refund."""
+    refund = dlc.build_transactions(terms).refund_tx
+    return dlc.adaptor_sign(terms, refund, 1, point, bytes(32))
+
+
+def test_an_unagreed_transaction_does_not_excuse_a_bad_argument() -> None:
+    """Raise for a bad signature, key or point, agreed transaction or not."""
+    terms = _terms()
+    refund = dlc.build_transactions(terms).refund_tx
+    unagreed = _hand(refund, lock_time=refund.lock_time + 1)
+    point = mult(5)
+    adaptor = _adaptor(terms, point)
+    key = terms.offer.funding_pub_key
+    for tx in (refund, unagreed):
+        for args, errors in (
+            ((1.5, key, point), TYPE_ERRORS),
+            ((adaptor, None, point), TYPE_ERRORS),
+            ((adaptor, key, "x"), VALUE_ERRORS),
+            ((adaptor[:-1], key, point), VALUE_ERRORS),
+            ((adaptor, b"\x02" + b"\xff" * 32, point), VALUE_ERRORS),
+            ((adaptor, key, (1, 2)), VALUE_ERRORS),
+        ):
+            with pytest.raises(errors):
+                dlc.verify_adaptor(terms, tx, *args)
 
 
 def test_the_agreed_transactions_are_signed() -> None:
