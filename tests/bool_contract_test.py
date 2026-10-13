@@ -45,6 +45,7 @@ import pytest
 from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
+from btclib.tx import Tx
 from btclib_ecc.curves import mult
 
 from btclib_wallet import bip322, dlc
@@ -65,6 +66,9 @@ _BIP322_SIG = bip322.sign(_MSG, PrvKeyData(_Q), _ADDR)
 _DLC_TERMS = _dlc(_TX[0]["inputs"])
 _DLC_BUILT = dlc.build_transactions(_DLC_TERMS)
 _DLC_TX = _DLC_BUILT.refund_tx
+_DLC_UNAGREED = Tx(
+    _DLC_TX.version, _DLC_TX.lock_time + 1, _DLC_TX.vin, _DLC_TX.vout
+)
 _DLC_KEY = int(_TX[0]["inputs"]["offerParams"]["fundingPrivKey"], 16)
 _DLC_PUB = _DLC_TERMS.offer.funding_pub_key
 _DLC_POINT = mult(5)
@@ -115,10 +119,10 @@ _CASES = (
         "dlc.verify_adaptor",
         dlc.verify_adaptor,
         (_DLC_TERMS, _DLC_TX, _DLC_ADAPTOR, _DLC_PUB, _DLC_POINT),
-        # a CET in place of the refund, an adaptor signature under another
-        # point, another key, another point
+        # a transaction the terms do not build, an adaptor signature under
+        # another point, another key, another point
         {
-            1: _DLC_BUILT.cets[0],
+            1: _DLC_UNAGREED,
             2: _DLC_OTHER,
             3: _DLC_TERMS.accept.funding_pub_key,
             4: mult(6),

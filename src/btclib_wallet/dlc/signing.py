@@ -67,8 +67,8 @@ def _funding_script(tx: Tx) -> bytes:
     return tx.vin[0].script_witness.stack[-1]
 
 
-def _funding_value(dlc: Dlc, tx: Tx) -> int:
-    """Return the funding output's value, if tx is one the terms agree on."""
+def _agreed_funding_value(dlc: Dlc, tx: Tx) -> int | None:
+    """Return the funding output's value if tx is one the terms agree on."""
     assert_type(tx, Tx, "tx")
     funding_tx, vout = build_funding_tx(dlc)
     total = dlc.offer.collateral + dlc.accept.collateral
@@ -79,9 +79,21 @@ def _funding_value(dlc: Dlc, tx: Tx) -> int:
     candidates = {p for v in values for p in (v, total - v) if p in payouts}
     agreed = [build_refund_tx(dlc, funding_tx, vout)]
     agreed += [build_cet(dlc, funding_tx, vout, p) for p in candidates]
-    if tx not in agreed:
+    return funding_tx.vout[vout].value if tx in agreed else None
+
+
+def _funding_value(dlc: Dlc, tx: Tx) -> int:
+    """Return the funding output's value, if tx is one the terms agree on."""
+    value = _agreed_funding_value(dlc, tx)
+    if value is None:
         raise BTClibValueError("not a transaction of this DLC's terms")
-    return funding_tx.vout[vout].value
+    return value
+
+
+def _sig_hash(dlc: Dlc, tx: Tx, value: int) -> bytes:
+    """Return the BIP143 SIGHASH_ALL hash of tx's funding input."""
+    script = funding_script(dlc.offer.funding_pub_key, dlc.accept.funding_pub_key)
+    return segwit_v0(script, tx, 0, ALL, value)
 
 
 def sig_hash(dlc: Dlc, tx: Tx) -> bytes:
@@ -89,9 +101,7 @@ def sig_hash(dlc: Dlc, tx: Tx) -> bytes:
 
     tx is a CET of the terms' payouts or their refund, as built.
     """
-    value = _funding_value(dlc, tx)
-    script = funding_script(dlc.offer.funding_pub_key, dlc.accept.funding_pub_key)
-    return segwit_v0(script, tx, 0, ALL, value)
+    return _sig_hash(dlc, tx, _funding_value(dlc, tx))
 
 
 def sign(dlc: Dlc, tx: Tx, prv_key: Integer) -> bytes:
@@ -125,10 +135,15 @@ def verify_adaptor(
     """Return whether adaptor_sig decrypts to pub_key's signature of tx.
 
     The adaptor signature is encrypted under sig_point. A transaction the
-    terms do not agree on raises, as any malformed argument does, rather
-    than answering False.
+    terms do not agree on answers False: it is a wrong value, not a
+    malformed argument.
     """
-    return ecdsa_adaptor.verify(adaptor_sig, sig_hash(dlc, tx), pub_key, sig_point)
+    value = _agreed_funding_value(dlc, tx)
+    if value is None:
+        return False
+    return ecdsa_adaptor.verify(
+        adaptor_sig, _sig_hash(dlc, tx, value), pub_key, sig_point
+    )
 
 
 def complete_spend(tx: Tx, sigs: Mapping[bytes, bytes]) -> Tx:

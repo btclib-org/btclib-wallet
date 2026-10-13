@@ -262,17 +262,18 @@ def _hand(
 
 
 def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
-    """Require every function that takes a key or a signature to refuse tx."""
+    """Require every signing function to refuse tx; verify_adaptor answers False."""
     point = (1, 2)
     key = terms.offer.funding_pub_key
     for call in (
         lambda: dlc.sig_hash(terms, tx),
         lambda: dlc.sign(terms, tx, 1),
         lambda: dlc.adaptor_sign(terms, tx, 1, point),
-        lambda: dlc.verify_adaptor(terms, tx, b"\0" * 162, key, point),
     ):
         with pytest.raises(BTClibValueError, match="this DLC's terms"):
             call()
+    # verify_adaptor signs nothing: a wrong value answers False
+    assert dlc.verify_adaptor(terms, tx, b"\0" * 162, key, point) is False
 
 
 def test_the_agreed_transactions_are_signed() -> None:
@@ -317,7 +318,7 @@ def test_another_outpoint_is_not_signed() -> None:
 
 
 def test_another_script_is_not_signed() -> None:
-    """Refuse a witness that is not the funding script alone."""
+    """Refuse a witness, a script_sig or a sequence other than the built one."""
     terms = _terms()
     built = dlc.build_transactions(terms)
     for tx in (built.cets[0], built.refund_tx):
