@@ -71,7 +71,14 @@ class Chain:
 
     def __init__(self, blocks: list[Block] | None = None) -> None:
         self.blocks = [genesis_block("regtest")] if blocks is None else blocks
-        self.filters = [BasicBlockFilter.from_block(b, []) for b in self.blocks]
+        # the scripts a block's inputs spend are in its filter, and `OTHER` is
+        # what a spend here is said to have spent
+        self.filters = [
+            BasicBlockFilter.from_block(
+                b, [OTHER] * sum(len(tx.vin) for tx in b.transactions[1:])
+            )
+            for b in self.blocks
+        ]
         self.filter_headers: list[bytes] = []
         previous = bytes(32)
         for filter_ in self.filters:

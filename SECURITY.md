@@ -161,7 +161,11 @@ used to teach and to prototype as much as to build.
     trusted on whoever handed it over. `EsploraFetcher` and
     `ElectrumFetcher` talk to a host that says it validated, and compare
     the genesis block against the one the network names, which cannot
-    tell two signets apart.
+    tell two signets apart. `CompactFilterFetcher` compares the parent of
+    the first block its peer serves with that genesis block too, and
+    refuses a message that does not start with the network's message start
+    bytes. For signet those are the default signet's, so a peer on a
+    signet of its own is refused.
 - **The answers a fetch makes are checked to different degrees.** A
     transaction's id is recomputed from the bytes that came back and
     refused unless it matches, and an output's amount is derived from
@@ -210,7 +214,12 @@ used to teach and to prototype as much as to build.
     hide a block that pays the wallet. A peer can hold back the network's
     newer blocks and serve blocks of its own on the tip it showed, and
     invent a payment in them; that costs the work of those blocks, not a
-    majority of the network's. It can keep a synchronization going, and the fetcher's
+    majority of the network's. On signet nothing checks the signature that
+    makes a block authoritative, so the work of those blocks is signet's low
+    difficulty. A peer can serve a block with every witness removed, which
+    passes, and the caller then has its transactions with no witness to
+    read; a block with a witness changed, or with some of them removed, is
+    refused. It can keep a synchronization going, and the fetcher's
     headers growing in memory, for as long as it sends headers that pass the
     checks, the minimum work being checked when a synchronization ends
     without failing ([ISS

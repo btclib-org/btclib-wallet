@@ -16,13 +16,14 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable, Iterable
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from bitcoin_core_rpc import FetchError as RpcFetchError
 from btclib.block.block import Block
 from btclib.block.block_header import BlockHeader
-from btclib.block.build import build_coinbase
+from btclib.block.build import build_block, build_coinbase
 from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
 from btclib.p2p import (
     BlockFilterType,
@@ -37,16 +38,19 @@ from btclib.p2p import (
     Pong,
     Version,
 )
-from btclib.script import ScriptPubKey
+from btclib.script import ScriptPubKey, Witness
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from tests.fetch.peer_chain_test import (
     OTHER,
+    REGTEST_BITS,
     REGTEST_HALVING,
     WALLET,
     Chain,
     ScriptedPeer,
+    mined,
     services,
 )
 
@@ -903,6 +907,103 @@ def test_a_block_that_is_not_what_its_header_commits_to_is_refused() -> None:
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(forged))])
     with pytest.raises(FetchError, match="merkle root"):
         fetcher.scan_blocks([WALLET])
+
+
+def segwit_block() -> tuple[Chain, Block]:
+    """Return CHAIN with a segwit spend paying `WALLET` in block 3, and block 3.
+
+    `build_block` writes the BIP141 witness commitment into the coinbase of
+    a block with a witness. The merkle root of the header covers no witness.
+    """
+    spend = Tx(
+        vin=[
+            TxIn(
+                OutPoint(bytes(range(32)), 0),
+                b"",
+                0xFFFFFFFF,
+                Witness([b"\x01" * 71, b"\x02" * 33]),
+            )
+        ],
+        vout=[TxOut(1000, WALLET)],
+    )
+    base = CHAIN.fork(2)
+    coinbase = build_coinbase(3, OTHER, halving_interval=REGTEST_HALVING)
+    previous = base.blocks[-1].header
+    block = build_block(
+        previous.hash,
+        [coinbase, spend],
+        previous.time + timedelta(seconds=1),
+        REGTEST_BITS,
+    )
+    block.header = mined(block.header)
+    return Chain([*base.blocks, block]).extend(TIP - 3), block
+
+
+def witnesses_replaced(block: Block, witness: Witness | None) -> Block:
+    """Return the block with the witness of its spend replaced.
+
+    `None` strips every witness of the block, the coinbase's included. No
+    txid changes, so the header's merkle root still matches.
+    """
+    transactions = []
+    for index, tx in enumerate(block.transactions):
+        replaced = Witness() if witness is None else witness
+        vin = (
+            tx.vin
+            if index == 0 and witness is not None
+            else [replace(txin, script_witness=replaced) for txin in tx.vin]
+        )
+        transactions.append(replace(tx, vin=vin))
+    return Block(block.header, transactions, check_validity=False)
+
+
+def test_a_segwit_block_is_returned_with_its_witnesses() -> None:
+    """The control of the two tests below: the honest block passes."""
+    chain, block = segwit_block()
+    fetcher, _ = build(chain)
+    assert fetcher.scan_blocks([WALLET])[3].serialize(
+        check_validity=False
+    ) == block.serialize(check_validity=False)
+
+
+@pytest.mark.parametrize(
+    "witness",
+    [Witness([b"\x03" * 71, b"\x02" * 33]), Witness()],
+    ids=["changed", "removed"],
+)
+def test_a_block_with_a_witness_changed_or_removed_is_refused(witness: Witness) -> None:
+    """The merkle root covers no witness, so the coinbase commits to them."""
+    chain, block = segwit_block()
+    altered = witnesses_replaced(block, witness)
+    assert altered.serialize(check_validity=False) != block.serialize(
+        check_validity=False
+    )
+    assert [tx.id for tx in altered.transactions] == [
+        tx.id for tx in block.transactions
+    ]
+    fetcher, peer = build(chain)
+    says(peer, "reply_getdata", [peer.message("block", peer.block_payload(altered))])
+    with pytest.raises(FetchError, match="invalid witness commitment"):
+        fetcher.scan_blocks([WALLET])
+
+
+def test_a_block_with_every_witness_stripped_is_accepted() -> None:
+    """A peer can withhold every witness, and no witness is left to trust.
+
+    `SECURITY.md` says so. Were such a block refused, that sentence goes.
+    """
+    chain, block = segwit_block()
+    stripped = witnesses_replaced(block, None)
+    assert not stripped.is_segwit
+    fetcher, peer = build(chain)
+    says(peer, "reply_getdata", [peer.message("block", peer.block_payload(stripped))])
+    served = fetcher.scan_blocks([WALLET])[3]
+    assert served.serialize(check_validity=False) == stripped.serialize(
+        check_validity=False
+    )
+    assert served.serialize(check_validity=False) != block.serialize(
+        check_validity=False
+    )
 
 
 def test_a_block_that_does_not_parse_is_refused() -> None:

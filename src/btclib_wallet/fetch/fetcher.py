@@ -214,10 +214,8 @@ class Fetcher(ABC):
         Height, and not hash: the Electrum protocol's
         `blockchain.block.header` takes a height and publishes no call that
         takes a hash, so a hash-only signature would be one an Electrum
-        backend could never answer, which is the
-        `NotImplementedError`-in-an-ABC outcome the questions above already
-        avoid. A node or an explorer maps a height to a hash with a second
-        call.
+        backend could never answer. A node or an explorer maps a height to
+        a hash with a second call.
 
         Checked on arrival by `block_header_from_raw`, which says how.
         `assert_valid_time` is not among the checks -- it compares against
