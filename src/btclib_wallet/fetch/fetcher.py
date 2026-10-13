@@ -334,8 +334,8 @@ class NetworkVerifyingFetcher(Fetcher):
 def tx_id_hex(tx_id: Octets) -> str:
     """Return the display hex of a transaction id, checking it is one.
 
-    Every backend puts the id in a request as hex, and each accepts
-    whatever `Octets` accepts, so each needs the same 32-byte check --
+    Every backend that asks for a transaction puts the id in a request as
+    hex, and each accepts whatever `Octets` accepts, so each needs the same 32-byte check --
     performed here rather than left to the backend, which would otherwise
     report a mistyped id as the remote host's 404.
     """
@@ -345,8 +345,8 @@ def tx_id_hex(tx_id: Octets) -> str:
 def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
     """Return the transaction a serialization holds, if it is the one asked for.
 
-    Every backend answers `get_tx` with the serialization rather than with
-    a rendering of it, and this is why: the id is a hash of those bytes,
+    Every backend that serves `get_tx` answers it with the serialization
+    rather than with a rendering of it, and this is why: the id is a hash of those bytes,
     so recomputing it says whether what arrived is what was asked for. A
     height is taken on the backend's word and a block header answers for
     itself, which `SECURITY.md` states per answer rather than here; this
@@ -375,16 +375,15 @@ def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
 def block_header_height(height: int) -> int:
     """Return the height, refusing what no chain has a block at.
 
-    Every backend maps a height to a block before it can answer
-    `get_block_header` at all -- `getblockhash`, `/block-height/<height>`,
-    `/blockhashbyheight/<height>.bin` -- so each needs the same guard in
-    front of that first request, rather than each discovering its own
-    backend's answer to a negative or fractional height: RPC code -8 for
-    Core, a 404 or a 400 for an Esplora deployment, neither naming the
-    height as what is wrong with the request. `-rest` alone does -- a 400
-    whose body is `Invalid height: <text>` -- and the guard still stands
-    in front of it, so that they answer the same exception for the
-    same mistake rather than one of them a better one.
+    Every backend takes a height from its caller, and
+    `Fetcher.get_block_header` says how each turns it into an answer. Each
+    needs the same guard in front of its first request, rather than each
+    discovering its own backend's answer to a negative or fractional
+    height: RPC code -8 for Core, a 404 or a 400 for an Esplora deployment,
+    neither naming the height as what is wrong with the request. `-rest`
+    alone does -- a 400 whose body is `Invalid height: <text>` -- and the
+    guard still stands in front of it, so that they answer the same
+    exception for the same mistake rather than one of them a better one.
     """
     if not is_integer(height):
         raise BTClibTypeError(f"invalid height type: {type(height).__name__}")
@@ -396,7 +395,7 @@ def block_header_height(height: int) -> int:
 def block_header_from_raw(raw: Octets, height: int, *, network: str) -> BlockHeader:
     """Return the header a serialization holds, checked on arrival.
 
-    Every backend answers with the raw serialization rather than a
+    The backends that call this get the raw serialization rather than a
     rendering of it, the way `get_tx` does -- but a header names no
     height and no chain of its own, so there is nothing here to recompute
     it against the way `tx_from_raw` recomputes a txid. What is checked

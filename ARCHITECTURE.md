@@ -208,7 +208,7 @@ wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 — the wallets that remember what they have handed out, the one contract
 an external signer answers to, the transactions and signatures of a
 discreet log contract, and the clients that reach a node, an
-explorer or an Electrum server for what the chain currently holds.
+explorer, an Electrum server or a p2p peer for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
 holds every parser named here to one contract: it fails the way the
 library says it fails, whatever it is handed, never with a bare

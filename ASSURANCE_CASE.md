@@ -57,7 +57,7 @@ btclib-wallet is a library in its caller's process, like btclib, with two
 differences ARCHITECTURE.md's own sections name: it runs a subprocess
 (`hwi.py`, Bitcoin Core's HWI) when a caller asks it to reach a hardware
 device, and it opens client sockets of its own (`fetch/`) when a caller
-asks it to reach a node, an explorer or an Electrum server. Neither
+asks it to reach a node, an explorer, an Electrum server or a p2p peer. Neither
 happens on import, and neither happens unless the caller constructs the
 object or calls the function that does it, such as `hwi.enumerate_devices`.
 The command below lists the top-level name of every
@@ -122,10 +122,10 @@ never a key or a nonce.
 - An oracle sending an announcement its key did not sign, or an attestation
   that does not match the announcement. *Trust boundaries* says whose key
   that is.
-- A backend `fetch/` talks to — a node, an explorer, an Electrum server —
-  answering a question about the chain with something false; SECURITY.md's
-  *A backend is trusted, and not every backend alike* states which
-  answers are checked and which rest on the backend's word.
+- A backend `fetch/` talks to — a node, an explorer, an Electrum server, a
+  peer — answering a question about the chain with something false;
+  SECURITY.md's *A backend is trusted, and not every backend alike* states
+  which answers are checked and which rest on the backend's word.
 - A device or an HWI subprocess this package drives, returning a
   fingerprint, a signature or a derived key that does not belong to the
   request it was asked to answer — the reason

@@ -142,7 +142,8 @@ The address is the first one BIP84 lists for that mnemonic.
   [HWI](https://github.com/bitcoin-core/HWI) behind it for a hardware
   wallet, and the requests that import a wallet into Bitcoin Core
 - a chain backend behind one interface, over a full node's JSON-RPC or a
-  block explorer's or an Electrum server's API
+  block explorer's or an Electrum server's API, or a peer's BIP157 compact
+  filters over p2p
 
 ## Architecture
 

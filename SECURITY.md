@@ -219,7 +219,7 @@ used to teach and to prototype as much as to build.
     difficulty. A peer can serve a block with every witness removed, which
     passes, and the caller then has its transactions with no witness to
     read; a block with a witness changed, or with some of them removed, is
-    refused. It can keep a synchronization going, and the fetcher's
+    refused. The peer can keep a synchronization going, and the fetcher's
     headers growing in memory, for as long as it sends headers that pass the
     checks, the minimum work being checked when a synchronization ends
     without failing ([ISS
