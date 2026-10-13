@@ -127,17 +127,18 @@ for Actions — so nothing else can satisfy one.
 
 ## Branch protection
 
-Classic protection carries the required checks with `strict`, one
-approving review, `dismiss_stale_reviews`, linear history, no force
-pushes, no deletions, `required_conversation_resolution`, and
-`enforce_admins` **off**. The whole object is `PUT` once, here, on a
-branch that has none; every later change `PATCH`es the sub-endpoint it is
-about, a partial `PUT` dropping the rest:
+Classic protection carries the required checks with `strict` **off**
+(section 11 has the ground), one approving review,
+`dismiss_stale_reviews`, linear history, no force pushes, no deletions,
+`required_conversation_resolution`, and `enforce_admins` **off**. The
+whole object is `PUT` once, here, on a branch that has none; every later
+change `PATCH`es the sub-endpoint it is about, a partial `PUT` dropping
+the rest:
 
 ```shell
 gh api -X PUT repos/btclib-org/btclib-wallet/branches/main/protection \
   --input - <<'JSON'
-{"required_status_checks": {"strict": true, "checks": [
+{"required_status_checks": {"strict": false, "checks": [
    {"context": "test: every job passed", "app_id": 15368},
    {"context": "docs / Build the documentation", "app_id": 15368},
    {"context": "lint / Lint and type-check", "app_id": 15368},
@@ -159,7 +160,7 @@ JSON
 The body arrives on stdin because `-f` sends every value as a string,
 where the endpoint types `app_id` as an integer.
 
-Read back:
+Read back on 2026-10-13:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet/branches/main/protection \
@@ -179,7 +180,7 @@ gh api repos/btclib-org/btclib-wallet/branches/main/protection \
 #  "conversation":true,"enforce_admins":false,"linear":true,
 #  "reviews":{"dismiss_stale_reviews":true,
 #   "required_approving_review_count":1},
-#  "strict":true}
+#  "strict":false}
 ```
 
 Three rulesets sit beside it, additive — rules aggregate across rulesets
