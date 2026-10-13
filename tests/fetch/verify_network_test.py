@@ -174,7 +174,7 @@ def test_every_call_site_is_pinned() -> None:
 def test_the_walk_reads_calls_and_not_names() -> None:
     """The control: a walk finding nothing would pass the census silently.
 
-    `ElectrumFetcher._header_at` is the absence with the shape of the
+    `ElectrumFetcher._raw_header_at` is the absence with the shape of the
     defect: its docstring names `_verify_once` and its body does not call
     it, so a walk reading names rather than calls invents it. The other
     two mention the check nowhere and would be absent from a name walk
@@ -186,6 +186,6 @@ def test_the_walk_reads_calls_and_not_names() -> None:
     """
     found = _call_sites()
     assert ("EsploraFetcher", "get_tx") in found
-    assert ("ElectrumFetcher", "_header_at") not in found
+    assert ("ElectrumFetcher", "_raw_header_at") not in found
     assert ("EsploraFetcher", "text") not in found
     assert ("ElectrumFetcher", "verify_tx") not in found

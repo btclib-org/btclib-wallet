@@ -456,11 +456,31 @@ def test_assert_network_refuses_a_different_genesis() -> None:
         fetcher(TESTNET_GENESIS_HEADER).assert_network()
 
 
+def test_assert_network_refuses_a_server_on_a_chain_with_an_easier_target() -> None:
+    """A regtest server, a mainnet label: the genesis comparison, not the work.
+
+    Regtest's target is above mainnet's limit, which fails
+    `block_header_from_raw` with a `FetchError` that
+    `FallbackFetcher` falls through. This is a `BTClibValueError`, which
+    it stops on.
+    """
+    regtest = NETWORKS["regtest"].genesis_block.hex()
+    with pytest.raises(BTClibValueError, match=f"{regtest}.*{MAINNET_GENESIS}"):
+        fetcher(REGTEST_GENESIS_HEADER_RAW).assert_network()
+
+
+def test_assert_network_refuses_a_header_that_is_not_eighty_bytes() -> None:
+    """An answer that is not eighty bytes is a `FetchError`, not a mismatch."""
+    with pytest.raises(FetchError, match="block header 0"):
+        fetcher(MAINNET_GENESIS_HEADER[:-2]).assert_network()
+
+
 def test_a_header_that_is_not_the_genesis_of_any_chain_is_refused() -> None:
     """A server answering height 0 with some other block it mined is refused.
 
-    The tip header is well-formed and cost real work, so
-    `block_header_from_raw` passes it: what refuses it is the comparison.
+    The tip header is well-formed and cost real work, and
+    `assert_network` checks only that it is eighty bytes, so what refuses
+    it is the comparison.
     """
     with pytest.raises(BTClibValueError, match=f"{TIP_ID}.*{MAINNET_GENESIS}"):
         fetcher(TIP_HEADER_RAW).assert_network()

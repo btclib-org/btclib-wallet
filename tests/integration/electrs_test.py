@@ -91,16 +91,8 @@ def test_the_server_serves_this_chain(kind: str, stack: Stack) -> None:
     """`assert_network` passes for regtest and refuses a mainnet label."""
     make_fetcher(kind, stack).assert_network()
     wrong = make_fetcher(kind, stack, "mainnet")
-    if kind == "esplora":
-        with pytest.raises(BTClibValueError, match="genesis"):
-            wrong.assert_network()
-    else:
-        # btclib-org/btclib-wallet#341: the header's proof of work is
-        # checked before the genesis hash is compared, and regtest's is
-        # above mainnet's limit. This becomes the genesis
-        # `BTClibValueError` when that is fixed
-        with pytest.raises(FetchError, match="above the limit"):
-            wrong.assert_network()
+    with pytest.raises(BTClibValueError, match="genesis"):
+        wrong.assert_network()
 
 
 def test_the_tip_is_the_nodes(fetcher: NetworkVerifyingFetcher, stack: Stack) -> None:

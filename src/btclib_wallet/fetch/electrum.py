@@ -159,22 +159,26 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         with fetch_errors("headers.subscribe"):
             return electrum.headers_subscribe_response(line, request_id)
 
-    def _header_at(self, height: int) -> BlockHeader:
-        """Return the header at this height, checked, asking nothing else.
+    def _raw_header_at(self, height: int) -> bytes:
+        """Return the eighty bytes the server answers for this height.
 
-        The seam `get_block_header` and `assert_network` share, the way
-        `_tip` is the one `get_block_count` and `get_best_block_id`
-        share: `assert_network` reaches the genesis header through this
-        and not through `get_block_header`, which calls `_verify_once`.
-
-        `block_header_from_raw` is what checks the eighty bytes, so the
-        header a caller compares or hashes is one that passed its checks,
-        and not the server's word.
+        Unchecked, asking nothing else. `assert_network` reaches the
+        genesis header through this and not through `get_block_header`,
+        which calls `_verify_once`.
         """
         request_id = self._next_request_id()
         line = self._round_trip(electrum.block_header_request(request_id, height))
         with fetch_errors(f"block header {height}"):
-            raw = electrum.block_header_response(line, request_id)
+            return electrum.block_header_response(line, request_id)
+
+    def _header_at(self, height: int) -> BlockHeader:
+        """Return the header at this height, checked, asking nothing else.
+
+        `block_header_from_raw` is what checks the eighty bytes, so the
+        header `get_block_header` returns is one that passed its checks,
+        and not the server's word.
+        """
+        raw = self._raw_header_at(height)
         return block_header_from_raw(raw, height, network=self.network)
 
     @override
@@ -222,11 +226,16 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         height 0 -- the same method `get_block_header` asks for every
         other height, asked here for the block every chain starts from --
         against `NETWORKS[self.network].genesis_block`. What is compared
-        is `BlockHeader.hash` of the eighty bytes `_header_at` has
-        checked, so this backend answers the question the way it answers
-        `get_best_block_id`: by hashing a header rather than by reading a
-        hash the server chose. `server.features` carries a `genesis_hash`
-        member and is what Electrum's own client compares
+        is `BlockHeader.hash` of the eighty bytes the server sent, checked for
+        length alone, so this backend answers the question the way it
+        answers `get_best_block_id`: by hashing a header rather than by
+        reading a hash the server chose. The proof
+        of work is left out because `block_header_from_raw` checks it
+        against this fetcher's own network: a server on another chain
+        would fail it before the comparison, with the `FetchError` that
+        `FallbackFetcher` falls through, where a genesis mismatch is the
+        `BTClibValueError` it stops on. `server.features` carries a
+        `genesis_hash` member and is what Electrum's own client compares
         (`electrum/interface.py`); the header is asked for instead
         because it makes the server produce eighty bytes that hash to the
         genesis rather than repeat a string, and because it needs no
@@ -248,7 +257,9 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         `btclib.electrum` speaks is a signet's challenge to compare
         against.
         """
-        reported = self._header_at(0).hash
+        raw = self._raw_header_at(0)
+        with fetch_errors("block header 0"):
+            reported = BlockHeader.parse(raw, check_validity=False).hash
         expected = NETWORKS[self.network].genesis_block
         if reported != expected:
             err_msg = "the server serves a chain whose genesis is"
