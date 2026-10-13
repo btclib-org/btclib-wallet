@@ -46,8 +46,8 @@ this package refuses it.
 
 **Every class checks itself** in `assert_valid`. `parse` and `serialize`
 call it unless `check_validity` is false; the signing and verifying
-functions always call it on the objects they are given. How long a value
-is, and where it ends, is checked whatever `check_validity` says.
+functions always call it on the objects they are given. `parse` checks how
+long each value is, and where it ends, whatever `check_validity` says.
 
 **A nonce signs one message.** `sign_attestation` takes the nonces' secret
 keys, and two signatures with one nonce reveal the oracle's key. A
@@ -221,7 +221,7 @@ class EnumEventDescriptor:
     outcomes: tuple[str, ...]
 
     def assert_valid(self) -> None:
-        """Refuse outcomes that are empty, too many, not NFC or repeated."""
+        """Refuse no outcomes, too many, or outcomes not NFC or repeated."""
         assert_type(self.outcomes, tuple, "outcomes")
         if not 1 <= len(self.outcomes) <= _U16:
             raise BTClibValueError("an enum event has 1 to 65535 outcomes")
@@ -418,7 +418,7 @@ class OracleAnnouncement:
     event: OracleEvent
 
     def assert_valid(self) -> None:
-        """Refuse a signature or a key that is not the size of one."""
+        """Refuse a signature not 64 octets, a non-point key or a bad event."""
         _assert_signature(self.signature, "announcement signature")
         _assert_x_only(self.public_key, "oracle public key")
         assert_type(self.event, OracleEvent, "event")

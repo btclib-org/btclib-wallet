@@ -990,8 +990,8 @@ that `check-added-large-files` allows. They are kept because they hold
 announcements that no other file does, and the tests read every
 announcement. `tests/dlc/dlc_oracle_vectors_test.py` reads the files.
 
-The signature scheme of the announcements is the one
-`btclib_wallet.dlc.oracle` names. Each file below is identical but for a
+The announcements are signed under `PLAIN_SHA256`, as
+`btclib_wallet.dlc.oracle` says. Each file below is identical but for a
 trailing newline.
 
 ### `tests/dlc/_data/test_vectors/enum_3_of_3_test.json`
