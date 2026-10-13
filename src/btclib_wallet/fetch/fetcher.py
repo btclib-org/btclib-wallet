@@ -215,7 +215,8 @@ class Fetcher(ABC):
         `blockchain.block.header` takes a height and publishes no call that
         takes a hash, so a hash-only signature would be one an Electrum
         backend could never answer. A node or an explorer maps a height to
-        a hash with a second call.
+        a hash with a second call, and `CompactFilterFetcher` reads it from
+        the header chain it holds.
 
         Checked on arrival by `block_header_from_raw`, which says how.
         `assert_valid_time` is not among the checks -- it compares against
@@ -335,9 +336,9 @@ def tx_id_hex(tx_id: Octets) -> str:
     """Return the display hex of a transaction id, checking it is one.
 
     Every backend that asks for a transaction puts the id in a request as
-    hex, and each accepts whatever `Octets` accepts, so each needs the same 32-byte check --
-    performed here rather than left to the backend, which would otherwise
-    report a mistyped id as the remote host's 404.
+    hex, and each accepts whatever `Octets` accepts, so each needs the same
+    32-byte check -- performed here rather than left to the backend, which
+    would otherwise report a mistyped id as the remote host's 404.
     """
     return bytes_from_octets(tx_id, 32).hex()
 
@@ -346,11 +347,11 @@ def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
     """Return the transaction a serialization holds, if it is the one asked for.
 
     Every backend that serves `get_tx` answers it with the serialization
-    rather than with a rendering of it, and this is why: the id is a hash of those bytes,
-    so recomputing it says whether what arrived is what was asked for. A
-    height is taken on the backend's word and a block header answers for
-    itself, which `SECURITY.md` states per answer rather than here; this
-    one costs a hash of a few hundred bytes.
+    rather than with a rendering of it, and this is why: the id is a hash
+    of those bytes, so recomputing it says whether what arrived is what was
+    asked for. A height is taken on the backend's word and a block header
+    answers for itself, which `SECURITY.md` states per answer rather than
+    here; this one costs a hash of a few hundred bytes.
 
     It is not only the untrusted backend it guards. A node behind a
     caching proxy, a truncated response and a request that raced another
