@@ -24,6 +24,7 @@ test about the id.
 from __future__ import annotations
 
 import json
+import re
 from urllib.request import Request
 
 import bitcoin_core_rpc as rpc
@@ -871,23 +872,39 @@ def test_estimate_fee_refuses_a_reply_with_no_feerate_and_no_errors() -> None:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 
 
-@pytest.mark.parametrize("result", ["not an object", ["feerate", 0.0001], None])
-def test_estimate_fee_refuses_a_reply_that_is_not_an_object(result: object) -> None:
+@pytest.mark.parametrize(
+    "result, detail",
+    [
+        ("not an object", "'not an object'"),
+        (["feerate", 0.0001], "['feerate', Decimal('0.0001')]"),
+        (None, "None"),
+    ],
+)
+def test_estimate_fee_refuses_a_reply_that_is_not_an_object(
+    result: object,
+    detail: str,
+) -> None:
     """A malformed reply is a FetchError, not an AttributeError on `.get`."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
-    with pytest.raises(FetchError, match="estimatesmartfee:"):
+    message = f"estimatesmartfee: not an object: {detail}"
+    with pytest.raises(FetchError, match=f"^{re.escape(message)}$"):
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 
 
-@pytest.mark.parametrize("blocks", ["not an int", None, 1.5])
+@pytest.mark.parametrize(
+    "blocks, detail",
+    [("not an int", "'not an int'"), (None, "None"), (1.5, "Decimal('1.5')")],
+)
 def test_estimate_fee_refuses_a_blocks_field_that_is_not_an_int(
     blocks: object,
+    detail: str,
 ) -> None:
     """`blocks` is what `FeeQuote.target` reports, so it has to be an int."""
     body = json.dumps(
         {"jsonrpc": "2.0", "result": {"feerate": 0.00001, "blocks": blocks}, "id": "x"}
     ).encode()
-    with pytest.raises(FetchError, match="invalid blocks"):
+    message = f"estimatesmartfee: invalid blocks: {detail}"
+    with pytest.raises(FetchError, match=f"^{re.escape(message)}$"):
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 
 

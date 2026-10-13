@@ -321,7 +321,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 max_body_size=_MAX_SMALL_REPLY,
             )
             if not isinstance(reply, dict):
-                raise BTClibTypeError(f"estimatesmartfee: not an object: {reply!r}")
+                raise BTClibTypeError(f"not an object: {reply!r}")
             feerate = reply.get("feerate")
             if feerate is None:
                 errors = reply.get("errors") or ["no estimate for this target"]
@@ -329,6 +329,6 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 raise FetchError(err_msg)
             blocks = reply.get("blocks")
             if not is_integer(blocks):
-                raise BTClibTypeError(f"estimatesmartfee: invalid blocks: {blocks!r}")
+                raise BTClibTypeError(f"invalid blocks: {blocks!r}")
             rate = FeeRate.from_btc_per_kvbyte(feerate, round_up=True)
             return FeeQuote(rate=rate, target=cast(int, blocks))
