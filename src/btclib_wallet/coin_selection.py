@@ -75,23 +75,6 @@ issue draws the same line in front of: privacy-aware grouping is
 Electrum's `coinchooser`, named in the issue this module answers as the
 pluggable policy a caller brings on top rather than the default here.
 
-`_branch_and_bound` also drops three of Core's own pruning and ordering
-refinements. None of them changes which selection the search returns --
-the search space is still fully explored inside `_BNB_TOTAL_TRIES`,
-only in a different order or with a different early exit along the way:
-Core's `descending` comparator
-breaks a tie on equal effective value by the lower-waste candidate
-(`coinselection.cpp:27-36`), where this module's own sort leaves such a
-tie in whatever order the pool arrived in; the `is_feerate_high &&
-curr_selection_waste > best_waste` cut (`coinselection.cpp:192-198`)
-abandons a partial selection early once no number of further inputs
-could beat the best one found at a high fee rate, which this module
-does not check and instead lets the budget spend on to the same
-conclusion; and the SHIFT loop's skip-clone step
-(`coinselection.cpp:243-259`) advances past a run of candidates of
-equal effective value rather than evaluating each, which this module
-evaluates individually within the same `TOTAL_TRIES` budget.
-
 **Randomness is a parameter, not a call.** `knapsack` and
 `single_random_draw` both shuffle, and both take a `random.Random`
 instead of reading the module-level `random` functions, so that a test
@@ -483,7 +466,7 @@ def branch_and_bound(
         change_spend_weight,
         dust_fee_rate,
     )
-    selected = _branch_and_bound(
+    selected, _ = _branch_and_bound(
         eligible, target, cost_of_change, fee_rate, long_term_fee_rate
     )
     if selected is None:
@@ -510,17 +493,27 @@ def _branch_and_bound(  # noqa: C901, PLR0912
     cost_of_change: int,
     fee_rate: FeeRate,
     long_term_fee_rate: FeeRate,
-) -> list[Candidate] | None:
+) -> tuple[list[Candidate] | None, int]:
     """Translate `coinselection.cpp`'s `SelectCoinsBnB`: the search itself.
 
     Working on indices into `pool`, sorted once by descending effective
-    value, exactly as Core's own `utxo_pool` is: the sort is what makes
+    value, the lower waste first on a tie, exactly as Core's own
+    `utxo_pool` is: the sort is what makes
     the lookahead sum below answer "how much could still be added"
     without recomputing it at every node.
+
+    Returns the selection, or None where there is none, and the number of
+    tries the search took, Core's `GetSelectionsEvaluated`.
     """
     if not pool:
-        return None
-    ordered = sorted(pool, key=lambda c: c.effective_value(fee_rate), reverse=True)
+        return None, 0
+    ordered = sorted(
+        pool,
+        key=lambda c: (
+            -c.effective_value(fee_rate),
+            c.fee(fee_rate) - c.fee(long_term_fee_rate),
+        ),
+    )
     eff = [c.effective_value(fee_rate) for c in ordered]
     waste_i = [c.fee(fee_rate) - c.fee(long_term_fee_rate) for c in ordered]
     n = len(ordered)
@@ -532,7 +525,7 @@ def _branch_and_bound(  # noqa: C901, PLR0912
         total += eff[i]
 
     if total < target:
-        return None
+        return None, 0
 
     curr_selection: list[int] = []
     best_selection: list[int] | None = None
@@ -541,6 +534,8 @@ def _branch_and_bound(  # noqa: C901, PLR0912
     best_waste: int | None = None
     next_index = 0
     curr_try = 0
+    # Core reads this from the first of the sorted pool, the same way
+    is_feerate_high = waste_i[0] > 0
 
     def deselect_last() -> None:
         nonlocal curr_amount, curr_waste
@@ -563,7 +558,9 @@ def _branch_and_bound(  # noqa: C901, PLR0912
         tail_lookahead = lookahead[curr_selection[-1]]
         if curr_amount + tail_lookahead < target:
             should_cut = True
-        elif curr_amount > target + cost_of_change:
+        elif curr_amount > target + cost_of_change or (
+            is_feerate_high and best_waste is not None and curr_waste > best_waste
+        ):
             should_shift = True
         elif curr_amount >= target:
             should_shift = True
@@ -591,9 +588,15 @@ def _branch_and_bound(  # noqa: C901, PLR0912
             deselect_last()
             should_shift = False
 
+            while eff[next_index - 1] == eff[next_index]:
+                if next_index >= n - 1:
+                    should_shift = True
+                    break
+                next_index += 1
+
     if best_selection is None:
-        return None
-    return [ordered[i] for i in best_selection]
+        return None, curr_try
+    return [ordered[i] for i in best_selection], curr_try
 
 
 def knapsack(

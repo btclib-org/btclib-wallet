@@ -886,10 +886,170 @@ def test_branch_and_bound_keeps_the_lower_waste_of_two_window_matches() -> None:
     tried_second = Candidate(OutPoint(b"\x02" * 32, 0), TxOut(64_950, PAY_SCRIPT), 1780)
     assert tried_first.effective_value(fee_rate) == 64_000
     assert tried_second.effective_value(fee_rate) == 60_500
-    selected = _branch_and_bound(
+    selected, _ = _branch_and_bound(
         [tried_first, tried_second], 60_000, 5_000, fee_rate, long_term_fee_rate
     )
     assert selected == [tried_first]
+
+
+# Core's own `coinselection_tests.cpp` (`bitcoin/bitcoin@a8b69bdeaf`) fixes
+# the cost of change at 359 satoshi for its default 5 sat/vB rate and at
+# 979 for its 25 sat/vB one, against a long-term rate of 10 sat/vB; its
+# coins are P2WPKH inputs of 68 vbytes, the heavy ones 500 vbytes
+_CORE_CENT = 1_000_000
+_CORE_LONG_TERM = _rate(10)
+_CORE_LOW = _rate(5)
+_CORE_HIGH = _rate(25)
+_CORE_LIGHT_WEIGHT = 68 * 4
+_CORE_HEAVY_WEIGHT = 500 * 4
+
+
+def _core_pool(
+    effective_values: Sequence[int],
+    fee_rate: FeeRate,
+    heavy: Sequence[int] = (),
+) -> list[Candidate]:
+    """Return candidates of these effective values, as Core's `MakeCoin`.
+
+    A candidate's value is its effective value plus its own fee, and the
+    outpoints are distinct, so that the pool may hold any number of
+    clones.
+    """
+    pool = []
+    for i, (effective, weight) in enumerate(
+        [(e, _CORE_LIGHT_WEIGHT) for e in effective_values]
+        + [(e, _CORE_HEAVY_WEIGHT) for e in heavy]
+    ):
+        fee = candidate(0, 1, weight).fee(fee_rate)
+        pool.append(
+            Candidate(
+                OutPoint(i.to_bytes(32, "big"), 0),
+                TxOut(effective + fee, PAY_SCRIPT),
+                weight,
+            )
+        )
+    return pool
+
+
+def _effective_values(selected: list[Candidate] | None, fee_rate: FeeRate) -> list[int]:
+    """Return the sorted effective values of a selection that is not None."""
+    assert selected is not None
+    return sorted(c.effective_value(fee_rate) for c in selected)
+
+
+def test_branch_and_bound_skips_clones_of_an_omitted_candidate() -> None:
+    """Core's "Skip equivalent input sets": a pool of clones takes few tries.
+
+    `bitcoin/bitcoin@a8b69bdeaf`, `coinselection_tests.cpp:175-178`: 50,000
+    clones of 5 are searched for 2, 7, 7 in 16 tries. Without the skip,
+    omitting one clone leaves the search to rebuild, with the next clone,
+    the selections it has tried, until the budget ends it.
+    """
+    cents = _CORE_CENT
+    pool = _core_pool(
+        [2 * cents, 7 * cents, 7 * cents] + [5 * cents] * 50_000, _CORE_LOW
+    )
+    selected, tries = _branch_and_bound(
+        pool, 16 * cents, 359, _CORE_LOW, _CORE_LONG_TERM
+    )
+    assert _effective_values(selected, _CORE_LOW) == [2 * cents, 7 * cents, 7 * cents]
+    assert tries == 16
+    assert tries < coin_selection_module._BNB_TOTAL_TRIES
+
+
+def test_branch_and_bound_ends_where_the_clones_reach_the_end_of_the_pool() -> None:
+    """Omitting the first of two clones that end the pool ends the search.
+
+    Core shifts again where the skip runs out of pool, and with nothing
+    left selected the search is over: one try, not two.
+    """
+    cents = _CORE_CENT
+    pool = _core_pool([5 * cents, 5 * cents], _CORE_LOW)
+    selected, tries = _branch_and_bound(pool, 5 * cents, 0, _CORE_LOW, _CORE_LONG_TERM)
+    assert selected is not None
+    assert len(selected) == 1
+    assert tries == 1
+
+
+def test_branch_and_bound_skips_clones_of_mixed_weight() -> None:
+    """Candidates of equal effective value and different weight cost no tries.
+
+    The sort puts the lower waste first among them, so the skip, which
+    compares effective value alone as Core's does, passes over the rest
+    of the run: 16 tries as for 50,000 clones of one weight, and 5 for
+    two 3s that sum to a target of 6.
+    """
+    cents = _CORE_CENT
+    fives = [5 * cents] * 100
+    pool = _core_pool([2 * cents, 7 * cents, 7 * cents, *fives], _CORE_LOW, fives)
+    selected, tries = _branch_and_bound(
+        pool, 16 * cents, 359, _CORE_LOW, _CORE_LONG_TERM
+    )
+    assert _effective_values(selected, _CORE_LOW) == [2 * cents, 7 * cents, 7 * cents]
+    assert tries == 16
+    pool = _core_pool([3 * cents, 3 * cents, *fives], _CORE_LOW, fives)
+    selected, tries = _branch_and_bound(
+        pool, 6 * cents, 359, _CORE_LOW, _CORE_LONG_TERM
+    )
+    assert _effective_values(selected, _CORE_LOW) == [3 * cents, 3 * cents]
+    assert tries == 5
+
+
+def test_branch_and_bound_keeps_the_lower_waste_of_equal_effective_values() -> None:
+    """Equal effective values sort the lower waste first.
+
+    The heavy one comes first in the pool and wastes more. The sort puts
+    the light one before it, so the selection is the light one and the
+    skip leaves the heavy one out.
+    """
+    fee_rate = _rate(10)
+    long_term_fee_rate = _rate(1)
+    heavy = Candidate(OutPoint(b"\x01" * 32, 0), TxOut(64_450, PAY_SCRIPT), 1780)
+    light = Candidate(OutPoint(b"\x02" * 32, 0), TxOut(60_120, PAY_SCRIPT), 48)
+    assert heavy.effective_value(fee_rate) == light.effective_value(fee_rate) == 60_000
+    selected, _ = _branch_and_bound(
+        [heavy, light], 60_000, 0, fee_rate, long_term_fee_rate
+    )
+    assert selected == [light]
+
+
+@pytest.mark.parametrize(
+    "fee_rate, cost_of_change, target_cents, heavy, expected, tries",
+    [
+        # at a rate below the long-term one, more inputs lower the waste,
+        # and the waste prune must not fire
+        (_CORE_LOW, 359, 10, (), [2, 3, 5], 6),
+        (_CORE_LOW, 359, 13, (6, 7), [6, 7], 18),
+        # above it, a partial selection already wasting more than the best
+        # is abandoned
+        (_CORE_HIGH, 979, 10, (), [10], 5),
+        (_CORE_HIGH, 979, 13, (6, 7), [3, 10], 9),
+    ],
+    ids=["low", "low-heavy", "high", "high-heavy"],
+)
+def test_branch_and_bound_prunes_on_waste_only_at_high_fee_rates(
+    fee_rate: FeeRate,
+    cost_of_change: int,
+    target_cents: int,
+    heavy: tuple[int, ...],
+    expected: list[int],
+    tries: int,
+) -> None:
+    """Core's `bnb_feerate_sensitivity_test`: selections and tries.
+
+    `bitcoin/bitcoin@a8b69bdeaf`, `coinselection_tests.cpp:243-263`. The
+    effective values are in cents, and the heavy candidates are the ones
+    of 500 vbytes.
+    """
+    cents = _CORE_CENT
+    pool = _core_pool(
+        [c * cents for c in (2, 3, 5, 10)], fee_rate, [h * cents for h in heavy]
+    )
+    selected, found_in = _branch_and_bound(
+        pool, target_cents * cents, cost_of_change, fee_rate, _CORE_LONG_TERM
+    )
+    assert _effective_values(selected, fee_rate) == [c * cents for c in expected]
+    assert found_in == tries
 
 
 def test_branch_and_bound_stops_at_the_search_budget() -> None:
