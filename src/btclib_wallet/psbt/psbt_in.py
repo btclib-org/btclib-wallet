@@ -71,6 +71,7 @@ from btclib_wallet.psbt.psbt_utils import (
     parse_leaf_script,
     parse_musig2_participant_pub_keys,
     parse_taproot_bip32,
+    pub_key_shape,
     serialize_bytes,
     serialize_dict_bytes_bytes,
     serialize_hd_key_paths,
@@ -207,13 +208,22 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
     `ValueError` and no `BTClibValueError`, and what it refuses leaves
     here as this package's refusal naming the field.
     """
-    for pub_key, sig in partial_sigs.items():
+    for index, (pub_key, sig) in enumerate(partial_sigs.items()):
+        # each refusal is raised after its `except` block, so it chains no
+        # cause: the key's parse text gives the first byte, which
+        # `pub_key_shape` withholds outside the pairs SEC defines, and the
+        # signature's prints a scalar in groups of four bytes
         try:
             # pub_key must be a valid secp256k1 Point in SEC representation
             sec_point.point_from_octets(pub_key)
-        except ValueError as e:
-            err_msg = f"invalid partial signature pub_key: {pub_key!r}"
-            raise BTClibValueError(err_msg) from e
+        except ValueError:
+            is_valid = False
+        else:
+            is_valid = True
+        if not is_valid:
+            err_msg = f"invalid partial signature pub_key: entry {index}, "
+            err_msg += pub_key_shape(pub_key)
+            raise BTClibValueError(err_msg)
         try:
             # the DER signature alone: a partial signature is that plus a
             # sighash type byte (BIP174), so it is not itself a DER
@@ -226,9 +236,13 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
             # this comment begin with "# type:", which mypy reads as a PEP 484
             # type comment and then calls the try block a syntax error
             dsa.Sig.parse(sig[:-1])
-        except ValueError as e:
-            err_msg = f"invalid partial signature: {sig!r}"
-            raise BTClibValueError(err_msg) from e
+        except ValueError:
+            is_valid = False
+        else:
+            is_valid = True
+        if not is_valid:
+            err_msg = f"invalid partial signature: entry {index}, {len(sig)} bytes"
+            raise BTClibValueError(err_msg)
 
 
 def _assert_valid_final_script_sig(final_script_sig: bytes) -> None:
@@ -963,7 +977,7 @@ class PsbtIn:
         assert_valid_psbt_version(psbt_version)
 
         stream = bytesio_from_binarydata(data)
-        input_map = deserialize_map(stream)
+        input_map = deserialize_map(stream, "input")
         assert_no_trailing(data, stream, "psbt input")
         # the init keywords the map fills; whatever it does not carry keeps
         # the default __init__ gives it, which is what makes the two tables

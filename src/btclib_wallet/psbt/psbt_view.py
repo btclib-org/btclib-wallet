@@ -237,7 +237,7 @@ class PsbtView:
         if stream.read(len(PSBT_MAGIC_BYTES)) != PSBT_MAGIC_BYTES:
             raise BTClibValueError("malformed psbt: missing magic bytes")
 
-        global_map = deserialize_map(self._read_map())
+        global_map = deserialize_map(self._read_map(), "global")
         # the version before the rest of the map and before every map after
         # it, as in `Psbt.parse`: what a type byte means is version
         # dependent, and a map has no order to put the version first in

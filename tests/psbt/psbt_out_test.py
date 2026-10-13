@@ -46,7 +46,7 @@ def test_unknown() -> None:
     # others, so the terminator belongs to whichever of PsbtIn, PsbtOut or
     # Psbt.serialize is assembling the whole of that map
     serialized = serialize_dict_bytes_bytes(b"", data)
-    assert deserialize_map(serialized + PSBT_SEPARATOR) == data
+    assert deserialize_map(serialized + PSBT_SEPARATOR, "output") == data
 
 
 def test_psbt_out() -> None:

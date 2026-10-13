@@ -28,6 +28,7 @@ reach no further than the path it is seeded from.
 from __future__ import annotations
 
 import hmac
+from hashlib import shake_256
 from typing import Any
 
 import pytest
@@ -54,7 +55,7 @@ from btclib_wallet.bip85 import (
     wif_from_root_key,
     xprv_from_root_key,
 )
-from tests import load, vector_id
+from tests import assert_secret_free, load, vector_id
 from tests.exception_family_test import VALUE_ERRORS
 
 _VECTORS = load("_data", "bip85_test_vectors.json")
@@ -465,6 +466,10 @@ def test_an_application_parameter_outside_its_table() -> None:
         mnemonic_from_root_key(_ROOT, 12, "ru")
 
     # a type before a value, hashable or not (issue #138)
+    for words, name in (("12", "str"), ([], "list"), (None, "NoneType")):
+        with pytest.raises(BTClibTypeError, match=f"^invalid words type: {name}$"):
+            mnemonic_from_root_key(_ROOT, words)  # type: ignore[arg-type]
+
     for lang, name in ((1, "int"), ([], "list"), (None, "NoneType")):
         with pytest.raises(BTClibTypeError, match=f"^invalid lang type: {name}$"):
             mnemonic_from_root_key(_ROOT, 12, lang)  # type: ignore[arg-type]
@@ -514,3 +519,34 @@ def test_an_index_no_path_level_can_hold() -> None:
     err_msg = "^invalid derivation index: not ASCII decimal digits$"
     with pytest.raises(BTClibValueError, match=err_msg):
         xprv_from_root_key(_ROOT, -1)
+
+
+def test_a_key_passed_as_a_parameter_is_not_echoed() -> None:
+    """The root key is the first parameter, so a mistake can put it in another.
+
+    Issue #351. A name short enough to be a typo is quoted; anything
+    longer is not, and an integer is a value too.
+    """
+    secrets = [_ROOT, _ROOT.encode()]
+    with pytest.raises(BTClibTypeError, match="^invalid words type: str$") as type_e:
+        mnemonic_from_root_key(_ROOT, _ROOT)
+    assert_secret_free(type_e.value, secrets)
+
+    err_msg = "^unnumbered bip85 language: a value of"
+    with pytest.raises(BTClibValueError, match=err_msg) as lang_e:
+        mnemonic_from_root_key(_ROOT, 12, _ROOT)
+    assert_secret_free(lang_e.value, secrets)
+
+    scalar = int.from_bytes(shake_256(b"btclib-wallet issue 351").digest(32))
+    err_msg = "^invalid number of words: a value of"
+    with pytest.raises(BTClibValueError, match=err_msg) as words_e:
+        mnemonic_from_root_key(_ROOT, scalar)
+    assert_secret_free(words_e.value, [str(scalar), str(scalar)[:-1]])
+
+
+def test_a_huge_integer_for_the_number_of_words_is_a_refusal() -> None:
+    """An integer past the digit limit has no `str`, and no builtin leaks."""
+    with pytest.raises(BTClibValueError, match="^invalid number of words: a value"):
+        mnemonic_from_root_key(_ROOT, 10**5000)
+    with pytest.raises(BTClibValueError, match="^invalid number of words: 1000000"):
+        mnemonic_from_root_key(_ROOT, 1_000_000)

@@ -100,9 +100,9 @@ def _maps(psbt_bin: bytes) -> list[dict[bytes, bytes]]:
     """
     stream = io.BytesIO(psbt_bin)
     assert stream.read(len(PSBT_MAGIC_BYTES)) == PSBT_MAGIC_BYTES
-    read = [deserialize_map(stream)]
+    read = [deserialize_map(stream, "any")]
     while stream.tell() < len(psbt_bin):
-        read.append(deserialize_map(stream))
+        read.append(deserialize_map(stream, "any"))
     return read
 
 

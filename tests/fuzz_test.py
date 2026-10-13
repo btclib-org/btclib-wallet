@@ -66,7 +66,7 @@ BINARY_PARSERS: dict[str, Callable[[bytes], Any]] = {
     "Psbt.parse": Psbt.parse,
     "PsbtIn.parse": PsbtIn.parse,
     "PsbtOut.parse": PsbtOut.parse,
-    "psbt_utils.deserialize_map": psbt_utils.deserialize_map,
+    "psbt_utils.deserialize_map": lambda data: psbt_utils.deserialize_map(data, "any"),
     "psbt_utils.parse_leaf_script": psbt_utils.parse_leaf_script,
     "psbt_utils.parse_taproot_tree": psbt_utils.parse_taproot_tree,
     "psbt_utils.parse_taproot_bip32": psbt_utils.parse_taproot_bip32,

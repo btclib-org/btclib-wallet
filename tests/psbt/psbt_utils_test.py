@@ -4,6 +4,7 @@
 
 """Tests for the `btclib_wallet.psbt.psbt_utils` module."""
 
+from hashlib import shake_256
 from io import BytesIO
 
 import pytest
@@ -11,9 +12,12 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import Witness
 from btclib.tx import Tx, TxIn, TxOut
 from btclib.tx.out_point import OutPoint
+from btclib_ecc.curves import sec_point, secp256k1
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt.psbt_utils import (
+    assert_valid_musig2_participant_pub_keys,
+    assert_valid_musig2_pub_key,
     decode_musig2_participant_pub_keys,
     decode_taproot_bip32,
     deserialize_map,
@@ -22,6 +26,7 @@ from btclib_wallet.psbt.psbt_utils import (
     serialize_hd_key_paths,
     serialize_taproot_bip32,
 )
+from tests import assert_secret_free
 
 
 def test_invalid_serialize_hd_key_paths() -> None:
@@ -108,16 +113,16 @@ def test_deserialize_map_short_read() -> None:
     for, so an unchecked read deserializes every buffer below to the very
     same map -- {b"A": b"B"} -- which serializes back to only one of them.
     """
-    assert deserialize_map(b"\x01A\x01B\x00") == {b"A": b"B"}
+    assert deserialize_map(b"\x01A\x01B\x00", "global") == {b"A": b"B"}
 
     err_msg = "not enough data for the psbt map value: "
     for announced_size in (b"\x02", b"\x05", b"\x09"):
         with pytest.raises(BTClibValueError, match=err_msg):
-            deserialize_map(b"\x01A" + announced_size + b"B")
+            deserialize_map(b"\x01A" + announced_size + b"B", "global")
 
     err_msg = "not enough data for the psbt map key: "
     with pytest.raises(BTClibValueError, match=err_msg):
-        deserialize_map(b"\x05AB")
+        deserialize_map(b"\x05AB", "global")
 
 
 def test_deserialize_map_reads_one_map() -> None:
@@ -128,8 +133,8 @@ def test_deserialize_map_reads_one_map() -> None:
     each call has to leave the next one where the next map starts.
     """
     stream = BytesIO(b"\x01A\x01B\x00\x01C\x01D\x00 the psbt ends here")
-    assert deserialize_map(stream) == {b"A": b"B"}
-    assert deserialize_map(stream) == {b"C": b"D"}
+    assert deserialize_map(stream, "global") == {b"A": b"B"}
+    assert deserialize_map(stream, "global") == {b"C": b"D"}
     assert stream.read() == b" the psbt ends here"
 
 
@@ -141,7 +146,7 @@ def test_deserialize_map_unterminated() -> None:
     """
     err_msg = "malformed psbt: unterminated map"
     with pytest.raises(BTClibValueError, match=err_msg):
-        deserialize_map(b"\x01A\x01B")
+        deserialize_map(b"\x01A\x01B", "global")
 
 
 def test_deserialize_tx_reads_include_witness_for_its_truth() -> None:
@@ -180,3 +185,67 @@ def test_deserialize_tx_reads_include_witness_for_its_truth() -> None:
     # None is a wrong type, not a third spelling of False
     with pytest.raises(BTClibTypeError):
         deserialize_tx(b"\x00", legacy, "tx", None)  # type: ignore[arg-type]
+
+
+def _secret(size: int) -> bytes:
+    """Return a fixed value no clean message shares a piece with."""
+    return shake_256(b"btclib-wallet issue 351").digest(size)
+
+
+_SECRET_32 = _secret(32)
+_SECRET_78 = _secret(78)
+
+
+# four 0xff bytes put x above the field's prime, so no point lies over it
+_OFF_CURVE_X = b"\xff" * 4 + _secret(28)
+
+
+@pytest.mark.parametrize(
+    "prefix, shape",
+    [
+        # `00 || k` is the shape of an xprv's key field
+        (b"\x00", "33 bytes, entry 3$"),
+        (b"\x05", "33 bytes, entry 3$"),
+        (b"\x02", "33 bytes, prefix 0x02, entry 3$"),
+    ],
+)
+def test_a_musig2_key_that_is_not_a_point_is_refused_without_its_bytes(
+    prefix: bytes, shape: str
+) -> None:
+    """33 bytes that are no point may be a private key (issue #351)."""
+    key = _OFF_CURVE_X if prefix == b"\x02" else _SECRET_32
+    err_msg = f"^invalid musig2 aggregate pub key: not a point, {shape}"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        assert_valid_musig2_pub_key(prefix + key, "musig2 aggregate pub key", "entry 3")
+    assert_secret_free(excinfo.value, [key, prefix + key])
+
+
+def test_a_duplicated_psbt_key_is_refused_without_its_key_data() -> None:
+    """The key data of a global xpub is an extended key (issue #351).
+
+    Two records of PSBT_GLOBAL_XPUB under one xprv as key data: the
+    refusal says the type byte and the length, and names the map.
+    """
+    key = b"\x01" + _SECRET_78
+    record = bytes([len(key)]) + key + b"\x01A"
+    with pytest.raises(BTClibValueError, match="duplicated key in psbt map") as e:
+        deserialize_map(record + record + b"\x00", "global")
+    assert "global, type byte 0x01, 79 bytes" in str(e.value)
+    assert_secret_free(e.value, [_SECRET_78, key])
+
+    with pytest.raises(
+        BTClibValueError, match="^duplicated key in psbt map: input, "
+    ) as e:
+        deserialize_map(record + record + b"\x00", "input")
+    assert_secret_free(e.value, [_SECRET_78, key])
+
+
+def test_a_refused_musig2_participant_key_is_named_by_its_position() -> None:
+    """The aggregate key is entry 0 and the refused one its second."""
+    good = sec_point.bytes_from_point(secp256k1.G)
+    bad = b"\x00" + _SECRET_32
+    with pytest.raises(
+        BTClibValueError, match="participant pub key: .*, entry 0.1$"
+    ) as e:
+        assert_valid_musig2_participant_pub_keys({good: [good, bad]})
+    assert_secret_free(e.value, [_SECRET_32])

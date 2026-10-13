@@ -52,6 +52,40 @@ def chained_text(e: BaseException | None) -> str:
     return text
 
 
+def assert_secret_free(exc: BaseException, secrets: list[str | bytes]) -> None:
+    """Assert that no piece of a secret is in a refusal or its causes.
+
+    A piece is 6 bytes, or 12 characters of a string, so that a refusal
+    quoting the end or the middle of a value is caught as well as one
+    quoting its start. A bytes secret is looked for as hex and as the body
+    of its `repr`, the two ways a refusal prints bytes. A secret fed is a
+    random value, not a run such as all zeros: a piece of one can be a
+    piece of the clean message.
+    """
+    text = ""
+    todo: list[BaseException | None] = [exc]
+    seen: set[int] = set()
+    while todo:
+        e = todo.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        text += f" {e!s} {e!r} {e.args!r} {vars(e)!r}".lower()
+        todo += [e.__cause__, e.__context__]
+    # btclib_ecc prints a scalar in capitals and in groups of four bytes
+    text = "".join(text.split())
+    for secret in secrets:
+        size = 6 if isinstance(secret, bytes) else 12
+        for start in range(max(len(secret) - size, 0) + 1):
+            piece = secret[start : start + size]
+            if isinstance(piece, bytes):
+                spellings = [piece.hex(), repr(piece)[2:-1].lower()]
+            else:
+                spellings = [piece.lower()]
+            for spelling in spellings:
+                assert spelling not in text
+
+
 # what `str.strip()` takes and `string.whitespace` does not: U+001C is
 # ASCII and the rest are not. A value padded with one of them is not the
 # value it wraps (issue #102)

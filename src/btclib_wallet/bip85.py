@@ -159,6 +159,25 @@ _NSEC_HRP = "nsec"
 _DRNG_SEED_SIZE = 64
 
 
+# a refused name at most this long is quoted, as being too short to be a key
+_QUOTED_MAX = 16
+
+
+def _quoted(value: int | str) -> str:
+    """Return a refused parameter as a refusal may print it.
+
+    `words` and `lang` are parameters of a function that also takes the
+    root key, and a caller's mistake can put the key in either.
+    """
+    # an int past the interpreter's digit limit has no str
+    if isinstance(value, int) and not -(10**_QUOTED_MAX) < value < 10**_QUOTED_MAX:
+        return f"a value of more than {_QUOTED_MAX} digits"
+    text = str(value)
+    if len(text) > _QUOTED_MAX:
+        return f"a value of {len(text)} characters"
+    return repr(value)
+
+
 def _assert_valid_der_path(indexes: list[int]) -> None:
     """Raise unless the path is one BIP85 defines entropy for.
 
@@ -268,15 +287,16 @@ def mnemonic_from_root_key(
     12, 15, 18, 21 and 24, and `lang` one of the ten of BIP85's Language
     Table, which are ten of the twelve `btclib_mnemonics.bip39` writes.
     """
-    if words not in _ENTROPY_BYTES:
-        err_msg = f"invalid number of words: {words}; "
-        err_msg += f"expected: {sorted(_ENTROPY_BYTES)}"
-        raise BTClibValueError(err_msg)
     # a type check first: the membership test below would refuse a
     # hashable one as a value and let an unhashable one leave as a builtin
+    assert_type(words, int, "words")
+    if words not in _ENTROPY_BYTES:
+        err_msg = f"invalid number of words: {_quoted(words)}; "
+        err_msg += f"expected: {sorted(_ENTROPY_BYTES)}"
+        raise BTClibValueError(err_msg)
     assert_type(lang, str, "lang")
     if lang not in _LANGUAGE_INDEXES:
-        err_msg = f"unnumbered bip85 language: '{lang}'; "
+        err_msg = f"unnumbered bip85 language: {_quoted(lang)}; "
         err_msg += f"expected: {sorted(_LANGUAGE_INDEXES)}"
         raise BTClibValueError(err_msg)
 

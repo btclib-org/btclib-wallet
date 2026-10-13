@@ -1499,7 +1499,7 @@ class Psbt:
         if stream.read(5) != PSBT_MAGIC_BYTES:
             raise BTClibValueError("malformed psbt: missing magic bytes")
 
-        global_map = deserialize_map(stream)
+        global_map = deserialize_map(stream, "global")
         # before the rest of the map, and before the input and output maps
         # it is handed to: what a type byte means is version-dependent,
         # BIP370 defining twelve of them that version 0 must not carry, and

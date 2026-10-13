@@ -5,6 +5,7 @@
 """Tests for the `btclib_wallet.psbt.psbt_in` module."""
 
 from dataclasses import FrozenInstanceError, fields
+from hashlib import shake_256
 from io import BytesIO
 from typing import Any, get_args
 
@@ -13,6 +14,8 @@ from btclib.exceptions import BTClibValueError
 from btclib.script import Witness
 from btclib.script.sig_hash import SIG_HASH_TYPES
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from btclib_ecc.curves import sec_point, secp256k1
+from btclib_ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn
@@ -24,6 +27,7 @@ from btclib_wallet.psbt.psbt_in import (
     ValidSigHashType,
 )
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR
+from tests import assert_secret_free
 from tests.conftest import JsonGolden
 
 
@@ -312,3 +316,54 @@ def test_scripts_are_rendered_as_asm_and_hex() -> None:
         PsbtIn.from_dict(
             {**dict_, "witness_script": {"asm": "OP_1", "hex": witness_script}}
         )
+
+
+_SECRET_32 = shake_256(b"btclib-wallet issue 351").digest(32)
+_SECRET_70 = shake_256(b"btclib-wallet issue 351").digest(70)
+
+
+def _public_key() -> bytes:
+    return sec_point.bytes_from_point(secp256k1.G)
+
+
+def test_a_partial_signature_key_is_refused_without_its_bytes() -> None:
+    """A key that is no point may be a private key (issue #351).
+
+    The entry is named by its index, and the key by its length.
+    """
+    key = b"\x00" + _SECRET_32
+    sig = _SECRET_70
+    with pytest.raises(BTClibValueError, match="pub_key: entry 0, 33 bytes$") as e:
+        PsbtIn(partial_sigs={key: sig})
+    assert_secret_free(e.value, [_SECRET_32, key])
+
+
+def test_a_raw_private_key_as_a_partial_signature_key_is_not_echoed() -> None:
+    """At 32 bytes SEC defines no prefix, so no first byte is said."""
+    with pytest.raises(BTClibValueError, match="pub_key: entry 0, 32 bytes$") as e:
+        PsbtIn(partial_sigs={_SECRET_32: _SECRET_70})
+    assert_secret_free(e.value, [_SECRET_32])
+
+    with pytest.raises(BTClibValueError, match="pub_key: entry 0, 0 bytes$"):
+        PsbtIn(partial_sigs={b"": _SECRET_70})
+
+
+def test_a_partial_signature_is_refused_without_its_bytes() -> None:
+    """A signature is refused by its index and its length (issue #351)."""
+    with pytest.raises(BTClibValueError, match="signature: entry 0, 70 bytes$") as e:
+        PsbtIn(partial_sigs={_public_key(): _SECRET_70})
+    assert_secret_free(e.value, [_SECRET_70])
+
+
+def test_a_partial_signature_scalar_out_of_range_is_not_echoed() -> None:
+    """A signature of valid DER whose s is not below the order (issue #351).
+
+    btclib_ecc's own refusal prints the scalar in capitals, in groups of
+    four bytes, and so the refusal chains no cause.
+    """
+    s = secp256k1.n + int.from_bytes(shake_256(b"btclib-wallet issue 351").digest(15))
+    der = dsa.Sig(1, s, check_validity=False).serialize(check_validity=False)
+    with pytest.raises(BTClibValueError, match="signature: entry 0, ") as e:
+        PsbtIn(partial_sigs={_public_key(): der + b"\x01"})
+    assert e.value.__cause__ is None
+    assert_secret_free(e.value, [s.to_bytes(32), der, f"{s:064x}"])

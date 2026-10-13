@@ -83,6 +83,7 @@ __all__ = [
     "parse_musig2_participant_pub_keys",
     "parse_taproot_bip32",
     "parse_taproot_tree",
+    "pub_key_shape",
     "serialize_bytes",
     "serialize_count",
     "serialize_dict_bytes_bytes",
@@ -162,7 +163,7 @@ PSBT_V0 = 0
 PSBT_V2 = 2
 
 
-def deserialize_map(data: BinaryData) -> dict[bytes, bytes]:
+def deserialize_map(data: BinaryData, which: str) -> dict[bytes, bytes]:
     """Return one map, read from the stream up to its 0x00 separator.
 
     The separator is consumed, so the stream is left on whatever comes
@@ -170,6 +171,10 @@ def deserialize_map(data: BinaryData) -> dict[bytes, bytes]:
     a psbt in order. The map alone is handed back, the stream not being
     the function's to give -- a caller passing a stream already holds it,
     and one passing octets has nothing left to read from anyway.
+
+    `which` names the map in a refusal: global, input or output. A
+    duplicated key is refused by its type byte and its length: the key
+    data of some types is an extended key, and a refusal prints none of it.
     """
     stream = bytesio_from_binarydata(data)
     if len(stream.getbuffer()) == stream.tell():  # the end of the stream buffer
@@ -187,7 +192,11 @@ def deserialize_map(data: BinaryData) -> dict[bytes, bytes]:
         key = read_exactly(stream, var_int.parse(stream), "psbt map key")
         value = read_exactly(stream, var_int.parse(stream), "psbt map value")
         if key in partial_map:
-            raise BTClibValueError(f"duplicated key in psbt map: 0x{key.hex()}")
+            err_msg = (
+                f"duplicated key in psbt map: {which}, type byte 0x{key[:1].hex()}, "
+            )
+            err_msg += f"{len(key)} bytes"
+            raise BTClibValueError(err_msg)
         partial_map[key] = value
 
 
@@ -563,8 +572,28 @@ def decode_musig2_participant_pub_keys(
     return dict(sorted(participants.items()))
 
 
-def assert_valid_musig2_pub_key(pub_key: bytes, what: str) -> None:
+def pub_key_shape(pub_key: bytes) -> str:
+    """Return what a refusal may say of a value refused as a public key.
+
+    The value may be a private key: `00 || k` is 33 bytes. So the length
+    is said, and the first byte only where the length and the byte are a
+    pair SEC defines: `02` or `03` of 33 bytes, `04` of 65.
+    """
+    shape = f"{len(pub_key)} bytes"
+    if (len(pub_key), pub_key[:1]) in {
+        (33, b"\x02"),
+        (33, b"\x03"),
+        (65, b"\x04"),
+    }:
+        shape += f", prefix 0x{pub_key[:1].hex()}"
+    return shape
+
+
+def assert_valid_musig2_pub_key(pub_key: bytes, what: str, where: str = "") -> None:
     """Raise unless the octets are a compressed secp256k1 public key.
+
+    `where`, if given, is appended to the refusal: the key's position in
+    its field.
 
     The length is what the four x-only vectors of BIP373 fail on. The
     point parse is what Bitcoin Core asks beyond it -- `IsFullyValid` on
@@ -572,16 +601,25 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str) -> None:
     octets a key rather than 33 octets: a psbt naming an aggregate key
     that is not on the curve names a session no signer can join.
     """
+    suffix = f", {where}" if where else ""
     if len(pub_key) != MUSIG2_PUB_KEY_SIZE:
         err_msg = f"invalid {what} length: {len(pub_key)} bytes "
-        err_msg += f"instead of {MUSIG2_PUB_KEY_SIZE}"
+        err_msg += f"instead of {MUSIG2_PUB_KEY_SIZE}{suffix}"
         raise BTClibValueError(err_msg)
+    # ValueError: the parse may be
+    # btclib_ecc.exceptions.BTClibEccValueError, no BTClibValueError.
+    # The refusal is raised after the block, so it chains no cause: the
+    # parse's own text gives the first byte, which `pub_key_shape` withholds
+    # outside the pairs SEC defines
     try:
         sec_point.point_from_octets(pub_key)
-    # ValueError: the parse may be
-    # btclib_ecc.exceptions.BTClibEccValueError, no BTClibValueError
-    except ValueError as e:
-        raise BTClibValueError(f"invalid {what}: {pub_key.hex()}") from e
+    except ValueError:
+        is_a_point = False
+    else:
+        is_a_point = True
+    if not is_a_point:
+        err_msg = f"invalid {what}: not a point, {pub_key_shape(pub_key)}{suffix}"
+        raise BTClibValueError(err_msg)
 
 
 def assert_valid_musig2_participant_pub_keys(
@@ -595,15 +633,18 @@ def assert_valid_musig2_participant_pub_keys(
     KeyAgg's answer, and asking it here would make a codec depend on a
     signing session.
     """
-    for aggregate_pub_key, participant_pub_keys in participants.items():
-        assert_valid_musig2_pub_key(aggregate_pub_key, "musig2 aggregate pub key")
+    for i, (aggregate_pub_key, participant_pub_keys) in enumerate(participants.items()):
+        where = f"entry {i}"
+        assert_valid_musig2_pub_key(
+            aggregate_pub_key, "musig2 aggregate pub key", where
+        )
         if not participant_pub_keys:
             err_msg = "invalid musig2 participant pub keys: "
             err_msg += f"none for aggregate key {aggregate_pub_key.hex()}"
             raise BTClibValueError(err_msg)
-        for participant_pub_key in participant_pub_keys:
+        for j, participant_pub_key in enumerate(participant_pub_keys):
             assert_valid_musig2_pub_key(
-                participant_pub_key, "musig2 participant pub key"
+                participant_pub_key, "musig2 participant pub key", f"{where}.{j}"
             )
 
 
@@ -626,8 +667,8 @@ def assert_valid_sp_scan_key_map(
     be. That is BIP374's answer, `btclib_ecc.ecc.dleq.verify_proof` over
     the input keys, and asking it here would make a codec verify a proof.
     """
-    for scan_key, value in map_.items():
-        assert_valid_musig2_pub_key(scan_key, f"{what} scan key")
+    for i, (scan_key, value) in enumerate(map_.items()):
+        assert_valid_musig2_pub_key(scan_key, f"{what} scan key", f"entry {i}")
         if len(value) != value_size:
             err_msg = f"invalid {what} length: {len(value)} bytes "
             err_msg += f"instead of {value_size}"

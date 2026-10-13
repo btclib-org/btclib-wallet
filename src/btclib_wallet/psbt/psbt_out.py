@@ -435,7 +435,7 @@ class PsbtOut:
         assert_valid_psbt_version(psbt_version)
 
         stream = bytesio_from_binarydata(data)
-        output_map = deserialize_map(stream)
+        output_map = deserialize_map(stream, "output")
         assert_no_trailing(data, stream, "psbt output")
         redeem_script = b""
         witness_script = b""
