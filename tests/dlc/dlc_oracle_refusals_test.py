@@ -425,9 +425,19 @@ def test_verify_attestation_answers_false_for_every_mismatch() -> None:
 
 def test_an_announcement_resigned_under_another_key_verifies() -> None:
     """An announcement re-signed under another key verifies."""
-    resigned = oracle.sign_announcement(_EVENT, _KEY + 1)
+    peer_key, peer_nonce = _KEY + 1, 23
+    event = _replace(_EVENT, nonces=(_x(peer_nonce),))
+    resigned = oracle.sign_announcement(event, peer_key)
     assert resigned.public_key != _ANNOUNCEMENT.public_key
     assert oracle.verify_announcement(resigned)
+    forged = oracle.sign_attestation(resigned, ("a",), peer_key, (peer_nonce,))
+    assert oracle.verify_attestation(resigned, forged)
+    assert not oracle.verify_attestation(_ANNOUNCEMENT, forged)
+
+
+def test_an_attestation_of_another_key_is_not_the_announced_oracles() -> None:
+    """An attestation of another key, with the oracle's nonces, is refused."""
+    resigned = oracle.sign_announcement(_EVENT, _KEY + 1)
     forged = oracle.sign_attestation(resigned, ("a",), _KEY + 1, _NONCES[:1])
     assert oracle.verify_attestation(resigned, forged)
     assert not oracle.verify_attestation(_ANNOUNCEMENT, forged)

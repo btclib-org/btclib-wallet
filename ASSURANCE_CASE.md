@@ -117,9 +117,9 @@ first, never a key or a nonce.
   already committed to.
 - The other party of a DLC, sending a signature, an adaptor signature or a
   transaction other than the agreed one.
-- An oracle sending an announcement or an attestation that does not match
-  the one announced. Whose key an announcement carries is the caller's to
-  pin, which *Trust boundaries* states.
+- An oracle sending an announcement its key did not sign, or an attestation
+  that does not match the announcement. Whose key an announcement carries
+  is the caller's to check, which *Trust boundaries* states.
 - A backend `fetch/` talks to — a node, an explorer, an Electrum server —
   answering a question about the chain with something false; SECURITY.md's
   *A backend is trusted, and not every backend alike* states which
@@ -191,12 +191,10 @@ does the same for an extended key's Base58Check and `fuzz/fuzz_bip322.py`
 for a BIP322 signature, and `tests/fuzz_corpus_test.py` checks that every
 seed in their corpora still parses.
 
-**An oracle's key.** `dlc.oracle` checks an announcement against the key it
-carries and an attestation against that announcement, so a relayed
-announcement re-signed under another key verifies. The caller compares
-`announcement.public_key` with the oracle's key it trusts
-(`tests/dlc/dlc_oracle_refusals_test.py`'s
-`test_an_announcement_resigned_under_another_key_verifies` pins the limit).
+**An oracle's key.** Whose key an announcement carries is the caller's to
+check, as `dlc.oracle`'s module docstring says;
+`tests/dlc/dlc_oracle_refusals_test.py`'s
+`test_an_announcement_resigned_under_another_key_verifies` pins the limit.
 
 **Mnemonics and passwords.** A sentence or a password only the user holds
 crosses in through `mnemonic/` and `bip38.py`. A sentence is read by
