@@ -140,7 +140,8 @@ parties agree on so that both get the same bytes. `dlc.signing` is the
 ECDSA adaptor signatures of the CETs, through `btclib_ecc.ecc.ecdsa_adaptor`,
 the signature of the refund, and the witnesses that complete each
 transaction. It signs no funding input: that is the signer's, whatever
-the script. `dlc/` has no counterparty and opens nothing.
+the script. `dlc/` opens nothing: the messages exchanged with the other
+party are the caller's.
 
 ## The signing boundary
 
