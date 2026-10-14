@@ -299,24 +299,41 @@ def _adaptor(terms: dlc.Dlc, point: Point) -> bytes:
 
 
 def test_an_unagreed_transaction_does_not_excuse_a_bad_argument() -> None:
-    """Raise for a bad signature, key or point, agreed transaction or not."""
+    """Raise for a bad signature, key or point, agreed transaction or not.
+
+    A point is a tuple: its hex string or its bytes are a type error.
+    """
     terms = _terms()
     refund = dlc.build_transactions(terms).refund_tx
     unagreed = _hand(refund, lock_time=refund.lock_time + 1)
     point: Point = mult(5)
+    point_hex = point[0].to_bytes(32, "big").hex()
     adaptor = _adaptor(terms, point)
     key = terms.offer.funding_pub_key
     for tx in (refund, unagreed):
         for args, errors in (
             ((1.5, key, point), TYPE_ERRORS),
             ((adaptor, None, point), TYPE_ERRORS),
-            ((adaptor, key, "x"), VALUE_ERRORS),
+            ((adaptor, key, "x"), TYPE_ERRORS),
+            ((adaptor, key, "02" + point_hex), TYPE_ERRORS),
+            ((adaptor, key, bytes.fromhex(point_hex)), TYPE_ERRORS),
             ((adaptor[:-1], key, point), VALUE_ERRORS),
             ((adaptor, b"\x02" + b"\xff" * 32, point), VALUE_ERRORS),
             ((adaptor, key, (1, 2)), VALUE_ERRORS),
         ):
             with pytest.raises(errors):
                 dlc.verify_adaptor(terms, tx, *args)
+
+
+def test_adaptor_sign_takes_a_point_as_a_tuple() -> None:
+    """Raise a type error for a point spelled as a string or as octets."""
+    terms = _terms()
+    refund = dlc.build_transactions(terms).refund_tx
+    sec = bytes.fromhex("02" + mult(5)[0].to_bytes(32, "big").hex())
+    wrongs: tuple[Any, ...] = (sec, sec.hex(), "x", None, 1.5)
+    for wrong in wrongs:
+        with pytest.raises(TYPE_ERRORS):
+            dlc.adaptor_sign(terms, refund, 1, wrong)
 
 
 def test_the_agreed_transactions_are_signed() -> None:

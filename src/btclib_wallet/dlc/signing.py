@@ -123,6 +123,7 @@ def adaptor_sign(
     `aux` is 32 octets of randomness, fresh when absent. Fixing it makes
     the signature repeatable: do it only to check a vector.
     """
+    assert_type(sig_point, tuple, "signature point")
     return ecdsa_adaptor.encrypt(sig_hash(dlc, tx), prv_key, sig_point, aux)
 
 
@@ -139,6 +140,7 @@ def verify_adaptor(
     terms do not agree on answers False: it is a wrong value, not a
     malformed argument.
     """
+    assert_type(sig_point, tuple, "signature point")
     value = _agreed_funding_value(dlc, tx)
     if value is None:
         # the signature, key and point are still checked, against a zero
