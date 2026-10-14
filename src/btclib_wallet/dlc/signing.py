@@ -12,11 +12,12 @@ whoever holds the oracle's attestation decrypts it into an ordinary
 signature. The refund transaction is signed outright. All of them spend
 the funding output with SIGHASH_ALL.
 
-**Only the agreed transactions are signed.** `sig_hash`, `sign`,
-`adaptor_sign` and `verify_adaptor` take the `Dlc` and the unsigned
-transaction, and refuse any that `btclib_wallet.dlc.transactions` does
-not build from those terms: a CET of one of their payouts, or the refund.
-The script code and the funding value come from the terms.
+**Only the agreed transactions are signed.** `sig_hash`, `sign` and
+`adaptor_sign` take the `Dlc` and the unsigned transaction, and refuse
+any that `btclib_wallet.dlc.transactions` does not build from those
+terms: a CET of one of their payouts, or the refund. `verify_adaptor`
+answers False for one. The script code and the funding value come from
+the terms.
 
 **Funding inputs are not signed here.** The wallet's signer signs them,
 whatever the script; `complete_funding_tx` only places the witnesses it
