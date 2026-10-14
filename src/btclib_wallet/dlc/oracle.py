@@ -28,7 +28,10 @@ A signature under one scheme is not valid under the other.
 signature against the key the announcement carries, and
 `verify_attestation` against that same key, so an event announced under
 anyone's key, with nonces of their own, verifies and is attested. A caller
-compares `announcement.public_key` with the oracle's key it already trusts.
+compares `announcement.public_key` with the oracle's key it already trusts,
+and checks the announcement with `verify_announcement` before checking an
+attestation against it: `verify_attestation` does not check the
+announcement's signature.
 
 **An attestation signs each outcome** as a BIP340 signature, with the
 nonce the announcement committed to, of the tagged hash
@@ -635,8 +638,9 @@ def verify_attestation(
 
     It must come from the announced oracle and event, sign with the
     committed nonces in their order, name outcomes the event allows, and
-    carry a valid signature of each. Whose key that is, is the caller's to pin,
-    as the module docstring says.
+    carry a valid signature of each. The announcement is taken as given: the
+    caller has had `verify_announcement` accept it and has pinned its key, as
+    the module docstring says.
     """
     assert_type(announcement, OracleAnnouncement, "announcement")
     announcement.assert_valid()

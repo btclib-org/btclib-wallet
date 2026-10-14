@@ -118,8 +118,8 @@ first, never a key or a nonce.
 - The other party of a DLC, sending a signature, an adaptor signature or a
   transaction other than the agreed one.
 - An oracle sending an announcement its key did not sign, or an attestation
-  that does not match the announcement. Whose key an announcement carries
-  is the caller's to check, which *Trust boundaries* states.
+  that does not match the announcement. *Trust boundaries* says whose key
+  that is.
 - A backend `fetch/` talks to — a node, an explorer, an Electrum server —
   answering a question about the chain with something false; SECURITY.md's
   *A backend is trusted, and not every backend alike* states which
@@ -194,7 +194,7 @@ seed in their corpora still parses.
 **An oracle's key.** Whose key an announcement carries is the caller's to
 check, as `dlc.oracle`'s module docstring says;
 `tests/dlc/dlc_oracle_refusals_test.py`'s
-`test_an_announcement_resigned_under_another_key_verifies` pins the limit.
+`test_an_event_announced_under_another_key_verifies` pins the limit.
 
 **Mnemonics and passwords.** A sentence or a password only the user holds
 crosses in through `mnemonic/` and `bip38.py`. A sentence is read by

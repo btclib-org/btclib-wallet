@@ -423,7 +423,7 @@ def test_verify_attestation_answers_false_for_every_mismatch() -> None:
         assert not oracle.verify_attestation(_ANNOUNCEMENT, bad)
 
 
-def test_an_announcement_resigned_under_another_key_verifies() -> None:
+def test_an_event_announced_under_another_key_verifies() -> None:
     """An event announced under another key and nonces is attested."""
     peer_key, peer_nonce = _KEY + 1, 23
     event = _replace(_EVENT, nonces=(_x(peer_nonce),))
@@ -438,12 +438,21 @@ def test_an_announcement_resigned_under_another_key_verifies() -> None:
 def test_an_attestation_of_another_key_is_not_the_announced_oracles() -> None:
     """Another key's attestation is refused against the oracle's announcement.
 
-    The forger reuses the oracle's nonces; its own announcement accepts it.
+    The forger re-signs the oracle's event and reuses its nonces; its own
+    announcement verifies and accepts the attestation.
     """
     resigned = oracle.sign_announcement(_EVENT, _KEY + 1)
+    assert oracle.verify_announcement(resigned)
     forged = oracle.sign_attestation(resigned, ("a",), _KEY + 1, _NONCES[:1])
     assert oracle.verify_attestation(resigned, forged)
     assert not oracle.verify_attestation(_ANNOUNCEMENT, forged)
+
+
+def test_verify_attestation_does_not_check_the_announcements_signature() -> None:
+    """Verify attestation does not check the announcement's signature."""
+    unsigned = _replace(_ANNOUNCEMENT, signature=bytes(64))
+    assert not oracle.verify_announcement(unsigned)
+    assert oracle.verify_attestation(unsigned, _ATTESTATION)
 
 
 def test_a_nonce_signing_two_outcomes_is_not_an_attestation_of_the_other() -> None:
