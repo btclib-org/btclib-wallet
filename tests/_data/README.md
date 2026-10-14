@@ -194,8 +194,8 @@ above is now that tip, so the weekly automated check can carry it.
 repo    bitcoin/bips
 path    bip-0032.mediawiki
 commit  c0644a054fd1568ecbfc9c2b656ad5200b16ff74  2026-03-05
-ours    7b092d7c429cb50674b77352113d65fe4de7cd84
-pulled  2020-05-16, error strings last changed 2026-07-30, re-pinned to
+ours    a510e92e211a87a72ca57ea3b66f85bd4de8fabc
+pulled  2020-05-16, error strings last changed 2026-10-14, re-pinned to
         the tip 2026-08-06
 behind  0 revisions; that commit is the tip of the path
 ```

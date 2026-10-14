@@ -10,6 +10,7 @@ import re
 import string
 import sys
 from dataclasses import FrozenInstanceError, fields, replace
+from hashlib import shake_256
 from typing import Any
 
 import pytest
@@ -67,6 +68,7 @@ from btclib_wallet.bip32.bip32 import (
 from btclib_wallet.bip32.der_path import _indexes_from_der_path_str
 from tests import (
     NOT_STRIPPED,
+    assert_secret_free,
     chained_text,
     load,
     needs_bindings,
@@ -487,10 +489,10 @@ def test_public_key_validation_does_not_lift(
     assert derive(xpub, "m/0/1")
 
     # 0x02 || 7, the x of no point: BIP32 test vector #5's "invalid
-    # pubkey 0200...07", which bip32_invalid_keys.json carries in full
+    # pubkey 0200...07"
     decoded = base58.decode(xpub)
     bad_xpub = base58.encode(decoded[:45] + b"\x02" + (7).to_bytes(32, "big"), 78)
-    err_msg = "invalid public key: 0x02000000"
+    err_msg = "^invalid public key: not a point, prefix 0x02$"
     with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         BIP32KeyData.b58decode(bad_xpub)
     # a predicate has no exception to chain: the message is the whole error
@@ -1909,3 +1911,24 @@ def test_pub_key_derivation_tweaks_does_not_quote_a_private_key() -> None:
     text = chained_text(e.value)
     assert prv[1:].hex() not in text
     assert prv[1:5].hex() not in text
+
+
+def test_an_xpub_key_that_is_not_a_point_is_refused_without_its_bytes() -> None:
+    """33 bytes under an xpub version that are no point may be a private key.
+
+    Issue #388. x**3 + 7 is no square modulo the field's prime for this x, so
+    no point lies over it; were one over it, nothing would be raised and the
+    test would fail.
+    """
+    key = b"\x02" + b"\xff" * 4 + shake_256(b"btclib-wallet issue 351").digest(28)
+    with pytest.raises(BTClibValueError, match="^invalid public key: ") as e:
+        BIP32KeyData(
+            version=bytes.fromhex("0488b21e"),
+            depth=0,
+            parent_fingerprint=bytes(4),
+            index=0,
+            chain_code=bytes(32),
+            key=key,
+        )
+    assert str(e.value) == "invalid public key: not a point, prefix 0x02"
+    assert_secret_free(e.value, [key])

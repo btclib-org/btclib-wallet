@@ -215,7 +215,9 @@ def _assert_valid_key(version: bytes, key: bytes) -> None:
         # of curve_group's own "invalid x-coordinate" wording
         x = int.from_bytes(key[1:], byteorder="big", signed=False)
         if not is_x_coordinate_var(x, secp256k1):
-            raise BTClibValueError(f"invalid public key: 0x{key.hex()}")
+            # the value may be a private scalar: only its prefix is quoted
+            err_msg = f"invalid public key: not a point, prefix 0x{key[:1].hex()}"
+            raise BTClibValueError(err_msg)
     else:
         raise BTClibValueError(f"unknown extended key version: 0x{version.hex()}")
 
