@@ -159,7 +159,7 @@ _NSEC_HRP = "nsec"
 _DRNG_SEED_SIZE = 64
 
 
-# a refused name at most this long is quoted, as being too short to be a key
+# a refused value at most this long is quoted: too short to be a key
 _QUOTED_MAX = 16
 
 

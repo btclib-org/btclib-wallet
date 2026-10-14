@@ -196,7 +196,7 @@ _SECRET_32 = _secret(32)
 _SECRET_78 = _secret(78)
 
 
-# four 0xff bytes put x above the field's prime, so no point lies over it
+# no point lies over this x: x**3 + 7 is not a square modulo the field's prime
 _OFF_CURVE_X = b"\xff" * 4 + _secret(28)
 
 
