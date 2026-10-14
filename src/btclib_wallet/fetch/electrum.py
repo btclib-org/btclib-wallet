@@ -226,21 +226,20 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         height 0 -- the same method `get_block_header` asks for every
         other height, asked here for the block every chain starts from --
         against `NETWORKS[self.network].genesis_block`. What is compared
-        is `BlockHeader.hash` of the eighty bytes the server sent, checked for
-        length alone, so this backend answers the question the way it
+        is `BlockHeader.hash` of the eighty bytes the server sent, checked
+        for length alone, so this backend answers the question the way it
         answers `get_best_block_id`: by hashing a header rather than by
-        reading a hash the server chose. The proof
-        of work is left out because `block_header_from_raw` checks it
-        against this fetcher's own network: a server on a chain with an
-        easier proof-of-work limit, regtest's or signet's, would fail it
-        before the comparison, with the `FetchError` that
-        `FallbackFetcher` falls through, where a genesis mismatch is the
-        `BTClibValueError` it stops on. `server.features` carries a
-        `genesis_hash` member and is what Electrum's own client compares
-        (`electrum/interface.py`); the header is asked for instead
-        because it makes the server produce eighty bytes that hash to the
-        genesis rather than repeat a string, and because it needs no
-        codec function `btclib.electrum` does not already have.
+        reading a hash the server chose. The proof of work is left out
+        because `block_header_from_raw` checks it against this fetcher's
+        own network: a server on a chain with an easier proof-of-work
+        limit, regtest's or signet's, would fail it before the comparison,
+        with the `FetchError` that `FallbackFetcher` falls through, where
+        a genesis mismatch is the `BTClibValueError` it stops on.
+        `server.features` carries a `genesis_hash` member and is what
+        Electrum's own client compares (`electrum/interface.py`); the header
+        is asked for instead because it makes the server produce eighty bytes
+        that hash to the genesis rather than repeat a string, and because it
+        needs no codec function `btclib.electrum` does not already have.
 
         Worth the call, because the failure it catches is silent, the
         same one `BitcoinCoreFetcher.assert_network`'s docstring names: a
