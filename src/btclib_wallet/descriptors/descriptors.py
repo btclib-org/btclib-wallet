@@ -556,7 +556,7 @@ def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> N
             # one; whether Core reads a key at that argument is not checked
             # (ISS 370)
             multipath_steps = [element for element in elements if "<" in element]
-            if text[start - 7 : start - 6] in {"", "(", ","} and any(
+            if text[start - 7 : start - 6] in {"(", ","} and any(
                 i >= _HARDENED_OFFSET for i in _path_indexes(multipath_steps)
             ):
                 raise BTClibValueError(_HARDENED_MUSIG_STEP)

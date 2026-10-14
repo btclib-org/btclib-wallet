@@ -785,9 +785,10 @@ def test_multipath_reads_a_key_where_core_does() -> None:
     In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf, ``pkh()``
     hands its whole argument to `ParsePubkey`, "," included: ``dead,beef``
     is a fingerprint of nine characters, and a "," starts no key. `parse`
-    refuses the first for the same fingerprint, and the second for a
-    reason of its own. A ``musig()`` outside ``tr()``
-    and ``rawtr()`` is refused first, and its insides are left unread.
+    refuses the first for the same fingerprint, and the second for the
+    fault Core reports: a derivation path after a key that cannot derive.
+    A ``musig()`` outside ``tr()`` and ``rawtr()`` is refused first, and
+    its insides are left unread.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     comma = f"pkh([dead,beef/0]{xpub}/0/*)"
@@ -821,6 +822,8 @@ def test_multipath_reads_a_key_where_core_does() -> None:
     "template, message",
     [
         ("pkh({key}/<0;1>/<2;3>)", "derivation path after a key that cannot derive"),
+        ("pkh({xpub}/f(0))", "invalid derivation index"),
+        ("pkh({key}/f(0))", "derivation path after a key that cannot derive"),
         (
             "pkh([dead,beef/0]{xpub}/0/*)",
             "invalid key origin fingerprint: 8 hex digits expected",
@@ -849,6 +852,23 @@ def test_parse_refuses_the_fault_core_reads_first(template: str, message: str) -
     key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
     with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
         parse(template.format(xpub=xpub, key=key))
+
+
+def test_multipath_leaves_a_musig_behind_a_key_origin_to_parse() -> None:
+    """Expand a ``musig()`` behind a key origin, and let `parse` refuse it.
+
+    The hardened item of its multipath step is refused first only where
+    the ``musig()`` starts an argument, which Core needs to read one.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = f"tr([deadbeef]musig({xpub},{xpub})/<0h;1>)"
+    expanded = multipath_descriptors(descriptor)
+    assert len(expanded) == 2
+    for single in expanded:
+        with pytest.raises(
+            BTClibValueError, match="^musig[(][)] cannot be nested inside a key origin$"
+        ):
+            parse(single)
 
 
 @pytest.mark.parametrize(
