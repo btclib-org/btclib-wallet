@@ -202,8 +202,8 @@ def test_assert_valid_hd_key_paths_checks_the_point() -> None:
     """A 33 or 65-octet key that is not a point is refused, as in Core.
 
     Core's `IsFullyValid` refuses it in both PSBT_IN_BIP32_DERIVATION and
-    PSBT_OUT_BIP32_DERIVATION. A hybrid key is read too when its prefix
-    gives the parity of y, as Core reads it.
+    PSBT_OUT_BIP32_DERIVATION. A hybrid key is a point too where its prefix
+    gives the parity of y, as in Core.
     """
     key_origin = BIP32KeyOrigin("deadbeef", [0])
     x_off_curve = (5).to_bytes(32, "big")  # x**3 + 7 is not a square mod p

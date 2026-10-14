@@ -537,7 +537,7 @@ def _branch_and_bound(  # noqa: C901, PLR0912
     next_index = 0
     curr_try = 0
     # Core's is_feerate_high: the first candidate's fee against its
-    # long-term fee (coinselection.cpp:120 at v31.1)
+    # long-term fee (coinselection.cpp:169)
     is_feerate_high = waste_i[0] > 0
 
     def deselect_last() -> None:
