@@ -243,23 +243,32 @@ def _eligible(candidates: Sequence[Candidate], fee_rate: FeeRate) -> list[Candid
     return [c for c in candidates if c.effective_value(fee_rate) > 0]
 
 
-def _change_output_vsize(change_script_pub_key: bytes) -> int:
+def _change_output_vsize(change_script_pub_key: bytes, output_count: int) -> int:
     """Return the size a change output of this script adds to the transaction.
 
     An output is never in the witness, so its virtual size is its size:
     8 bytes of value, the script's own var_int length, and the script.
     The same arithmetic `fee.dust_threshold` computes for the output half
     of its own threshold.
+
+    `output_count` is the number of outputs without the change. Adding
+    one more grows the output count's own var_int from one byte to three
+    at 253 outputs, which the change pays for: 2 more bytes.
     """
+    count_growth = len(var_int.serialize(output_count + 1)) - len(
+        var_int.serialize(output_count)
+    )
     return (
         8
         + len(var_int.serialize(len(change_script_pub_key)))
         + len(change_script_pub_key)
+        + count_growth
     )
 
 
 def _change_cost(
     change_script_pub_key: bytes,
+    output_count: int,
     change_spend_weight: int,
     fee_rate: FeeRate,
     long_term_fee_rate: FeeRate,
@@ -274,7 +283,9 @@ def _change_cost(
     an output that does not exist yet than `Candidate.weight` lets it
     guess for one that already does.
     """
-    creation_fee = fee_from_vsize(_change_output_vsize(change_script_pub_key), fee_rate)
+    creation_fee = fee_from_vsize(
+        _change_output_vsize(change_script_pub_key, output_count), fee_rate
+    )
     spend_vsize = ceil(change_spend_weight / WITNESS_SCALE_FACTOR)
     spend_fee = fee_from_vsize(spend_vsize, long_term_fee_rate)
     return creation_fee + spend_fee
@@ -309,6 +320,7 @@ def _score(
     fee_rate: FeeRate,
     long_term_fee_rate: FeeRate,
     change_script_pub_key: bytes | None,
+    output_count: int,
     change_spend_weight: int | None,
     dust_fee_rate: FeeRate,
     algorithm: str,
@@ -328,10 +340,14 @@ def _score(
     if change_script_pub_key is not None:
         assert change_spend_weight is not None  # noqa: S101 -- _prepare's own contract
         change_cost = _change_cost(
-            change_script_pub_key, change_spend_weight, fee_rate, long_term_fee_rate
+            change_script_pub_key,
+            output_count,
+            change_spend_weight,
+            fee_rate,
+            long_term_fee_rate,
         )
         creation_fee = fee_from_vsize(
-            _change_output_vsize(change_script_pub_key), fee_rate
+            _change_output_vsize(change_script_pub_key, output_count), fee_rate
         )
         candidate_change = effective_total - target - creation_fee
         if candidate_change >= dust_threshold(change_script_pub_key, dust_fee_rate):
@@ -427,7 +443,11 @@ def _prepare(
     if change_script is not None:
         assert change_spend_weight is not None  # noqa: S101 -- asserted above
         change_cost = _change_cost(
-            change_script, change_spend_weight, fee_rate, long_term_fee_rate
+            change_script,
+            len(outputs),
+            change_spend_weight,
+            fee_rate,
+            long_term_fee_rate,
         )
     return eligible, target, change_cost, change_script
 
@@ -478,6 +498,7 @@ def branch_and_bound(
         fee_rate,
         long_term_fee_rate,
         change_script,
+        len(outputs),
         change_spend_weight,
         dust_fee_rate,
         "bnb",
@@ -650,6 +671,7 @@ def knapsack(
         fee_rate,
         long_term_fee_rate,
         change_script,
+        len(outputs),
         change_spend_weight,
         dust_fee_rate,
         "knapsack",
@@ -808,6 +830,7 @@ def single_random_draw(
         fee_rate,
         long_term_fee_rate,
         change_script,
+        len(outputs),
         change_spend_weight,
         dust_fee_rate,
         "srd",

@@ -809,7 +809,7 @@ def test_dust_fee_rate_decides_whether_change_survives() -> None:
     # carries
     fee = candidate(0, 9).fee(TEN_SAT_PER_VBYTE)
     creation_fee = fee_from_vsize(
-        coin_selection_module._change_output_vsize(CHANGE_SCRIPT.script),
+        coin_selection_module._change_output_vsize(CHANGE_SCRIPT.script, 1),
         TEN_SAT_PER_VBYTE,
     )
     base = _target(outputs, TEN_SAT_PER_VBYTE, 1) + creation_fee + fee
@@ -1242,7 +1242,7 @@ def _bnb_cases(
         0
         if change_spend_weight is None
         else _change_cost(
-            CHANGE_SCRIPT.script, change_spend_weight, fee_rate, long_term_fee_rate
+            CHANGE_SCRIPT.script, 1, change_spend_weight, fee_rate, long_term_fee_rate
         )
     )
     # what the target adds to the payment's value
@@ -1298,7 +1298,7 @@ def test_branch_and_bound_matches_a_brute_force_search(
         0
         if change_spend_weight is None
         else _change_cost(
-            CHANGE_SCRIPT.script, change_spend_weight, fee_rate, long_term_fee_rate
+            CHANGE_SCRIPT.script, 1, change_spend_weight, fee_rate, long_term_fee_rate
         )
     )
     pool = _eligible(candidates, fee_rate)
@@ -1343,3 +1343,40 @@ def test_branch_and_bound_matches_a_brute_force_search(
     assert target <= total <= target + cost_of_change
     waste = _waste(result.selected, target, fee_rate, long_term_fee_rate, 0, 0)
     assert waste == best
+
+
+@pytest.mark.parametrize("output_count", [251, 252, 253])
+def test_change_is_what_build_psbt_pays_across_the_output_count_boundary(
+    output_count: int,
+) -> None:
+    """The change that selection expects is `build_psbt`'s, at 252 outputs too.
+
+    The change output takes the output count from 252 to 253, where its
+    var_int grows from one byte to three: it adds 33 vbytes to the
+    transaction there, 31 at 251 and at 253. `build_psbt` prices that
+    from the psbt it builds, and selection has to count the growth.
+    """
+    outputs = [TxOut(1_000, PAY_SCRIPT) for _ in range(output_count)]
+    pool = [candidate(1_000 * output_count + 100_000, 1)]
+    result = select_coins(
+        pool,
+        outputs,
+        ONE_SAT_PER_VBYTE,
+        ONE_SAT_PER_VBYTE,
+        CHANGE_SCRIPT.script,
+        P2WPKH_WEIGHT,
+    )
+    psbt_inputs = [
+        PsbtIn(
+            witness_utxo=c.tx_out,
+            previous_tx_id=c.outpoint.tx_id,
+            output_index=c.outpoint.vout,
+        )
+        for c in result.selected
+    ]
+    built = build_psbt(psbt_inputs, outputs, ONE_SAT_PER_VBYTE, CHANGE_SCRIPT.script)
+    unchanged = build_psbt(psbt_inputs, outputs, ONE_SAT_PER_VBYTE, None)
+    change_vsize = built.psbt.vsize_estimate() - unchanged.psbt.vsize_estimate()
+
+    assert change_vsize == (33 if output_count == 252 else 31)
+    assert result.change == built.change

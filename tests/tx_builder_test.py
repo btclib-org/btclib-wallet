@@ -102,6 +102,30 @@ def test_the_fee_is_what_the_rate_asks_of_the_estimated_size() -> None:
     assert built.psbt.tx.lock_time == 0
 
 
+@pytest.mark.parametrize(
+    "output_count, change_vsize", [(251, 31), (252, 33), (253, 31)]
+)
+def test_change_pays_for_the_output_count_growing_past_252(
+    output_count: int, change_vsize: int
+) -> None:
+    """At 252 outputs the change takes the count's var_int from 1 byte to 3.
+
+    The change output is 31 vbytes, and 33 where its being the 253rd
+    output lengthens the output count by 2 bytes. The fee is the rate
+    times the size of the psbt as built, change included.
+    """
+    outputs = [TxOut(1_000, PAY_SCRIPT) for _ in range(output_count)]
+    inputs = [spendable(1_000 * output_count + 100_000)]
+    built = build_psbt(inputs, outputs, ONE_SAT_PER_VBYTE, CHANGE_SCRIPT.script)
+    unchanged = build_psbt(inputs, outputs, ONE_SAT_PER_VBYTE, None)
+
+    assert built.change_index == output_count
+    assert len(built.psbt.tx.vout) == output_count + 1
+    assert built.psbt.vsize_estimate() - unchanged.psbt.vsize_estimate() == change_vsize
+    assert built.fee == fee_from_vsize(built.psbt.vsize_estimate(), ONE_SAT_PER_VBYTE)
+    assert built.change == 100_000 - built.fee
+
+
 def test_the_transaction_fields_are_the_caller_s() -> None:
     """`tx_version` and `lock_time` reach the transaction being built."""
     psbt_in = spendable(100_000)
