@@ -33,7 +33,6 @@ produces is the address of that very script.
 """
 
 import contextlib
-import operator
 import re
 import sys
 import traceback
@@ -1006,6 +1005,11 @@ class _Work:
         self.count += max(stop - start, 0)
 
 
+def _longest(affix: str | tuple[str, ...]) -> int:
+    """Return the length of an affix, or of the longest of a tuple of them."""
+    return len(affix) if isinstance(affix, str) else max(map(len, affix), default=0)
+
+
 class _ScannedStr(str):
     """A text that counts the characters some of its `str` methods examine.
 
@@ -1022,8 +1026,8 @@ class _ScannedStr(str):
     def _bounds(
         self, start: SupportsIndex | None, end: SupportsIndex | None
     ) -> tuple[int, int]:
-        first = 0 if start is None else operator.index(start)
-        return first, len(self) if end is None else min(operator.index(end), len(self))
+        first, last, _ = slice(start, end).indices(len(self))
+        return first, last
 
     @override
     def find(
@@ -1111,7 +1115,7 @@ class _ScannedStr(str):
         start: SupportsIndex | None = None,
         end: SupportsIndex | None = None,
     ) -> bool:
-        self.work.count += len(prefix) if isinstance(prefix, str) else 1
+        self.work.count += _longest(prefix)
         first, last = self._bounds(start, end)
         return super().startswith(prefix, first, last)
 
@@ -1122,7 +1126,7 @@ class _ScannedStr(str):
         start: SupportsIndex | None = None,
         end: SupportsIndex | None = None,
     ) -> bool:
-        self.work.count += len(suffix) if isinstance(suffix, str) else 1
+        self.work.count += _longest(suffix)
         first, last = self._bounds(start, end)
         return super().endswith(suffix, first, last)
 
@@ -1138,34 +1142,41 @@ class _ScannedStr(str):
 
 
 class _ScannedPattern:
-    """A compiled pattern that counts the characters its searches examine."""
+    """A compiled pattern that counts the characters its searches examine.
+
+    A search counts from where it starts to where its match ends, or to the
+    end it was given where it finds none, a `fullmatch` that fails nothing,
+    and `split`, `findall`, `sub` and `subn` the whole range they are given.
+    What a pattern looks ahead or backtracks over is not counted.
+    """
 
     def __init__(self, pattern: re.Pattern[str], work: _Work) -> None:
         self.pattern = pattern
         self.work = work
 
     def _one(
-        self, method: Callable[..., re.Match[str] | None], *args: Any
+        self,
+        method: Callable[..., re.Match[str] | None],
+        args: tuple[str, int, int],
+        *,
+        anchored: bool,
     ) -> re.Match[str] | None:
         string, pos, endpos = args
         found = method(string, pos, endpos)
-        self.work.span(pos, found.end() if found else min(endpos, len(string)))
+        # an anchored match that fails stops at its first character
+        miss = pos if anchored else min(endpos, len(string))
+        self.work.span(pos, found.end() if found else miss)
         return found
 
     def search(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
     ) -> re.Match[str] | None:
-        return self._one(self.pattern.search, string, pos, endpos)
-
-    def match(
-        self, string: str, pos: int = 0, endpos: int = sys.maxsize
-    ) -> re.Match[str] | None:
-        return self._one(self.pattern.match, string, pos, endpos)
+        return self._one(self.pattern.search, (string, pos, endpos), anchored=False)
 
     def fullmatch(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
     ) -> re.Match[str] | None:
-        return self._one(self.pattern.fullmatch, string, pos, endpos)
+        return self._one(self.pattern.fullmatch, (string, pos, endpos), anchored=True)
 
     def finditer(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
@@ -1177,8 +1188,23 @@ class _ScannedPattern:
             yield found
         self.work.span(last, min(endpos, len(string)))
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.pattern, name)
+    def split(self, string: str, maxsplit: int = 0) -> list[str]:
+        self.work.count += len(string)
+        return self.pattern.split(string, maxsplit)
+
+    def findall(
+        self, string: str, pos: int = 0, endpos: int = sys.maxsize
+    ) -> list[Any]:
+        self.work.span(pos, min(endpos, len(string)))
+        return self.pattern.findall(string, pos, endpos)
+
+    def sub(self, repl: str, string: str, count: int = 0) -> str:
+        self.work.count += len(string)
+        return self.pattern.sub(repl, string, count)
+
+    def subn(self, repl: str, string: str, count: int = 0) -> tuple[str, int]:
+        self.work.count += len(string)
+        return self.pattern.subn(repl, string, count)
 
 
 class _ScannedRe:
@@ -1198,10 +1224,12 @@ def _scan_work(text: str) -> int:
     """Return the work `multipath_descriptors` does on `text`, as a count.
 
     Of the work on the text, the count has the characters examined by every
-    pattern of the module, by `re.search` and `re.finditer`, and by the
-    methods `_ScannedStr` lists, on the text `_assert_multipath_items` reads.
-    It does not see other methods, or work on copies or slices of the text
-    or on lists and dicts. It does not depend on the machine or on its load.
+    pattern of the module, whatever string it is given, by `re.search` and
+    `re.finditer`, and by the methods `_ScannedStr` lists, on the text
+    `_assert_multipath_items` reads. A slice of that text is counted by the
+    characters it returns, and a pattern counts what it scans of it. It does
+    not see other `str` methods, or work on copies of the text or on lists
+    and dicts. It does not depend on the machine or on its load.
     The result is checked against the checksummed text.
     """
     work = _Work()
@@ -1246,10 +1274,10 @@ def test_multipath_descriptors_reads_open_brackets_once(
 ) -> None:
     """Do ten times the work on ten times the brackets it never closes.
 
-    Each "(" opens an argument that runs to the end of the text, so a pass
-    that looks ahead for where an argument ends, from each one, reads the
-    text again for every bracket and does a hundred times the work, so long
-    as `_scan_work` counts the way it looks ahead.
+    Each "(" opens an argument that runs to the end of the text. A pass that
+    looks ahead from each one for where its argument ends reads the text once
+    per bracket: a hundred times the work, where `_scan_work` counts how it
+    looks ahead.
     """
 
     def work(count: int) -> int:
@@ -1284,8 +1312,10 @@ _RESCANS = {
     "slice": lambda text, pos: text[pos:],
     "search": lambda text, pos: descriptors._MULTIPATH_STEP.search(text, pos),  # noqa: PLW0108
     "finditer": lambda text, pos: list(descriptors._MULTIPATH_STEP.finditer(text, pos)),
-    "match": lambda text, pos: descriptors._MULTIPATH_STEP.match(text, pos),  # noqa: PLW0108
-    "fullmatch": lambda text, pos: descriptors._MULTIPATH_STEP.fullmatch(text, pos),  # noqa: PLW0108
+    "split pattern": lambda text, _: descriptors._MULTIPATH_STEP.split(text),
+    "findall": lambda text, pos: descriptors._MULTIPATH_STEP.findall(text, pos),  # noqa: PLW0108
+    "sub": lambda text, _: descriptors._MULTIPATH_STEP.sub("", text),
+    "subn": lambda text, _: descriptors._MULTIPATH_STEP.subn("", text),
     "re.search": lambda text, _: vars(descriptors)["re"].search("<[^<>]*>", text),
 }
 
