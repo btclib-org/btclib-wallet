@@ -1007,11 +1007,13 @@ class _Work:
 
 
 class _ScannedStr(str):
-    """A text that counts the characters its `str` methods examine.
+    """A text that counts the characters some of its `str` methods examine.
 
+    These are `find`, `index`, `rfind`, `rindex`, `count`, `partition`,
+    `rpartition`, `split`, `rsplit`, `startswith`, `endswith`, `in` and `[]`.
     A search that finds nothing examines up to the end it was given, one that
-    finds something up to the match, a prefix test the prefix, and a slice or
-    an index the characters it returns.
+    finds something up to the match, a split the whole text, a prefix test
+    the prefix, and a slice or an index the characters it returns.
     """
 
     __slots__ = ()
@@ -1057,6 +1059,50 @@ class _ScannedStr(str):
         first, last = self._bounds(start, end)
         self.work.span(first, last)
         return super().count(sub, first, last)
+
+    @override
+    def rfind(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        first, last = self._bounds(start, end)
+        found = super().rfind(sub, first, last)
+        self.work.span(found if found >= 0 else first, last)
+        return found
+
+    @override
+    def rindex(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        found = self.rfind(sub, start, end)
+        if found < 0:
+            raise ValueError(sub)
+        return found
+
+    @override
+    def split(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
+        self.work.count += len(self)
+        return super().split(sep, maxsplit)
+
+    @override
+    def rsplit(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
+        self.work.count += len(self)
+        return super().rsplit(sep, maxsplit)
+
+    @override
+    def partition(self, sep: str) -> tuple[str, str, str]:
+        self.find(sep)
+        return super().partition(sep)
+
+    @override
+    def rpartition(self, sep: str) -> tuple[str, str, str]:
+        self.rfind(sep)
+        return super().rpartition(sep)
 
     @override
     def startswith(
@@ -1151,12 +1197,16 @@ class _ScannedRe:
 def _scan_work(text: str) -> int:
     """Return the work `multipath_descriptors` does on `text`, as a count.
 
-    The count is of characters examined: by every pattern of the module, by
-    `re.search` and `re.finditer`, and by the `str` methods of the text its
-    checks read. It does not depend on the machine or on its load.
+    Of the work on the text, the count has the characters examined by every
+    pattern of the module, by `re.search` and `re.finditer`, and by the
+    methods `_ScannedStr` lists, on the text `_assert_multipath_items` reads.
+    It does not see other methods, or work on copies or slices of the text
+    or on lists and dicts. It does not depend on the machine or on its load.
+    The result is checked against the checksummed text.
     """
     work = _Work()
     read = descriptors._assert_multipath_items
+    expected = [add_checksum(text)]
 
     def counted(text: str) -> None:
         scanned = type("_Scanned", (_ScannedStr,), {"__slots__": (), "work": work})
@@ -1168,7 +1218,7 @@ def _scan_work(text: str) -> int:
                 patch.setattr(descriptors, name, _ScannedPattern(value, work))
         patch.setattr(descriptors, "re", _ScannedRe(work))
         patch.setattr(descriptors, "_assert_multipath_items", counted)
-        multipath_descriptors(text)
+        assert multipath_descriptors(text) == expected
     return work.count
 
 
@@ -1176,8 +1226,8 @@ def test_multipath_descriptors_reads_a_long_text_once() -> None:
     """Do ten times the work on ten times the text, not a hundred times.
 
     A pass that reads each element once is linear in the text. One that
-    rescans the text before each element is quadratic. The work is counted,
-    not timed, so the bound does not depend on the machine.
+    rescans the text before each element is quadratic. The work is counted
+    by `_scan_work`, not timed, so the bound does not depend on the machine.
     """
 
     def work(count: int) -> int:
@@ -1198,7 +1248,8 @@ def test_multipath_descriptors_reads_open_brackets_once(
 
     Each "(" opens an argument that runs to the end of the text, so a pass
     that looks ahead for where an argument ends, from each one, reads the
-    text again for every bracket and does a hundred times the work.
+    text again for every bracket and does a hundred times the work, so long
+    as `_scan_work` counts the way it looks ahead.
     """
 
     def work(count: int) -> int:
@@ -1213,9 +1264,21 @@ def _rescan_with_index(text: str, pos: int) -> None:
         text.index("<", pos)
 
 
+def _rescan_with_rindex(text: str, pos: int) -> None:
+    text.rindex("(", 0)
+    with contextlib.suppress(ValueError):
+        text.rindex("<", pos)
+
+
 _RESCANS = {
     "find": lambda text, pos: text.find("<", pos),
     "index": _rescan_with_index,
+    "rfind": lambda text, pos: text.rfind("<", pos),
+    "rindex": _rescan_with_rindex,
+    "split": lambda text, _: text.split("<"),
+    "rsplit": lambda text, _: text.rsplit("<"),
+    "partition": lambda text, _: text.partition("<"),
+    "rpartition": lambda text, _: text.rpartition("<"),
     "count": lambda text, pos: text.count("<", pos),
     "in": lambda text, _: "<" in text,
     "slice": lambda text, pos: text[pos:],
