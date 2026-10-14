@@ -38,7 +38,7 @@ from btclib import b58
 from btclib.base58 import decode as base58_decode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS, network_from_name, xpubversions_from_network
-from btclib.utils import assert_type, bytes_from_octets
+from btclib.utils import assert_type, bytes_from_octets, is_integer
 from btclib_ecc.curves import point_from_pub_key, secp256k1
 from btclib_ecc.curves.sec_point import bytes_from_point
 from btclib_ecc.ecc.musig2 import key_agg, key_sort
@@ -100,11 +100,14 @@ def _assert_prv_keys(prv_keys: object) -> None:
 
 
 def _assert_index_range(index: int) -> None:
-    """Refuse an index outside the unhardened range, 0 to 2**31 - 1.
+    """Refuse a non-integer index or one outside 0 to 2**31 - 1.
 
     The range a wildcard counts in: an index beyond it would add itself to
     the hardening offset and derive a step the wildcard never takes.
     """
+    if not is_integer(index):
+        err_msg = f"invalid derivation index type: {type(index).__name__}"
+        raise BTClibTypeError(err_msg)
     if not 0 <= index < _HARDENED_OFFSET:
         raise BTClibValueError(f"invalid derivation index: {index}")
 

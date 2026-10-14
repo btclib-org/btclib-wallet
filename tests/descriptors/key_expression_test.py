@@ -9,13 +9,17 @@ Issue btclib-org/btclib-wallet#383.
 
 from __future__ import annotations
 
+from enum import IntEnum
+from typing import Any
+
 import pytest
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
 
 from btclib_wallet.bip32 import xpub_from_xprv
 from btclib_wallet.bip32.bip32 import rootxprv_from_seed
 from btclib_wallet.descriptors import KeyExpression, parse
+from btclib_wallet.psbt import Psbt
 
 TPRV = rootxprv_from_seed("0f" * 16, NETWORKS["testnet"].bip32_prv)
 XPUB = xpub_from_xprv(TPRV)
@@ -81,3 +85,59 @@ def test_a_musig_refuses_an_index_out_of_range(index: int) -> None:
         for call in (musig.sec, musig.participant_keys, musig.aggregate):
             with pytest.raises(BTClibValueError, match=_REFUSED):
                 call(index, "testnet")
+
+
+@pytest.mark.parametrize("index", ["1", None, b"\x01", 1.0, True, False, object()])
+@pytest.mark.parametrize("ranged", [False, True])
+def test_public_index_methods_refuse_a_non_integer(index: Any, *, ranged: bool) -> None:
+    """Refuse non-integer indexes before deriving or comparing bounds."""
+    expression = f"{XPUB}/*" if ranged else _key(XPUB)[0].sec(network="testnet").hex()
+    descriptor = parse(f"tr({expression})", "testnet")
+    psbt = Psbt(1, [], [], 2, {})
+    calls = [
+        getattr(descriptor, name)
+        for name in (
+            "script_pub_keys",
+            "script_pub_key",
+            "redeem_script",
+            "address",
+            "addresses",
+            "provider",
+            "expand",
+            "taproot_merkle_root",
+            "taproot_leaf_scripts",
+            "taproot_tree",
+        )
+    ]
+    calls.extend(
+        [
+            lambda index: descriptor.satisfy({}, index),
+            lambda index: descriptor.update_psbt_input(psbt, 0, index),
+            lambda index: descriptor.update_psbt_output(psbt, 0, index),
+            descriptor.key_expressions[0].sec,
+        ]
+    )
+    for call in calls:
+        with pytest.raises(BTClibTypeError, match="^invalid derivation index type:"):
+            call(index)
+
+
+def test_public_index_methods_accept_integer_subclasses() -> None:
+    """Integer subclasses derive the same keys and scripts as plain ints."""
+
+    class Index(IntEnum):
+        ZERO = 0
+        ONE = 1
+
+    class Integer(int):
+        pass
+
+    for expression in (XPUB, f"{XPUB}/*"):
+        descriptor = parse(f"pkh({expression})", "testnet")
+        key = descriptor.key_expressions[0]
+        indexes = [Index.ZERO, Integer(0)]
+        if descriptor.is_ranged:
+            indexes.extend([Index.ONE, Integer(1)])
+        for index in indexes:
+            assert descriptor.address(index) == descriptor.address(int(index))
+            assert key.sec(index, "testnet") == key.sec(int(index), "testnet")
