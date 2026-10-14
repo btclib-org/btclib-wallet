@@ -18,6 +18,7 @@ from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import mult
+from btclib_ecc.curves.sec_point import point_from_pub_key
 from btclib_ecc.ecc import ecdsa_adaptor
 from btclib_ecc.exceptions import BTClibEccException
 
@@ -316,7 +317,8 @@ def test_an_unagreed_transaction_does_not_excuse_a_bad_argument() -> None:
             ((adaptor, None, point), TYPE_ERRORS),
             ((adaptor, key, "x"), TYPE_ERRORS),
             ((adaptor, key, "02" + point_hex), TYPE_ERRORS),
-            ((adaptor, key, bytes.fromhex(point_hex)), TYPE_ERRORS),
+            ((adaptor, key, bytes.fromhex("02" + point_hex)), TYPE_ERRORS),
+            ((adaptor, point_from_pub_key(key), point), TYPE_ERRORS),
             ((adaptor[:-1], key, point), VALUE_ERRORS),
             ((adaptor, b"\x02" + b"\xff" * 32, point), VALUE_ERRORS),
             ((adaptor, key, (1, 2)), VALUE_ERRORS),

@@ -34,11 +34,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from btclib.alias import Integer, Octets, Point
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn
-from btclib.utils import assert_type
+from btclib.utils import assert_type, is_octets
 from btclib_ecc.ecc import dsa, ecdsa_adaptor
 
 from btclib_wallet.dlc.transactions import (
@@ -140,6 +140,10 @@ def verify_adaptor(
     terms do not agree on answers False: it is a wrong value, not a
     malformed argument.
     """
+    # btclib_ecc reads a key as a PubKey, and a point is one: this refuses
+    # what the declaration, Octets, leaves out
+    if not is_octets(pub_key):
+        raise BTClibTypeError(f"invalid public key type: {type(pub_key).__name__}")
     assert_type(sig_point, tuple, "signature point")
     value = _agreed_funding_value(dlc, tx)
     if value is None:
