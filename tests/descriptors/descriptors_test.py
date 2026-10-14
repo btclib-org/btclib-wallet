@@ -2669,6 +2669,37 @@ def test_an_impossible_multi_a_threshold_is_refused_at_parse_and_at_build(
         TrDescriptor(key, leaf).script_pub_key()
 
 
+@pytest.mark.parametrize("name", ["multi_a", "sortedmulti_a"])
+def test_a_key_repeated_in_a_multi_a_is_kept_as_many_times(name: str) -> None:
+    """Bitcoin Core accepts it, rust-miniscript refuses it (btcd's divergences).
+
+    Both occurrences are leaf keys, and both are in the script.
+    """
+    descriptor = parse(f"tr({XONLY},{name}(1,{XONLY},{XONLY}))")
+    assert isinstance(descriptor, TrDescriptor)
+    assert isinstance(descriptor.tree, MultiA)
+    assert len(descriptor.tree.keys) == 2
+    assert descriptor.tree.keys[0] == descriptor.tree.keys[1]
+    key = bytes.fromhex(XONLY)
+    assert leaf_script_of(f"tr({XONLY},{name}(1,{XONLY},{XONLY}))") == serialize(
+        [key, "OP_CHECKSIG", key, "OP_CHECKSIGADD", "OP_1", "OP_NUMEQUAL"]
+    )
+
+
+def test_sortedmulti_a_is_no_miniscript_fragment() -> None:
+    """Bitcoin Core refuses it inside a miniscript, rust-miniscript parses it.
+
+    `multi_a()` is a miniscript fragment and parses there, wrapped as
+    well.
+    """
+    keys = f"{XPUB}/0,{XPUB}/1"
+    assert isinstance(parse(f"tr({XONLY},n:multi_a(1,{keys}))"), TrDescriptor)
+    with pytest.raises(BTClibValueError, match="^unknown miniscript fragment$"):
+        parse(f"tr({XONLY},n:sortedmulti_a(1,{keys}))")
+    with pytest.raises(BTClibValueError, match="^unknown miniscript fragment$"):
+        parse(f"tr({XONLY},and_v(v:sortedmulti_a(1,{keys}),older(1)))")
+
+
 # three keys and a signature made with each. Real DER signatures rather
 # than placeholder bytes because the psbt finalizer that satisfaction is
 # checked against parses every partial signature it is handed, so a
