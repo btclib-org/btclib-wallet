@@ -1158,6 +1158,7 @@ class _ScannedPattern:
         args: tuple[str, int, int],
     ) -> re.Match[str] | None:
         string, pos, endpos = args
+        pos = max(pos, 0)
         found = method(string, pos, endpos)
         self.work.span(pos, found.end() if found else min(endpos, len(string)))
         return found
@@ -1175,6 +1176,7 @@ class _ScannedPattern:
     def finditer(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
     ) -> Iterator[re.Match[str]]:
+        pos = max(pos, 0)
         last = pos
         for found in self.pattern.finditer(string, pos, endpos):
             self.work.span(last, found.end())
@@ -1189,7 +1191,7 @@ class _ScannedPattern:
     def findall(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
     ) -> list[Any]:
-        self.work.span(pos, min(endpos, len(string)))
+        self.work.span(max(pos, 0), min(endpos, len(string)))
         return self.pattern.findall(string, pos, endpos)
 
     def sub(self, repl: str, string: str, count: int = 0) -> str:
@@ -1220,26 +1222,24 @@ def _scan_work(text: str) -> int:
     Of the work on the text, the count has the characters examined by every
     pattern of the module, whatever string it is given, by `re.search` and
     `re.finditer`, and by the methods `_ScannedStr` lists, on the text
-    `_assert_multipath_items` reads. A slice of that text is counted by the
-    characters it returns, and a pattern counts what it scans of it. It does
-    not see other `str` methods, or work on copies of the text or on lists
-    and dicts. It does not depend on the machine or on its load.
-    The result is checked against the checksummed text.
+    `multipath_descriptors` gets from `strip_checksum`. A slice of that text
+    is counted by the characters it returns, and a pattern counts what it
+    scans of it. It does not see other `str` methods, iteration, or work on
+    copies of the text or on lists and dicts. It does not depend on the
+    machine or on its load. The result is checked against the checksummed
+    text.
     """
     work = _Work()
-    read = descriptors._assert_multipath_items
+    strip = descriptors.strip_checksum
     expected = [add_checksum(text)]
-
-    def counted(text: str) -> None:
-        scanned = type("_Scanned", (_ScannedStr,), {"__slots__": (), "work": work})
-        read(scanned(text))
+    scanned = type("_Scanned", (_ScannedStr,), {"__slots__": (), "work": work})
 
     with pytest.MonkeyPatch.context() as patch:
         for name, value in vars(descriptors).items():
             if isinstance(value, re.Pattern):
                 patch.setattr(descriptors, name, _ScannedPattern(value, work))
         patch.setattr(descriptors, "re", _ScannedRe(work))
-        patch.setattr(descriptors, "_assert_multipath_items", counted)
+        patch.setattr(descriptors, "strip_checksum", lambda d: scanned(strip(d)))
         assert multipath_descriptors(text) == expected
     return work.count
 
@@ -1327,7 +1327,7 @@ def test_the_work_count_sees_a_rescan_of_the_text(
     argument_ends = descriptors._argument_ends
 
     def rescanning(text: str) -> object:
-        for pos, char in enumerate(str.__str__(text)):
+        for pos, char in enumerate(text):
             if char in ",(":
                 rescan(text, pos)
         return argument_ends(text)
