@@ -1217,17 +1217,14 @@ class _ScannedRe:
 
 
 def _scan_work(text: str) -> int:
-    """Return the work `multipath_descriptors` does on `text`, as a count.
+    """Return the characters `multipath_descriptors` examines in `text`.
 
-    Of the work on the text, the count has the characters examined by every
-    pattern of the module, whatever string it is given, by `re.search` and
-    `re.finditer`, and by the methods `_ScannedStr` lists, on the text
-    `multipath_descriptors` gets from `strip_checksum`. A slice of that text
-    is counted by the characters it returns, and a pattern counts what it
-    scans of it. It does not see other `str` methods, iteration, or work on
-    copies of the text or on lists and dicts. It does not depend on the
-    machine or on its load. The result is checked against the checksummed
-    text.
+    The count covers the module's compiled patterns, `re.search` and
+    `re.finditer`, on any string, and the `_ScannedStr` methods on the text
+    `strip_checksum` returns. It does not see other `str` methods, iteration,
+    `str` methods on copies of the text, or work on lists and dicts. It does
+    not depend on the machine or on its load. The result is checked against
+    the checksummed text.
     """
     work = _Work()
     strip = descriptors.strip_checksum
@@ -1311,6 +1308,7 @@ _RESCANS = {
     "sub": lambda text, _: descriptors._MULTIPATH_STEP.sub("", text),
     "subn": lambda text, _: descriptors._MULTIPATH_STEP.subn("", text),
     "fullmatch": lambda text, pos: descriptors._MULTIPATH_STEP.fullmatch(text, pos),  # noqa: PLW0108
+    "re.finditer": lambda text, _: list(vars(descriptors)["re"].finditer("<", text)),
     "re.search": lambda text, _: vars(descriptors)["re"].search("<[^<>]*>", text),
 }
 
