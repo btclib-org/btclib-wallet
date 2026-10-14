@@ -396,7 +396,7 @@ def _sorted_outputs(outputs: list[tuple[int, int, bytes]]) -> list[TxOut]:
 def build_funding_tx(dlc: Dlc) -> tuple[Tx, int]:
     """Return the unsigned funding transaction, and its funding output's index.
 
-    A party whose change would be under the dust limit has no `Dlc`: the
+    A party whose change is under the dust limit is refused: the
     specification asks it to add funding.
     """
     assert_type(dlc, Dlc, "dlc")
