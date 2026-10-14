@@ -196,8 +196,8 @@ def assert_valid_hd_key_paths(hd_key_paths: Mapping[bytes, BIP32KeyOrigin]) -> N
             err_msg = f"invalid public key length: {len(pub_key)}"
             raise BTClibValueError(err_msg)
         # a 78-octet key belongs in the global map, where `psbt.py` checks
-        # its point; in an input's or an output's map it is not refused here
-        # (issue btclib-org/btclib-wallet#377)
+        # its point; in an input's or an output's map,
+        # `psbt_utils._assert_valid_bip32_derivation` refuses it
         if len(pub_key) != 78 and not _is_point(pub_key):
             raise BTClibValueError("invalid public key: not a point")
         key_origin.assert_valid()
