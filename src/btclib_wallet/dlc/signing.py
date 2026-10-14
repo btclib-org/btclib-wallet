@@ -16,8 +16,8 @@ the funding output with SIGHASH_ALL.
 `adaptor_sign` take the `Dlc` and the unsigned transaction, and refuse
 any that `btclib_wallet.dlc.transactions` does not build from those
 terms: a CET of one of their payouts, or the refund. `verify_adaptor`
-answers False for one. The script code and the funding value come from
-the terms.
+answers False for any other. The script code and the funding value come
+from the terms.
 
 **Funding inputs are not signed here.** The wallet's signer signs them,
 whatever the script; `complete_funding_tx` only places the witnesses it

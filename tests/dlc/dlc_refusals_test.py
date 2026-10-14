@@ -14,9 +14,11 @@ import pytest
 from btclib.alias import Point
 from btclib.exceptions import BTClibException, BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
+from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import mult
+from btclib_ecc.ecc import ecdsa_adaptor
 from btclib_ecc.exceptions import BTClibEccException
 
 from btclib_wallet import dlc
@@ -269,7 +271,15 @@ def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
     """Require the signers to refuse tx, and verify_adaptor to answer False."""
     point: Point = mult(5)
     key = terms.offer.funding_pub_key
-    adaptor = _adaptor(terms, point)
+    # an adaptor signature that verifies over tx's own digest, so that
+    # False can only come from the terms' check
+    built = dlc.build_transactions(terms)
+    value = built.funding_tx.vout[built.funding_vout].value
+    script = dlc.funding_script(key, terms.accept.funding_pub_key)
+    digest = segwit_v0(script, tx, 0, ALL, value)
+    prv = int(_TX[0]["inputs"]["offerParams"]["fundingPrivKey"], 16)
+    own = ecdsa_adaptor.encrypt(digest, prv, point, bytes(32))
+    assert ecdsa_adaptor.verify(own, digest, key, point)
     calls: tuple[Callable[[], object], ...] = (
         lambda: dlc.sig_hash(terms, tx),
         lambda: dlc.sign(terms, tx, 1),
@@ -279,7 +289,7 @@ def _every_signer(terms: dlc.Dlc, tx: Tx) -> None:
         with pytest.raises(BTClibValueError, match="this DLC's terms"):
             call()
     # verify_adaptor signs nothing: a wrong value answers False
-    assert dlc.verify_adaptor(terms, tx, adaptor, key, point) is False
+    assert dlc.verify_adaptor(terms, tx, own, key, point) is False
 
 
 def _adaptor(terms: dlc.Dlc, point: Point) -> bytes:

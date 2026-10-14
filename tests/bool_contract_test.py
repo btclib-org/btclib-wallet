@@ -45,8 +45,11 @@ import pytest
 from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
-from btclib.tx import Tx
+from btclib.script.sig_hash import ALL, segwit_v0
+from btclib.script.witness import Witness
+from btclib.tx import Tx, TxIn
 from btclib_ecc.curves import mult
+from btclib_ecc.ecc import ecdsa_adaptor
 
 from btclib_wallet import bip322, dlc
 from tests.dlc.dlc_vectors_test import _TX, _dlc
@@ -66,12 +69,36 @@ _BIP322_SIG = bip322.sign(_MSG, PrvKeyData(_Q), _ADDR)
 _DLC_TERMS = _dlc(_TX[0]["inputs"])
 _DLC_BUILT = dlc.build_transactions(_DLC_TERMS)
 _DLC_TX = _DLC_BUILT.refund_tx
-_DLC_UNAGREED = Tx(_DLC_TX.version, _DLC_TX.lock_time + 1, _DLC_TX.vin, _DLC_TX.vout)
+# the refund with a second witness item: no BIP143 digest covers a witness,
+# so _DLC_ADAPTOR verifies over this transaction too, and only the terms'
+# check makes the answer False
+_DLC_SPENT = _DLC_TX.vin[0]
+_DLC_UNAGREED = Tx(
+    _DLC_TX.version,
+    _DLC_TX.lock_time,
+    [
+        TxIn(
+            _DLC_SPENT.prev_out,
+            _DLC_SPENT.script_sig,
+            _DLC_SPENT.sequence,
+            Witness([*_DLC_SPENT.script_witness.stack, b""]),
+        )
+    ],
+    _DLC_TX.vout,
+)
 _DLC_KEY = int(_TX[0]["inputs"]["offerParams"]["fundingPrivKey"], 16)
 _DLC_PUB = _DLC_TERMS.offer.funding_pub_key
 _DLC_POINT = mult(5)
 _DLC_ADAPTOR = dlc.adaptor_sign(_DLC_TERMS, _DLC_TX, _DLC_KEY, _DLC_POINT, bytes(32))
 _DLC_OTHER = dlc.adaptor_sign(_DLC_TERMS, _DLC_TX, _DLC_KEY, mult(6), bytes(32))
+_DLC_SCRIPT = dlc.funding_script(_DLC_PUB, _DLC_TERMS.accept.funding_pub_key)
+_DLC_VALUE = _DLC_BUILT.funding_tx.vout[_DLC_BUILT.funding_vout].value
+assert ecdsa_adaptor.verify(
+    _DLC_ADAPTOR,
+    segwit_v0(_DLC_SCRIPT, _DLC_UNAGREED, 0, ALL, _DLC_VALUE),
+    _DLC_PUB,
+    _DLC_POINT,
+)
 
 # a value of a declared type that no valid input carries, spelled per
 # position because a hand-written call knows which alias each of its
