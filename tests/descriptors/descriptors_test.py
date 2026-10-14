@@ -1037,7 +1037,7 @@ class _ScannedStr(str):
         end: SupportsIndex | None = None,
     ) -> int:
         first, last = self._bounds(start, end)
-        found = super().find(sub, first, last)
+        found = super().find(sub, start, end)
         self.work.span(first, found + len(sub) if found >= 0 else last)
         return found
 
@@ -1062,7 +1062,7 @@ class _ScannedStr(str):
     ) -> int:
         first, last = self._bounds(start, end)
         self.work.span(first, last)
-        return super().count(sub, first, last)
+        return super().count(sub, start, end)
 
     @override
     def rfind(
@@ -1072,7 +1072,7 @@ class _ScannedStr(str):
         end: SupportsIndex | None = None,
     ) -> int:
         first, last = self._bounds(start, end)
-        found = super().rfind(sub, first, last)
+        found = super().rfind(sub, start, end)
         self.work.span(found if found >= 0 else first, last)
         return found
 
@@ -1116,8 +1116,7 @@ class _ScannedStr(str):
         end: SupportsIndex | None = None,
     ) -> bool:
         self.work.count += _longest(prefix)
-        first, last = self._bounds(start, end)
-        return super().startswith(prefix, first, last)
+        return super().startswith(prefix, start, end)
 
     @override
     def endswith(
@@ -1127,8 +1126,7 @@ class _ScannedStr(str):
         end: SupportsIndex | None = None,
     ) -> bool:
         self.work.count += _longest(suffix)
-        first, last = self._bounds(start, end)
-        return super().endswith(suffix, first, last)
+        return super().endswith(suffix, start, end)
 
     @override
     def __contains__(self, key: object) -> bool:
@@ -1145,9 +1143,9 @@ class _ScannedPattern:
     """A compiled pattern that counts the characters its searches examine.
 
     A search counts from where it starts to where its match ends, or to the
-    end it was given where it finds none, a `fullmatch` that fails nothing,
-    and `split`, `findall`, `sub` and `subn` the whole range they are given.
-    What a pattern looks ahead or backtracks over is not counted.
+    end it was given where it finds none, and `split`, `findall`, `sub` and
+    `subn` the whole range they are given. What a pattern looks ahead or
+    backtracks over is not counted.
     """
 
     def __init__(self, pattern: re.Pattern[str], work: _Work) -> None:
@@ -1158,25 +1156,21 @@ class _ScannedPattern:
         self,
         method: Callable[..., re.Match[str] | None],
         args: tuple[str, int, int],
-        *,
-        anchored: bool,
     ) -> re.Match[str] | None:
         string, pos, endpos = args
         found = method(string, pos, endpos)
-        # an anchored match that fails stops at its first character
-        miss = pos if anchored else min(endpos, len(string))
-        self.work.span(pos, found.end() if found else miss)
+        self.work.span(pos, found.end() if found else min(endpos, len(string)))
         return found
 
     def search(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
     ) -> re.Match[str] | None:
-        return self._one(self.pattern.search, (string, pos, endpos), anchored=False)
+        return self._one(self.pattern.search, (string, pos, endpos))
 
     def fullmatch(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
     ) -> re.Match[str] | None:
-        return self._one(self.pattern.fullmatch, (string, pos, endpos), anchored=True)
+        return self._one(self.pattern.fullmatch, (string, pos, endpos))
 
     def finditer(
         self, string: str, pos: int = 0, endpos: int = sys.maxsize
@@ -1316,6 +1310,7 @@ _RESCANS = {
     "findall": lambda text, pos: descriptors._MULTIPATH_STEP.findall(text, pos),  # noqa: PLW0108
     "sub": lambda text, _: descriptors._MULTIPATH_STEP.sub("", text),
     "subn": lambda text, _: descriptors._MULTIPATH_STEP.subn("", text),
+    "fullmatch": lambda text, pos: descriptors._MULTIPATH_STEP.fullmatch(text, pos),  # noqa: PLW0108
     "re.search": lambda text, _: vars(descriptors)["re"].search("<[^<>]*>", text),
 }
 
