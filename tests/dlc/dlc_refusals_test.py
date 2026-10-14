@@ -50,11 +50,11 @@ def test_the_refund_opens_after_the_cets_and_in_the_same_unit() -> None:
 
 
 def test_dust_change_is_refused() -> None:
-    """Refuse a party whose inputs leave under 1000 satoshis of change."""
+    """Refuse terms whose party is left under 1000 satoshis of change."""
     terms = _terms()
     party = dataclasses.replace(terms.offer, collateral=terms.offer.collateral + 10**8)
     with pytest.raises(BTClibValueError, match="of change, under 1000"):
-        dlc.build_funding_tx(dataclasses.replace(terms, offer=party))
+        dataclasses.replace(terms, offer=party)
 
 
 def test_a_payout_under_the_dust_limit_is_not_made() -> None:
@@ -447,13 +447,16 @@ def test_the_signatures_are_a_mapping() -> None:
 
 
 def test_complete_funding_tx_checks_its_witnesses() -> None:
-    """Refuse a list, and a mapping whose values are not witnesses."""
+    """Refuse a list, and a mapping not of outpoints to witnesses."""
     built = dlc.build_transactions(_terms())
     with pytest.raises(BTClibTypeError):
         dlc.complete_funding_tx(built.funding_tx, [])  # type: ignore[arg-type]
     spent = built.funding_tx.vin[0].prev_out
     with pytest.raises(BTClibTypeError):
         dlc.complete_funding_tx(built.funding_tx, {spent: b"x"})  # type: ignore[dict-item]
+    for key in ("x", 1, (b"\0" * 32, 0)):
+        with pytest.raises(BTClibTypeError):
+            dlc.complete_funding_tx(built.funding_tx, {key: Witness([])})  # type: ignore[dict-item]
 
 
 @pytest.mark.parametrize("side", ["local_pub_key", "remote_pub_key"])
@@ -584,11 +587,8 @@ def test_the_change_is_accepted_at_the_dust_limit_and_refused_under() -> None:
     spk = at_limit.offer.change_spk
     changes = [o for o in funding_tx.vout if o.script_pub_key.script == spk]
     assert [o.value for o in changes] == [1000]
-    under = dataclasses.replace(
-        terms, offer=_with_change(terms.offer, terms.fee_rate, 999)
-    )
     with pytest.raises(BTClibValueError, match="of change, under 1000"):
-        dlc.build_funding_tx(under)
+        dataclasses.replace(terms, offer=_with_change(terms.offer, terms.fee_rate, 999))
 
 
 def test_a_payout_of_the_dust_limit_is_made() -> None:
@@ -608,7 +608,11 @@ def test_the_bounds_of_the_amounts_and_the_rate() -> None:
     dataclasses.replace(terms.offer, collateral=top)
     with pytest.raises(BTClibValueError, match="collateral out of range"):
         dataclasses.replace(terms.offer, collateral=top + 1)
-    dataclasses.replace(terms, fee_rate=2**64 - 1)
+    # the top rate is a fee, and terms that it leaves no change are refused
+    assert dlc.funding_fee(terms.offer, 2**64 - 1) > 0
+    assert dlc.closing_fee(terms.offer, 2**64 - 1) > 0
+    with pytest.raises(BTClibValueError, match="of change, under 1000"):
+        dataclasses.replace(terms, fee_rate=2**64 - 1)
     for rate in (-1, 2**64):
         with pytest.raises(BTClibValueError, match="fee rate out of range"):
             dataclasses.replace(terms, fee_rate=rate)

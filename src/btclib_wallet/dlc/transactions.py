@@ -209,7 +209,7 @@ class DlcParty:
     inputs: tuple[FundingInput, ...]
 
     def __post_init__(self) -> None:
-        """Refuse a party the funding transaction cannot be built from."""
+        """Refuse a party whose fields are of the wrong type, form or range."""
         _assert_bytes(self.funding_pub_key, "funding public key")
         if len(self.funding_pub_key) != 33:
             raise BTClibValueError("the funding public key is not compressed")
@@ -290,6 +290,10 @@ class Dlc:
 
     def _assert_not_dust(self, total: int) -> None:
         """Refuse terms whose funding output or whose transactions are dust."""
+        # a party whose inputs leave less than the dust limit of change
+        # cannot fund its share
+        _change(self.offer, self.fee_rate)
+        _change(self.accept, self.fee_rate)
         closing = closing_fee(self.offer, self.fee_rate) + closing_fee(
             self.accept, self.fee_rate
         )
@@ -392,7 +396,7 @@ def _sorted_outputs(outputs: list[tuple[int, int, bytes]]) -> list[TxOut]:
 def build_funding_tx(dlc: Dlc) -> tuple[Tx, int]:
     """Return the unsigned funding transaction, and its funding output's index.
 
-    A party whose change is under the dust limit is refused: the
+    A party whose change would be under the dust limit has no `Dlc`: the
     specification asks it to add funding.
     """
     assert_type(dlc, Dlc, "dlc")

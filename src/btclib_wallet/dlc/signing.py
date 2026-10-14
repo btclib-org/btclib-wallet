@@ -14,10 +14,10 @@ the funding output with SIGHASH_ALL.
 
 **Only the agreed transactions are signed.** `sig_hash`, `sign` and
 `adaptor_sign` take the `Dlc` and the unsigned transaction, and refuse
-any that `btclib_wallet.dlc.transactions` does not build from those
-terms: a CET of one of their payouts, or the refund. `verify_adaptor`
-answers False for any other. The script code and the funding value come
-from the terms.
+any transaction but those `btclib_wallet.dlc.transactions` builds from
+those terms: the refund, or a CET of one of their payouts.
+`verify_adaptor` answers False for any other. The script code and the
+funding value come from the terms.
 
 **Funding inputs are not signed here.** The wallet's signer signs them,
 whatever the script; `complete_funding_tx` only places the witnesses it
@@ -218,7 +218,8 @@ def complete_funding_tx(funding_tx: Tx, witnesses: Mapping[OutPoint, Witness]) -
     """Return the funding transaction with each input's witness in place."""
     assert_type(funding_tx, Tx, "funding tx")
     assert_type(witnesses, Mapping, "witnesses")
-    for witness in witnesses.values():
+    for out_point, witness in witnesses.items():
+        assert_type(out_point, OutPoint, "outpoint")
         assert_type(witness, Witness, "witness")
     spent = [i.prev_out for i in funding_tx.vin]
     if set(witnesses) != set(spent):
