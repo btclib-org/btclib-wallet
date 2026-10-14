@@ -31,7 +31,7 @@ from btclib.utils import (
 )
 from btclib_ecc.curves import sec_point
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
+from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
 
 __all__ = [
@@ -189,6 +189,16 @@ def deserialize_map(data: BinaryData) -> dict[bytes, bytes]:
         if key in partial_map:
             raise BTClibValueError(f"duplicated key in psbt map: 0x{key.hex()}")
         partial_map[key] = value
+
+
+def _assert_valid_bip32_derivation(
+    hd_key_paths: Mapping[bytes, BIP32KeyOrigin],
+) -> None:
+    """Require SEC key lengths in an input's or output's derivation map."""
+    assert_valid_hd_key_paths(hd_key_paths)
+    for pub_key in hd_key_paths:
+        if len(pub_key) not in {33, 65}:
+            raise BTClibValueError(f"invalid public key length: {len(pub_key)}")
 
 
 def serialize_hd_key_paths(

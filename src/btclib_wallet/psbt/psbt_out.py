@@ -28,13 +28,13 @@ from btclib.utils import (
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
     HdKeyPaths,
-    assert_valid_hd_key_paths,
     decode_from_bip32_derivs,
     decode_hd_key_paths,
     encode_to_bip32_derivs,
 )
 from btclib_wallet.psbt.psbt_utils import (
     PSBT_SEPARATOR,
+    _assert_valid_bip32_derivation,
     assert_not_a_v2_field,
     assert_valid_musig2_participant_pub_keys,
     assert_valid_psbt_version,
@@ -264,7 +264,7 @@ class PsbtOut:
 
         assert_valid_redeem_script(self.redeem_script)
         assert_valid_witness_script(self.witness_script)
-        assert_valid_hd_key_paths(self.hd_key_paths)
+        _assert_valid_bip32_derivation(self.hd_key_paths)
         assert_valid_taproot_internal_key(self.taproot_internal_key)
         assert_valid_taproot_bip32_derivation(self.taproot_hd_key_paths)
         assert_valid_musig2_participant_pub_keys(self.musig2_participant_pub_keys)

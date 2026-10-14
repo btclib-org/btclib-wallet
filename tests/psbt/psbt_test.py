@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from btclib import var_bytes, var_int
+from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError, ScriptError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
@@ -6295,6 +6296,75 @@ def test_a_combine_keeps_the_first_value_of_a_conflicting_key() -> None:
             assert get(combined)[b"\xf1only"] == b"second only", name
         for name, (get, key) in origins.items():
             assert get(combined)[key] == get(order[0])[key], name
+
+
+@pytest.mark.parametrize("map_type", [PsbtIn, PsbtOut])
+@pytest.mark.parametrize("pub_key", [bytes(78), _XPUB], ids=("zero-key", "xpub"))
+def test_input_and_output_derivations_refuse_extended_keys(
+    map_type: type[PsbtIn] | type[PsbtOut], pub_key: bytes
+) -> None:
+    """BIP174 input and output derivations carry SEC keys, not xpubs."""
+    paths: dict[Octets, BIP32KeyOrigin] = {pub_key: BIP32KeyOrigin(b"beef", "m/42/1")}
+    map_ = map_type(hd_key_paths=paths, check_validity=False)
+    raw = map_.serialize(check_validity=False)
+    dict_ = map_.to_dict(check_validity=False)
+    err_msg = "^invalid public key length: 78$"
+
+    with pytest.raises(BTClibValueError, match=err_msg):
+        map_.assert_valid()
+    with pytest.raises(BTClibValueError, match=err_msg):
+        map_type(hd_key_paths=paths)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        map_type.parse(raw)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        map_type.from_dict(dict_)
+
+    unchecked = map_type.parse(raw, check_validity=False)
+    assert unchecked.hd_key_paths == paths
+    with pytest.raises(BTClibValueError, match=err_msg):
+        unchecked.assert_valid()
+
+
+@pytest.mark.parametrize("map_name", ["input", "output"])
+@pytest.mark.parametrize("pub_key", [bytes(78), _XPUB], ids=("zero-key", "xpub"))
+def test_psbt_readers_refuse_extended_keys_in_derivations(
+    map_name: str, pub_key: bytes
+) -> None:
+    """The object parser and the view refuse the same malformed map."""
+    psbt = Psbt.b64decode(NO_SIG_HASH_TYPE)
+    raw = psbt.serialize()
+    map_ = psbt.inputs[0] if map_name == "input" else psbt.outputs[0]
+    original_map = map_.serialize()
+    assert raw.count(original_map) == 1
+    map_.hd_key_paths = {pub_key: BIP32KeyOrigin(b"beef", "m/42/1")}
+    raw = raw.replace(original_map, map_.serialize(check_validity=False), 1)
+    err_msg = "^invalid public key length: 78$"
+
+    with pytest.raises(BTClibValueError, match=err_msg):
+        psbt.assert_valid()
+    with pytest.raises(BTClibValueError, match=err_msg):
+        Psbt.parse(raw)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        Psbt.b64decode(base64.b64encode(raw).decode("ascii"))
+
+    view = PsbtView(raw)
+    read = view.input if map_name == "input" else view.output
+    with pytest.raises(BTClibValueError, match=err_msg):
+        read(0)
+
+
+@pytest.mark.parametrize("map_type", [PsbtIn, PsbtOut])
+@pytest.mark.parametrize("compressed", [True, False])
+def test_input_and_output_derivations_accept_both_sec_key_sizes(
+    map_type: type[PsbtIn] | type[PsbtOut], *, compressed: bool
+) -> None:
+    """Compressed and uncompressed public keys survive both map codecs."""
+    pub_key = sec_point.bytes_from_point(
+        sec_point.point_from_octets(_PUB_KEY), compressed=compressed
+    )
+    map_ = map_type(hd_key_paths={pub_key: BIP32KeyOrigin(b"beef", "m/42/1")})
+    assert map_type.parse(map_.serialize()) == map_
+    assert map_type.from_dict(map_.to_dict()) == map_
 
 
 def _global_xpub_readers(psbt: Psbt) -> list[Callable[[], object]]:

@@ -33,7 +33,6 @@ from btclib_ecc.ecc import dsa
 from btclib_wallet.bip32.key_origin import (
     BIP32KeyOrigin,
     HdKeyPaths,
-    assert_valid_hd_key_paths,
     decode_from_bip32_derivs,
     decode_hd_key_paths,
     encode_to_bip32_derivs,
@@ -44,6 +43,7 @@ from btclib_wallet.psbt.psbt_utils import (
     PSBT_SEPARATOR,
     SP_DLEQ_PROOF_SIZE,
     SP_ECDH_SHARE_SIZE,
+    _assert_valid_bip32_derivation,
     assert_not_a_v2_field,
     assert_valid_leaf_scripts,
     assert_valid_musig2_participant_pub_keys,
@@ -748,7 +748,7 @@ class PsbtIn:
 
         assert_valid_redeem_script(self.redeem_script)
         assert_valid_witness_script(self.witness_script)
-        assert_valid_hd_key_paths(self.hd_key_paths)
+        _assert_valid_bip32_derivation(self.hd_key_paths)
         _assert_valid_final_script_sig(self.final_script_sig)
         self.final_script_witness.assert_valid()
 
