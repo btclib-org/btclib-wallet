@@ -785,7 +785,8 @@ def test_multipath_reads_a_key_where_core_does() -> None:
     In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf, ``pkh()``
     hands its whole argument to `ParsePubkey`, "," included: ``dead,beef``
     is a fingerprint of nine characters, and a "," starts no key. `parse`
-    refuses both, for a reason of its own. A ``musig()`` outside ``tr()``
+    refuses the first for the same fingerprint, and the second for a
+    reason of its own. A ``musig()`` outside ``tr()``
     and ``rawtr()`` is refused first, and its insides are left unread.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
@@ -814,6 +815,61 @@ def test_multipath_reads_a_key_where_core_does() -> None:
         assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
         with pytest.raises(BTClibValueError, match=message):
             parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        ("pkh({key}/<0;1>/<2;3>)", "derivation path after a key that cannot derive"),
+        (
+            "pkh([dead,beef/0]{xpub}/0/*)",
+            "invalid key origin fingerprint: 8 hex digits expected",
+        ),
+        (
+            "pkh({key}/0,{xpub}])",
+            "']' without the '[' that opens a key origin",
+        ),
+        (
+            "tr(musig({xpub},musig({xpub}/<0;0>,{xpub})))",
+            "Too many ')' in musig() expression",
+        ),
+    ],
+)
+def test_parse_refuses_the_fault_core_reads_first(template: str, message: str) -> None:
+    """Refuse, in `parse`, the fault Bitcoin Core reads first.
+
+    In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf:
+    `ParsePubkeyInner` refuses a key that is not an extended one, where a
+    path follows it, before it reads the path; ``pkh()`` hands its whole
+    argument, "," included, to `ParsePubkey`, which reads the origin
+    first; and a ``musig()`` with more than one ")" is refused before its
+    participants are read.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
+    with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
+        parse(template.format(xpub=xpub, key=key))
+
+
+@pytest.mark.parametrize(
+    "template",
+    ["tr(musig({xpub},{xpub})/<0h;1>)", "tr(musig({xpub}/<0;1>,{xpub})/<2;3h>/*)"],
+)
+def test_multipath_refuses_a_hardened_item_of_a_musig_step(template: str) -> None:
+    """Refuse a hardened item in a step of a ``musig()`` path, as Core does.
+
+    `ParseKeyPath` counts it as a hardened step, which the ``musig()``
+    parser refuses before the multipath (`src/script/descriptor.cpp`,
+    bitcoin/bitcoin@a8b69bdeaf). Expanded, the unhardened items would give
+    descriptors `parse` accepts.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = template.format(xpub=xpub)
+    message = r"^musig\(\) cannot have hardened derivation steps$"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
 
 
 def test_multipath_reads_a_key_to_the_end_of_the_text() -> None:
@@ -1894,7 +1950,8 @@ UNPARSABLE = [
     ("pk", "not a descriptor expression"),
     ("(pk)", "not a descriptor expression"),
     (f"nope({KEY})", "unknown descriptor function"),
-    (f"pk({KEY},{KEY})", "takes one argument"),
+    # a key function's whole argument is its key, as in Core
+    (f"pk({KEY},{KEY})", "invalid key expression"),
     (f"multi(x,{KEY})", "threshold"),
     ("multi(1)", "at least one key"),
     (f"pk({KEY}))", "unbalanced"),
@@ -2431,7 +2488,7 @@ BIP390_INVALID = [
     # and what BIP390 states in prose rather than listing: no nesting, no
     # origin in front of one, and at least one participant. A musig() as a
     # tree leaf is refused too: what a leaf holds is a script
-    (f"tr(musig(musig({MUSIG_A},{MUSIG_B}),{MUSIG_XPUB_A}))", "only allowed in tr"),
+    (f"tr(musig(musig({MUSIG_A},{MUSIG_B}),{MUSIG_XPUB_A}))", "Too many '\\)'"),
     (f"tr([deadbeef/0]musig({MUSIG_A},{MUSIG_B}))", "nested inside a key origin"),
     ("tr(musig())", "at least one key"),
     (f"tr({XONLY},musig({MUSIG_A},{MUSIG_B}))", "pk\\(musig\\(...\\)\\) is the leaf"),

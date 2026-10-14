@@ -683,10 +683,10 @@ def _assert_musig_allowed(*, musig_allowed: bool) -> None:
 
     Which is everywhere but a ``tr()`` and a ``rawtr()``: their internal
     or output key, and the keys of the ``pk()``, ``multi_a()`` and
-    ``sortedmulti_a()`` leaves of a script tree. A participant is one of
-    the places it is refused, which is BIP390's "cannot be nested within
-    another musig()", and the message names both -- Bitcoin Core's own,
-    and the same sentence answers a nested one and a ``wpkh(musig())``.
+    ``sortedmulti_a()`` leaves of a script tree. The message is Bitcoin
+    Core's own. A ``musig()`` nested in another, which BIP390 says "cannot
+    be nested within another musig()", is refused before this by
+    `_parse_musig`, for the ")" it adds to the outer one, as Core does.
 
     BIP390 names ``sp()`` as a third position; btclib does not read
     ``sp()`` at all, so there is nothing here to allow it in.
@@ -699,6 +699,7 @@ def _assert_musig_allowed(*, musig_allowed: bool) -> None:
 _MULTIPLE_MULTIPATH = "Multiple multipath key path specifiers found"
 _ONE_ITEM_STEP = "a multipath step takes at least two elements"
 _MULTIPATH_KEY = "multipath key expression: use multipath_descriptors first"
+_UNDERIVABLE = "derivation path after a key that cannot derive"
 # the last elements of a key path that make it ranged
 _WILDCARDS = frozenset({"*", "*'", "*h"})
 
@@ -761,20 +762,23 @@ def _assert_key_path(elements: list[str], *, numeric: bool) -> bool:
 def _assert_key_characters(rest: str, *, extended: bool) -> None:
     """Refuse what a KEY expression cannot hold once the origin is off.
 
-    `extended` says whether the key is an extended one.
+    `extended` says whether the key is an extended one. Core refuses a key
+    that is not, if a path follows it, before it reads the path.
     """
     key, *steps = rest.split("/")
     _assert_key_item(key)
-    _assert_key_path(_split_wildcard(steps)[0], numeric=extended)
-    if "<" in rest:
-        raise BTClibValueError(_MULTIPATH_KEY)
-    if "(" in rest:
+    if "(" in key:
         # a function where a key belongs. BIP390's musig() is the one that
         # is a key expression, and reaching here means it was written
         # behind a key origin, which is not where it may be nested
-        if rest.startswith("musig("):
+        if key.startswith("musig("):
             raise BTClibValueError("musig() cannot be nested inside a key origin")
         raise BTClibValueError("not a key expression")
+    if steps and not extended:
+        raise BTClibValueError(_UNDERIVABLE)
+    _assert_key_path(_split_wildcard(steps)[0], numeric=True)
+    if "<" in rest:
+        raise BTClibValueError(_MULTIPATH_KEY)
 
 
 def _split_wildcard(steps: list[str]) -> tuple[list[str], int | None, str]:
@@ -825,6 +829,22 @@ def _assert_network(key: KeyExpression, network: str) -> None:
 
 
 _RANGED_PARTICIPANT = "musig() cannot have a ranged participant and derivation too"
+# Bitcoin Core's own message, refusing a musig() that holds a ")" of its own
+_MUSIG_CLOSES = "Too many ')' in musig() expression"
+_HARDENED_MUSIG_STEP = "musig() cannot have hardened derivation steps"
+
+
+def _path_indexes(steps: list[str]) -> list[int]:
+    """Return the indexes of a key path, every item of a multipath step's.
+
+    Core's check for a hardened step in a ``musig()`` path reads them all.
+    """
+    items = [
+        item
+        for element in steps
+        for item in (element[1:-1].split(";") if element.startswith("<") else [element])
+    ]
+    return _der_path(items)
 
 
 def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, bool]:
@@ -848,15 +868,9 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, bool]:
         multipath = _assert_key_path(steps, numeric=True)
     except BTClibValueError as e:
         raise BTClibValueError(f"musig(): {e}") from e
-    # Core's check for a hardened step reads every item of a multipath step
-    items = [
-        item
-        for element in steps
-        for item in (element[1:-1].split(";") if element.startswith("<") else [element])
-    ]
-    der_path = _der_path(items)
+    der_path = _path_indexes(steps)
     if any(index >= _HARDENED_OFFSET for index in der_path):
-        raise BTClibValueError("musig() cannot have hardened derivation steps")
+        raise BTClibValueError(_HARDENED_MUSIG_STEP)
     return tuple(der_path), wildcard, multipath
 
 
@@ -899,6 +913,9 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
     indexes and one wildcard to read them from. Core checks the first two,
     in this order, before it reads the path.
     """
+    # Core splits the expression at its ")" before it reads a participant
+    if expression.count(")") > 1:
+        raise BTClibValueError(_MUSIG_CLOSES)
     close = expression.rfind(")")
     inner = expression[len("musig(") : close]
     arguments = _split_arguments(inner)
@@ -981,8 +998,6 @@ def _parse_key(
             wildcard=wildcard,
             hardening=hardening or _HARDENING,
         )
-    if separator:
-        raise BTClibValueError("derivation path after a key that cannot derive")
     pub_key, was_x_only = _fixed_pub_key(key, x_only=x_only)
     key_expression = KeyExpression(
         origin=origin,

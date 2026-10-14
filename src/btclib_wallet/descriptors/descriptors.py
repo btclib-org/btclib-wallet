@@ -201,6 +201,7 @@ from btclib_wallet.bip44 import (
 )
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.descriptors.key_expression import (
+    _HARDENED_MUSIG_STEP,
     _MISSING_ORIGIN_END,
     _ONE_ITEM_STEP,
     _RANGED_PARTICIPANT,
@@ -222,6 +223,7 @@ from btclib_wallet.descriptors.key_expression import (
     _is_extended_key,
     _offered_signature,
     _parse_key,
+    _path_indexes,
     _split_arguments,
     _split_function,
     _split_wildcard,
@@ -526,7 +528,9 @@ def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> N
     `_parse_musig` does, and then a multipath in both the participants
     and the path. It reads the path's elements only where every
     participant is an extended key and the wildcard is not hardened, and
-    so does this.
+    so does this, refusing there a hardened item of a multipath step as
+    Core does, before the multipath, where the ``musig()`` starts an
+    argument.
     """
     path_end = _KEY_END.search(text, close + 1)
     path = text[close + 1 : path_end.start() if path_end else len(text)]
@@ -545,6 +549,17 @@ def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> N
                 _assert_key_path(elements, numeric=True)
             except BTClibValueError as e:
                 raise BTClibValueError(f"musig(): {e}") from e
+            # Core counts a hardened item of a multipath step as a hardened
+            # step, and refuses it before the multipath: expanded, the
+            # unhardened items would give descriptors `parse` accepts. Only
+            # where the musig() starts an argument, which Core needs to read
+            # one; whether Core reads a key at that argument is not checked
+            # (ISS 370)
+            multipath_steps = [element for element in elements if "<" in element]
+            if text[start - 7 : start - 6] in {"", "(", ","} and any(
+                i >= _HARDENED_OFFSET for i in _path_indexes(multipath_steps)
+            ):
+                raise BTClibValueError(_HARDENED_MUSIG_STEP)
     if "<" in path and _count(steps, start, close):
         raise BTClibValueError(_MUSIG_ONE_MULTIPATH)
 
@@ -2390,6 +2405,14 @@ def _assert_position(name: str, context: str, allowed: tuple[str, ...]) -> None:
         raise BTClibValueError(f"{name}() is not allowed inside {context}")
 
 
+def _whole_key(arguments: list[str]) -> str:
+    """Return the key of a function taking one, as Bitcoin Core reads it.
+
+    That is the whole argument, "," included: a "," starts no second key.
+    """
+    return ",".join(arguments)
+
+
 def _one_argument(arguments: list[str], name: str) -> str:
     if len(arguments) != 1:
         err_msg = f"{name}() takes one argument, {len(arguments)} given"
@@ -2488,7 +2511,7 @@ def _parse_tree(
         return _parse_leaf_miniscript(expression, prv_keys)
     args = _split_arguments(expression[len(name) + 1 : -1])
     return _parse_key(
-        _one_argument(args, name),
+        _whole_key(args),
         prv_keys,
         x_only=True,
         compressed=True,
@@ -2507,7 +2530,7 @@ def _parse_pk(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     key = _parse_key(
-        _one_argument(args, "pk"),
+        _whole_key(args),
         prv_keys,
         x_only=context == _P2TR,
         compressed=_no_uncompressed(context),
@@ -2520,7 +2543,7 @@ def _parse_pkh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     key = _parse_key(
-        _one_argument(args, "pkh"),
+        _whole_key(args),
         prv_keys,
         x_only=False,
         compressed=_no_uncompressed(context),
@@ -2533,7 +2556,7 @@ def _parse_wpkh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     key = _parse_key(
-        _one_argument(args, "wpkh"),
+        _whole_key(args),
         prv_keys,
         x_only=False,
         compressed=True,
@@ -2547,7 +2570,7 @@ def _parse_combo(
 ) -> Descriptor:
     return ComboDescriptor(
         _parse_key(
-            _one_argument(args, "combo"),
+            _whole_key(args),
             prv_keys,
             x_only=False,
             compressed=False,
@@ -3836,8 +3859,10 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     two elements, an element of an extended key's path that is no index
     or a step there with a repeated value, a ``musig()`` outside ``tr()``
     and ``rawtr()``, a ``musig()`` path beside a ranged participant where
-    every participant is an extended key, and a ``musig()`` multipath in
-    both its participants and its path.
+    every participant is an extended key, a hardened item of a multipath
+    step in the path of a ``musig()`` that starts an argument, where it
+    reads that path, and a ``musig()`` multipath in both its participants
+    and its path.
     """
     text = strip_checksum(descriptor)
     _assert_multipath_items(text)
@@ -3976,10 +4001,9 @@ def _template_key(
     is refused rather than folded into the first: BIP388 lists exactly
     that repetition, ``sh(multi(1,@0/**,@0/**))``, as invalid.
 
-    A participant is never itself a ``musig()``: `_parse_key` reads one
-    with `musig_allowed=False`, refusing the nesting before this is ever
-    reached, so there is no check of that here for a test to have to
-    reach past.
+    A participant is never itself a ``musig()``: `_parse_musig` refuses
+    the nesting before this is ever reached, so there is no check of that
+    here for a test to have to reach past.
     """
     if key.participants:
         for participant in key.participants:
