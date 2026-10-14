@@ -218,7 +218,9 @@ class Fetcher(ABC):
         a hash with a second call, and `CompactFilterFetcher` reads it from
         the header chain it holds.
 
-        Checked on arrival by `block_header_from_raw`, which says how.
+        Checked on arrival, by `block_header_from_raw` where a backend
+        reads the header raw, and by `CompactFilterFetcher` when it syncs
+        its chain: `assert_valid` and `assert_valid_pow`.
         `assert_valid_time` is not among the checks -- it compares against
         the local clock, and a header that is genuinely on the chain should
         not start failing this because the machine running it has
