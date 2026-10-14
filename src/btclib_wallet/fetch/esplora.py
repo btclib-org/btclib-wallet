@@ -127,7 +127,7 @@ _MAX_FEE_ESTIMATES_BODY = 4096
 # API.md's own set of confirmation targets: 1-25, 144, 504 and 1008. The
 # highest of them is the target above which no deployment answers, and
 # `estimate_fee` refuses before a request is made rather than reporting
-# an empty answer back as "no target quoted"
+# "no target quoted at or above" that target
 _MAX_FEE_TARGET = 1008
 
 

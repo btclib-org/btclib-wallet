@@ -175,8 +175,8 @@ HdKeyPaths = MutableMapping[bytes, BIP32KeyOrigin]
 def _is_point(pub_key: bytes) -> bool:
     """Return whether the SEC octets are a point of the curve.
 
-    As in Bitcoin Core, a hybrid key (prefix 0x06 or 0x07) is a point when
-    its prefix gives the parity of its y coordinate.
+    As in Bitcoin Core, a hybrid key (prefix 0x06 or 0x07) is read too; its
+    prefix must also give the parity of y.
     """
     try:
         sec_point.point_from_octets(pub_key, hybrid=True)

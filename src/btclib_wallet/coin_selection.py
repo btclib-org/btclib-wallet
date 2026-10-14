@@ -497,10 +497,12 @@ def _branch_and_bound(  # noqa: C901, PLR0912
     """Translate `coinselection.cpp`'s `SelectCoinsBnB`: the search itself.
 
     Working on indices into `pool`, sorted once by descending effective
-    value, the lower waste first on a tie, exactly as Core's own
-    `utxo_pool` is: the sort is what makes
-    the lookahead sum below answer "how much could still be added"
-    without recomputing it at every node.
+    value: the sort is what makes the lookahead sum below answer "how much
+    could still be added" without recomputing it at every node.
+
+    A tie on effective value puts the lower waste first, as Core's
+    `descending` does, so that the clone skip can compare effective value
+    alone.
 
     Returns the selection, or None where there is none, and the number of
     tries the search took, Core's `GetSelectionsEvaluated`.
@@ -534,7 +536,8 @@ def _branch_and_bound(  # noqa: C901, PLR0912
     best_waste: int | None = None
     next_index = 0
     curr_try = 0
-    # Core reads this from the first of the sorted pool, the same way
+    # Core's is_feerate_high: the first candidate's fee against its
+    # long-term fee (coinselection.cpp:120 at v31.1)
     is_feerate_high = waste_i[0] > 0
 
     def deselect_last() -> None:

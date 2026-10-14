@@ -821,8 +821,9 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, bool]:
 
     Every one of BIP390's rules about it is a refusal here: no hardened
     step and no hardened wildcard, an aggregate key having no private half
-    to take either with, which is BIP328's own restriction. A fault in the
-    path's elements carries Bitcoin Core's ``musig(): `` prefix.
+    to take either with, which is BIP328's own restriction. A fault
+    ParseKeyPath reports in the path carries Bitcoin Core's ``musig(): ``
+    prefix.
     """
     if not suffix:
         return (), None, False
@@ -881,8 +882,8 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
     BIP390's: every participant an extended key, none of them ranged, and
     no hardened step. The first two are what make one aggregate key per
     index well defined -- with both sides ranged there would be two
-    indexes and one wildcard to read them from. Core checks them in this
-    order, before it reads the path.
+    indexes and one wildcard to read them from. Core checks the first two,
+    in this order, before it reads the path.
     """
     close = expression.rfind(")")
     inner = expression[len("musig(") : close]

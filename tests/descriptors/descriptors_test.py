@@ -780,13 +780,13 @@ def test_multipath_refuses_the_fault_core_reads_first(
 
 
 def test_multipath_reads_a_key_where_core_does() -> None:
-    """Read a key as Core does, and its path only where Core gets to it.
+    """Read a key as Core does inside ``pkh()``.
 
     In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf, ``pkh()``
     hands its whole argument to `ParsePubkey`, "," included: ``dead,beef``
     is a fingerprint of nine characters, and a "," starts no key. `parse`
     refuses both, for a reason of its own. A ``musig()`` outside ``tr()``
-    and ``rawtr()`` is refused before anything inside it is read.
+    and ``rawtr()`` is refused first, and its insides are left unread.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     comma = f"pkh([dead,beef/0]{xpub}/0/*)"
