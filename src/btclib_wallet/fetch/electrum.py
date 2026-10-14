@@ -231,8 +231,9 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         answers `get_best_block_id`: by hashing a header rather than by
         reading a hash the server chose. The proof
         of work is left out because `block_header_from_raw` checks it
-        against this fetcher's own network: a server on another chain
-        would fail it before the comparison, with the `FetchError` that
+        against this fetcher's own network: a server on a chain with an
+        easier proof-of-work limit, regtest's or signet's, would fail it
+        before the comparison, with the `FetchError` that
         `FallbackFetcher` falls through, where a genesis mismatch is the
         `BTClibValueError` it stops on. `server.features` carries a
         `genesis_hash` member and is what Electrum's own client compares
