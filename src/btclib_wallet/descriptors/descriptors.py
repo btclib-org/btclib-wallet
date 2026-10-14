@@ -209,6 +209,7 @@ from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
     PrvKeys,
     _assert_fingerprint,
+    _assert_index_range,
     _assert_key_item,
     _assert_key_path,
     _assert_key_path_element,
@@ -1111,11 +1112,10 @@ class Descriptor(ABC):
         """Refuse an index out of range, or one with no script of this.
 
         `satisfy` asks the two questions `script_pub_keys` asks, and has
-        to ask them first: an index out of range would otherwise be a
-        signature looked up under a key derived from it.
+        to ask them first: a descriptor with no wildcard would otherwise
+        be satisfied at an index where it has no script.
         """
-        if not 0 <= index < 0x80000000:
-            raise BTClibValueError(f"invalid derivation index: {index}")
+        _assert_index_range(index)
         if index and not self.is_ranged:
             err_msg = f"not a ranged descriptor: no script at index {index}"
             raise BTClibValueError(err_msg)

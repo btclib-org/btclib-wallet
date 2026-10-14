@@ -99,6 +99,16 @@ def _assert_prv_keys(prv_keys: object) -> None:
     assert_type(prv_keys, (Mapping, type(None)), "prv_keys")
 
 
+def _assert_index_range(index: int) -> None:
+    """Refuse an index outside the unhardened range, 0 to 2**31 - 1.
+
+    The range a wildcard counts in: an index beyond it would add itself to
+    the hardening offset and derive a step the wildcard never takes.
+    """
+    if not 0 <= index < _HARDENED_OFFSET:
+        raise BTClibValueError(f"invalid derivation index: {index}")
+
+
 _T = TypeVar("_T")
 
 # the keys derived so far by the expansion in progress, with the `prv_keys`
@@ -271,7 +281,11 @@ class KeyExpression:
         refuses a hardened step -- there being no aggregate private key to
         take one with. The index derives the participants or the aggregate
         and never both, BIP390 allowing a wildcard on one side only.
+
+        An index outside 0 to 2**31 - 1 is refused, whether the key is
+        ranged or not: `Descriptor` refuses the same.
         """
+        _assert_index_range(index)
         _assert_prv_keys(prv_keys)
         return _once(
             ("sec", self, index, network),
