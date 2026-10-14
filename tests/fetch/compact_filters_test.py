@@ -54,8 +54,8 @@ from tests.fetch.peer_chain_test import (
     services,
 )
 
-# more blocks above the genesis block than the eleven the locator takes one
-# by one, with the wallet paid in blocks 3 and 11
+# more blocks above the genesis block than the locator takes one by
+# one, with the wallet paid in blocks 3 and 11
 CHAIN = Chain().extend(14, frozenset({3, 11}))
 TIP = CHAIN.height
 PAID = [3, 11]
@@ -292,15 +292,16 @@ def test_a_chain_longer_than_a_message_is_asked_for_in_several(
 
 
 def test_a_locator_thins_out_towards_the_genesis_block() -> None:
-    """The locator is `CBlockLocator`'s: dense at the tip, sparse below."""
+    """The locator is Bitcoin Core's `LocatorEntries`: dense, then sparse."""
     fetcher, peer = build()
     # the second request is the first made with the chain held
     fetcher.sync()
     fetcher.sync()
     locator = GetHeaders.parse(peer.requests("getheaders")[-1].payload).locator
-    # eleven blocks one by one from the tip, then twice as far apart each time
+    # eleven blocks one by one from the tip, one more step of one, then each
+    # step twice the one before, and the genesis block
     assert list(locator[:11]) == CHAIN.hashes[TIP:3:-1]
-    assert list(locator[11:]) == [CHAIN.hashes[2], CHAIN.hashes[0]]
+    assert list(locator[11:]) == [CHAIN.hashes[i] for i in (3, 1, 0)]
 
 
 # the peer and the connection

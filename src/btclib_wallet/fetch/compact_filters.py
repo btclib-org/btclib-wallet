@@ -315,17 +315,17 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def _locator(self) -> list[bytes]:
         """Return the hashes a peer finds the last common block from.
 
-        The tip, then ever sparser blocks back to genesis, which is
-        `btclib.p2p.inventory`'s `CBlockLocator` shape.
+        The tip, then ever sparser blocks back to genesis, as Bitcoin
+        Core's `LocatorEntries` (`src/chain.cpp`) takes them.
         """
         locator = []
         height = len(self._hashes) - 1
         step = 1
         while height > 0:
             locator.append(self._hashes[height])
+            height -= step
             if len(locator) > 10:
                 step *= 2
-            height -= step
         locator.append(self._hashes[0])
         return locator
 

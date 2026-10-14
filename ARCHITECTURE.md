@@ -181,10 +181,9 @@ Core's `-rest` interface being read-only and carrying no fee estimation.
 kept open across calls, and `TlsLineTransport` for the Electrum line
 protocol — and `fetch.peer_transport` is the seam of the p2p peer:
 `TcpPeerTransport` holds one TCP connection to it, plain and without
-authentication. The codec each backend speaks
-belongs to `btclib.p2p` or `btclib.electrum`, outside this package, and
-opens no socket: importing `fetch` costs `urllib`, `ssl` and `socket`,
-never the reverse.
+authentication. The codec each backend speaks belongs to `btclib.p2p` or
+`btclib.electrum`, outside this package: importing `fetch` costs
+`urllib`, `ssl` and `socket`, never the reverse.
 
 A fetcher raises btclib's `FetchError`, `HttpError` and `RpcError`.
 `bitcoin-core-rpc` declares classes of the same names that are not
