@@ -780,7 +780,7 @@ def test_multipath_refuses_the_fault_core_reads_first(
 
 
 def test_multipath_reads_a_key_where_core_does() -> None:
-    """Read a key as Core does inside ``pkh()``.
+    """Read a key, and a ``musig()`` path, only where Core gets to them.
 
     In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf, ``pkh()``
     hands its whole argument to `ParsePubkey`, "," included: ``dead,beef``
