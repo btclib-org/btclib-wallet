@@ -224,12 +224,12 @@ class Fetcher(ABC):
         not start failing this because the machine running it has
         drifted.
 
-        That is the whole of what the check establishes. Not that the
-        header is on the chain the caller means, not that it is truly at
-        the height asked for, and not that it is the tip: a backend
-        serving a real header from the wrong chain, or from the wrong
-        height, passes it just the same. Only a chain of headers answers
-        that, which is not this method's question.
+        This method promises no more than that check. It does not say the
+        header is on the chain the caller means, nor that it is truly at
+        the height asked for, nor that it is the tip: a backend serving a
+        real header from the wrong chain, or from the wrong height, passes
+        it just the same. Only a chain of headers answers that, which is
+        not this method's question.
         """
 
     def get_tx_out(self, out_point: OutPoint) -> TxOut:
