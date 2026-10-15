@@ -654,25 +654,29 @@ published keys. Matched against the pinned text on 2026-08-06.
 ### `tests/ecc/_data/bip445/sign_verify_vectors.json`
 
 The one BIP445 file this package reads: `tests/psbt/frost_test.py` takes
-its group of participants from it. btclib vendors the BIP445 files whole,
-and its entry for them says why they sit in a subdirectory and why each
-carries a `ref`: the BIP is a draft, `bitcoin/bips#2070`, whose path lives
-on the pull request's own branch rather than on `bitcoin/bips`' default.
+its group of participants from it. btclib-ecc vendors the BIP445 files
+whole, and its entry for them says why they sit in a subdirectory.
+
+The BIP is a draft, `bitcoin/bips#2070`, and the pinned commit is its
+version 0.12.1. The path lives on that pull request's own branch rather
+than on `bitcoin/bips`' default, so the pin carries the branch as its
+`ref`. btclib-ecc pins its copy to `siv2r/bip-frost-signing` instead, at
+the same blob.
 
 ```text
 repo    siv2r/bips
 path    bip-0445/python/vectors/sign_verify_vectors.json
 ref     bip-frost-signing
-commit  8e25d57911c33f1daadcadb0161a60a56ef7145a  2026-08-26
-blob    622d859bcd742e9caf37e1541bf2409aa7c6c333
-ours    ead53ab18f87c5d46ec82962204fa31a0bcdc132
-pulled  2026-09-17
+commit  363f69340b6731368db4a514147c7dec8eb5fd99  2026-10-12
+blob    3f08e8e8a9a64f5c0c7f0d965541d0a8d0182c08
+ours    ddc130d13e418062be1cacfa123a262d4c6b7657
+pulled  2026-09-17, refreshed 2026-10-15
 behind  0 revisions; that commit is the tip of the path
 ```
 
 Verdict: **identical but for a trailing newline** -- our blob is that one
 plus the `\n` the `end-of-file-fixer` hook added, so our blob is
-`ead53ab1`.
+`ddc130d1`.
 
 ## bitcoin/bitcoin
 

@@ -5,7 +5,7 @@
 """Tests for the `btclib_wallet.psbt.frost` module.
 
 The key material is BIP445's own 2-of-3 group, read out of the vectors
-vendored under `tests/ecc/_data/bip445/`, the file btclib's own
+vendored under `tests/ecc/_data/bip445/`, the file btclib-ecc's own
 `tests/ecc/frost_test.py` signs with. What is built here instead is the
 transaction -- BIP445 publishes no psbt, having nothing to say about one
 -- so every spend below pays the group and is spent by it, and what says
@@ -51,8 +51,8 @@ PUB_SHARES: tuple[bytes | None, ...] = tuple(
 )
 # a pubshare of the vectors that is a point and is not one of this
 # group's: the file publishes it to be refused, and it is what the
-# tampering below needs -- the entry before it is not a point at all, so
-# a psbt carrying it would be refused for the wrong reason
+# tampering below needs -- the file's invalid pubshare is not a point at
+# all, so a psbt carrying it would be refused for the wrong reason
 FOREIGN_PUB_SHARE = bytes.fromhex(_GROUP["pubshares"][-1])
 
 # the subset that signs: t of the n, which is where FROST parts from
