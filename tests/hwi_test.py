@@ -1028,30 +1028,36 @@ def test_what_runs_is_the_absolute_path_found_on_the_path(
     assert [Path(call.args[0][0]) for call in popen.call_args_list] == [on_path]
 
 
-def test_windows_extensions_are_applied_on_every_interpreter(
+def test_a_bare_name_on_windows_is_run_as_an_exe_and_never_as_a_batch_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A file named by PATHEXT is found, whatever `shutil.which` does.
+    """Only `hwi.exe` is found for `hwi`, whatever PATHEXT lists.
 
-    CPython 3.11 and PyPy 3.11 do not apply PATHEXT to a name with a
-    directory part, so asking `shutil.which` for `<dir>/hwi` finds no
-    `hwi.EXE` there. The Windows rules are switched on here so that the
+    `subprocess` appends `.exe` to a name without an extension, and a
+    batch file would be parsed by a shell, with the arguments this
+    package built. The Windows rules are switched on here so that the
     case is seen on every platform.
     """
     monkeypatch.setattr(hwi_module, "_WINDOWS", True)
     monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
-    monkeypatch.setenv("PATH", str(tmp_path))
-    assert not is_available()
-    (tmp_path / "hwi.EXE").write_text("", encoding="ascii")
-    (tmp_path / "hwi.EXE").chmod(0o755)
+    first, second = tmp_path / "first", tmp_path / "second"
+    monkeypatch.setenv("PATH", os.pathsep.join([str(first), str(second)]))
+    for directory, name in [
+        (first, "hwi.CMD"),
+        (first, "hwi.bat"),
+        (second, "hwi.exe"),
+    ]:
+        directory.mkdir(exist_ok=True)
+        (directory / name).write_text("", encoding="ascii")
+        (directory / name).chmod(0o755)
+    assert Path(_on_path("hwi") or "") == second / "hwi.exe"
     assert is_available()
-    assert Path(_on_path("hwi") or "") == tmp_path / "hwi.EXE"
-    # a name that carries an extension already is tried as it stands
-    assert Path(_on_path("hwi.EXE") or "") == tmp_path / "hwi.EXE"
+    (second / "hwi.exe").unlink()
+    assert _on_path("hwi") is None
+    assert not is_available()
+    # a name that carries an extension is the caller's own choice
+    assert Path(_on_path("hwi.CMD") or "") == first / "hwi.CMD"
     assert _on_path("other") is None
-    # a PATHEXT that is set and empty is the default, as `shutil.which` has it
-    monkeypatch.setenv("PATHEXT", "")
-    assert Path(_on_path("hwi") or "") == tmp_path / "hwi.EXE"
 
 
 def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:

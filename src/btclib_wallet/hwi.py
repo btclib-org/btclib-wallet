@@ -176,8 +176,6 @@ __all__ = [
 # be answers about two different executables
 DEFAULT_EXECUTABLE = "hwi"
 
-# the extensions Windows runs when PATHEXT is not set
-_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 _WINDOWS = sys.platform == "win32"
 
 # a button press is what a signing command waits for, so the bound is on
@@ -271,21 +269,18 @@ def _is_bare(name: str) -> bool:
     return not os.path.split(name)[0]
 
 
-def _candidates(name: str) -> list[str]:
-    """Return the file names a bare `name` can be run as in one directory.
+def _file_name(name: str) -> str:
+    """Return the file name a bare `name` is run as in a directory.
 
-    On Windows a file runs when its extension is in PATHEXT, and `name`
-    may or may not carry one already. `shutil.which` applies PATHEXT to a
-    name with a directory part on 3.12 and later only, so it is applied
-    here, the same on every interpreter.
+    On Windows `subprocess` appends `.exe` to a name that has no
+    extension and runs nothing else for it, so that is the one file
+    looked for: `hwi.bat` and `hwi.cmd` are not found as `hwi`, as they
+    would be through PATHEXT, because a batch file is parsed by a shell.
+    A name that has an extension is taken as it stands.
     """
-    if not _WINDOWS:
-        return [name]
-    extensions = [e for e in (os.environ.get("PATHEXT") or _PATHEXT).split(";") if e]
-    found = [name + e for e in extensions]
-    if any(name.upper().endswith(e.upper()) for e in extensions):
-        found.insert(0, name)
-    return found
+    if _WINDOWS and not pathlib.PurePath(name).suffix:
+        return name + ".exe"
+    return name
 
 
 def _on_path(name: str) -> str | None:
@@ -299,10 +294,9 @@ def _on_path(name: str) -> str | None:
     """
     for directory in os.environ.get("PATH", os.defpath).split(os.pathsep):
         if pathlib.Path(directory).is_absolute():
-            for candidate in _candidates(name):
-                path = str(pathlib.Path(directory) / candidate)
-                if pathlib.Path(path).is_file() and os.access(path, os.X_OK):
-                    return path
+            path = str(pathlib.Path(directory) / _file_name(name))
+            if pathlib.Path(path).is_file() and os.access(path, os.X_OK):
+                return path
     return None
 
 
