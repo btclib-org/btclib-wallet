@@ -39,11 +39,20 @@ addresses would make `address(branch, index)` a lie. `descriptors.parse`
 reads one, and a caller wanting it uses `Descriptor.script_pub_keys`
 directly.
 
-Two branches holding the same descriptor are refused too, `position_of`
-having no way to tell their scripts apart. They are compared as
-`core_import._comparable` compares them; other spellings of the same
-scripts are not caught, a key origin added to one of them for instance
-(issue #414).
+Two branches sharing a script are refused where this can tell, since
+`position_of` would answer the first of them for it. The scripts are
+compared, not the text, so a key origin or a child xpub in place of a
+derivation step does not hide a repeated chain. Two ranged chains are
+compared at index 0, where two spellings of one chain already agree. A
+chain that is not ranged is looked for in each ranged one up to
+`position_of`'s default `last_index`, so ``X/0/5`` beside ``X/0/*`` is
+refused. Two ranged chains that share a script only at another index, as
+a ``multi()`` and a ``sortedmulti()`` of the same keys can, are not
+caught.
+
+Comparing derives every chain at index 0, so a chain that cannot be
+derived is refused at construction: a hardened step without its private
+key, for instance.
 
 A parsed descriptor holds no private key -- `descriptors.parse` neuters an
 xprv to its xpub -- so a wallet is watch-only unless it is handed the
@@ -68,7 +77,6 @@ from typing_extensions import override
 from btclib_wallet.bip32.bip32 import BIP32Key
 from btclib_wallet.bip32.der_path import DerPath
 from btclib_wallet.bip44 import BIP44ScriptType
-from btclib_wallet.core_import import _comparable
 from btclib_wallet.descriptors.descriptors import (
     ComboDescriptor,
     Descriptor,
@@ -88,18 +96,28 @@ __all__ = [
 ]
 
 
-def _assert_distinct(by_branch: Mapping[int, Descriptor]) -> None:
-    """Refuse two branches equal as `_comparable` compares them.
-
-    The module docstring says why, and what is not caught.
-    """
-    seen: dict[str, int] = {}
-    for branch, descriptor in sorted(by_branch.items()):
-        first = seen.setdefault(_comparable(descriptor), branch)
-        if first != branch:
-            err_msg = f"branches {first} and {branch} hold the same"
-            err_msg += " descriptor: position_of could not tell them apart"
-            raise BTClibValueError(err_msg)
+def _assert_distinct(
+    by_branch: Mapping[int, Descriptor], prv_keys: PrvKeys | None
+) -> None:
+    """Refuse two branches sharing a script, as the module docstring says."""
+    branches = sorted(by_branch)
+    first = {
+        branch: by_branch[branch].script_pub_key(0, prv_keys).script
+        for branch in branches
+    }
+    for i, branch_a in enumerate(branches):
+        for branch_b in branches[i + 1 :]:
+            a, b = by_branch[branch_a], by_branch[branch_b]
+            if a.is_ranged == b.is_ranged:
+                shared = first[branch_a] == first[branch_b]
+            else:
+                ranged, fixed = (a, branch_b) if a.is_ranged else (b, branch_a)
+                found = ranged.index_of(first[fixed], _LAST_INDEX, prv_keys)
+                shared = found is not None
+            if shared:
+                err_msg = f"branches {branch_a} and {branch_b} share a script:"
+                err_msg += " position_of could not tell them apart"
+                raise BTClibValueError(err_msg)
 
 
 class DescriptorWallet(RangedWallet):
@@ -146,7 +164,7 @@ class DescriptorWallet(RangedWallet):
             err_msg = f"descriptors of different networks: {sorted(networks)}"
             raise BTClibValueError(err_msg)
 
-        _assert_distinct(by_branch)
+        _assert_distinct(by_branch, prv_keys)
 
         super().__init__(networks.pop())
         # sorted, so that `branches` is ascending and `position_of`
@@ -154,10 +172,8 @@ class DescriptorWallet(RangedWallet):
         self._descriptors = dict(sorted(by_branch.items()))
         self.prv_keys = prv_keys
         # computed here rather than answered lazily: it is one derivation,
-        # it is the same at every index -- a descriptor function is what
-        # decides it -- and doing it at construction is what refuses a
-        # descriptor this wallet cannot derive at all before a caller
-        # asks it for an address
+        # and it is the same at every index -- a descriptor function is
+        # what decides it
         self.script_type = self.script_pub_key(self.branches[0]).type
 
     @classmethod

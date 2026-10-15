@@ -166,19 +166,66 @@ def test_the_chains_must_be_of_one_network() -> None:
 def test_two_branches_may_not_hold_the_same_descriptor() -> None:
     """Else `position_of` answers the first for both."""
     receive = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
-    err_msg = "branches 0 and 1 hold the same descriptor"
+    err_msg = "branches 0 and 1 share a script"
     with pytest.raises(BTClibValueError, match=err_msg):
         DescriptorWallet([receive, receive])
 
-    # an apostrophe and an `h` spell the same hardened step
-    apostrophe = parse(_descriptor(f"wpkh({_XPUB}/0'/*)"))
-    hardened = parse(_descriptor(f"wpkh({_XPUB}/0h/*)"))
+    # a key origin changes no script, whichever hardening symbol it uses
+    apostrophe = parse(_descriptor(f"wpkh([{_FINGERPRINT}/84'/0'/0']{_XPUB}/0/*)"))
+    hardened = parse(_descriptor(f"wpkh([{_FINGERPRINT}/84h/0h/0h]{_XPUB}/0/*)"))
     with pytest.raises(BTClibValueError, match="branches 3 and 7"):
         DescriptorWallet({7: apostrophe, 3: hardened})
 
     # the two chains of one account differ, so they make a wallet
     change = parse(_descriptor(f"wpkh({_XPUB}/1/*)"))
     assert DescriptorWallet([receive, change]).branches == (0, 1)
+
+
+def test_two_branches_may_not_spell_the_same_scripts() -> None:
+    """The scripts are compared, so no spelling of one chain gets through."""
+    receive = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
+    err_msg = "branches 0 and 1 share a script"
+
+    # a key origin changes no script
+    with_origin = f"wpkh([{_FINGERPRINT}/84h/0h/0h]{_XPUB}/0/*)"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        DescriptorWallet([receive, parse(_descriptor(with_origin))])
+
+    # the child xpub at /0 is the same key as the derivation step to it
+    child = bip32.derive(_XPUB, "m/0")
+    with pytest.raises(BTClibValueError, match=err_msg):
+        DescriptorWallet([receive, parse(_descriptor(f"wpkh({child}/*)"))])
+
+
+def test_a_fixed_chain_may_not_be_an_index_of_a_ranged_one() -> None:
+    """`X/0/5` is index 5 of `X/0/*`, so `position_of` answers (0, 5) for it.
+
+    The fixed chain is looked for whichever branch it is at, and one
+    that is no index of the ranged chain makes a wallet.
+    """
+    receive = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
+    index_0 = parse(_descriptor(f"wpkh({_XPUB}/0/0)"))
+    with pytest.raises(BTClibValueError, match="branches 0 and 1 share a script"):
+        DescriptorWallet([receive, index_0])
+    index_5 = parse(_descriptor(f"wpkh({_XPUB}/0/5)"))
+    with pytest.raises(BTClibValueError, match="branches 0 and 1 share a script"):
+        DescriptorWallet([index_5, receive])
+
+    elsewhere = parse(_descriptor(f"wpkh({_XPUB}/1/0)"))
+    wallet = DescriptorWallet([receive, elsewhere])
+    assert wallet.position_of(wallet.script_pub_key(1, 0)) == (1, 0)
+
+
+def test_every_chain_is_derived_at_construction() -> None:
+    """A chain no index of which can be derived is refused, at any branch.
+
+    A hardened step needs the private key, which this wallet is not given.
+    """
+    receive = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
+    hardened = parse(_descriptor(f"wpkh({_XPUB}/1h/*)"))
+    err_msg = "invalid hardened derivation from public key"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        DescriptorWallet([receive, hardened])
 
 
 def test_the_network_is_refused_before_a_repeated_descriptor() -> None:
