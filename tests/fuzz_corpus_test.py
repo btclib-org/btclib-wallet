@@ -4,12 +4,11 @@
 
 """A fuzz/corpus/ seed is still a valid serialization of what it parses.
 
-`fuzz/fuzz_<name>.py` and `fuzz/corpus/fuzz_<name>/` are read from disk;
-neither is imported. Every harness imports atheris at module level,
-which is CI-only and undeclared in `[dependency-groups]`, so this module
-never runs `import fuzz.fuzz_<name>` and never executes a harness's own
-code -- it parses the source with `ast` and resolves what a harness
-*names* against the installed btclib_wallet instead.
+The entry-point checks read `fuzz/fuzz_<name>.py` with `ast` and resolve
+what a harness names against the installed btclib_wallet. Every harness
+imports atheris, which is CI-only and undeclared in `[dependency-groups]`.
+The descriptor round-trip tests load that harness with an atheris
+placeholder, and run its pure target without starting the fuzz engine.
 
 `ENTRY_POINTS`, a module-level tuple of `"module:Qual.name"` string
 literals, is what each harness names. `test_entry_points_are_declared`
@@ -43,6 +42,8 @@ wire form, so a descriptor seed is held to the normal form that
 `fuzz/fuzz_descriptor.py` states, and to a checksum that is valid. A seed
 in normal form prints back as written, the checksum aside;
 `_REWRITTEN_SEEDS` names the seeds that the normal form rewrites.
+`test_descriptor_seed_runs_the_harness` applies the harness's own
+input, print and script assertions to every descriptor seed.
 
 `test_psbt_crash_inputs_are_seeds` ties the two rust-bitcoin psbts that
 `tests/psbt/psbt_crash_inputs_test.py` reads to their `fuzz_psbt` seeds.
@@ -56,13 +57,18 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
-from btclib.exceptions import BTClibException
+from btclib.exceptions import BTClibException, BTClibValueError
 
-from btclib_wallet.descriptors import descriptors
+from btclib_wallet.descriptors import descriptors, miniscript
+from btclib_wallet.descriptors.key_expression import KeyExpression
 
 _TESTS = Path(__file__).parent
 _FUZZ = _TESTS.parent / "fuzz"
@@ -352,6 +358,142 @@ def test_descriptor_seed_prints_back(seed: Path) -> None:
 def test_every_rewritten_seed_exists() -> None:
     """A name in _REWRITTEN_SEEDS that is no seed would exempt nothing."""
     assert {seed.stem for seed in _DESCRIPTOR_SEEDS} >= _REWRITTEN_SEEDS
+
+
+@pytest.fixture
+def descriptor_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the descriptor target without loading its CI-only fuzz engine."""
+    monkeypatch.setitem(sys.modules, "atheris", ModuleType("atheris"))
+    spec = importlib.util.spec_from_file_location(
+        "fuzz_descriptor", _FUZZ / "fuzz_descriptor.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "seed", _DESCRIPTOR_SEEDS, ids=[seed.stem for seed in _DESCRIPTOR_SEEDS]
+)
+def test_descriptor_seed_runs_the_harness(
+    descriptor_harness: ModuleType, seed: Path
+) -> None:
+    """The corpus runs the target's input, print and script assertions."""
+    descriptor_harness.fuzz_target(seed.read_bytes())
+
+
+@pytest.mark.parametrize("loss", ["origin", "wildcard", "key"])
+def test_descriptor_harness_refuses_a_lossy_print(
+    descriptor_harness: ModuleType, monkeypatch: pytest.MonkeyPatch, loss: str
+) -> None:
+    """A stable printer can still lose an origin, a wildcard or a key."""
+    seed = _CORPUS / _TEXT_HARNESS / "bip386_tr_ranged_private.bin"
+    xpub = descriptors.parse(seed.read_text(encoding="utf-8")).key_expressions[0].xkey
+    key_seed = _CORPUS / _TEXT_HARNESS / "ms_or_b_and_b.bin"
+    keys = descriptors.parse(key_seed.read_text(encoding="utf-8")).key_expressions
+    key, other = map(str, keys[:2])
+    text = f"wpkh([deadbeef]{xpub}/*)" if loss == "wildcard" else f"pk([deadbeef]{key})"
+    original = KeyExpression.__str__
+
+    def lossy_print(expression: KeyExpression) -> str:
+        printed = original(expression)
+        if loss == "origin":
+            return printed.replace("[deadbeef]", "")
+        if loss == "wildcard":
+            return printed.replace("/*", "")
+        return printed.replace(key, other)
+
+    monkeypatch.setattr(KeyExpression, "__str__", lossy_print)
+    with pytest.raises(
+        AssertionError, match="^descriptor print changes the parsed input$"
+    ):
+        descriptor_harness.fuzz_target(text.encode())
+
+
+def test_descriptor_harness_refuses_a_changed_miniscript(
+    descriptor_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A decoder returning another valid script does not pass the round trip."""
+    monkeypatch.setattr(miniscript, "from_script", lambda *_: miniscript.parse("1"))
+    seed = _CORPUS / _TEXT_HARNESS / "ms_and_v_older.bin"
+    with pytest.raises(
+        AssertionError, match="^miniscript script round trip changes the script$"
+    ):
+        descriptor_harness.fuzz_target(seed.read_bytes())
+
+
+@pytest.mark.parametrize("operation", ["script", "from_script"])
+def test_descriptor_harness_propagates_miniscript_failures(
+    descriptor_harness: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    """Only the initial descriptor parse may refuse a fuzz input quietly."""
+
+    def fail(*_: object, **__: object) -> None:
+        raise BTClibValueError("round trip failed")
+
+    target = miniscript.Miniscript if operation == "script" else miniscript
+    monkeypatch.setattr(target, operation, fail)
+    seed = _CORPUS / _TEXT_HARNESS / "ms_and_v_older.bin"
+    with pytest.raises(BTClibValueError, match="^round trip failed$"):
+        descriptor_harness.fuzz_target(seed.read_bytes())
+
+
+def test_descriptor_harness_round_trips_a_hardened_private_key(
+    descriptor_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Private material read from the input makes hardened keys derivable."""
+    seed = _CORPUS / _TEXT_HARNESS / "bip386_tr_ranged_private.bin"
+    prv_keys: dict[str, str] = {}
+    descriptors.parse(seed.read_text(encoding="utf-8"), prv_keys=prv_keys)
+    xprv = next(iter(prv_keys.values()))
+    decode = Mock(wraps=miniscript.from_script)
+    monkeypatch.setattr(miniscript, "from_script", decode)
+
+    descriptor_harness.fuzz_target(f"wsh(and_v(v:pk({xprv}/0h/*h),older(10)))".encode())
+
+    decode.assert_called_once()
+
+
+def test_descriptor_harness_skips_only_the_nonderivable_script(
+    descriptor_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An xpub's hardened step still gets the input and print comparison."""
+    seed = _CORPUS / _TEXT_HARNESS / "bip386_tr_ranged_private.bin"
+    xpub = descriptors.parse(seed.read_text(encoding="utf-8")).key_expressions[0].xkey
+    decode = Mock(side_effect=AssertionError("a hardened xpub has no script"))
+    monkeypatch.setattr(miniscript, "from_script", decode)
+
+    descriptor_harness.fuzz_target(f"wsh(and_v(v:pk({xpub}/0h),older(10)))".encode())
+
+    decode.assert_not_called()
+
+
+def test_descriptor_harness_compares_deep_miniscript_without_recursing(
+    descriptor_harness: ModuleType,
+) -> None:
+    """A valid taproot leaf can nest beyond recursive dataclass equality."""
+    seed = _CORPUS / _TEXT_HARNESS / "ms_or_b_and_b.bin"
+    keys = descriptors.parse(seed.read_text(encoding="utf-8")).key_expressions
+    descriptor_harness.fuzz_target(f"tr({keys[0]},{'n' * 600}:pk({keys[1]}))".encode())
+
+
+def test_miniscript_script_round_trip_keeps_bytes_across_associations(
+    descriptor_harness: ModuleType,
+) -> None:
+    """Distinct and_v() trees can mean the same script, so bytes compare."""
+    seed = _CORPUS / _TEXT_HARNESS / "ms_or_b_and_b.bin"
+    a, b, c = descriptors.parse(seed.read_text(encoding="utf-8")).key_expressions
+    left = f"and_v(and_v(v:pk({a}),v:pk({b})),pk({c}))"
+    right = f"and_v(v:pk({a}),and_v(v:pk({b}),pk({c})))"
+    left_node = miniscript.parse(left)
+    right_node = miniscript.parse(right)
+    assert left_node != right_node
+    assert left_node.script() == right_node.script()
+    descriptor_harness.fuzz_target(f"wsh({left})".encode())
+    descriptor_harness.fuzz_target(f"wsh({right})".encode())
 
 
 @pytest.mark.parametrize("number", [1, 2])
