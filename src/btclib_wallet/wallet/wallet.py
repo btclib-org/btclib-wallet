@@ -380,14 +380,16 @@ class RangedWallet(Wallet, ABC):
         paying to one script is a wallet whose source repeats itself, not
         something this has to choose between.
 
-        `last_index` is an integer, and a bool is refused, as in
-        `Descriptor.index_of`.
+        `last_index` is a non-negative integer, and a bool is refused, as
+        in `Descriptor.index_of`.
         """
         script = script_from_script_pub_key(script_pub_key)
         if not is_integer(last_index):
             raise BTClibTypeError(
                 f"invalid last_index type: {type(last_index).__name__}"
             )
+        if last_index < 0:
+            raise BTClibValueError(f"negative last_index: {last_index}")
         for branch in self.branches:
             for index in range(last_index + 1):
                 if self._script_pub_key(branch, index).script == script:

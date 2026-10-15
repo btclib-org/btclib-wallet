@@ -200,6 +200,22 @@ def test_position_of_refuses_a_last_index_that_is_no_integer(
 
 
 @BUILDERS
+def test_position_of_refuses_a_negative_last_index(
+    build: Callable[[], RangedWallet],
+) -> None:
+    """A negative bound searches nothing, so it is refused (issue #413).
+
+    The None it answered would read as "not this wallet's".
+    """
+    wallet = build()
+    script_pub_key = wallet.script_pub_key(0, 0)
+    for wrong in (-1, -1000):
+        with pytest.raises(BTClibValueError, match="negative last_index: "):
+            wallet.position_of(script_pub_key, wrong)
+    assert wallet.position_of(script_pub_key, 0) == (0, 0)
+
+
+@BUILDERS
 def test_a_position_outside_the_wallet_is_refused(
     build: Callable[[], RangedWallet],
 ) -> None:

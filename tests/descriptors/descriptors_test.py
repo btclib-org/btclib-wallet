@@ -3905,6 +3905,22 @@ def test_index_of_refuses_a_last_index_that_is_no_integer() -> None:
     assert ranged.index_of(ranged.script_pub_key(1), 1) == 1
 
 
+def test_index_of_refuses_a_negative_last_index() -> None:
+    """A negative bound is no search at all (issue #413).
+
+    `range(last_index + 1)` is empty for one, and the None it answered
+    reads as "not this wallet's" about an output nobody looked for.
+    """
+    ranged = parse(f"wpkh([d34db33f/84h/0h/0h]{XPUB}/1/*)")
+    fixed = parse(f"wpkh({KEY_A})")
+    for descriptor in (ranged, fixed):
+        script_pub_key = descriptor.script_pub_key(0)
+        for wrong in (-1, -1000):
+            with pytest.raises(BTClibValueError, match="negative last_index: "):
+                descriptor.index_of(script_pub_key, wrong)
+        assert descriptor.index_of(script_pub_key, 0) == 0
+
+
 def taproot_merkle_root_of(tree: list[tuple[int, int, bytes]]) -> bytes:
     """Return the merkle root a PSBT_OUT_TAP_TREE field folds up to.
 

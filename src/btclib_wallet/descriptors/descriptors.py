@@ -1339,7 +1339,9 @@ class Descriptor(ABC):
         is not ranged has one script and answers 0 or None.
 
         `last_index` is an integer, ranged descriptor or not, and a bool
-        is refused: `True` would bound a ranged search at 1.
+        is refused: `True` would bound a ranged search at 1. A negative
+        one is refused too, as it bounds no search: answering None for it
+        would say the output is not this wallet's.
         """
         _assert_prv_keys(prv_keys)
         script = script_from_script_pub_key(script_pub_key)
@@ -1347,6 +1349,8 @@ class Descriptor(ABC):
             raise BTClibTypeError(
                 f"invalid last_index type: {type(last_index).__name__}"
             )
+        if last_index < 0:
+            raise BTClibValueError(f"negative last_index: {last_index}")
         last = last_index if self.is_ranged else 0
         for index in range(last + 1):
             if any(
