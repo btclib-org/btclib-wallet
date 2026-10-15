@@ -444,8 +444,25 @@ def _split_arguments(arguments: str) -> list[str]:
     comma of its own, a nested SCRIPT expression and a tr() branch. The
     key origin brackets are deliberately not counted, so that a bracket
     written wrong reaches the key expression parser, which can say which
-    of the two ways it is wrong.
+    of the two ways it is wrong. Brackets that do not pair are refused.
     """
+    return _split_delimited(arguments, strict=True)
+
+
+def _split_unpaired_arguments(arguments: str) -> list[str]:
+    """Split as `_split_arguments` does, and let brackets be unpaired.
+
+    An argument ends at a closing bracket with nothing open, as Bitcoin
+    Core's ``Expr`` ends it, and the text from there on is left out. An
+    opening one with no end takes the rest of the text. The caller reads
+    what is left, so that a key written with a bracket is the key's fault,
+    and then refuses the brackets itself.
+    """
+    return _split_delimited(arguments, strict=False)
+
+
+def _split_delimited(arguments: str, *, strict: bool) -> list[str]:
+    """Split at the commas of depth zero; `strict` refuses unpaired brackets."""
     depth = 0
     start = 0
     result = []
@@ -459,16 +476,35 @@ def _split_arguments(arguments: str) -> list[str]:
         if char in "({":
             depth += 1
         elif char in ")}":
+            if depth == 0 and not strict:
+                result.append(arguments[start : match.start()])
+                return result
             depth -= 1
             if depth < 0:
                 raise BTClibValueError("unbalanced brackets")
         elif depth == 0:  # a comma, the only other character matched
             result.append(arguments[start : match.start()])
             start = match.end()
-    if depth:
+    if depth and strict:
         raise BTClibValueError("unbalanced brackets")
     result.append(arguments[start:])
     return result
+
+
+def _read_split(arguments: str, read: Callable[[list[str]], _T]) -> _T:
+    """Return what `read` makes of the split `arguments`.
+
+    Brackets that do not pair are refused, but only once `read` has read
+    what it can of the arguments split leniently: Core reads the keys
+    before it finds them, so a fault of a key comes first.
+    """
+    try:
+        split = _split_arguments(arguments)
+    except BTClibValueError as e:
+        read(_split_unpaired_arguments(arguments))
+        # a stray bracket stays in the text of the argument it is in
+        raise e from None
+    return read(split)
 
 
 def _split_function(expression: str) -> tuple[str, str]:
@@ -718,6 +754,96 @@ _MULTIPLE_MULTIPATH = "Multiple multipath key path specifiers found"
 _ONE_ITEM_STEP = "a multipath step takes at least two elements"
 _MULTIPATH_KEY = "multipath key expression: use multipath_descriptors first"
 _UNDERIVABLE = "derivation path after a key that cannot derive"
+_NO_KEY = "No key provided"
+
+
+class _MultipathKeyError(BTClibValueError):
+    """A key, or a ``musig()``, with a multipath step to expand first.
+
+    `length` is the number of items of the step.
+    """
+
+    def __init__(self, length: int, message: str = _MULTIPATH_KEY) -> None:
+        super().__init__(message)
+        self.length = length
+
+
+def _assert_same_length(lengths: list[int]) -> None:
+    """Refuse the steps of a call that differ in length, as Core does.
+
+    Core refuses them once it has read every key of a ``multi()``, a
+    ``multi_a()`` or a ``musig()``, and a key with no step goes with any.
+    `lengths` has a zero for such a key.
+    """
+    different = sorted({length for length in lengths if length})
+    if len(different) > 1:
+        raise BTClibValueError(f"multipath steps of different length: {different}")
+
+
+# the lengths of the multipath steps `_parse_key` has read and set aside, or
+# None where it refuses the first one it reads. See `_steps_set_aside`.
+_SET_ASIDE: ContextVar[list[int] | None] = ContextVar("_SET_ASIDE", default=None)
+
+
+@contextmanager
+def _steps_set_aside() -> Iterator[list[int]]:
+    """Read keys with a step on their first path, noting the step's length.
+
+    `_parse_key` refuses a key with a step, for `multipath_descriptors` to
+    expand first. Inside this block it reads the key on its first path
+    instead and notes the length of the step, so that the whole text is read
+    once before it is expanded.
+    """
+    steps: list[int] = []
+    token = _SET_ASIDE.set(steps)
+    try:
+        yield steps
+    finally:
+        _SET_ASIDE.reset(token)
+
+
+def _first_path(key: str) -> str:
+    """Return a key with the first item of each multipath step."""
+    return re.sub(r"<([^;>]*)[^>]*>", r"\1", key)
+
+
+def _expand_first(length: int) -> None:
+    """Note a step of `length` items to expand, or refuse it where none is."""
+    steps = _SET_ASIDE.get()
+    if steps is None:
+        raise _MultipathKeyError(length)
+    steps.append(length)
+
+
+def _read_multipath_keys(
+    arguments: list[str], read: Callable[[str], KeyExpression]
+) -> tuple[tuple[KeyExpression, ...], list[int]]:
+    """Return the keys of a ``multi()`` or ``musig()``, and the step lengths.
+
+    A key with a step is read on its first path, for the checks that Core
+    makes on the keys before it compares the lengths of their steps. The
+    length is zero for a key with none.
+    """
+    keys = []
+    lengths = []
+    for argument in arguments:
+        with _steps_set_aside() as steps:
+            keys.append(read(argument))
+        lengths.append(max(steps, default=0))
+    return tuple(keys), lengths
+
+
+def _assert_multipath_keys(lengths: list[int]) -> None:
+    """Refuse the steps of a ``multi()`` or ``multi_a()`` as `parse` does.
+
+    The steps of different length are a fault, and any other step is for
+    `multipath_descriptors` to expand.
+    """
+    _assert_same_length(lengths)
+    if any(lengths):
+        _expand_first(max(lengths))
+
+
 # the last elements of a key path that make it ranged
 _WILDCARDS = frozenset({"*", "*'", "*h"})
 
@@ -741,7 +867,7 @@ def _assert_step_items(step: str) -> None:
         seen.add(index)
 
 
-def _assert_key_path_element(element: str, *, after_step: bool, numeric: bool) -> bool:
+def _assert_key_path_element(element: str, *, after_step: bool) -> bool:
     """Refuse a key path element as Core does, and answer whether it is a step.
 
     Core's ``ParseKeyPath`` reads a key path left to right, and takes an
@@ -749,32 +875,28 @@ def _assert_key_path_element(element: str, *, after_step: bool, numeric: bool) -
     step. Where one was read already, it refuses the element as a second
     step before it reads anything inside it. Otherwise it reads the
     element, or the items of the step, as numbers before the next element.
-
-    `numeric` is whether Core reads the path at all, which it does only
-    for an extended key.
     """
     is_step = element.startswith("<") and element.endswith(">")
     if is_step and after_step:
         raise BTClibValueError(_MULTIPLE_MULTIPATH)
     _assert_whole_multipath_element(element)
-    if numeric and is_step:
+    if is_step:
         _assert_step_items(element)
-    elif numeric:
+    else:
         _der_path([element])
     return is_step
 
 
-def _assert_key_path(elements: list[str], *, numeric: bool) -> bool:
+def _assert_key_path(elements: list[str]) -> int:
     """Refuse a key path, its final wildcard off, as ``ParseKeyPath`` does.
 
-    Answer whether it holds a multipath step. `numeric` is
-    `_assert_key_path_element`'s.
+    Answer the number of items of its multipath step, zero if it has none.
     """
-    after_step = False
+    length = 0
     for element in elements:
-        if _assert_key_path_element(element, after_step=after_step, numeric=numeric):
-            after_step = True
-    return after_step
+        if _assert_key_path_element(element, after_step=bool(length)):
+            length = element.count(";") + 1
+    return length
 
 
 def _assert_key_characters(rest: str, *, extended: bool) -> None:
@@ -784,6 +906,9 @@ def _assert_key_characters(rest: str, *, extended: bool) -> None:
     that is not, if a path follows it, before it reads the path.
     """
     key, *steps = rest.split("/")
+    # Core's first check of a key, before the path or anything else in it
+    if not key:
+        raise BTClibValueError(_NO_KEY)
     _assert_key_item(key)
     if "(" in key:
         # a function where a key belongs. BIP390's musig() is the one that
@@ -794,9 +919,9 @@ def _assert_key_characters(rest: str, *, extended: bool) -> None:
         raise BTClibValueError("not a key expression")
     if steps and not extended:
         raise BTClibValueError(_UNDERIVABLE)
-    _assert_key_path(_split_wildcard(steps)[0], numeric=True)
+    length = _assert_key_path(_split_wildcard(steps)[0])
     if "<" in rest:
-        raise BTClibValueError(_MULTIPATH_KEY)
+        raise _MultipathKeyError(length)
 
 
 def _split_wildcard(steps: list[str]) -> tuple[list[str], int | None, str]:
@@ -850,6 +975,11 @@ _RANGED_PARTICIPANT = "musig() cannot have a ranged participant and derivation t
 # Bitcoin Core's own message, refusing a musig() that holds a ")" of its own
 _MUSIG_CLOSES = "Too many ')' in musig() expression"
 _HARDENED_MUSIG_STEP = "musig() cannot have hardened derivation steps"
+# Bitcoin Core's own message, refusing a musig() with a multipath step in
+# both its participants and its path
+_MUSIG_ONE_MULTIPATH = (
+    "musig(): Cannot have multipath participant keys if musig() is also multipath"
+)
 
 
 def _path_indexes(steps: list[str]) -> list[int]:
@@ -865,10 +995,11 @@ def _path_indexes(steps: list[str]) -> list[int]:
     return _der_path(items)
 
 
-def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, bool]:
+def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, int]:
     """Return the path and wildcard a ``musig()`` derives the aggregate by.
 
-    And whether the path holds a multipath step, which the caller refuses.
+    And the number of items of the path's multipath step, zero if it has
+    none, which the caller refuses.
     `suffix` is empty or starts with ``/``.
 
     Every one of BIP390's rules about it is a refusal here: no hardened
@@ -878,40 +1009,64 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, bool]:
     prefix.
     """
     if not suffix:
-        return (), None, False
+        return (), None, 0
     steps, wildcard, wildcard_hardening = _split_wildcard(suffix[1:].split("/"))
     if wildcard_hardening:
         raise BTClibValueError("musig() cannot have a hardened wildcard")
     try:
-        multipath = _assert_key_path(steps, numeric=True)
+        length = _assert_key_path(steps)
     except BTClibValueError as e:
         raise BTClibValueError(f"musig(): {e}") from e
     der_path = _path_indexes(steps)
     if any(index >= _HARDENED_OFFSET for index in der_path):
         raise BTClibValueError(_HARDENED_MUSIG_STEP)
-    return tuple(der_path), wildcard, multipath
+    return tuple(der_path), wildcard, length
 
 
-def _musig_participant(
-    key: str, prv_keys: dict[str, str]
-) -> tuple[KeyExpression, bool]:
-    """Return a ``musig()`` participant, and whether it is multipath.
+def _assert_musig_multipath(*, participants: list[int], path: int) -> None:
+    """Refuse a ``musig()`` holding a multipath step, as `parse` does.
+
+    `participants` is the length of each participant's step, zero for one
+    with none, and `path` the length of the path's. Bitcoin Core refuses a
+    step in both the participants and the path after it has read both,
+    then steps of different length. A step in either alone is for
+    `multipath_descriptors` to expand first.
+    """
+    if any(participants) and path:
+        raise BTClibValueError(_MUSIG_ONE_MULTIPATH)
+    _assert_same_length(participants)
+    if any(participants):
+        raise _MultipathKeyError(max(participants), f"musig(): {_MULTIPATH_KEY}")
+    if path:
+        raise _MultipathKeyError(path)
+
+
+def _musig_participants(
+    arguments: list[str], prv_keys: dict[str, str]
+) -> tuple[tuple[KeyExpression, ...], list[int]]:
+    """Return the participants of a ``musig()``, and their step lengths.
 
     Core reads a multipath participant, so what it refuses after one comes
-    before `parse` refuses the participant. That participant is read here
-    on its first path, for the checks that follow it.
+    before `parse` refuses the participant. That participant is read on its
+    first path, for the checks that follow it.
     """
+    if arguments == [""]:
+        raise BTClibValueError("musig() takes at least one key")
     try:
-        return _parse_key(
-            key, prv_keys, x_only=False, compressed=True, musig_allowed=False
-        ), False
-    except BTClibValueError as e:
-        if str(e) != _MULTIPATH_KEY:
-            raise
-    first = re.sub(r"<([^;>]*)[^>]*>", r"\1", key)
-    return _parse_key(
-        first, prv_keys, x_only=False, compressed=True, musig_allowed=False
-    ), True
+        return _read_multipath_keys(
+            arguments,
+            lambda key: _parse_key(
+                key, prv_keys, x_only=False, compressed=True, musig_allowed=False
+            ),
+        )
+    # which of several participants was wrong is half the answer, and the
+    # inner message names neither the function nor the position. Bitcoin
+    # Core prefixes its own the same way, "musig(): ...". ValueError: a
+    # participant that is no point is refused by
+    # btclib_ecc.exceptions.BTClibEccValueError, which is no
+    # BTClibValueError
+    except ValueError as e:
+        raise BTClibValueError(f"musig(): {e}") from e
 
 
 def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
@@ -935,21 +1090,12 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
     if expression.count(")") > 1:
         raise BTClibValueError(_MUSIG_CLOSES)
     close = expression.rfind(")")
+    if close < 0:
+        raise BTClibValueError("unbalanced brackets")
     inner = expression[len("musig(") : close]
-    arguments = _split_arguments(inner)
-    if arguments == [""]:
-        raise BTClibValueError("musig() takes at least one key")
-    try:
-        read = [_musig_participant(key, prv_keys) for key in arguments]
-    # which of several participants was wrong is half the answer, and the
-    # inner message names neither the function nor the position. Bitcoin
-    # Core prefixes its own the same way, "musig(): ...". ValueError: a
-    # participant that is no point is refused by
-    # btclib_ecc.exceptions.BTClibEccValueError, which is no
-    # BTClibValueError
-    except ValueError as e:
-        raise BTClibValueError(f"musig(): {e}") from e
-    participants = tuple(key for key, _ in read)
+    participants, lengths = _read_split(
+        inner, lambda args: _musig_participants(args, prv_keys)
+    )
     suffix = expression[close + 1 :]
     if suffix and not suffix.startswith("/"):
         raise BTClibValueError("not a musig() derivation path: '/' expected")
@@ -960,10 +1106,10 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
         if any(key.is_ranged for key in participants):
             raise BTClibValueError(_RANGED_PARTICIPANT)
     der_path, wildcard, multipath = _musig_der_path(suffix)
-    if any(multipath_participant for _, multipath_participant in read):
-        raise BTClibValueError(f"musig(): {_MULTIPATH_KEY}")
-    if multipath:
-        raise BTClibValueError(_MULTIPATH_KEY)
+    _assert_musig_multipath(
+        participants=lengths,
+        path=multipath,
+    )
     return KeyExpression(
         participants=participants, der_path=der_path, wildcard=wildcard
     )
@@ -979,6 +1125,9 @@ def _parse_key(
 ) -> KeyExpression:
     """Return the KeyExpression of a BIP380 KEY expression.
 
+    A step is refused, for `multipath_descriptors` to expand first, unless
+    `_steps_set_aside` is in force: the key is then read on its first path.
+
     Never echo the key in an error message: a KEY expression is a WIF or
     an xprv as often as it is a public key, and an error message ends up
     in logs and in bug reports.
@@ -993,6 +1142,37 @@ def _parse_key(
     the expression is a musig one or it is not, so an origin in front of it
     is not a musig expression with an origin -- it is a key that is no key.
     """
+    try:
+        return _read_key(
+            expression,
+            prv_keys,
+            x_only=x_only,
+            compressed=compressed,
+            musig_allowed=musig_allowed,
+        )
+    except _MultipathKeyError as e:
+        steps = _SET_ASIDE.get()
+        if steps is None:
+            raise
+        steps.append(e.length)
+    return _read_key(
+        _first_path(expression),
+        prv_keys,
+        x_only=x_only,
+        compressed=compressed,
+        musig_allowed=musig_allowed,
+    )
+
+
+def _read_key(
+    expression: str,
+    prv_keys: dict[str, str],
+    *,
+    x_only: bool,
+    compressed: bool,
+    musig_allowed: bool,
+) -> KeyExpression:
+    """Return the KeyExpression of a KEY expression, a step refused."""
     if expression.startswith("musig("):
         _assert_musig_allowed(musig_allowed=musig_allowed)
         return _parse_musig(expression, prv_keys)

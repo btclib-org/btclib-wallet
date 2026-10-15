@@ -75,10 +75,15 @@ it is and satisfies it from the input's own fields. It lives here rather
 than in `psbt` because of the direction above -- this module imports that
 one -- and a caller passes it: `finalize(psbt, solver=miniscript_solver)`.
 
-BIP390's rule that a multipath ``musig()`` may not hold multipath
-participants is `multipath_descriptors`'s, with Bitcoin Core's message:
-`parse` refuses a ``<a;b>`` step anywhere, and what reaches a
-`Descriptor` is one path per key.
+`parse` refuses a ``<a;b>`` step that Bitcoin Core accepts, and what
+reaches a `Descriptor` is one path per key. `multipath_descriptors`
+expands the steps and hands each result to `parse`, so that one reader
+names the faults. Steps of different length in one ``multi()``,
+``multi_a()`` or ``musig()`` are refused by `parse` itself, once that call
+is read, where Core refuses them. Elsewhere they are the one fault
+`multipath_descriptors` names, after the expansions are read. BIP390's rule
+that a multipath ``musig()`` may not hold multipath participants is
+`parse`'s, with Core's message.
 
 A parsed descriptor holds no key that signs. `parse` neuters an xprv to
 the xpub the `KeyExpression` then carries, and hands the private spelling
@@ -142,9 +147,7 @@ from __future__ import annotations
 import operator
 import re
 from abc import ABC, abstractmethod
-from bisect import bisect_left, bisect_right
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, cast
@@ -202,34 +205,22 @@ from btclib_wallet.bip44 import (
 )
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.descriptors.key_expression import (
-    _HARDENED_MUSIG_STEP,
-    _MISSING_ORIGIN_END,
-    _ONE_ITEM_STEP,
-    _ORIGIN_WITHOUT_START,
-    _RANGED_PARTICIPANT,
-    _SEVERAL_ORIGIN_ENDS,
-    _WILDCARDS,
     KeyExpression,
     PrvKeys,
-    _assert_fingerprint,
     _assert_index_range,
-    _assert_key_item,
-    _assert_key_path,
-    _assert_key_path_element,
+    _assert_multipath_keys,
     _assert_musig_allowed,
     _assert_network,
-    _assert_no_glued_step,
-    _assert_origin_path_element,
     _assert_prv_keys,
     _derived_once,
     _expression,
-    _is_extended_key,
     _offered_signature,
     _parse_key,
-    _path_indexes,
-    _split_arguments,
+    _read_multipath_keys,
+    _read_split,
     _split_function,
-    _split_wildcard,
+    _split_unpaired_arguments,
+    _steps_set_aside,
 )
 from btclib_wallet.descriptors.miniscript import (
     Miniscript,
@@ -412,345 +403,21 @@ _MAX_BARE_MULTISIG_KEYS = 3
 _TREE_FUNCTIONS = ("multi_a", "sortedmulti_a")
 
 _THRESHOLD = re.compile(r"[0-9]+")
-# the BIP389 multipath step, brackets included: re.split hands back what
-# it split on when the pattern captures it
-_MULTIPATH_STEP = re.compile(r"(<[^<>]*>)")
-# what ends a key expression, and with it a key path
-_KEY_END = re.compile(r"[,(){}]")
-# what `multipath_descriptors` reads, left to right: a "[" with the
-# fingerprint after it, up to the first "/" or "]", as `ParsePubkey`
-# reads it; a "]" or a key end; the text up to the next "[", "]", key
-# end or "/"; or a "/" with nothing after it, which ends an empty element
-_MULTIPATH_ITEM = re.compile(r"\[[^/\]]*|[\](),{}]|[^/\[\](),{}]+|/(?=[/\[\](),{}]|$)")
-_MUSIG_ONE_MULTIPATH = (
-    "musig(): Cannot have multipath participant keys if musig() is also multipath"
-)
-# the functions whose whole argument Core reads as one key, "," included,
-# where the ending "(" is at `endpos`: the descriptor ones and miniscript's
-_WHOLE_KEY_FUNCTION = re.compile(r"(?:^|[(,{:])(?:pk|pkh|wpkh|combo|pk_k|pk_h)\($")
-# the functions whose first argument Core reads as a key, at `endpos` as above
-_KEY_FUNCTION = re.compile(r"(?:^|[(,{:])(?:pk|pkh|wpkh|combo|pk_k|pk_h|tr|rawtr)\($")
+# a multipath step. A text that `parse` has read, each step on its first
+# path, holds no "<" or ">" but in one, as a whole element of a key's path
+_MULTIPATH_STEP = re.compile(r"<[^<>]*>")
 
 
-def _argument_ends(text: str) -> tuple[list[int], dict[int, int], dict[int, int]]:
-    """Return where each argument of `text` starts, ends and closes.
+def _multipath_steps(text: str) -> list[tuple[int, int, list[str]]]:
+    """Return the ``<a;b>`` steps of `text`: start, end and items of each.
 
-    An argument starts at the start of the text and after each of
-    ",(){}". It ends where Bitcoin Core's ``Expr`` ends it: at the first
-    ",", ")" or "}" outside the brackets it opens itself. One that starts
-    after "(" or "{" closes at the ")" or "}" alone, which is where it ends
-    when read whole. One that neither ends nor closes runs to the end of
-    the text, and is in neither map. One pass over the delimiters: an
-    argument waits, by bracket depth, for what ends it.
+    `text` is one `parse` has read whole, so every step it holds is a legal
+    one of a key.
     """
-    starts = [0]
-    ends: dict[int, int] = {}
-    closes: dict[int, int] = {}
-    waiting: dict[int, list[int]] = {0: [0]}
-    opened: dict[int, list[int]] = {}
-    depth = 0
-    for match in _KEY_END.finditer(text):
-        char, at = match[0], match.start()
-        starts.append(at + 1)
-        if char in "({":
-            depth += 1
-            waiting.setdefault(depth, []).append(at + 1)
-            opened.setdefault(depth, []).append(at + 1)
-            continue
-        for start in waiting.pop(depth, []):
-            ends[start] = at
-        if char != ",":
-            for start in opened.pop(depth, []):
-                closes[start] = at
-            depth -= 1
-        waiting.setdefault(depth, []).append(at + 1)
-    return starts, ends, closes
-
-
-def _count(positions: list[int], start: int, end: int) -> int:
-    """Count the sorted `positions` from `start` up to `end`."""
-    return bisect_left(positions, end) - bisect_left(positions, start)
-
-
-def _whole_argument(
-    text: str, start: int, ends: dict[int, int], closes: dict[int, int]
-) -> range:
-    """Return where the argument at `start` lies, if Core reads it whole.
-
-    That is the argument of a `_WHOLE_KEY_FUNCTION` holding a "," of its
-    own, which then starts no key. The range is empty otherwise. `ends`
-    and `closes` are `_argument_ends`'s.
-    """
-    # the longest name, "combo(", and the character before it
-    if not _WHOLE_KEY_FUNCTION.search(text, max(start - 7, 0), start):
-        return range(-1, -1)
-    close = closes.get(start, len(text))
-    if close == ends.get(start, len(text)):
-        return range(-1, -1)
-    return range(start, close)
-
-
-def _assert_one_origin_end(origin_ends: int) -> None:
-    """Refuse a key whose "[" has no "]", or more than one, as Core does."""
-    if origin_ends != 1:
-        err_msg = _SEVERAL_ORIGIN_ENDS if origin_ends else _MISSING_ORIGIN_END
-        raise BTClibValueError(err_msg)
-
-
-def _assert_no_origin_end(origin_ends: int) -> None:
-    """Refuse a "]" in a key that does not open with "[", as Core does.
-
-    Core's ``ParsePubkey`` counts the "]" first, then checks the "[",
-    and only then reads the key itself.
-    """
-    if origin_ends > 1:
-        raise BTClibValueError(_SEVERAL_ORIGIN_ENDS)
-    if origin_ends:
-        raise BTClibValueError(_ORIGIN_WITHOUT_START)
-
-
-@contextmanager
-def _prefixed(prefix: str) -> Iterator[None]:
-    """Put `prefix` before the message of a BTClibValueError raised inside."""
-    try:
-        yield
-    except BTClibValueError as e:
-        if not prefix:
-            raise
-        raise BTClibValueError(f"{prefix}{e}") from e
-
-
-def _assert_key_opening(
-    text: str, item: re.Match[str], key: range, whole: range, origin_ends: list[int]
-) -> None:
-    """Refuse the faults Core reads in a key item: its origin, then the item.
-
-    `item` follows "]", "(" or ",", where a key or a function name starts;
-    nothing else there holds "<" or ">" in a valid descriptor. `key` is
-    where its key lies, `whole` the argument Core reads as one key, if any
-    (`_whole_argument`), and `origin_ends` where the text holds a "]".
-    """
-    start, end = item.start(), item.end()
-    opens = key.start == whole.start or key.start not in whole
-    name = text[end : end + 1] == "("
-    # Core counts a key's "]" and checks its "[" before it reads the key
-    if opens and text[start - 1] != "]" and not name:
-        _assert_no_origin_end(_count(origin_ends, key.start, key.stop))
-    if (
-        name
-        and item[0].strip() == "musig"
-        and _KEY_FUNCTION.search(text, max(start - 7, 0), start)
-    ):
-        # Core reads a musig() in a key's place as the key, whose item ends
-        # at the ")" and not here
-        _assert_key_item(item[0].rstrip())
-    elif name:
-        # a function name, whose fault `parse` reports
-        _assert_no_glued_step(item[0])
-    elif key.start == whole.start:
-        # read whole, the key item runs to the first "/", "," included
-        _assert_key_item(text[start : whole.stop].partition("/")[0])
-    elif opens:
-        _assert_key_item(item[0])
-    else:
-        _assert_no_glued_step(item[0])
-
-
-def _reads_past_origin(key: str) -> bool:
-    """Answer whether Core reads past a key's origin.
-
-    It does where the key has no "]" or opens with "[": a key that opens
-    with "[" holds exactly one "]" by then.
-    """
-    return "]" not in key or key.startswith("[")
-
-
-def _musig_ends(text: str) -> dict[int, int]:
-    """Map the ")" closing each ``musig(`` to where its participants start.
-
-    One pass, pairing each ")" with the last "(" still open; one with none
-    open pairs with the start of the text, where no ``musig(`` ends.
-    """
-    ends = {}
-    opened = []
-    for match in re.finditer(r"[()]", text):
-        if match[0] == "(":
-            opened.append(match.end())
-            continue
-        start = opened.pop() if opened else 0
-        if text.endswith("musig(", 0, start):
-            ends[match.start()] = start
-    return ends
-
-
-def _internal_key_span(
-    text: str, ends: dict[int, int], closes: dict[int, int]
-) -> range:
-    """Return where a top-level tr() or rawtr() internal key lies.
-
-    The scanner's argument maps already hold its boundaries. A musig()
-    below an origin or a script function is not this key. The range is
-    empty where the outer shape or the number of arguments is wrong, which
-    `parse` refuses before it reads a key.
-    """
-    name = text.partition("(")[0]
-    start, close = len(name) + 1, len(text) - 1
-    if (
-        name not in {"tr", "rawtr"}
-        or not text.endswith(")")
-        or closes.get(start) != close
-    ):
-        return range(-1, -1)
-    end = ends[start]
-    if end != close and (name != "tr" or ends.get(end + 1) != close):
-        return range(-1, -1)
-    return range(start, end)
-
-
-def _assert_musig_path(
-    text: str, start: int, close: int, steps: list[int], internal_key: range
-) -> None:
-    """Refuse a ``musig()``'s path, and the faults Core reads with it.
-
-    The participants are from `start` to the ")" at `close`, and `steps`
-    is where the text holds a "<". Core reads these faults after the
-    participants: a ranged participant beside a path, then the path, as
-    `_parse_musig` does, and then a multipath in both the participants
-    and the path. It reads the path's elements only where every
-    participant is an extended key and the wildcard is not hardened, and
-    so does this, refusing there a hardened item of a multipath step as
-    Core does, before the multipath, where the ``musig()`` starts an
-    argument.
-
-    For a direct tr/rawtr internal key, `_parse_key` first refuses a
-    malformed participant, then a derivation on non-extended participants.
-    Other positions are left to `parse` for that refusal.
-    """
-    path_end = _KEY_END.search(text, close + 1)
-    path = text[close + 1 : path_end.start() if path_end else len(text)]
-    if path.startswith("/"):
-        keys = text[start:close].split(",")
-        derives = all(
-            _reads_past_origin(key)
-            and _is_extended_key(key.rpartition("]")[2].partition("/")[0])
-            for key in keys
-        )
-        if not derives and start - len("musig(") == internal_key.start:
-            _parse_key(
-                text[internal_key.start : internal_key.stop],
-                {},
-                x_only=True,
-                compressed=True,
-                musig_allowed=True,
-            )
-        if derives and any(key.rpartition("/")[2] in _WILDCARDS for key in keys):
-            raise BTClibValueError(_RANGED_PARTICIPANT)
-        elements, _, wildcard_hardening = _split_wildcard(path[1:].split("/"))
-        if derives and not wildcard_hardening:
-            try:
-                _assert_key_path(elements, numeric=True)
-            except BTClibValueError as e:
-                raise BTClibValueError(f"musig(): {e}") from e
-            # Core counts a hardened item of a multipath step as a hardened
-            # step, and refuses it before the multipath: expanded, the
-            # unhardened items would give descriptors `parse` accepts. Only
-            # where the musig() starts an argument, which Core needs to read
-            # one; whether Core reads a key at that argument is not checked
-            # (ISS 370)
-            multipath_steps = [element for element in elements if "<" in element]
-            if text[start - 7 : start - 6] in {"(", ","} and any(
-                i >= _HARDENED_OFFSET for i in _path_indexes(multipath_steps)
-            ):
-                raise BTClibValueError(_HARDENED_MUSIG_STEP)
-    if "<" in path and _count(steps, start, close):
-        raise BTClibValueError(_MUSIG_ONE_MULTIPATH)
-
-
-def _assert_multipath_items(text: str) -> None:
-    """Refuse the faults `multipath_descriptors` lists, but one.
-
-    A step with fewer than two elements outside an extended key's path is
-    left to `multipath_descriptors`, which refuses it once it has every
-    step. One pass, item by item, so of two faults the leftmost is the one
-    reported, which is the order Core's parser reads them in. The elements
-    of a key's path are read as numbers where `_assert_key_path_element`
-    says Core does, and once Core is past the key's origin.
-    `_assert_musig_path` reads the path of a ``musig()``.
-
-    Where Core reads a function's whole argument as one key and that holds
-    a "," of its own, no element in it is read as a number.
-    """
-    # everything the pass asks of what lies ahead is worked out once, here,
-    # so that no item reads the text again
-    starts, ends, closes = _argument_ends(text)
-    internal_key = _internal_key_span(text, ends, closes)
-    origin_ends = [match.start() for match in re.finditer(r"\]", text)]
-    steps = [match.start() for match in re.finditer("<", text)]
-    musig_ends = _musig_ends(text)
-    in_origin = after_step = numeric = False
-    key_start = 0
-    whole = range(-1, -1)
-    for match in _MULTIPATH_ITEM.finditer(text):
-        item, start, end = match[0], match.start(), match.end()
-        if item.startswith("["):
-            # the key runs from here as from the argument it is in
-            argument = starts[bisect_right(starts, start) - 1]
-            key_end = (closes if start == whole.start else ends).get(
-                argument, len(text)
-            )
-            in_origin = True
-            inside = any(s <= start < c for c, s in musig_ends.items())
-            with _prefixed("musig(): " if inside else ""):
-                _assert_one_origin_end(_count(origin_ends, start, key_end))
-                _assert_fingerprint(item[1:])
-        elif item == "]":
-            in_origin = False
-        elif _KEY_END.fullmatch(item):
-            after_step = numeric = False
-            key_start = end
-            whole = _whole_argument(text, end, ends, closes) or whole
-            if text.endswith("musig(", 0, end):
-                # where Core reads a musig(), before anything inside it
-                allowed = text.startswith(("tr(", "rawtr("))
-                _assert_musig_allowed(musig_allowed=allowed)
-            if start in musig_ends:
-                _assert_musig_path(text, musig_ends[start], start, steps, internal_key)
-        elif in_origin:
-            # a lone "/" is the empty element after it
-            inside = any(s <= start < c for c, s in musig_ends.items())
-            with _prefixed("musig(): " if inside else ""):
-                _assert_origin_path_element("" if item == "/" else item)
-        elif item != "/" and text[start - 1 : start] in {"]", "(", ","}:
-            key_end = (closes if key_start == whole.start else ends).get(
-                key_start, len(text)
-            )
-            # a musig() participant's fault takes Core's "musig(): " prefix
-            inside = any(s <= start < c for c, s in musig_ends.items())
-            with _prefixed("musig(): " if inside else ""):
-                _assert_key_opening(
-                    text, match, range(key_start, key_end), whole, origin_ends
-                )
-            numeric = (
-                text[end : end + 1] == "/"
-                and _is_extended_key(item)
-                and key_start not in whole
-                and (
-                    text.startswith("[", key_start)
-                    or not _count(origin_ends, key_start, key_end)
-                )
-            )
-        else:
-            element = "" if item == "/" else item
-            # Core reads a final wildcard as no element of the path
-            read = (
-                numeric
-                and (item == "/" or text[start - 1 : start] == "/")
-                and not (element in _WILDCARDS and text[end : end + 1] != "/")
-            )
-            is_step = _assert_key_path_element(
-                element, after_step=after_step, numeric=read
-            )
-            after_step = after_step or is_step
+    return [
+        (match.start(), match.end(), match[0][1:-1].split(";"))
+        for match in _MULTIPATH_STEP.finditer(text)
+    ]
 
 
 @dataclass(frozen=True)
@@ -2528,14 +2195,6 @@ def _assert_position(name: str, context: str, allowed: tuple[str, ...]) -> None:
         raise BTClibValueError(f"{name}() is not allowed inside {context}")
 
 
-def _whole_key(arguments: list[str]) -> str:
-    """Return the key of a function taking one, as Bitcoin Core reads it.
-
-    That is the whole argument, "," included: a "," starts no second key.
-    """
-    return ",".join(arguments)
-
-
 def _one_argument(arguments: list[str], name: str) -> str:
     if len(arguments) != 1:
         err_msg = f"{name}() takes one argument, {len(arguments)} given"
@@ -2555,16 +2214,30 @@ def _parse_multi_a(name: str, args: list[str], prv_keys: dict[str, str]) -> Mult
         raise BTClibValueError(f"{name}() takes a threshold and at least one key")
     if not _THRESHOLD.fullmatch(args[0]):
         raise BTClibValueError(f"invalid {name}() threshold: digits expected")
-    keys = tuple(
-        _parse_key(key, prv_keys, x_only=True, compressed=True, musig_allowed=True)
-        for key in args[1:]
+    keys, lengths = _read_multipath_keys(
+        args[1:],
+        lambda key: _parse_key(
+            key, prv_keys, x_only=True, compressed=True, musig_allowed=True
+        ),
     )
     threshold = _int_from_digits(args[0], f"{name}() threshold")
     if not 1 <= threshold <= len(keys):
         raise BTClibValueError(f"invalid k in k-of-n {name}: {threshold}")
     if len(keys) > _MAX_MULTI_A_KEYS:
         raise BTClibValueError(f"invalid n in k-of-n {name}: {len(keys)}")
+    _assert_multipath_keys(lengths)
     return MultiA(threshold, keys, sort=name == "sortedmulti_a")
+
+
+def _assert_no_closing_brace(expression: str) -> None:
+    """Refuse a "}" in what Core reads as a miniscript or a key.
+
+    Core pairs the brackets of a miniscript before it reads a key, and a
+    key holds none, so a "}" there closes nothing: the structure's fault.
+    An unclosed "{" is left to the key, which Core refuses first.
+    """
+    if "}" in expression:
+        raise BTClibValueError("unbalanced braces")
 
 
 def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscript:
@@ -2578,9 +2251,21 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     the leaf is where it is said, a tree being several scripts of which
     this one is unspendable or unsafe.
     """
+    _assert_no_closing_brace(expression)
     node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
     _assert_sane(node, prv_keys)
     return node
+
+
+def _assert_no_braces(key: str) -> None:
+    """Refuse a brace in the key of a ``pk()`` leaf.
+
+    In a brace tree, a brace there leaves the tree unpaired, which Core
+    refuses before it reads the key. For a bare leaf, ``tr(X,pk(X{))``,
+    Core names the key instead, so this differs from Core there.
+    """
+    if "{" in key or "}" in key:
+        raise BTClibValueError("unbalanced braces")
 
 
 def _parse_tree(
@@ -2603,18 +2288,22 @@ def _parse_tree(
     if expression.startswith("{"):
         if not expression.endswith("}"):
             raise BTClibValueError("unbalanced braces")
-        branches = _split_arguments(expression[1:-1])
-        if len(branches) != 2:
-            err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
-            raise BTClibValueError(err_msg)
-        return (
-            _parse_tree(branches[0], prv_keys, depth + 1),
-            _parse_tree(branches[1], prv_keys, depth + 1),
-        )
+
+        def read_branches(branches: list[str]) -> DescriptorTree:
+            if len(branches) != 2:
+                err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
+                raise BTClibValueError(err_msg)
+            return (
+                _parse_tree(branches[0], prv_keys, depth + 1),
+                _parse_tree(branches[1], prv_keys, depth + 1),
+            )
+
+        return _read_split(expression[1:-1], read_branches)
     name = expression.partition("(")[0]
     if name in _TREE_FUNCTIONS:
-        return _parse_multi_a(
-            name, _split_arguments(expression[len(name) + 1 : -1]), prv_keys
+        return _read_split(
+            _split_function(expression)[1],
+            lambda args: _parse_multi_a(name, args, prv_keys),
         )
     if name == "musig":
         # allowed inside tr(), and as a key rather than as a leaf: a leaf
@@ -2632,9 +2321,10 @@ def _parse_tree(
         # a leaf that is no BIP386 leaf is a BIP379 miniscript, which is
         # the same order the wsh() half reads its two grammars in
         return _parse_leaf_miniscript(expression, prv_keys)
-    args = _split_arguments(expression[len(name) + 1 : -1])
+    key = _split_function(expression)[1]
+    _assert_no_braces(key)
     return _parse_key(
-        _whole_key(args),
+        key,
         prv_keys,
         x_only=True,
         compressed=True,
@@ -2653,7 +2343,7 @@ def _parse_pk(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     key = _parse_key(
-        _whole_key(args),
+        args[0],
         prv_keys,
         x_only=context == _P2TR,
         compressed=_no_uncompressed(context),
@@ -2666,7 +2356,7 @@ def _parse_pkh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     key = _parse_key(
-        _whole_key(args),
+        args[0],
         prv_keys,
         x_only=False,
         compressed=_no_uncompressed(context),
@@ -2679,7 +2369,7 @@ def _parse_wpkh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     key = _parse_key(
-        _whole_key(args),
+        args[0],
         prv_keys,
         x_only=False,
         compressed=True,
@@ -2693,7 +2383,7 @@ def _parse_combo(
 ) -> Descriptor:
     return ComboDescriptor(
         _parse_key(
-            _whole_key(args),
+            args[0],
             prv_keys,
             x_only=False,
             compressed=False,
@@ -2706,14 +2396,14 @@ def _parse_combo(
 def _parse_sh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    inner = _parse_expression(_one_argument(args, "sh"), _P2SH, network, prv_keys)
+    inner = _parse_expression(args[0], _P2SH, network, prv_keys)
     return ShDescriptor(inner, network=network)
 
 
 def _parse_wsh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    inner = _parse_expression(_one_argument(args, "wsh"), _P2WSH, network, prv_keys)
+    inner = _parse_expression(args[0], _P2WSH, network, prv_keys)
     return WshDescriptor(inner, network=network)
 
 
@@ -2728,20 +2418,21 @@ def _parse_multi(
         raise BTClibValueError(f"{name}() takes a threshold and at least one key")
     if not _THRESHOLD.fullmatch(args[0]):
         raise BTClibValueError(f"invalid {name}() threshold: digits expected")
-    keys = tuple(
-        _parse_key(
+    keys, lengths = _read_multipath_keys(
+        args[1:],
+        lambda key: _parse_key(
             key,
             prv_keys,
             x_only=False,
             compressed=_no_uncompressed(context),
             musig_allowed=False,
-        )
-        for key in args[1:]
+        ),
     )
     threshold = _int_from_digits(args[0], f"{name}() threshold")
     if not 1 <= threshold <= len(keys):
         raise BTClibValueError(f"invalid k in k-of-n {name}: {threshold}")
     _assert_multi_size(name, keys, context)
+    _assert_multipath_keys(lengths)
     return MultiDescriptor(threshold, keys, sort=name == "sortedmulti", network=network)
 
 
@@ -2787,13 +2478,14 @@ def _parse_sorted_multi(
 def _parse_tr(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    if len(args) > 2:
-        err_msg = f"tr() takes a key and at most one tree, {len(args)} given"
-        raise BTClibValueError(err_msg)
     internal_key = _parse_key(
         args[0], prv_keys, x_only=True, compressed=True, musig_allowed=True
     )
     tree = None if len(args) == 1 else _parse_tree(args[1], prv_keys, 0)
+    # Core reads the key and the tree before it finds a third argument
+    if len(args) > 2:
+        err_msg = f"tr() takes a key and at most one tree, {len(args)} given"
+        raise BTClibValueError(err_msg)
     return TrDescriptor(internal_key, tree, network=network)
 
 
@@ -2834,6 +2526,10 @@ def _parse_raw(
     return RawDescriptor(script, network=network)
 
 
+# the functions whose one argument Core reads whole, a key or a script,
+# "," and brackets included, so that a fault inside it is that argument's
+_WHOLE_ARGUMENT_FUNCTIONS = frozenset({"pk", "pkh", "wpkh", "combo", "sh", "wsh"})
+
 # every SCRIPT function, where BIP381 to BIP386 allow it, and what
 # reads it. A table rather than a chain of comparisons because the
 # position rule is the interesting half and belongs where it can be read
@@ -2869,6 +2565,7 @@ def _parse_miniscript_expression(
     not one to hand a wallet. `miniscript.parse` on its own answers for the
     language and leaves the judgement to the caller.
     """
+    _assert_no_closing_brace(expression)
     node = _parse_miniscript(expression, _MINISCRIPT_CONTEXTS[context], prv_keys)
     _assert_sane(node, prv_keys)
     return MiniscriptDescriptor(node, network=network)
@@ -2907,7 +2604,11 @@ def _parse_expression(
         raise BTClibValueError("unknown descriptor function")
     allowed, parser = _PARSERS[name]
     _assert_position(name, context, allowed)
-    return parser(_split_arguments(arguments), context, network, prv_keys)
+    # such a function splits nothing, so that a bracket in its argument is
+    # a fault of what the argument holds, as Core reads it
+    if name in _WHOLE_ARGUMENT_FUNCTIONS:
+        return parser([arguments], context, network, prv_keys)
+    return _read_split(arguments, lambda args: parser(args, context, network, prv_keys))
 
 
 def parse(
@@ -2944,11 +2645,26 @@ def parse(
     network = validated_network_name(network)
     assert_type(prv_keys, (Mapping, type(None)), "prv_keys")
 
-    if prv_keys is None:
-        prv_keys = {}
-    parsed = _parse_expression(strip_checksum(descriptor), _TOP, network, prv_keys)
+    parsed = _parse_text(strip_checksum(descriptor), network, prv_keys)
     for key in parsed.key_expressions:
         _assert_network(key, network)
+    return parsed
+
+
+def _parse_text(text: str, network: str, prv_keys: dict[str, str] | None) -> Descriptor:
+    """Return the Descriptor of a descriptor text, its keys' networks unread."""
+    # Core ends the descriptor at its first "," or unmatched closing bracket,
+    # reads what comes before, and only then finds the rest
+    head = _split_unpaired_arguments(text)[0]
+    parsed = _parse_expression(
+        head, _TOP, network, {} if prv_keys is None else prv_keys
+    )
+    if len(head) < len(text):
+        if text[len(head)] == ",":
+            raise BTClibValueError(
+                "not a descriptor expression: expected name(arguments)"
+            )
+        raise BTClibValueError("unbalanced brackets")
     return parsed
 
 
@@ -3964,7 +3680,7 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
 
 
-def multipath_descriptors(descriptor: str) -> list[str]:
+def multipath_descriptors(descriptor: str, network: str | None = None) -> list[str]:
     """Return the single-path descriptors of a BIP389 multipath one.
 
     A descriptor with no ``<a;b>`` step is one descriptor, returned
@@ -3973,42 +3689,54 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     element of every step, the second the second, and so on -- which is
     what makes the two-element form a receiving chain and a change chain.
 
-    The expansion is textual, as BIP389 defines it, and each result is a
-    descriptor to be parsed on its own. As Bitcoin Core does, it refuses a
-    key whose "[" has no "]" or more than one, a key holding a "]" that does
-    not open with "[", a key with leading or trailing whitespace, a key
-    origin fingerprint that is not 8 hex digits, a key origin path element
-    that is a step or no index, a step glued to a key, a step that is not a
-    whole path element, a key path with two ``<a;b>`` steps, a step with
-    fewer than two elements, an element of an extended key's path that is no
-    index or a step there with a repeated value, a ``musig()`` outside
-    ``tr()`` and ``rawtr()``, a direct internal ``musig()`` path whose
-    participants are not all extended keys or one of them is invalid,
-    a ``musig()`` path beside a ranged participant where every participant
-    is an extended key, a hardened item of a multipath step in the path of
-    a ``musig()`` that starts an argument, where it reads that path, and a
-    ``musig()`` multipath in both its participants and its path.
+    The expansion is textual, as BIP389 defines it. `parse` reads the
+    descriptor first, each step on its first path, and then each result,
+    so a step Core refuses is refused by `parse` as Core refuses it. That
+    is a step that is not a whole path element of a key outside its
+    origin, that has fewer than two elements, a repeated one or one that
+    is no index (``<2;x>``), that shares its key path with another step
+    or with a stray "<" or ">", or that is in a ``musig()`` whose path and
+    participants both hold one.
+
+    Steps of different length in one ``multi()``, ``multi_a()`` or
+    ``musig()`` are refused by `parse` where Core refuses them, once that
+    call is read. In other places Core compares them at the end of the
+    ``tr()`` or of the miniscript, and this function does the same: it
+    reads as many expansions as the shortest step has, then names the lengths.
+
+    The keys are read in `network` as `parse` reads them. With none, the
+    network of a key is not checked, which is `parse`'s call to make on the
+    result.
     """
     text = strip_checksum(descriptor)
-    _assert_multipath_items(text)
-    pieces = _MULTIPATH_STEP.split(text)
-    # re.split with a capturing pattern alternates text and separator, so
-    # the odd positions are the multipath steps and the even ones the
-    # descriptor around them
-    steps = [piece[1:-1].split(";") for piece in pieces[1::2]]
-    if not steps:
-        return [add_checksum(pieces[0])]
-    lengths = {len(step) for step in steps}
+
+    def read(single: str) -> None:
+        if network is None:
+            _parse_text(single, "mainnet", None)
+        else:
+            parse(single, network)
+
+    # a step is read on its first path, so that the text is read whole
+    with _steps_set_aside() as set_aside:
+        read(text)
+    if not set_aside:
+        return [add_checksum(text)]
+    steps = _multipath_steps(text)
+    lengths = {len(items) for _, _, items in steps}
+    descriptors = []
+    for i in range(min(lengths)):
+        pieces = []
+        last = 0
+        for start, end, items in steps:
+            pieces += [text[last:start], items[i]]
+            last = end
+        pieces.append(text[last:])
+        single = "".join(pieces)
+        read(single)
+        descriptors.append(add_checksum(single))
     if len(lengths) != 1:
         err_msg = f"multipath steps of different length: {sorted(lengths)}"
         raise BTClibValueError(err_msg)
-    length = lengths.pop()
-    if length < 2:
-        raise BTClibValueError(_ONE_ITEM_STEP)
-    descriptors = []
-    for i in range(length):
-        pieces[1::2] = [step[i] for step in steps]
-        descriptors.append(add_checksum("".join(pieces)))
     return descriptors
 
 
