@@ -33,12 +33,14 @@ split every vendored vector here has.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from btclib.exceptions import (
@@ -54,6 +56,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import bytes_from_point, mult
 from btclib_ecc.ecc import dsa
 
+from btclib_wallet import hwi as hwi_module
 from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
 from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index, parse
@@ -64,6 +67,7 @@ from btclib_wallet.hwi import (
     DEFAULT_TIMEOUT,
     HwiDevice,
     HwiSigner,
+    _on_path,
     enumerate_devices,
     is_available,
 )
@@ -970,6 +974,84 @@ def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
     # be answers about different executables
     assert DEFAULT_EXECUTABLE == "hwi"
     assert is_available() == (shutil.which(DEFAULT_EXECUTABLE) is not None)
+
+
+def _fake_hwi(directory: Path) -> Path:
+    """Make `directory` hold a file the platform would run as `hwi`."""
+    directory.mkdir()
+    fake = directory / ("hwi.exe" if sys.platform == "win32" else DEFAULT_EXECUTABLE)
+    fake.write_text("", encoding="ascii")
+    fake.chmod(0o755)
+    return fake
+
+
+def test_a_bare_name_is_never_looked_up_in_the_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `hwi` in the current directory is not found, and is not run.
+
+    Windows searches the current directory before the PATH for a bare
+    name, in `shutil.which` and in `subprocess`; an empty or relative PATH
+    entry is resolved against it on every platform. Neither is a place a
+    caller who named `hwi` agreed to run something from.
+    """
+    here = tmp_path / "here"
+    _fake_hwi(here)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(here)
+    monkeypatch.setenv("PATH", os.pathsep.join([os.curdir, "", str(elsewhere)]))
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    assert not is_available()
+    assert not is_available([DEFAULT_EXECUTABLE, "--flag"])
+    with pytest.raises(SignerNotFoundError, match=f"cannot run {DEFAULT_EXECUTABLE}:"):
+        enumerate_devices()
+    popen.assert_not_called()
+
+
+def test_what_runs_is_the_absolute_path_found_on_the_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The file that is run is the one on the PATH, not one in the directory."""
+    _fake_hwi(tmp_path / "here")
+    on_path = _fake_hwi(tmp_path / "on_path")
+    monkeypatch.chdir(tmp_path / "here")
+    monkeypatch.setenv("PATH", os.pathsep.join([os.curdir, str(on_path.parent)]))
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    assert is_available()
+    with pytest.raises(SignerNotFoundError):
+        enumerate_devices()
+    assert [Path(call.args[0][0]) for call in popen.call_args_list] == [on_path]
+
+
+def test_windows_extensions_are_applied_on_every_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file named by PATHEXT is found, whatever `shutil.which` does.
+
+    CPython 3.11 and PyPy 3.11 do not apply PATHEXT to a name with a
+    directory part, so asking `shutil.which` for `<dir>/hwi` finds no
+    `hwi.EXE` there. The Windows rules are switched on here so that the
+    case is seen on every platform.
+    """
+    monkeypatch.setattr(hwi_module, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert not is_available()
+    (tmp_path / "hwi.EXE").write_text("", encoding="ascii")
+    (tmp_path / "hwi.EXE").chmod(0o755)
+    assert is_available()
+    assert Path(_on_path("hwi") or "") == tmp_path / "hwi.EXE"
+    # a name that carries an extension already is tried as it stands
+    assert Path(_on_path("hwi.EXE") or "") == tmp_path / "hwi.EXE"
+    assert _on_path("other") is None
+    # a PATHEXT that is set and empty is the default, as `shutil.which` has it
+    monkeypatch.setenv("PATHEXT", "")
+    assert Path(_on_path("hwi") or "") == tmp_path / "hwi.EXE"
 
 
 def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
