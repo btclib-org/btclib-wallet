@@ -477,7 +477,10 @@ def test_descriptor_harness_compares_deep_miniscript_without_recursing(
     """A valid taproot leaf can nest beyond recursive dataclass equality."""
     seed = _CORPUS / _TEXT_HARNESS / "ms_or_b_and_b.bin"
     keys = descriptors.parse(seed.read_text(encoding="utf-8")).key_expressions
-    descriptor_harness.fuzz_target(f"tr({keys[0]},{'n' * 600}:pk({keys[1]}))".encode())
+    depth = sys.getrecursionlimit()
+    descriptor_harness.fuzz_target(
+        f"tr({keys[0]},{'n' * depth}:pk({keys[1]}))".encode()
+    )
 
 
 def test_miniscript_script_round_trip_keeps_bytes_across_associations(

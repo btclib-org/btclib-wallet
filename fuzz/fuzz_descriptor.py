@@ -46,16 +46,16 @@ The normal form can differ from the text. Among other things it
 writes public keys for private ones, hex in lowercase, numbers without
 leading zeros, no checksum, the sugared fragment names (`pk(K)` for
 `c:pk_k(K)`) and every hardened step in the symbol of the key's last
-hardened step. The assertion below reads the printed text again: a second
-`parse` that refuses it, or prints it differently, is a defect in the
-printer or the parser and propagates to atheris as a finding.
+hardened step. The assertions below read the printed text again: a second
+`parse` that refuses it, recovers another tree, or prints it differently is
+a defect in the printer or the parser and propagates to atheris as a finding.
 
 **Every embedded miniscript whose keys derive at index 0 also makes a
 script round trip.** The private material read from the input is supplied
 for hardened derivation, and a hash160-to-key mapping lets `from_script`
 read `pk_h()` fragments. A key that cannot derive at that index leaves
 this check unasked: a public extended key cannot take a hardened step.
-Compilation and decoding failures after that check propagate.
+Once the keys derive, a failure to compile or decode propagates.
 
 The decoded expression must compile to the same bytes, rather than have
 the original tree: scripts carry no origins or derivation paths, and
