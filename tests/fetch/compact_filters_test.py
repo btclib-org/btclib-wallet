@@ -423,6 +423,37 @@ def test_an_answer_that_takes_longer_than_the_timeout_is_a_fetch_error(
         fetcher.get_block_count()
 
 
+def test_a_peer_that_pings_and_stops_reading_does_not_outlast_the_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The answer to a `ping` is sent within the exchange's deadline."""
+    now = 0.0
+    monkeypatch.setattr(compact_filters, "monotonic", lambda: now)
+    fetcher, peer = build(timeout=10)
+    peer.noise = [peer.ping(7)]
+    receive, send = peer.receive, peer.send
+
+    def late_ping(timeout: float) -> Message:
+        nonlocal now
+        message = receive(timeout)
+        if message.command == "ping":
+            now += 9  # the ping came late in the exchange
+        return message
+
+    def blocked_pong(message: Message, timeout: float) -> None:
+        nonlocal now
+        if message.command == "pong":
+            now += timeout  # a peer that stops reading holds the send
+        else:
+            send(message, timeout)
+
+    setattr(peer, "receive", late_ping)  # noqa: B010
+    setattr(peer, "send", blocked_pong)  # noqa: B010
+    with pytest.raises(FetchError, match="did not answer in time"):
+        fetcher.get_block_count()
+    assert now <= 10
+
+
 def test_the_connection_is_closed_with_the_context_and_the_chain_is_kept() -> None:
     """Leaving the context closes the connection and keeps the headers."""
     peer = ScriptedPeer(CHAIN)

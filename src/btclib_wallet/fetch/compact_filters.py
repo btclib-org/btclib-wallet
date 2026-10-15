@@ -205,17 +205,24 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         """Return the instant a request begun now has to be answered by."""
         return monotonic() + self.timeout
 
-    def _send(self, payload: Payload) -> None:
-        """Send one payload to the peer, framed for this network."""
-        message = payload.to_message(self._magic)
-        with client_errors():
-            self.transport.send(message, self.timeout)
-
-    def _next(self, deadline: float) -> Message:
-        """Return the next message of the peer, refusing another network's."""
+    @staticmethod
+    def _remaining(deadline: float) -> float:
+        """Return the seconds left before `deadline`, or fail if none."""
         remaining = deadline - monotonic()
         if remaining <= 0:
             raise FetchError("the peer did not answer in time")
+        return remaining
+
+    def _send(self, payload: Payload, deadline: float) -> None:
+        """Send one payload to the peer, framed for this network, by `deadline`."""
+        message = payload.to_message(self._magic)
+        remaining = self._remaining(deadline)
+        with client_errors():
+            self.transport.send(message, remaining)
+
+    def _next(self, deadline: float) -> Message:
+        """Return the next message of the peer, refusing another network's."""
+        remaining = self._remaining(deadline)
         with client_errors():
             message = self.transport.receive(remaining)
         if message.magic != self._magic:
@@ -238,7 +245,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             if message.command == Ping.command:
                 with fetch_errors("ping"):
                     nonce = Ping.parse(message.payload).nonce
-                self._send(Pong(nonce))
+                self._send(Pong(nonce), deadline)
 
     def _greet(self) -> None:
         """Exchange `version` and `verack` with the peer.
@@ -255,7 +262,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 nonce=secrets.randbits(64),
                 user_agent=_USER_AGENT,
                 relay=False,
-            )
+            ),
+            deadline,
         )
         have_version = have_verack = False
         while not (have_version and have_verack):
@@ -269,7 +277,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 raise FetchError("the peer does not serve compact block filters")
             if not services & ServiceFlags.NODE_NETWORK:
                 raise FetchError("the peer does not serve the whole chain")
-            self._send(Verack())
+            self._send(Verack(), deadline)
             have_version = True
         self._greeted = True
 
@@ -332,7 +340,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def _request_headers(self, locator: list[bytes]) -> list[BlockHeader]:
         """Return the headers following the last block of the locator held."""
         deadline = self._deadline()
-        self._send(GetHeaders(PROTOCOL_VERSION, locator))
+        self._send(GetHeaders(PROTOCOL_VERSION, locator), deadline)
         message = self._receive((Headers.command,), deadline)
         with fetch_errors("headers"):
             return list(Headers.parse(message.payload).headers)
@@ -460,7 +468,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             start = len(self._filter_headers)
             stop = min(start + MAX_GETCFHEADERS_SIZE, len(self._hashes)) - 1
             deadline = self._deadline()
-            self._send(GetCFHeaders(_BASIC, start, self._hashes[stop]))
+            self._send(GetCFHeaders(_BASIC, start, self._hashes[stop]), deadline)
             message = self._receive((CFHeaders.command,), deadline)
             with fetch_errors("cfheaders"):
                 reply = CFHeaders.parse(message.payload)
@@ -489,7 +497,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         checked against the filter header held before it is read.
         """
         deadline = self._deadline()
-        self._send(GetCFilters(_BASIC, start, self._hashes[stop]))
+        self._send(GetCFilters(_BASIC, start, self._hashes[stop]), deadline)
         heights = []
         for height in range(start, stop + 1):
             message = self._receive((CFilter.command,), deadline)
@@ -519,7 +527,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         deadline = self._deadline()
         wanted = {self._hashes[height]: height for height in heights}
         self._send(
-            GetData([Inventory(InventoryType.MSG_WITNESS_BLOCK, h) for h in wanted])
+            GetData([Inventory(InventoryType.MSG_WITNESS_BLOCK, h) for h in wanted]),
+            deadline,
         )
         blocks = {}
         while wanted:
