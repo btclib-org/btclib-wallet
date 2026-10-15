@@ -32,13 +32,13 @@ import socket
 import subprocess
 import time
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from socket import create_connection
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError
@@ -59,6 +59,8 @@ from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 # suite, and the wait is a poll rather than a sleep, so this bounds only
 # the failure case
 _STARTUP_TIMEOUT = 30.0
+
+_T = TypeVar("_T")
 
 
 def _free_port() -> int:
@@ -274,6 +276,45 @@ ELECTRS_ENV = "BTCLIB_ELECTRS"
 _SYNC_TIMEOUT = 60.0
 
 
+# how many times the server is started, each on fresh ports, while a port
+# it was given is taken
+_BIND_ATTEMPTS = 5
+
+# what the server's log says of a port that is taken: Rust's `AddrInUse`,
+# the operating system's own words, and the panic message of the monitoring
+# server, which electrs raises without the cause (src/metrics.rs)
+_PORT_TAKEN_MARKERS = (
+    "AddrInUse",
+    "Address already in use",
+    "failed to start monitoring HTTP server",
+)
+
+
+class PortTaken(Exception):  # noqa: N818
+    """The server exited because a port it was given is held by another."""
+
+
+def port_was_taken(log: str) -> bool:
+    """Return whether the server's log says it could not bind a port."""
+    return any(marker in log for marker in _PORT_TAKEN_MARKERS)
+
+
+def start_on_free_ports(start: Callable[[], _T], attempts: int = _BIND_ATTEMPTS) -> _T:
+    """Return what `start` returns, calling it again while a port is taken.
+
+    `_free_port` closes the port it picked, so another process can bind
+    it before the server does, and the server then exits. `start` picks
+    its ports itself, so each call is a fresh try; the last attempt's
+    `PortTaken` is not caught.
+    """
+    for _ in range(attempts - 1):
+        try:
+            return start()
+        except PortTaken:
+            continue
+    return start()
+
+
 def electrs_binary() -> str:
     """Return the `electrs` to run, skipping the test without one."""
     path = os.environ.get(ELECTRS_ENV)
@@ -349,6 +390,8 @@ class Stack:
                 pass
             if self.server.poll() is not None:
                 log = self.server_log.read_text(errors="replace")
+                if port_was_taken(log):
+                    raise PortTaken(log)
                 pytest.fail(f"electrs exited with {self.server.returncode}: {log}")
             if time.monotonic() > deadline:
                 pytest.fail(f"electrs did not reach {height} in {_SYNC_TIMEOUT} s")
@@ -398,6 +441,51 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
         process.wait()
 
 
+def _start_server(
+    electrs: Sequence[str],
+    datadir: Path,
+    index: Path,
+    rpc_port: int,
+    miner: BitcoinCoreRpcClient,
+    address: str,
+) -> Stack:
+    """Return a stack whose server, on ports of its own, has indexed the node.
+
+    The server is stopped again where it does not get there, `PortTaken`
+    included, so that the next try does not leave it behind.
+    """
+    electrum_port, http_port = _free_port(), _free_port()
+    log = index / "electrs.log"
+    server = _start(
+        [
+            *electrs,
+            "--network=regtest",
+            f"--daemon-dir={datadir}",
+            f"--db-dir={index}",
+            f"--daemon-rpc-addr=127.0.0.1:{rpc_port}",
+            f"--electrum-rpc-addr=127.0.0.1:{electrum_port}",
+            f"--http-addr=127.0.0.1:{http_port}",
+            f"--monitoring-addr=127.0.0.1:{_free_port()}",
+            "--jsonrpc-import",
+        ],
+        log,
+    )
+    stack = Stack(
+        miner,
+        address,
+        PlainLineTransport("127.0.0.1", electrum_port),
+        f"http://127.0.0.1:{http_port}",
+        server,
+        log,
+    )
+    try:
+        stack.wait_synced()
+    except BaseException:
+        _stop(server)
+        raise
+    return stack
+
+
 @contextmanager
 def running_stack(
     bitcoind: str, electrs: str, tmp_path_factory: pytest.TempPathFactory
@@ -415,7 +503,7 @@ def running_stack(
         _bitcoind_args(bitcoind, datadir, rpc_port),
         datadir / "stdout.log",
     )
-    server_process: subprocess.Popen[bytes] | None = None
+    stack: Stack | None = None
     try:
         client = BitcoinCoreRpcClient(
             f"http://127.0.0.1:{rpc_port}", cookie_path=datadir / "regtest" / ".cookie"
@@ -426,32 +514,11 @@ def running_stack(
         address = str(miner.call("getnewaddress"))
         # a coinbase output is spendable after 100 blocks
         miner.call("generatetoaddress", [101, address])
-        electrum_port, http_port = _free_port(), _free_port()
-        server_process = _start(
-            [
-                electrs,
-                "--network=regtest",
-                f"--daemon-dir={datadir}",
-                f"--db-dir={index}",
-                f"--daemon-rpc-addr=127.0.0.1:{rpc_port}",
-                f"--electrum-rpc-addr=127.0.0.1:{electrum_port}",
-                f"--http-addr=127.0.0.1:{http_port}",
-                f"--monitoring-addr=127.0.0.1:{_free_port()}",
-                "--jsonrpc-import",
-            ],
-            index / "electrs.log",
+        stack = start_on_free_ports(
+            lambda: _start_server([electrs], datadir, index, rpc_port, miner, address)
         )
-        stack = Stack(
-            miner,
-            address,
-            PlainLineTransport("127.0.0.1", electrum_port),
-            f"http://127.0.0.1:{http_port}",
-            server_process,
-            index / "electrs.log",
-        )
-        stack.wait_synced()
         yield stack
     finally:
-        if server_process is not None:
-            _stop(server_process)
+        if stack is not None:
+            _stop(stack.server)
         _stop(node_process)
