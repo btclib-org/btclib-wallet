@@ -3064,6 +3064,27 @@ def test_an_impossible_multi_a_threshold_is_refused_at_parse_and_at_build(
         TrDescriptor(key, leaf).script_pub_key()
 
 
+@pytest.mark.parametrize("name", ["multi", "sortedmulti"])
+def test_a_threshold_with_leading_zeros_is_read_and_printed_without(name: str) -> None:
+    """Read the threshold as Bitcoin Core does, with `std::from_chars`."""
+    zeroed = f"wsh({name}(02,{KEY},{KEY}))"
+    canonical = f"wsh({name}(2,{KEY},{KEY}))"
+    assert str(parse(zeroed)) == str(parse(canonical))
+    assert str(parse(zeroed)).partition("#")[0] == canonical
+    assert parse(zeroed).script_pub_key() == parse(canonical).script_pub_key()
+
+
+@pytest.mark.parametrize("name", ["multi_a", "sortedmulti_a"])
+def test_a_tapscript_threshold_with_leading_zeros_is_read_and_printed_without(
+    name: str,
+) -> None:
+    """Read the threshold of a tapscript as Bitcoin Core does."""
+    zeroed = f"tr({XONLY},{name}(02,{XONLY},{XONLY}))"
+    canonical = f"tr({XONLY},{name}(2,{XONLY},{XONLY}))"
+    assert str(parse(zeroed)).partition("#")[0] == canonical
+    assert leaf_script_of(zeroed) == leaf_script_of(canonical)
+
+
 @pytest.mark.parametrize("name", ["multi_a", "sortedmulti_a"])
 def test_a_key_repeated_in_a_multi_a_is_kept_as_many_times(name: str) -> None:
     """Bitcoin Core accepts it, rust-miniscript refuses it (btcd's divergences).

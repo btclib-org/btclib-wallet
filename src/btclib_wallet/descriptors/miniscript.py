@@ -207,8 +207,8 @@ _ARITY = {
     "andor": 3,
 }
 
-# a number, as the fragments that take one accept it: digits and nothing
-# else, so that neither "-1" nor "+1" is read as a lock time
+# a number, as the fragments that take one accept it: digits, leading
+# zeros included, and nothing else
 _NUMBER = re.compile(r"[0-9]+")
 
 
@@ -2054,9 +2054,12 @@ def _read_multi(
 def _read_number(name: str, argument: str) -> int:
     """Return the number a fragment's argument is, refusing anything else.
 
-    Digits and nothing else, so that a sign is not read as one: Bitcoin
-    Core refuses ``after(-1)`` and ``after(+1)`` for the same reason, an
-    expression being text that has one spelling.
+    Digits and nothing else. Leading zeros are read, as Bitcoin Core reads
+    them (its ``ToIntegral`` is ``std::from_chars``): ``older(0144)`` is
+    ``older(144)``, and prints back as that.
+
+    A sign is refused. ``from_chars`` refuses ``+``, and reads ``-`` only
+    to give a number below 1, which every fragment that takes one refuses.
     """
     if not _NUMBER.fullmatch(argument):
         raise BTClibValueError(f"invalid {name}() number: digits expected")

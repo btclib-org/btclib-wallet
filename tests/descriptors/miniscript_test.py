@@ -484,6 +484,23 @@ def test_a_refused_expression_says_what_is_wrong(expression: str, message: str) 
         parse(expression)
 
 
+@pytest.mark.parametrize(
+    "zeroed, canonical",
+    [
+        ("older(0144)", "older(144)"),
+        ("after(01)", "after(1)"),
+        (f"thresh(01,pk({KEY}))", f"thresh(1,pk({KEY}))"),
+        (f"multi(01,{KEY})", f"multi(1,{KEY})"),
+    ],
+)
+def test_a_number_with_leading_zeros_is_read_and_printed_without(
+    zeroed: str, canonical: str
+) -> None:
+    """Read the number as Bitcoin Core does, with `std::from_chars`."""
+    assert str(parse(zeroed)) == canonical
+    assert parse(zeroed) == parse(canonical)
+
+
 def test_an_expression_too_large_for_its_context_is_refused() -> None:
     """Refuse the expression whose script no p2wsh witness may carry."""
     with pytest.raises(BTClibValueError, match="too large for P2WSH"):
