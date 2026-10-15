@@ -182,7 +182,7 @@ def test_two_branches_may_not_hold_the_same_descriptor() -> None:
 
 
 def test_the_network_is_refused_before_a_repeated_descriptor() -> None:
-    """A raw key reads the same on both networks: the network is the news."""
+    """One raw key on two networks: the network is what is refused."""
     text = _descriptor(f"wpkh({_PUBKEY})")
     mainnet = parse(text)
     testnet = parse(text, "testnet")
