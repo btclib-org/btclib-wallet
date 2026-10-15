@@ -336,9 +336,10 @@ def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
     A bare name is looked up only in the absolute directories of the PATH,
     never in the current directory, and the path found is what every
     command runs. A name with a directory part is not looked up on the
-    PATH: it is handed to `shutil.which` as it stands, which on Windows
-    with Python 3.12 or later also tries the PATHEXT extensions, while
-    the command runs it unchanged.
+    PATH: it is handed to `shutil.which`, which on Windows with Python
+    3.12 or later tries it with each PATHEXT extension appended, and as
+    it stands only where it already ends in one, while the command runs
+    it unchanged.
 
     True is not a promise that a device will answer, or that what is on
     the PATH is HWI at all: it is that there is something to run, which
