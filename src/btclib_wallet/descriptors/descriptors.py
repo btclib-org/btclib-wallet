@@ -171,7 +171,7 @@ from btclib.script.taproot import (
 )
 from btclib.script.witness import Witness
 from btclib.tx.tx_in import TxIn
-from btclib.utils import assert_type, bytes_from_octets, is_octets
+from btclib.utils import assert_type, bytes_from_octets, is_integer, is_octets
 from btclib_ecc.ecc.ssa import point_from_bip340pub_key
 from btclib_ecc.hashes import tagged_hash
 from typing_extensions import override
@@ -1336,10 +1336,16 @@ class Descriptor(ABC):
         `last_index` bounds the search, both ends included, and is the
         caller's: how far ahead of its own gap limit a wallet is willing
         to look is a policy this module has no view on. A descriptor that
-        is not ranged has one script and answers 0 or None.
+        is not ranged has one script and answers 0 or None. It is an
+        integer whether the descriptor is ranged or not, and a bool is
+        not one: `True` would bound the search at 1.
         """
         _assert_prv_keys(prv_keys)
         script = script_from_script_pub_key(script_pub_key)
+        if not is_integer(last_index):
+            raise BTClibTypeError(
+                f"invalid last_index type: {type(last_index).__name__}"
+            )
         last = last_index if self.is_ranged else 0
         for index in range(last + 1):
             if any(

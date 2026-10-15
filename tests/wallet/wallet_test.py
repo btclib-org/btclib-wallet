@@ -183,6 +183,23 @@ def test_position_of_refuses_what_names_no_output(
 
 
 @BUILDERS
+def test_position_of_refuses_a_last_index_that_is_no_integer(
+    build: Callable[[], RangedWallet],
+) -> None:
+    """The bound is an integer, and a bool is not one (issue #407).
+
+    `range(last_index + 1)` failed on a string, None, bytes or a float with
+    a builtin `TypeError`, and `True` bounded the search at 1.
+    """
+    wallet = build()
+    script_pub_key = wallet.script_pub_key(1, 1)
+    for wrong in ("1", None, b"\x01", 1.0, True, False):
+        with pytest.raises(BTClibTypeError, match="invalid last_index type: "):
+            wallet.position_of(script_pub_key, wrong)  # type: ignore[arg-type]
+    assert wallet.position_of(script_pub_key, 1) == (1, 1)
+
+
+@BUILDERS
 def test_a_position_outside_the_wallet_is_refused(
     build: Callable[[], RangedWallet],
 ) -> None:

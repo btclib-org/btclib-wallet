@@ -69,10 +69,10 @@ from dataclasses import dataclass
 
 from btclib import b32
 from btclib.alias import Octets, String
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import validated_network_name
 from btclib.script.script_pub_key import ScriptPubKey, script_from_script_pub_key
-from btclib.utils import str_from_string
+from btclib.utils import is_integer, str_from_string
 
 __all__ = [
     "AddressInfo",
@@ -378,9 +378,14 @@ class RangedWallet(Wallet, ABC):
         on. The branches are searched in `branches` order, one whole
         branch before the next, and the first match wins -- two positions
         paying to one script is a wallet whose source repeats itself, not
-        something this has to choose between.
+        something this has to choose between. It is an integer, and a
+        bool is not one, as `Descriptor.index_of` has it.
         """
         script = script_from_script_pub_key(script_pub_key)
+        if not is_integer(last_index):
+            raise BTClibTypeError(
+                f"invalid last_index type: {type(last_index).__name__}"
+            )
         for branch in self.branches:
             for index in range(last_index + 1):
                 if self._script_pub_key(branch, index).script == script:

@@ -34,13 +34,17 @@ from btclib_wallet.bip32.der_path import (
     str_from_der_path,
     str_from_index_int,
 )
+from btclib_wallet.descriptors import parse
 from btclib_wallet.psbt.psbt import PSBT_V2, Psbt
+from btclib_wallet.wallet import DescriptorWallet
 from btclib_wallet.wallet.script_wallet import KeyGroup
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed("00" * 32))
 # account depth, hardened: what derive_from_account_'s own is_hardened
 # check wants
 _ACCOUNT_XPRV = derive(rootxprv_from_seed("00" * 32), "m/44h/0h/0h")
+_DESCRIPTOR = parse(f"wpkh({_XPUB}/*)")
+_WALLET = DescriptorWallet([_DESCRIPTOR])
 
 
 def _psbt(**field: Any) -> Psbt:
@@ -107,6 +111,16 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
     (
         "bip32 account max_index",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, 0, max_index=v),
+    ),
+    # a search bound: `range(True + 1)` would answer for index 0 and 1 and
+    # read as "not this wallet's" past them (issue #407)
+    (
+        "descriptor index_of last_index",
+        lambda v: _DESCRIPTOR.index_of(_DESCRIPTOR.script_pub_key(0), v),
+    ),
+    (
+        "wallet position_of last_index",
+        lambda v: _WALLET.position_of(_DESCRIPTOR.script_pub_key(0), v),
     ),
 ]
 
@@ -178,6 +192,8 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     assert str_from_index_int(1) == "1"
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1).depth == 5
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1, max_index=1).depth == 5
+    assert _DESCRIPTOR.index_of(_DESCRIPTOR.script_pub_key(1), 1) == 1
+    assert _WALLET.position_of(_DESCRIPTOR.script_pub_key(1), 1) == (0, 1)
 
     # the str and bytes spellings of a path are untouched by any of it
     assert indexes_from_der_path("m/44h/0h") == [2147483692, 2147483648]
