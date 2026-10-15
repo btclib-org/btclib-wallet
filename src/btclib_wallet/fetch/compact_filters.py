@@ -139,8 +139,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
 
     `transport` is required, keyword-only, and has no default, as it is
     for `ElectrumFetcher`: which peer sees this client is not this
-    package's decision. `TcpPeerTransport(host, port)` is the one shipped.
-    It is a context manager that closes the connection on exit.
+    package's decision. `TcpPeerTransport(host, port)` is the one shipped,
+    and closes its connection when used as a context manager.
 
     `timeout` is the seconds each exchange with the peer may take -- the
     greeting, one request and all of its answers, or one block of a
