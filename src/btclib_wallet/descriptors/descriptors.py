@@ -1109,7 +1109,7 @@ class Descriptor(ABC):
         return any(key.is_ranged for key in self.key_expressions)
 
     def _assert_index(self, index: int) -> None:
-        """Refuse an index out of range, or one with no script of this.
+        """Refuse a non-integer or out-of-range index, or one with no script.
 
         `satisfy` asks the two questions `script_pub_keys` asks, and has
         to ask them first: a descriptor with no wildcard would otherwise
