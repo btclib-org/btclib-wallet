@@ -61,15 +61,15 @@ def test_an_extended_key_is_no_bip340_key() -> None:
     xpub = xpub_data.b58encode()
 
     with pytest.raises(TYPE_ERRORS, match="not a BIP340 public key"):
-        ssa.point_from_bip340pub_key(xpub_data)
+        ssa.point_from_bip340pub_key_var(xpub_data)
     # a `str` is read as hex and the Base58 alphabet is not hex, where the
     # same characters as `bytes` are already octets and are refused for
     # their length
     with pytest.raises(VALUE_ERRORS, match="invalid hex string"):
-        ssa.point_from_bip340pub_key(xpub)
+        ssa.point_from_bip340pub_key_var(xpub)
     err_msg = r"invalid size: 111 bytes instead of \(32, 33, 65\)"
     with pytest.raises(VALUE_ERRORS, match=err_msg):
-        ssa.point_from_bip340pub_key(xpub.encode("ascii"))
+        ssa.point_from_bip340pub_key_var(xpub.encode("ascii"))
 
 
 @pytest.mark.parametrize(

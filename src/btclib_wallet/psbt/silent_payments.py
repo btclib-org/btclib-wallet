@@ -97,13 +97,13 @@ from btclib.script.taproot import check_output_pubkey, output_pubkey_from_merkle
 from btclib_ecc.curves import (
     bytes_from_point,
     mult,
-    point_from_octets,
+    point_from_octets_var,
     point_from_pub_key,
     scalar_from_prv_key,
     secp256k1,
 )
 from btclib_ecc.ecc import dleq
-from btclib_ecc.ecc.ssa import point_from_bip340pub_key
+from btclib_ecc.ecc.ssa import point_from_bip340pub_key_var
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.psbt.psbt import (
@@ -228,7 +228,7 @@ def _committed_key(key_hash: bytes, candidates: list[bytes]) -> _Eligibility:
     for candidate in committed:
         if len(candidate) == _COMPRESSED_SIZE:
             try:
-                return True, point_from_octets(candidate, secp256k1)
+                return True, point_from_octets_var(candidate, secp256k1)
             except ValueError:
                 continue
     if any(len(c) == _UNCOMPRESSED_SIZE for c in committed):
@@ -366,7 +366,7 @@ def _taproot_eligibility(psbt_in: PsbtIn, output_key: bytes) -> _Eligibility:
     if _is_proven_nums(psbt_in, output_key):
         return _INELIGIBLE
     try:
-        return True, point_from_bip340pub_key(output_key, secp256k1)
+        return True, point_from_bip340pub_key_var(output_key, secp256k1)
     except ValueError:
         return True, None
 

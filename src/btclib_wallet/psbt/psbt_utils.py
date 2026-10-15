@@ -622,7 +622,7 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str, where: str = "") -> N
     # parse's own text gives the first byte, which `pub_key_shape` withholds
     # outside the pairs SEC defines
     try:
-        sec_point.point_from_octets(pub_key)
+        sec_point.point_from_octets_var(pub_key)
     except ValueError:
         is_a_point = False
     else:

@@ -502,7 +502,7 @@ def _assert_valid_global_xpubs(hd_key_paths: Mapping[bytes, BIP32KeyOrigin]) -> 
         # outside the `except`: the exception is not chained
         on_curve = True
         try:
-            sec_point.point_from_octets(xpub[-33:])
+            sec_point.point_from_octets_var(xpub[-33:])
         except ValueError:
             on_curve = False
         if not on_curve:

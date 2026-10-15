@@ -209,7 +209,7 @@ def _assert_x_only(value: object, what: str) -> None:
     if len(value) != 32:  # type: ignore[arg-type]
         raise BTClibValueError(f"{what} is not 32 octets")
     try:
-        ssa.point_from_bip340pub_key(value)  # type: ignore[arg-type]
+        ssa.point_from_bip340pub_key_var(value)  # type: ignore[arg-type]
     except ValueError:
         raise BTClibValueError(f"{what} is not a point") from None
 

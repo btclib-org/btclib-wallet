@@ -172,7 +172,7 @@ from btclib.script.taproot import (
 from btclib.script.witness import Witness
 from btclib.tx.tx_in import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_integer, is_octets
-from btclib_ecc.ecc.ssa import point_from_bip340pub_key
+from btclib_ecc.ecc.ssa import point_from_bip340pub_key_var
 from btclib_ecc.hashes import tagged_hash
 from typing_extensions import override
 
@@ -3545,7 +3545,7 @@ def _inferred_tr(
                     network=network,
                 )
     try:
-        point_from_bip340pub_key(output_key)
+        point_from_bip340pub_key_var(output_key)
     except ValueError:
         return None
     return RawTrDescriptor(_inferred_x_only(output_key, known), network=network)

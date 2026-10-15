@@ -86,14 +86,14 @@ from btclib_ecc.curves import (
     is_libsecp256k1_serving,
     mult,
     mult_pub_key,
-    point_from_octets,
+    point_from_octets_var,
     point_from_pub_key,
     scalar_from_prv_key,
     secp256k1,
     sum_var,
     tweak_add_var,
 )
-from btclib_ecc.ecc.ssa import point_from_bip340pub_key
+from btclib_ecc.ecc.ssa import point_from_bip340pub_key_var
 from btclib_ecc.hashes import tagged_hash
 
 # the bindings, imported from their own package rather than through
@@ -225,11 +225,11 @@ def _compressed_point(octets: Octets) -> Point | None:
 
     BIP352 permits compressed and x-only keys and no other form, so a
     65-byte uncompressed key is an input that does not count rather than
-    an error: `point_from_octets` takes the 0x04 form, and the size check
+    an error: `point_from_octets_var` takes the 0x04 form, and the size check
     in front of it is what keeps this to the 33-byte one.
     """
     try:
-        return point_from_octets(bytes_from_octets(octets, _PK_SIZE), secp256k1)
+        return point_from_octets_var(bytes_from_octets(octets, _PK_SIZE), secp256k1)
     except (TypeError, ValueError):
         return None
 
@@ -329,8 +329,8 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
         err_msg += f" is less than the {_PAYLOAD_SIZE} bytes v0 reads"
         raise BTClibValueError(err_msg)
 
-    B_scan = point_from_octets(payload[:_PK_SIZE], secp256k1)
-    B_m = point_from_octets(payload[_PK_SIZE:_PAYLOAD_SIZE], secp256k1)
+    B_scan = point_from_octets_var(payload[:_PK_SIZE], secp256k1)
+    B_m = point_from_octets_var(payload[_PK_SIZE:_PAYLOAD_SIZE], secp256k1)
     return B_scan, B_m, hrp
 
 
@@ -442,7 +442,7 @@ def _pub_key_from_p2tr(script_pub_key: bytes, witness: Witness) -> Point | None:
     # an x coordinate, and a taproot output carrying such bytes is
     # unspendable rather than ineligible -- skip it as the reference does
     try:
-        return point_from_bip340pub_key(script_pub_key[2:], secp256k1)
+        return point_from_bip340pub_key_var(script_pub_key[2:], secp256k1)
     except (TypeError, ValueError):
         return None
 
@@ -799,7 +799,7 @@ def _labelled(
     P_k is the same point for both parities and is taken once.
     """
     try:
-        candidate = point_from_bip340pub_key(output, secp256k1)
+        candidate = point_from_bip340pub_key_var(output, secp256k1)
     except (TypeError, ValueError):
         # 32 bytes that are no x coordinate: an unspendable output rather
         # than one of ours, and the subtraction below has nothing to

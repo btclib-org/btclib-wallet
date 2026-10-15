@@ -6360,7 +6360,7 @@ def test_input_and_output_derivations_accept_both_sec_key_sizes(
 ) -> None:
     """Compressed and uncompressed public keys survive both map codecs."""
     pub_key = sec_point.bytes_from_point(
-        sec_point.point_from_octets(_PUB_KEY), compressed=compressed
+        sec_point.point_from_octets_var(_PUB_KEY), compressed=compressed
     )
     map_ = map_type(hd_key_paths={pub_key: BIP32KeyOrigin(b"beef", "m/42/1")})
     assert map_type.parse(map_.serialize()) == map_

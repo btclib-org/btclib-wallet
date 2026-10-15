@@ -28,7 +28,7 @@ from btclib_ecc.curves import (
     bytes_from_point,
     bytes_from_prv_key_int,
     mult,
-    point_from_octets,
+    point_from_octets_var,
 )
 from btclib_ecc.curves import secp256k1 as ec
 from btclib_ecc.ecc.musig2 import key_agg
@@ -541,7 +541,7 @@ def test_public_derivation_builds_no_point(
     # parity of an uncompressed y used to be read off to rebuild
     (tweak,) = pub_key_derivation_tweaks(parent.key, parent.chain_code, "m/1")
     uncompressed = libsecp256k1_keys.pubkey_tweak_add(parent.key, tweak, False)
-    assert child.key == bytes_from_point(point_from_octets(uncompressed))
+    assert child.key == bytes_from_point(point_from_octets_var(uncompressed))
 
 
 def test_private_functions_do_not_validate(
@@ -918,7 +918,9 @@ def test_derivation_is_the_arithmetic_bip32_defines() -> None:
         32, byteorder="big", signed=False
     )
 
-    child_pub_key_point = ec.add_var(point_from_octets(parent_pub_key), mult(offset))
+    child_pub_key_point = ec.add_var(
+        point_from_octets_var(parent_pub_key), mult(offset)
+    )
     child_pub = BIP32KeyData.b58decode(derive(xpub_from_xprv(rootxprv), f"m/{index}"))
     assert child_pub.chain_code == hmac_[32:]
     assert child_pub.key == bytes_from_point(child_pub_key_point)
@@ -934,7 +936,7 @@ def test_the_py_arm_reaches_no_bindings(monkeypatch: pytest.MonkeyPatch) -> None
     in reach `keys.PubkeyTweakChain` and `keys.prvkey_tweak_add` are the
     better calls, and out of reach there is nothing to mix. So the arm
     holds no call that could delegate -- which today it does not by
-    construction, `mult` and the lift under `point_from_octets` gating on
+    construction, `mult` and the lift under `point_from_octets_var` gating on
     the state `is_libsecp256k1_serving` reads, the very call that chose
     the arm. Construction is a thing to check rather than to trust, and a
     per-operation dispatch would end it without touching this file.
@@ -1097,7 +1099,7 @@ def test_the_chain_contract_no_derivation_here_asks_for() -> None:
     compressed = _PythonPubKeyTweakChain(key).tweak_add(tweak)
     uncompressed = _PythonPubKeyTweakChain(key).tweak_add(tweak, compressed=False)
     assert uncompressed[0] == 0x04
-    assert bytes_from_point(point_from_octets(uncompressed)) == compressed
+    assert bytes_from_point(point_from_octets_var(uncompressed)) == compressed
     assert (
         libsecp256k1_keys.PubkeyTweakChain(key).tweak_add(tweak, compressed=False)
         == uncompressed
@@ -1503,7 +1505,7 @@ def test_a_path_of_no_steps_still_looks_at_the_public_key(
 
     Both arms build the chain, so both are asked: the four keys below are
     refused by `PubkeyTweakChain`'s parse where the bindings serve, and by
-    `point_from_octets` where they do not.
+    `point_from_octets_var` where they do not.
     """
     if not bindings:
         no_bindings_bip32(monkeypatch)
@@ -1640,7 +1642,7 @@ def test_the_tweaks_of_a_public_derivation_are_the_derivation(
 
     tweaks = pub_key_derivation_tweaks(xpub.key, xpub.chain_code, "m/1/2")
     derived = BIP32KeyData.b58decode(derive(xpub_from_xprv(rootxprv), "m/1/2"))
-    point = point_from_octets(xpub.key, ec)
+    point = point_from_octets_var(xpub.key, ec)
     for tweak in tweaks:
         point = ec.add_var(point, mult(int.from_bytes(tweak, "big"), ec.G, ec))
     assert bytes_from_point(point, ec) == derived.key

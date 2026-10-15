@@ -179,7 +179,7 @@ def _is_point(pub_key: bytes) -> bool:
     its prefix gives the parity of y.
     """
     try:
-        sec_point.point_from_octets(pub_key, hybrid=True)
+        sec_point.point_from_octets_var(pub_key, hybrid=True)
     except ValueError:
         return False
     return True

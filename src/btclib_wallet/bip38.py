@@ -96,7 +96,7 @@ from btclib.exceptions import (
 from btclib.hashes import hash160, hash256
 from btclib.key import PrvKeyData
 from btclib.utils import assert_type, bytes_from_octets, is_integer
-from btclib_ecc.curves import bytes_from_point, mult, point_from_octets, secp256k1
+from btclib_ecc.curves import bytes_from_point, mult, point_from_octets_var, secp256k1
 from btclib_ecc.curves import scalar_from_prv_key as _scalar
 
 __all__ = [
@@ -372,7 +372,7 @@ def new_key_pair(
     if magic not in (_MAGIC_NO_LOT_SEQ, _MAGIC_LOT_SEQ):
         raise BTClibValueError(f"invalid intermediate code magic: 0x{magic.hex()}")
     has_lot_seq = magic == _MAGIC_LOT_SEQ
-    passpoint = point_from_octets(passpoint_sec, secp256k1)
+    passpoint = point_from_octets_var(passpoint_sec, secp256k1)
 
     if seed_b is None:
         seed_b = secrets.token_bytes(_SEED_B_SIZE)

@@ -60,7 +60,7 @@ from btclib_ecc.curves import (
     is_libsecp256k1_serving,
     is_x_coordinate_var,
     mult,
-    point_from_octets,
+    point_from_octets_var,
     secp256k1,
 )
 from typing_extensions import override
@@ -746,7 +746,7 @@ def point_from_xpub(xpub: BIP32Key, ec: Curve = secp256k1) -> Point:
     if ec != ec2:
         err_msg = f"ec/xpub version ({xpub_data.version.hex()}) mismatch"
         raise BTClibValueError(err_msg)
-    return point_from_octets(xpub_data.key, ec)
+    return point_from_octets_var(xpub_data.key, ec)
 
 
 # repr=False: a generated __repr__ would print key and prv_key_int, the
@@ -900,7 +900,7 @@ class _PythonPubKeyTweakChain:
     step's child is the next step's parent, so the point is held from one
     step to the next rather than parsed again out of the octets the step
     before it has just written -- which is what the bindings' class holds
-    it for, and is worth more here: `point_from_octets` on a compressed
+    it for, and is worth more here: `point_from_octets_var` on a compressed
     key is a modular square root, far dearer than their own parse, so a
     path of any length pays one instead of one per level.
 
@@ -943,7 +943,7 @@ class _PythonPubKeyTweakChain:
     Python throughout, and it has to be: with libsecp256k1 in reach their
     class is the better answer, so a chain that mixed the two would be
     the one shape never worth building. It cannot mix as written --
-    `mult` and the lift inside `point_from_octets` gate on the state
+    `mult` and the lift inside `point_from_octets_var` gate on the state
     `is_libsecp256k1_serving` reads, which is the call that chose this
     implementation, and cannot answer it differently -- and
     `test_the_py_arm_reaches_no_bindings` checks that rather than
@@ -952,7 +952,7 @@ class _PythonPubKeyTweakChain:
     """
 
     def __init__(self, key: bytes) -> None:
-        self._point = point_from_octets(key, secp256k1)
+        self._point = point_from_octets_var(key, secp256k1)
 
     def tweak_add(self, tweak: bytes, compressed: bool = True) -> bytes:
         """Return the key of point + tweak*G, and step the chain to it."""

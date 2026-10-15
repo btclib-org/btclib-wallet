@@ -215,7 +215,7 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
         # signature's prints a scalar in groups of four bytes
         try:
             # pub_key must be a valid secp256k1 Point in SEC representation
-            sec_point.point_from_octets(pub_key)
+            sec_point.point_from_octets_var(pub_key)
         except ValueError:
             is_valid = False
         else:
