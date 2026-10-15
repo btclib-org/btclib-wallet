@@ -272,15 +272,14 @@ def _is_bare(name: str) -> bool:
 def _file_name(name: str) -> str:
     """Return the file name a bare `name` is run as in a directory.
 
-    On Windows `subprocess` appends `.exe` to a name that has no
-    extension and runs nothing else for it, so that is the one file
-    looked for: `hwi.bat` and `hwi.cmd` are not found as `hwi`, as they
-    would be through PATHEXT, because a batch file is parsed by a shell.
-    A name that has an extension is taken as it stands.
+    On Windows, CreateProcess appends `.exe` to a name that contains no
+    period and runs nothing else for it, so that is the one file looked
+    for: `hwi.bat` and `hwi.cmd` are not found as `hwi`, as they would be
+    through PATHEXT, because a batch file is parsed by a shell. A name
+    that contains a period, a trailing one included, is taken as it
+    stands.
     """
-    if _WINDOWS and not pathlib.PurePath(name).suffix:
-        return name + ".exe"
-    return name
+    return name + ".exe" if _WINDOWS and "." not in name else name
 
 
 def _on_path(name: str) -> str | None:

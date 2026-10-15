@@ -1033,7 +1033,7 @@ def test_a_bare_name_on_windows_is_run_as_an_exe_and_never_as_a_batch_file(
 ) -> None:
     """Only `hwi.exe` is found for `hwi`, whatever PATHEXT lists.
 
-    `subprocess` appends `.exe` to a name without an extension, and a
+    CreateProcess appends `.exe` to a name that contains no period, and a
     batch file would be parsed by a shell, with the arguments this
     package built. The Windows rules are switched on here so that the
     case is seen on every platform.
@@ -1058,6 +1058,11 @@ def test_a_bare_name_on_windows_is_run_as_an_exe_and_never_as_a_batch_file(
     # a name that carries an extension is the caller's own choice
     assert Path(_on_path("hwi.CMD") or "") == first / "hwi.CMD"
     assert _on_path("other") is None
+    # a trailing period is taken as it stands, as CreateProcess has it
+    (first / "hwi.").write_text("", encoding="ascii")
+    (first / "hwi.").chmod(0o755)
+    assert Path(_on_path("hwi.") or "") == first / "hwi."
+    assert _on_path("hwi") is None
 
 
 def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
