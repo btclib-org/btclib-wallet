@@ -32,11 +32,13 @@ the parser test asks is that each one expands and that every address it
 produces is the address of that very script.
 """
 
+import contextlib
 import re
-import time
+import sys
 import traceback
+from collections.abc import Callable, Iterator
 from dataclasses import fields, is_dataclass, replace
-from typing import get_args
+from typing import Any, SupportsIndex, get_args
 
 import pytest
 from btclib import b58, base58
@@ -54,6 +56,7 @@ from btclib_ecc.ecc import dsa, ssa
 from btclib_ecc.hashes import tagged_hash
 from hypothesis import given
 from hypothesis import strategies as st
+from typing_extensions import override
 
 from btclib_wallet import slip132
 from btclib_wallet.bip32 import BIP32KeyOrigin, fingerprint
@@ -83,6 +86,7 @@ from btclib_wallet.descriptors import (
     add_checksum,
     at_index,
     checksum,
+    descriptors,
     from_address,
     miniscript,
     multipath_descriptors,
@@ -991,33 +995,347 @@ def test_multipath_reports_the_first_fault_from_the_left(
         parse(descriptor)
 
 
-def test_multipath_descriptors_reads_a_long_text_quickly() -> None:
-    """Read a long text in well under the bound.
+class _Work:
+    """Count the characters of a text that the code reading it examines."""
 
-    The bound is far above a pass that reads each element once, so load does
-    not fail it, and below one that rescans the text before each element.
+    def __init__(self) -> None:
+        self.count = 0
+
+    def span(self, start: int, stop: int) -> None:
+        self.count += max(stop - start, 0)
+
+
+def _longest(affix: str | tuple[str, ...]) -> int:
+    """Return the length of an affix, or of the longest of a tuple of them."""
+    return len(affix) if isinstance(affix, str) else max(map(len, affix), default=0)
+
+
+class _ScannedStr(str):
+    """A text that counts the characters some of its `str` methods examine.
+
+    These are `find`, `index`, `rfind`, `rindex`, `count`, `partition`,
+    `rpartition`, `split`, `rsplit`, `startswith`, `endswith`, `in` and `[]`.
+    A search that finds nothing examines up to the end it was given, one that
+    finds something up to the match, a split the whole text, a prefix test
+    the prefix, and a slice or an index the characters it returns.
     """
-    text = "raw(" + ",".join(["0"] * 160_000) + ")"
-    start = time.perf_counter()
-    assert multipath_descriptors(text) == [add_checksum(text)]
-    assert time.perf_counter() - start < 15
+
+    __slots__ = ()
+    work: _Work
+
+    def _bounds(
+        self, start: SupportsIndex | None, end: SupportsIndex | None
+    ) -> tuple[int, int]:
+        first, last, _ = slice(start, end).indices(len(self))
+        return first, last
+
+    @override
+    def find(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        first, last = self._bounds(start, end)
+        found = super().find(sub, start, end)
+        self.work.span(first, found + len(sub) if found >= 0 else last)
+        return found
+
+    @override
+    def index(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        found = self.find(sub, start, end)
+        if found < 0:
+            raise ValueError(sub)
+        return found
+
+    @override
+    def count(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        first, last = self._bounds(start, end)
+        self.work.span(first, last)
+        return super().count(sub, start, end)
+
+    @override
+    def rfind(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        first, last = self._bounds(start, end)
+        found = super().rfind(sub, start, end)
+        self.work.span(found if found >= 0 else first, last)
+        return found
+
+    @override
+    def rindex(
+        self,
+        sub: str,
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> int:
+        found = self.rfind(sub, start, end)
+        if found < 0:
+            raise ValueError(sub)
+        return found
+
+    @override
+    def split(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
+        self.work.count += len(self)
+        return super().split(sep, maxsplit)
+
+    @override
+    def rsplit(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
+        self.work.count += len(self)
+        return super().rsplit(sep, maxsplit)
+
+    @override
+    def partition(self, sep: str) -> tuple[str, str, str]:
+        self.find(sep)
+        return super().partition(sep)
+
+    @override
+    def rpartition(self, sep: str) -> tuple[str, str, str]:
+        self.rfind(sep)
+        return super().rpartition(sep)
+
+    @override
+    def startswith(
+        self,
+        prefix: str | tuple[str, ...],
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> bool:
+        self.work.count += _longest(prefix)
+        return super().startswith(prefix, start, end)
+
+    @override
+    def endswith(
+        self,
+        suffix: str | tuple[str, ...],
+        start: SupportsIndex | None = None,
+        end: SupportsIndex | None = None,
+    ) -> bool:
+        self.work.count += _longest(suffix)
+        return super().endswith(suffix, start, end)
+
+    @override
+    def __contains__(self, key: object) -> bool:
+        return self.find(str(key)) >= 0
+
+    @override
+    def __getitem__(self, key: SupportsIndex | slice) -> str:
+        item = super().__getitem__(key)
+        self.work.count += len(item)
+        return item
+
+
+class _ScannedPattern:
+    """A compiled pattern that counts the characters its searches examine.
+
+    A search counts from where it starts to where its match ends, or to the
+    end it was given where it finds none, and `split`, `findall`, `sub` and
+    `subn` the whole range they are given. What a pattern looks ahead or
+    backtracks over is not counted.
+    """
+
+    def __init__(self, pattern: re.Pattern[str], work: _Work) -> None:
+        self.pattern = pattern
+        self.work = work
+
+    def _one(
+        self,
+        method: Callable[..., re.Match[str] | None],
+        args: tuple[str, int, int],
+    ) -> re.Match[str] | None:
+        string, pos, endpos = args
+        pos = max(pos, 0)
+        found = method(string, pos, endpos)
+        self.work.span(pos, found.end() if found else min(endpos, len(string)))
+        return found
+
+    def search(
+        self, string: str, pos: int = 0, endpos: int = sys.maxsize
+    ) -> re.Match[str] | None:
+        return self._one(self.pattern.search, (string, pos, endpos))
+
+    def fullmatch(
+        self, string: str, pos: int = 0, endpos: int = sys.maxsize
+    ) -> re.Match[str] | None:
+        return self._one(self.pattern.fullmatch, (string, pos, endpos))
+
+    def finditer(
+        self, string: str, pos: int = 0, endpos: int = sys.maxsize
+    ) -> Iterator[re.Match[str]]:
+        pos = max(pos, 0)
+        last = pos
+        for found in self.pattern.finditer(string, pos, endpos):
+            self.work.span(last, found.end())
+            last = found.end()
+            yield found
+        self.work.span(last, min(endpos, len(string)))
+
+    def split(self, string: str, maxsplit: int = 0) -> list[str]:
+        self.work.count += len(string)
+        return self.pattern.split(string, maxsplit)
+
+    def findall(
+        self, string: str, pos: int = 0, endpos: int = sys.maxsize
+    ) -> list[Any]:
+        self.work.span(max(pos, 0), min(endpos, len(string)))
+        return self.pattern.findall(string, pos, endpos)
+
+    def sub(self, repl: str, string: str, count: int = 0) -> str:
+        self.work.count += len(string)
+        return self.pattern.sub(repl, string, count)
+
+    def subn(self, repl: str, string: str, count: int = 0) -> tuple[str, int]:
+        self.work.count += len(string)
+        return self.pattern.subn(repl, string, count)
+
+
+class _ScannedRe:
+    """The `re` module's `search` and `finditer`, counting like a pattern."""
+
+    def __init__(self, work: _Work) -> None:
+        self.work = work
+
+    def search(self, pattern: str, string: str) -> re.Match[str] | None:
+        return _ScannedPattern(re.compile(pattern), self.work).search(string)
+
+    def finditer(self, pattern: str, string: str) -> Iterator[re.Match[str]]:
+        return _ScannedPattern(re.compile(pattern), self.work).finditer(string)
+
+
+def _scan_work(text: str) -> int:
+    """Return the characters `multipath_descriptors` examines in `text`.
+
+    The count covers the module's compiled patterns, `re.search` and
+    `re.finditer`, on any string, and the `_ScannedStr` methods on the text
+    `strip_checksum` returns. It does not see other `str` methods, iteration,
+    `str` methods on copies of the text, or work on lists and dicts. It does
+    not depend on the machine or on its load. The result is checked against
+    the checksummed text.
+    """
+    work = _Work()
+    strip = descriptors.strip_checksum
+    expected = [add_checksum(text)]
+    scanned = type("_Scanned", (_ScannedStr,), {"__slots__": (), "work": work})
+
+    with pytest.MonkeyPatch.context() as patch:
+        for name, value in vars(descriptors).items():
+            if isinstance(value, re.Pattern):
+                patch.setattr(descriptors, name, _ScannedPattern(value, work))
+        patch.setattr(descriptors, "re", _ScannedRe(work))
+        patch.setattr(descriptors, "strip_checksum", lambda d: scanned(strip(d)))
+        assert multipath_descriptors(text) == expected
+    return work.count
+
+
+def test_multipath_descriptors_reads_a_long_text_once() -> None:
+    """Do ten times the work on ten times the text, not a hundred times.
+
+    A pass that reads each element once is linear in the text. One that
+    rescans the text before each element is quadratic. The work is counted
+    by `_scan_work`, not timed, so the bound does not depend on the machine.
+    """
+
+    def work(count: int) -> int:
+        return _scan_work("raw(" + ",".join(["0"] * count) + ")")
+
+    assert work(160_000) < 11 * work(16_000)
 
 
 @pytest.mark.parametrize(
-    "text",
-    ["raw(" + "pk(" * 30_000, "tr(" + "musig(" * 30_000],
+    "head, opening",
+    [("raw(", "pk("), ("tr(", "musig(")],
     ids=["pk(", "musig("],
 )
-def test_multipath_descriptors_reads_open_brackets_quickly(text: str) -> None:
-    """Read a long text of brackets it never closes in well under the bound.
+def test_multipath_descriptors_reads_open_brackets_once(
+    head: str, opening: str
+) -> None:
+    """Do ten times the work on ten times the brackets it never closes.
 
-    Each "(" opens an argument that runs to the end of the text, so a pass
-    that looks ahead for where an argument ends, from each one, reads the
-    text again for every bracket: the bound is below that.
+    Each "(" opens an argument that runs to the end of the text. A pass that
+    looks ahead from each one for where its argument ends reads the text once
+    per bracket: a hundred times the work, where `_scan_work` counts how it
+    looks ahead.
     """
-    start = time.perf_counter()
-    assert multipath_descriptors(text) == [add_checksum(text)]
-    assert time.perf_counter() - start < 15
+
+    def work(count: int) -> int:
+        return _scan_work(head + opening * count)
+
+    assert work(30_000) < 11 * work(3_000)
+
+
+def _rescan_with_index(text: str, pos: int) -> None:
+    text.index("(", 0)
+    with contextlib.suppress(ValueError):
+        text.index("<", pos)
+
+
+def _rescan_with_rindex(text: str, pos: int) -> None:
+    text.rindex("(", 0)
+    with contextlib.suppress(ValueError):
+        text.rindex("<", pos)
+
+
+_RESCANS = {
+    "find": lambda text, pos: text.find("<", pos),
+    "index": _rescan_with_index,
+    "rfind": lambda text, pos: text.rfind("<", pos),
+    "rindex": _rescan_with_rindex,
+    "split": lambda text, _: text.split("<"),
+    "rsplit": lambda text, _: text.rsplit("<"),
+    "partition": lambda text, _: text.partition("<"),
+    "rpartition": lambda text, _: text.rpartition("<"),
+    "count": lambda text, pos: text.count("<", pos),
+    "in": lambda text, _: "<" in text,
+    "slice": lambda text, pos: text[pos:],
+    "search": lambda text, pos: descriptors._MULTIPATH_STEP.search(text, pos),  # noqa: PLW0108
+    "finditer": lambda text, pos: list(descriptors._MULTIPATH_STEP.finditer(text, pos)),
+    "split pattern": lambda text, _: descriptors._MULTIPATH_STEP.split(text),
+    "findall": lambda text, pos: descriptors._MULTIPATH_STEP.findall(text, pos),  # noqa: PLW0108
+    "sub": lambda text, _: descriptors._MULTIPATH_STEP.sub("", text),
+    "subn": lambda text, _: descriptors._MULTIPATH_STEP.subn("", text),
+    "fullmatch": lambda text, pos: descriptors._MULTIPATH_STEP.fullmatch(text, pos),  # noqa: PLW0108
+    "re.finditer": lambda text, _: list(vars(descriptors)["re"].finditer("<", text)),
+    "re.search": lambda text, _: vars(descriptors)["re"].search("<[^<>]*>", text),
+}
+
+
+@pytest.mark.parametrize("rescan", _RESCANS.values(), ids=_RESCANS)
+def test_the_work_count_sees_a_rescan_of_the_text(
+    rescan: Callable[[str, int], object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Count a hundred times the work for ten times the text, as a rescan does.
+
+    The pass is made to rescan the text from each "(" and ",", in each of the
+    ways the count watches, and the count must show it.
+    """
+    argument_ends = descriptors._argument_ends
+
+    def rescanning(text: str) -> object:
+        for pos, char in enumerate(text):
+            if char in ",(":
+                rescan(text, pos)
+        return argument_ends(text)
+
+    monkeypatch.setattr(descriptors, "_argument_ends", rescanning)
+
+    def work(count: int) -> int:
+        return _scan_work("raw(" + ",".join(["0"] * count) + ")")
+
+    assert work(3_000) > 50 * work(300)
 
 
 @pytest.mark.parametrize(

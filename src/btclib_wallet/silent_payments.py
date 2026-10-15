@@ -642,9 +642,8 @@ def _delegated_output_keys(
     key's position of first appearance and increments it per repeat, the
     same rule BIP352's reference algorithm groups by, so handing it the
     recipients in that order derives the identical k for every one of
-    them. The list it returns is not re-sorted into address order --
-    `test_sending_vectors` already compares the *set* `output_keys`
-    answers, output order never having been part of the contract.
+    them. The list it returns is in that grouped order, and `output_keys`
+    puts it back into address order.
 
     The taproot split is `prv_key_sum`'s own -- `is_p2tr` of the script a
     private key spends -- except the negation for an odd-y point is not
@@ -730,15 +729,17 @@ def output_keys(
     a = prv_key_sum(prv_keys)
     h = input_hash(outpoints, mult(a))
 
-    # a dict keyed on the scan point, so insertion order is the order the
-    # addresses were given and a group's k follows it
+    # a dict keyed on the scan point, so a group's k follows the order its
+    # addresses were given in; `positions` keeps where each one was given
     groups: dict[Point, list[Point]] = {}
-    for address in addresses:
+    positions: dict[Point, list[int]] = {}
+    for position, address in enumerate(addresses):
         B_scan, B_m, address_hrp = _decode_address(address)
         if address_hrp != hrp:
             err_msg = f"invalid hrp for {network}: {address_hrp} instead of {hrp}"
             raise BTClibValueError(err_msg)
         groups.setdefault(B_scan, []).append(B_m)
+        positions.setdefault(B_scan, []).append(position)
 
     for B_m_values in groups.values():
         if len(B_m_values) > K_MAX:
@@ -749,13 +750,20 @@ def output_keys(
     if not groups:
         return []
 
+    grouped: list[bytes] = []
     if is_libsecp256k1_serving():
-        return _delegated_output_keys(prv_keys, outpoints, groups)
+        grouped = _delegated_output_keys(prv_keys, outpoints, groups)
+    else:
+        for B_scan, B_m_values in groups.items():
+            secret = shared_secret((h * a) % secp256k1.n, B_scan)
+            grouped.extend(
+                output_key(secret, B_m, k) for k, B_m in enumerate(B_m_values)
+            )
 
-    keys: list[bytes] = []
-    for B_scan, B_m_values in groups.items():
-        secret = shared_secret((h * a) % secp256k1.n, B_scan)
-        keys.extend(output_key(secret, B_m, k) for k, B_m in enumerate(B_m_values))
+    keys = [b""] * len(addresses)
+    flat_positions = [i for group in positions.values() for i in group]
+    for position, key in zip(flat_positions, grouped, strict=True):
+        keys[position] = key
     return keys
 
 

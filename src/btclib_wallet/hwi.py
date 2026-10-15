@@ -134,8 +134,10 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Collection, Mapping, Sequence
@@ -173,6 +175,8 @@ __all__ = [
 # same string, so that "it is not installed" and "it is installed" cannot
 # be answers about two different executables
 DEFAULT_EXECUTABLE = "hwi"
+
+_WINDOWS = sys.platform == "win32"
 
 # a button press is what a signing command waits for, so the bound is on
 # a person and not on a computation: two minutes is long enough for a
@@ -260,6 +264,55 @@ def _executable(executable: str | Sequence[str]) -> list[str]:
     return [executable] if isinstance(executable, str) else list(executable)
 
 
+def _is_bare(name: str) -> bool:
+    """Whether `name` has no directory part, so that a search finds it."""
+    return not os.path.split(name)[0]
+
+
+def _file_name(name: str) -> str:
+    """Return the file name a bare `name` is run as in a directory.
+
+    On Windows, CreateProcess appends `.exe` to a name that contains no
+    period and runs that file only. So `hwi.exe` is the one file looked
+    for, not the `hwi.bat` or `hwi.cmd` that PATHEXT would also find: a
+    batch file is parsed by a shell. A name that contains a period, a
+    trailing one included, is taken as it stands.
+    """
+    return name + ".exe" if _WINDOWS and "." not in name else name
+
+
+def _on_path(name: str) -> str | None:
+    """Return the absolute path of the bare `name` on the PATH, or None.
+
+    Only the PATH entries that are absolute directories are searched.
+    On Windows `shutil.which` and CreateProcess look in the current
+    directory for a bare name, and an empty or relative entry is resolved
+    against it everywhere, so a file the caller did not put on the PATH
+    would be run, and handed a psbt.
+    """
+    for directory in os.environ.get("PATH", os.defpath).split(os.pathsep):
+        if pathlib.Path(directory).is_absolute():
+            path = str(pathlib.Path(directory) / _file_name(name))
+            if pathlib.Path(path).is_file() and os.access(path, os.X_OK):
+                return path
+    return None
+
+
+def _absolute(argv: list[str]) -> list[str]:
+    """Return `argv` with a bare argv[0] replaced by its path on the PATH.
+
+    The absolute path is what is run, so that CreateProcess never
+    searches for the name itself (`_on_path` says why). A bare name found
+    nowhere is the executable not being installed.
+    """
+    if not _is_bare(argv[0]):
+        return argv
+    program = _on_path(argv[0])
+    if program is None:
+        raise SignerNotFoundError(f"cannot run {argv[0]}: not found on the PATH")
+    return [program, *argv[1:]]
+
+
 def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
     """Whether the command line this module runs is there to be run.
 
@@ -280,11 +333,20 @@ def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
     `shutil.which("hwi")` beside it writes the default name a second
     time and takes that convention as read.
 
+    A bare name is looked up only in the absolute directories of the PATH,
+    never in the current directory, and the path found is what every
+    command runs. A name with a directory part is not looked up on the
+    PATH: it is handed to `shutil.which`, which on Windows with Python
+    3.12 or later tries it with each PATHEXT extension appended, and as
+    it stands only where it already ends in one, while the command runs
+    it unchanged.
+
     True is not a promise that a device will answer, or that what is on
     the PATH is HWI at all: it is that there is something to run, which
     is the half of it a caller cannot find out without running one.
     """
-    return shutil.which(_executable(executable)[0]) is not None
+    name = _executable(executable)[0]
+    return (_on_path(name) if _is_bare(name) else shutil.which(name)) is not None
 
 
 def _watch(
@@ -360,6 +422,7 @@ def _run(
     would hang this process before the timeout began. None leaves the
     child the standard input this process has.
     """
+    argv = _absolute(argv)
     with (
         tempfile.TemporaryFile() as out,
         tempfile.TemporaryFile() as err,

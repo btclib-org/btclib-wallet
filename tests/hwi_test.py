@@ -33,12 +33,13 @@ split every vendored vector here has.
 from __future__ import annotations
 
 import json
+import os
 import re
-import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from btclib.exceptions import (
@@ -54,6 +55,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import bytes_from_point, mult
 from btclib_ecc.ecc import dsa
 
+from btclib_wallet import hwi as hwi_module
 from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
 from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index, parse
@@ -64,6 +66,7 @@ from btclib_wallet.hwi import (
     DEFAULT_TIMEOUT,
     HwiDevice,
     HwiSigner,
+    _on_path,
     enumerate_devices,
     is_available,
 )
@@ -950,17 +953,17 @@ def test_the_defaults_are_the_two_bounds(hwi: list[str]) -> None:
 
 
 def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
-    hwi: list[str], tmp_path: Path
+    hwi: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`is_available` looks for argv[0] of what would be run, and nothing else.
 
-    The stand-in is `[sys.executable, script]`, so what has to be on the
-    PATH is the interpreter and not the script: which element that is is
-    this module's convention, which is the whole reason the question is
-    answered here rather than by a caller writing `shutil.which` beside
-    it. A path that names nothing is False, and it is False *before* any
-    subprocess -- the same fact `enumerate_devices` reports afterwards,
-    and by then it has run one.
+    The stand-in is `[sys.executable, script]`, so what is looked for is
+    the interpreter, which is absolute and so checked where it is, and not
+    the script: which element that is is this module's convention, which
+    is the whole reason the question is answered here rather than by a
+    caller writing `shutil.which` beside it. A path that names nothing is
+    False, and it is False *before* any subprocess -- the same fact
+    `enumerate_devices` reports afterwards, and by then it has run one.
     """
     assert is_available(hwi)
     assert is_available(sys.executable)
@@ -969,7 +972,96 @@ def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
     # the default is the name every command here runs, so the two cannot
     # be answers about different executables
     assert DEFAULT_EXECUTABLE == "hwi"
-    assert is_available() == (shutil.which(DEFAULT_EXECUTABLE) is not None)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert not is_available()
+    on_path = _fake_hwi(tmp_path / "on_path")
+    monkeypatch.setenv("PATH", str(on_path.parent))
+    assert is_available()
+
+
+def _fake_hwi(directory: Path) -> Path:
+    """Make `directory` hold a file the platform would run as `hwi`."""
+    directory.mkdir()
+    fake = directory / ("hwi.exe" if sys.platform == "win32" else DEFAULT_EXECUTABLE)
+    fake.write_text("", encoding="ascii")
+    fake.chmod(0o755)
+    return fake
+
+
+def test_a_bare_name_is_never_looked_up_in_the_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `hwi` in the current directory is not found, and is not run.
+
+    `_on_path` says why neither the current directory nor an empty or
+    relative PATH entry is searched.
+    """
+    here = tmp_path / "here"
+    _fake_hwi(here)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(here)
+    monkeypatch.setenv("PATH", os.pathsep.join([os.curdir, "", str(elsewhere)]))
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    assert not is_available()
+    assert not is_available([DEFAULT_EXECUTABLE, "--flag"])
+    with pytest.raises(SignerNotFoundError, match=f"cannot run {DEFAULT_EXECUTABLE}:"):
+        enumerate_devices()
+    popen.assert_not_called()
+
+
+def test_what_runs_is_the_absolute_path_found_on_the_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The file that is run is the one on the PATH, not one in the directory."""
+    _fake_hwi(tmp_path / "here")
+    on_path = _fake_hwi(tmp_path / "on_path")
+    monkeypatch.chdir(tmp_path / "here")
+    monkeypatch.setenv("PATH", os.pathsep.join([os.curdir, str(on_path.parent)]))
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    assert is_available()
+    with pytest.raises(SignerNotFoundError):
+        enumerate_devices()
+    assert [Path(call.args[0][0]) for call in popen.call_args_list] == [on_path]
+
+
+def test_a_bare_name_on_windows_is_run_as_an_exe_and_never_as_a_batch_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only `hwi.exe` is found for `hwi`, whatever PATHEXT lists.
+
+    `_file_name` says why. The Windows rules are switched on here so that
+    the case is seen on every platform.
+    """
+    monkeypatch.setattr(hwi_module, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    first, second = tmp_path / "first", tmp_path / "second"
+    monkeypatch.setenv("PATH", os.pathsep.join([str(first), str(second)]))
+    for directory, name in [
+        (first, "hwi.CMD"),
+        (first, "hwi.bat"),
+        (second, "hwi.exe"),
+    ]:
+        directory.mkdir(exist_ok=True)
+        (directory / name).write_text("", encoding="ascii")
+        (directory / name).chmod(0o755)
+    assert Path(_on_path("hwi") or "") == second / "hwi.exe"
+    assert is_available()
+    (second / "hwi.exe").unlink()
+    assert _on_path("hwi") is None
+    assert not is_available()
+    # a name that carries an extension is the caller's own choice
+    assert Path(_on_path("hwi.CMD") or "") == first / "hwi.CMD"
+    assert _on_path("other") is None
+    # a trailing period is taken as it stands, as CreateProcess has it
+    (first / "hwi.").write_text("", encoding="ascii")
+    (first / "hwi.").chmod(0o755)
+    assert Path(_on_path("hwi.") or "") == first / "hwi."
+    assert _on_path("hwi") is None
 
 
 def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
