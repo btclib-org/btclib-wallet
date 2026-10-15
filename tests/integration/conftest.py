@@ -86,14 +86,23 @@ def bitcoind_path() -> str:
     return path
 
 
-def _bitcoind_args(bitcoind_path: str, datadir: Path, port: int) -> list[str]:
-    """Return the command line of a throwaway regtest node, `node`'s own."""
+def _bitcoind_args(bitcoind: Sequence[str], datadir: Path, port: int) -> list[str]:
+    """Return the command line of a throwaway regtest node, `node`'s own.
+
+    `bitcoind` is the command that runs the program, as `electrs` is to
+    `_start_server`: the program's path, for the real one.
+    """
     return [
-        bitcoind_path,
+        *bitcoind,
         "-regtest",
         f"-datadir={datadir}",
         f"-rpcport={port}",
         "-rpcbind=127.0.0.1",
+        # without it bitcoind ignores `-rpcbind` and binds `::1` as well as
+        # `127.0.0.1` (src/httpserver.cpp), and keeps running when only
+        # `127.0.0.1` is taken, which the start-again on a taken port
+        # cannot see
+        "-rpcallowip=127.0.0.1",
         "-listen=0",
         "-natpmp=0",
         "-discover=0",
@@ -126,26 +135,32 @@ def node(
     what a throwaway regtest node wants of a developer's own network.
     """
     datadir = tmp_path_factory.mktemp("regtest")
-    port = _free_port()
-    process = subprocess.Popen(  # noqa: S603
-        _bitcoind_args(bitcoind_path, datadir, port),
-    )
-    client = BitcoinCoreRpcClient(
-        f"http://127.0.0.1:{port}", cookie_path=datadir / "regtest" / ".cookie"
+    process, client, _ = start_on_free_ports(
+        lambda: _start_node([bitcoind_path], datadir)
     )
     try:
-        _wait_for(client, process)
         yield client
     finally:
-        process.terminate()
-        process.wait(timeout=_STARTUP_TIMEOUT)
+        _stop(process)
 
 
-def _wait_for(client: BitcoinCoreRpcClient, process: subprocess.Popen[bytes]) -> None:
-    """Poll until the node answers, or fail with what it did instead."""
+def _wait_for(
+    client: BitcoinCoreRpcClient, process: subprocess.Popen[bytes], debug_log: Path
+) -> None:
+    """Poll until the node answers, or fail with what it did instead.
+
+    A node that exited because its rpc port is taken raises `PortTaken`.
+    """
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         if process.poll() is not None:
+            log = (
+                debug_log.read_text(encoding="utf-8", errors="replace")
+                if debug_log.exists()
+                else ""
+            )
+            if _NODE_PORT_TAKEN in log:
+                raise PortTaken(log)
             pytest.fail(f"bitcoind exited with {process.returncode}")
         try:
             client.call("getblockchaininfo")
@@ -276,8 +291,8 @@ ELECTRS_ENV = "BTCLIB_ELECTRS"
 _SYNC_TIMEOUT = 60.0
 
 
-# how many times the server is started, each on fresh ports, while a port
-# it was given is taken
+# how many times the program (the node or the server) is started, each on
+# fresh ports, while a port it was given is taken
 _BIND_ATTEMPTS = 5
 
 # what the server's log says of a port that is taken: Rust's `AddrInUse`,
@@ -290,8 +305,13 @@ _PORT_TAKEN_MARKERS = (
 )
 
 
+# what bitcoind writes to its `debug.log` when it cannot bind its rpc port
+# (src/httpserver.cpp); `-printtoconsole=0` leaves its stdout empty
+_NODE_PORT_TAKEN = "Unable to bind any endpoint for RPC server"
+
+
 class PortTaken(Exception):  # noqa: N818
-    """The server exited because a port it was given is held by another."""
+    """The node or the server exited because a port it was given is taken."""
 
 
 def port_was_taken(log: str) -> bool:
@@ -303,7 +323,8 @@ def start_on_free_ports(start: Callable[[], _T], attempts: int = _BIND_ATTEMPTS)
     """Return what `start` returns, calling it again while a port is taken.
 
     `_free_port` closes the port it picked, so another process can bind
-    it before the server does, and the server then exits. `start` picks
+    it before the program (the node or the server) does, and the program
+    then exits. `start` picks
     its ports itself, so each call is a fresh try; the last attempt's
     `PortTaken` is not caught.
     """
@@ -441,6 +462,30 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
         process.wait()
 
 
+def _start_node(
+    bitcoind: Sequence[str], datadir: Path
+) -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
+    """Return a node, a client of it and its rpc port, once it answers.
+
+    The node is stopped again where it does not get there, `PortTaken`
+    included, so that the next try does not leave it behind.
+    """
+    port = _free_port()
+    # a try that failed left its log behind, and its complaint must not be
+    # read as this one's
+    (datadir / "regtest" / "debug.log").unlink(missing_ok=True)
+    process = _start(_bitcoind_args(bitcoind, datadir, port), datadir / "stdout.log")
+    client = BitcoinCoreRpcClient(
+        f"http://127.0.0.1:{port}", cookie_path=datadir / "regtest" / ".cookie"
+    )
+    try:
+        _wait_for(client, process, datadir / "regtest" / "debug.log")
+    except BaseException:
+        _stop(process)
+        raise
+    return process, client, port
+
+
 def _start_server(
     electrs: Sequence[str],
     datadir: Path,
@@ -498,17 +543,11 @@ def running_stack(
     """
     datadir = tmp_path_factory.mktemp("stack-node")
     index = tmp_path_factory.mktemp("stack-index")
-    rpc_port = _free_port()
-    node_process = _start(
-        _bitcoind_args(bitcoind, datadir, rpc_port),
-        datadir / "stdout.log",
+    node_process, client, rpc_port = start_on_free_ports(
+        lambda: _start_node([bitcoind], datadir)
     )
     stack: Stack | None = None
     try:
-        client = BitcoinCoreRpcClient(
-            f"http://127.0.0.1:{rpc_port}", cookie_path=datadir / "regtest" / ".cookie"
-        )
-        _wait_for(client, node_process)
         client.call("createwallet", ["miner"])
         miner = client.for_wallet("miner")
         address = str(miner.call("getnewaddress"))
