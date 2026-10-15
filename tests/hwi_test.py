@@ -993,10 +993,8 @@ def test_a_bare_name_is_never_looked_up_in_the_current_directory(
 ) -> None:
     """A `hwi` in the current directory is not found, and is not run.
 
-    On Windows `shutil.which` and CreateProcess search the current
-    directory before the PATH for a bare name; an empty or relative PATH
-    entry is resolved against it on every platform. Neither is a place a
-    caller who named `hwi` agreed to run something from.
+    `_on_path` says why neither the current directory nor an empty or
+    relative PATH entry is searched.
     """
     here = tmp_path / "here"
     _fake_hwi(here)
@@ -1036,10 +1034,8 @@ def test_a_bare_name_on_windows_is_run_as_an_exe_and_never_as_a_batch_file(
 ) -> None:
     """Only `hwi.exe` is found for `hwi`, whatever PATHEXT lists.
 
-    CreateProcess appends `.exe` to a name that contains no period, and a
-    batch file would be parsed by a shell, with the arguments this
-    package built. The Windows rules are switched on here so that the
-    case is seen on every platform.
+    `_file_name` says why. The Windows rules are switched on here so that
+    the case is seen on every platform.
     """
     monkeypatch.setattr(hwi_module, "_WINDOWS", True)
     monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
