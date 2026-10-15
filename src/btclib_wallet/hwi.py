@@ -286,10 +286,10 @@ def _on_path(name: str) -> str | None:
     """Return the absolute path of the bare `name` on the PATH, or None.
 
     Only the PATH entries that are absolute directories are searched.
-    `shutil.which` and `subprocess` look in the current directory for a
-    bare name on Windows, and resolve an empty or relative entry against
-    it everywhere, so a file the caller did not put on the PATH would be
-    run, and handed a psbt.
+    On Windows `shutil.which` and CreateProcess look in the current
+    directory for a bare name, and an empty or relative entry is resolved
+    against it everywhere, so a file the caller did not put on the PATH
+    would be run, and handed a psbt.
     """
     for directory in os.environ.get("PATH", os.defpath).split(os.pathsep):
         if pathlib.Path(directory).is_absolute():
@@ -302,9 +302,9 @@ def _on_path(name: str) -> str | None:
 def _absolute(argv: list[str]) -> list[str]:
     """Return `argv` with a bare argv[0] replaced by its path on the PATH.
 
-    The absolute path is what is run: handed the bare name, `subprocess`
-    would search the current directory first on Windows. A bare name found
-    nowhere is the executable not being installed.
+    The absolute path is what is run: handed a bare name, CreateProcess
+    searches the current directory before the PATH on Windows. A bare
+    name found nowhere is the executable not being installed.
     """
     if not _is_bare(argv[0]):
         return argv

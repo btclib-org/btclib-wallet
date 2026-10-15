@@ -35,7 +35,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -954,7 +953,7 @@ def test_the_defaults_are_the_two_bounds(hwi: list[str]) -> None:
 
 
 def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
-    hwi: list[str], tmp_path: Path
+    hwi: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`is_available` looks for argv[0] of what would be run, and nothing else.
 
@@ -973,7 +972,11 @@ def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
     # the default is the name every command here runs, so the two cannot
     # be answers about different executables
     assert DEFAULT_EXECUTABLE == "hwi"
-    assert is_available() == (shutil.which(DEFAULT_EXECUTABLE) is not None)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert not is_available()
+    on_path = _fake_hwi(tmp_path / "on_path")
+    monkeypatch.setenv("PATH", str(on_path.parent))
+    assert is_available()
 
 
 def _fake_hwi(directory: Path) -> Path:
@@ -990,8 +993,8 @@ def test_a_bare_name_is_never_looked_up_in_the_current_directory(
 ) -> None:
     """A `hwi` in the current directory is not found, and is not run.
 
-    Windows searches the current directory before the PATH for a bare
-    name, in `shutil.which` and in `subprocess`; an empty or relative PATH
+    On Windows `shutil.which` and CreateProcess search the current
+    directory before the PATH for a bare name; an empty or relative PATH
     entry is resolved against it on every platform. Neither is a place a
     caller who named `hwi` agreed to run something from.
     """
