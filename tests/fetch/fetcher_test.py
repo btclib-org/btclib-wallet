@@ -393,7 +393,7 @@ def test_the_stub_answers_every_question() -> None:
 
 
 def test_get_tx_out_derives_the_output_from_the_transaction() -> None:
-    """Every backend gets this one for free, and gets it from get_tx."""
+    """A backend that serves get_tx gets this one for free, from get_tx."""
     fetcher = StubFetcher(Tx.parse(RAW))
     out = fetcher.get_tx_out(OutPoint(TX_ID, 1))
     assert out.value == 40_00000000

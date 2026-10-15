@@ -172,9 +172,10 @@ used to teach and to prototype as much as to build.
     that same transaction. A block header is parsed and its proof of
     work checked: its hash within the target its bits claim, and that
     target within the limit of the fetcher's network. Neither check says
-    it is the header at the height asked for. Except from
-    `ElectrumFetcher` and `CompactFilterFetcher`, a height and the tip
-    hash rest on the backend's word. The work each network's limit stands
+    it is the header at the height asked for. A height rests on the
+    backend's word except from `CompactFilterFetcher`, and so does the
+    tip hash except from `ElectrumFetcher` and `CompactFilterFetcher`.
+    The work each network's limit stands
     for, in bits, is:
 
     ```shell

@@ -177,9 +177,9 @@ class Fetcher(ABC):
     additive; widening the return type of `get_tx` would be a break for everyone
     already calling it.
 
-    `get_tx_out` is concrete, and is the one operation every backend can
-    derive from another: an output is a field of the transaction that
-    created it. A backend with a cheaper answer overrides it.
+    `get_tx_out` is concrete: an output is a field of the transaction that
+    created it, so a backend that serves `get_tx` serves this too. A
+    backend with a cheaper answer overrides it.
     """
 
     network: str
