@@ -378,8 +378,10 @@ class RangedWallet(Wallet, ABC):
         on. The branches are searched in `branches` order, one whole
         branch before the next, and the first match wins -- two positions
         paying to one script is a wallet whose source repeats itself, not
-        something this has to choose between. It is an integer, and a
-        bool is not one, as `Descriptor.index_of` has it.
+        something this has to choose between.
+
+        `last_index` is an integer, and a bool is refused, as in
+        `Descriptor.index_of`.
         """
         script = script_from_script_pub_key(script_pub_key)
         if not is_integer(last_index):

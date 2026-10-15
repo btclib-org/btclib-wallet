@@ -1336,9 +1336,10 @@ class Descriptor(ABC):
         `last_index` bounds the search, both ends included, and is the
         caller's: how far ahead of its own gap limit a wallet is willing
         to look is a policy this module has no view on. A descriptor that
-        is not ranged has one script and answers 0 or None. It is an
-        integer whether the descriptor is ranged or not, and a bool is
-        not one: `True` would bound the search at 1.
+        is not ranged has one script and answers 0 or None.
+
+        `last_index` is an integer, ranged descriptor or not, and a bool
+        is refused: `True` would bound a ranged search at 1.
         """
         _assert_prv_keys(prv_keys)
         script = script_from_script_pub_key(script_pub_key)
