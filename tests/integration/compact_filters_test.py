@@ -74,7 +74,7 @@ def peer_node(
         f"http://127.0.0.1:{rpc_port}", cookie_path=datadir / "regtest" / ".cookie"
     )
     try:
-        _wait_for(client, process)
+        _wait_for(client, process, datadir / "regtest" / "debug.log")
         yield client, p2p_port
     finally:
         process.terminate()
