@@ -100,9 +100,9 @@ constraints. Do not use Fable unless instructed.
   says which pull request writes them.
 - **Two branches that each touched `.secrets.baseline` conflict on its
   `generated_at`,** whatever else they changed. Taking either side whole
-  drops the other's entries and `line_number` shifts, and the hook adds
-  no entry back, so take `main`'s side, run `CONTRIBUTING.md`'s *The
-  secrets baseline* commands, then put `main`'s `generated_at` back and
+  drops the other side's entries. The detect-secrets hook does not add
+  them back. So take `main`'s side and run `CONTRIBUTING.md`'s *The
+  secrets baseline* commands. Then put `main`'s `generated_at` back and
   stage the file again. The check is that the baseline then differs from
   `main`'s by the branch's own changes alone. It is still a conflict
   resolved, so `REVIEWING.md`'s *Re-review* sends the pull request back
