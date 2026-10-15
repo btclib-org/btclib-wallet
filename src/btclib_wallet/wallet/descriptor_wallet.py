@@ -39,6 +39,11 @@ addresses would make `address(branch, index)` a lie. `descriptors.parse`
 reads one, and a caller wanting it uses `Descriptor.script_pub_keys`
 directly.
 
+Two branches holding the same descriptor are refused too, `position_of`
+having no way to tell their scripts apart. They are compared as
+`core_import._comparable` compares them, checksum and hardened symbol
+aside; other spellings of the same scripts are not caught (issue #414).
+
 A parsed descriptor holds no private key -- `descriptors.parse` neuters an
 xprv to its xpub -- so a wallet is watch-only unless it is handed the
 `prv_keys` mapping that module takes: the hardened steps an xpub cannot
@@ -62,6 +67,7 @@ from typing_extensions import override
 from btclib_wallet.bip32.bip32 import BIP32Key
 from btclib_wallet.bip32.der_path import DerPath
 from btclib_wallet.bip44 import BIP44ScriptType
+from btclib_wallet.core_import import _comparable
 from btclib_wallet.descriptors.descriptors import (
     ComboDescriptor,
     Descriptor,
@@ -79,6 +85,23 @@ from btclib_wallet.wallet.wallet import _LAST_INDEX, RangedWallet
 __all__ = [
     "DescriptorWallet",
 ]
+
+
+def _assert_distinct(by_branch: Mapping[int, Descriptor]) -> None:
+    """Refuse two branches holding one descriptor, as `_comparable` compares.
+
+    Two branches describing the same scripts would make `position_of`
+    answer the first for both, and a change output would read as a
+    receiving one. Other spellings of the same scripts are not caught, such
+    as a key origin added or a child xpub in place of a derivation step.
+    """
+    seen: dict[str, int] = {}
+    for branch, descriptor in sorted(by_branch.items()):
+        first = seen.setdefault(_comparable(descriptor), branch)
+        if first != branch:
+            err_msg = f"branches {first} and {branch} hold the same"
+            err_msg += " descriptor: position_of could not tell them apart"
+            raise BTClibValueError(err_msg)
 
 
 class DescriptorWallet(RangedWallet):
@@ -119,6 +142,8 @@ class DescriptorWallet(RangedWallet):
                 err_msg += " wallet cannot hold one -- Descriptor"
                 err_msg += ".script_pub_keys is what answers for it"
                 raise BTClibValueError(err_msg)
+
+        _assert_distinct(by_branch)
 
         networks = {descriptor.network for descriptor in by_branch.values()}
         if len(networks) != 1:

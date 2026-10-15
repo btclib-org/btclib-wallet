@@ -161,6 +161,28 @@ def test_the_chains_must_be_of_one_network() -> None:
         DescriptorWallet([mainnet, testnet])
 
 
+def test_two_branches_may_not_hold_the_same_descriptor() -> None:
+    """Else `position_of` answers the first for both: change reads as receiving.
+
+    Equal as `core_import._comparable` compares them, so the checksum and
+    the spelling of the hardened symbol are not differences.
+    """
+    receive = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
+    err_msg = "branches 0 and 1 hold the same descriptor"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        DescriptorWallet([receive, receive])
+
+    # an apostrophe and an `h` spell the same hardened step
+    apostrophe = parse(_descriptor(f"wpkh({_XPUB}/0'/*)"))
+    hardened = parse(_descriptor(f"wpkh({_XPUB}/0h/*)"))
+    with pytest.raises(BTClibValueError, match="branches 3 and 7"):
+        DescriptorWallet({7: apostrophe, 3: hardened})
+
+    # the two chains of one account differ, so they make a wallet
+    change = parse(_descriptor(f"wpkh({_XPUB}/1/*)"))
+    assert DescriptorWallet([receive, change]).branches == (0, 1)
+
+
 def test_a_combo_is_four_addresses_at_one_position() -> None:
     """Which is not a wallet position, so the wallet refuses it.
 
