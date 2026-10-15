@@ -273,11 +273,10 @@ def _file_name(name: str) -> str:
     """Return the file name a bare `name` is run as in a directory.
 
     On Windows, CreateProcess appends `.exe` to a name that contains no
-    period and runs nothing else for it, so that is the one file looked
-    for: `hwi.bat` and `hwi.cmd` are not found as `hwi`, as they would be
-    through PATHEXT, because a batch file is parsed by a shell. A name
-    that contains a period, a trailing one included, is taken as it
-    stands.
+    period and runs that file only. So `hwi.exe` is the one file looked
+    for, not the `hwi.bat` or `hwi.cmd` that PATHEXT would also find: a
+    batch file is parsed by a shell. A name that contains a period, a
+    trailing one included, is taken as it stands.
     """
     return name + ".exe" if _WINDOWS and "." not in name else name
 
@@ -302,9 +301,9 @@ def _on_path(name: str) -> str | None:
 def _absolute(argv: list[str]) -> list[str]:
     """Return `argv` with a bare argv[0] replaced by its path on the PATH.
 
-    The absolute path is what is run: handed a bare name, CreateProcess
-    searches the current directory before the PATH on Windows. A bare
-    name found nowhere is the executable not being installed.
+    The absolute path is what is run, so that CreateProcess never
+    searches for the name itself (`_on_path` says why). A bare name found
+    nowhere is the executable not being installed.
     """
     if not _is_bare(argv[0]):
         return argv
@@ -336,7 +335,10 @@ def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
 
     A bare name is looked up only in the absolute directories of the PATH,
     never in the current directory, and the path found is what every
-    command runs. A name with a directory part is taken as given.
+    command runs. A name with a directory part is not looked up on the
+    PATH: it is handed to `shutil.which` as it stands, which on Windows
+    with Python 3.12 or later also tries the PATHEXT extensions, while
+    the command runs it unchanged.
 
     True is not a promise that a device will answer, or that what is on
     the PATH is HWI at all: it is that there is something to run, which

@@ -957,13 +957,13 @@ def test_whether_the_command_line_is_there_is_asked_before_it_is_run(
 ) -> None:
     """`is_available` looks for argv[0] of what would be run, and nothing else.
 
-    The stand-in is `[sys.executable, script]`, so what has to be on the
-    PATH is the interpreter and not the script: which element that is is
-    this module's convention, which is the whole reason the question is
-    answered here rather than by a caller writing `shutil.which` beside
-    it. A path that names nothing is False, and it is False *before* any
-    subprocess -- the same fact `enumerate_devices` reports afterwards,
-    and by then it has run one.
+    The stand-in is `[sys.executable, script]`, so what is looked for is
+    the interpreter, which is absolute and so checked where it is, and not
+    the script: which element that is is this module's convention, which
+    is the whole reason the question is answered here rather than by a
+    caller writing `shutil.which` beside it. A path that names nothing is
+    False, and it is False *before* any subprocess -- the same fact
+    `enumerate_devices` reports afterwards, and by then it has run one.
     """
     assert is_available(hwi)
     assert is_available(sys.executable)
