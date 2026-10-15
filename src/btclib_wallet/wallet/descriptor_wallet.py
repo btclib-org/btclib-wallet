@@ -42,7 +42,8 @@ directly.
 Two branches holding the same descriptor are refused too, `position_of`
 having no way to tell their scripts apart. They are compared as
 `core_import._comparable` compares them, checksum and hardened symbol
-aside; other spellings of the same scripts are not caught (issue #414).
+aside; other spellings of the same scripts are not caught, a key origin
+added to one of them for instance (issue #414).
 
 A parsed descriptor holds no private key -- `descriptors.parse` neuters an
 xprv to its xpub -- so a wallet is watch-only unless it is handed the
@@ -88,12 +89,9 @@ __all__ = [
 
 
 def _assert_distinct(by_branch: Mapping[int, Descriptor]) -> None:
-    """Refuse two branches holding one descriptor, as `_comparable` compares.
+    """Refuse two branches equal as `_comparable` compares them.
 
-    Two branches describing the same scripts would make `position_of`
-    answer the first for both, and a change output would read as a
-    receiving one. Other spellings of the same scripts are not caught, such
-    as a key origin added or a child xpub in place of a derivation step.
+    The module docstring says why, and what is not caught.
     """
     seen: dict[str, int] = {}
     for branch, descriptor in sorted(by_branch.items()):
@@ -143,12 +141,12 @@ class DescriptorWallet(RangedWallet):
                 err_msg += ".script_pub_keys is what answers for it"
                 raise BTClibValueError(err_msg)
 
-        _assert_distinct(by_branch)
-
         networks = {descriptor.network for descriptor in by_branch.values()}
         if len(networks) != 1:
             err_msg = f"descriptors of different networks: {sorted(networks)}"
             raise BTClibValueError(err_msg)
+
+        _assert_distinct(by_branch)
 
         super().__init__(networks.pop())
         # sorted, so that `branches` is ascending and `position_of`
