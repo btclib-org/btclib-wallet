@@ -214,7 +214,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         return remaining
 
     def _send(self, payload: Payload, deadline: float) -> None:
-        """Send one payload to the peer, framed for this network, by `deadline`."""
+        """Send one payload to the peer, framed for this network, in time."""
         message = payload.to_message(self._magic)
         remaining = self._remaining(deadline)
         with client_errors():
