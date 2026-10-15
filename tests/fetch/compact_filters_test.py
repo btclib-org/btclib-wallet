@@ -436,7 +436,7 @@ def test_a_peer_that_pings_and_stops_reading_does_not_outlast_the_timeout(
     def late_ping(timeout: float) -> Message:
         nonlocal now
         message = receive(timeout)
-        now += 9 * (message.command == "ping")  # the ping comes late
+        now += 9  # the ping comes late, and is the only message received
         return message
 
     def blocked_pong(message: Message, timeout: float) -> None:

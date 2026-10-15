@@ -17,9 +17,11 @@ Skipped unless `BTCLIB_INTEGRATION=1` and a `bitcoind` is available.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient
@@ -29,12 +31,83 @@ from typing_extensions import override
 
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport
-from tests.integration.conftest import _free_port, _wait_for
+from tests.integration.conftest import (
+    PortTaken,
+    _free_port,
+    _start,
+    _stop,
+    _wait_for,
+    start_on_free_ports,
+)
 
 pytestmark = pytest.mark.integration
 
+# what bitcoind writes to its `debug.log` when it cannot bind its p2p port
+# (src/net.cpp); the conftest's `_wait_for` reads only the rpc port's
+_P2P_PORT_TAKEN = re.compile(
+    r"Unable to bind to \S+ on this computer\. .+ is probably already running"
+)
+
 # how long the block filter index is given to catch up with the chain
 _INDEX_TIMEOUT = 30.0
+
+
+def _start_peer_node(
+    bitcoind_path: str, datadir: Path
+) -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
+    """Return a node, a client of it and its p2p port, once it answers.
+
+    Both ports are picked on every call, so that a call is a fresh try
+    for `start_on_free_ports`. The node is stopped again where it does
+    not get there, so that the next try does not leave it behind.
+    """
+    rpc_port, p2p_port = _free_port(), _free_port()
+    debug_log = datadir / "regtest" / "debug.log"
+    # a try that failed left its log behind, and its complaint must not be
+    # read as this one's
+    debug_log.unlink(missing_ok=True)
+    process = _start(
+        [
+            bitcoind_path,
+            "-regtest",
+            f"-datadir={datadir}",
+            f"-rpcport={rpc_port}",
+            "-rpcbind=127.0.0.1",
+            # without it bitcoind ignores `-rpcbind`, as the conftest's
+            # `_bitcoind_args` says
+            "-rpcallowip=127.0.0.1",
+            f"-port={p2p_port}",
+            f"-bind=127.0.0.1:{p2p_port}",
+            "-listen=1",
+            "-natpmp=0",
+            "-discover=0",
+            "-listenonion=0",
+            "-fallbackfee=0.0002",
+            "-blockfilterindex=1",
+            "-peerblockfilters=1",
+            "-printtoconsole=0",
+        ],
+        datadir / "stdout.log",
+    )
+    client = BitcoinCoreRpcClient(
+        f"http://127.0.0.1:{rpc_port}", cookie_path=datadir / "regtest" / ".cookie"
+    )
+    try:
+        _wait_for(client, process, debug_log)
+    except BaseException as failure:
+        _stop(process)
+        # `_wait_for` knows only the rpc port's complaint; the p2p
+        # listener has its own
+        if (
+            isinstance(failure, pytest.fail.Exception)
+            and debug_log.exists()
+            and _P2P_PORT_TAKEN.search(
+                debug_log.read_text(encoding="utf-8", errors="replace")
+            )
+        ):
+            raise PortTaken from None
+        raise
+    return process, client, p2p_port
 
 
 @pytest.fixture(scope="module")
@@ -50,35 +123,13 @@ def peer_node(
     `-discover` are off for the reason the conftest gives.
     """
     datadir = tmp_path_factory.mktemp("regtest-p2p")
-    rpc_port, p2p_port = _free_port(), _free_port()
-    process = subprocess.Popen(  # noqa: S603
-        [
-            bitcoind_path,
-            "-regtest",
-            f"-datadir={datadir}",
-            f"-rpcport={rpc_port}",
-            "-rpcbind=127.0.0.1",
-            f"-port={p2p_port}",
-            f"-bind=127.0.0.1:{p2p_port}",
-            "-listen=1",
-            "-natpmp=0",
-            "-discover=0",
-            "-listenonion=0",
-            "-fallbackfee=0.0002",
-            "-blockfilterindex=1",
-            "-peerblockfilters=1",
-            "-printtoconsole=0",
-        ],
-    )
-    client = BitcoinCoreRpcClient(
-        f"http://127.0.0.1:{rpc_port}", cookie_path=datadir / "regtest" / ".cookie"
+    process, client, p2p_port = start_on_free_ports(
+        lambda: _start_peer_node(bitcoind_path, datadir)
     )
     try:
-        _wait_for(client, process, datadir / "regtest" / "debug.log")
         yield client, p2p_port
     finally:
-        process.terminate()
-        process.wait(timeout=30)
+        _stop(process)
 
 
 class RecordingPeer(TcpPeerTransport):
