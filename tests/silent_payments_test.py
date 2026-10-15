@@ -617,6 +617,50 @@ def test_output_keys_interleaved_groups_match_across_arms(
     assert set(delegated) == set(python)
 
 
+@pytest.mark.parametrize(
+    "delegated",
+    [pytest.param(True, marks=needs_bindings, id="bindings"), False],
+    ids=["bindings", "python"],
+)
+def test_output_keys_come_back_in_address_order(
+    delegated: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Key i belongs to address i, though A1 and A2 share a scan key.
+
+    `[A1, B, A2]` is grouped A1, A2, B inside, and k is assigned per
+    group: 0 for A1, 1 for A2, 0 for B. Each expected key is built by
+    hand from `output_key` with that k, so the test fails both on a key
+    out of place and on a k assigned by position in the list.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    prv_keys = [(a, "5120" + bytes_from_point(mult(a))[1:].hex())]
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+
+    a_scan, a_spend, b_scan, b_spend = 0x11, 0x22, 0x33, 0x44
+    a1 = silent_payments.address_from_keys(mult(a_scan), mult(a_spend))
+    a2 = silent_payments.labeled_address_from_keys(a_scan, mult(a_spend), 1)
+    b = silent_payments.address_from_keys(mult(b_scan), mult(b_spend))
+    addresses = [a1, b, a2]
+
+    scalar = (
+        silent_payments.input_hash(
+            outpoints, mult(silent_payments.prv_key_sum(prv_keys))
+        )
+        * silent_payments.prv_key_sum(prv_keys)
+    ) % secp256k1.n
+    expected = []
+    for address, k in zip(addresses, [0, 0, 1], strict=True):
+        B_scan, B_m, _ = silent_payments.keys_from_address(address)
+        secret = silent_payments.shared_secret(scalar, B_scan)
+        expected.append(silent_payments.output_key(secret, B_m, k))
+
+    with monkeypatch.context() as arm:
+        if not delegated:
+            arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+        keys = silent_payments.output_keys(prv_keys, outpoints, addresses)
+    assert keys == expected
+
+
 def test_output_keys_pays_nothing_for_no_addresses() -> None:
     """No recipient is nothing to derive, on either arm.
 
