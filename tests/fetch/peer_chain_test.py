@@ -171,6 +171,8 @@ class ScriptedPeer(PeerTransport):
     @override
     def send(self, message: Message, timeout: float) -> None:
         """Keep the message and queue the answer to it."""
+        # a fetcher that asks for ever is a test that hangs
+        assert len(self.sent) < 10_000, "the fetcher asks for ever"
         self.sent.append(message)
         if message.command == "getheaders":
             self.getheaders.append(message)

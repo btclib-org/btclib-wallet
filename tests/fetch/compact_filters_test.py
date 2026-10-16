@@ -688,79 +688,36 @@ def test_a_second_fork_in_one_synchronization_is_undone_with_the_first(
 
 
 @pytest.mark.parametrize("fork_at", [9, 0], ids=["from the middle", "from genesis"])
-def test_a_fork_below_the_minimum_work_takes_the_displaced_chain_with_it(
+def test_a_fork_below_the_minimum_work_is_refused_and_the_chain_held_stays(
     fork_at: int,
 ) -> None:
-    """Nothing of either chain stays, and an honest peer is followed again."""
+    """None of the fork is held, and an honest peer is followed again."""
     fetcher, peer = build()
     fetcher.get_block_count()
     honest = fetcher._consensus
-    setattr(fetcher, "_consensus", replace(honest, minimum_chain_work=10**80))  # noqa: B010
-    peer.chain = CHAIN.fork(fork_at).extend(16 - fork_at, salt=b"cheap")
-    with pytest.raises(FetchError, match="below the 1000000"):
+    required = replace(honest, minimum_chain_work=fetcher._work[-1])
+    setattr(fetcher, "_consensus", required)  # noqa: B010
+    peer.chain = CHAIN.fork(fork_at).extend(TIP - 1 - fork_at, salt=b"cheap")
+    with pytest.raises(FetchError, match=r"below the \d+"):
         fetcher.get_block_count()
-    assert len(fetcher._hashes) == 1
-    setattr(fetcher, "_consensus", honest)  # noqa: B010
+    assert len(fetcher._hashes) == TIP + 1
     peer.chain = CHAIN
     assert fetcher.get_block_count() == TIP
     assert fetcher.get_block_header(1) == CHAIN.blocks[1].header
 
 
-def test_two_chains_below_the_minimum_work_are_both_dropped(
+def test_a_fork_with_the_minimum_work_and_no_more_is_put_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A fork of no more work does not put back a chain below the minimum."""
-    monkeypatch.setattr(compact_filters, "MAX_HEADERS_RESULTS", 3)
-    fetcher, peer = build(verify_network=False)
-    required = replace(fetcher._consensus, minimum_chain_work=10**80)
-    monkeypatch.setattr(fetcher, "_consensus", required)
-    fork = CHAIN.fork(1).extend(2, salt=b"cheap")
-    batches = iter([CHAIN.blocks[1:4], fork.blocks[2:4]])
-
-    def reply(_payload: bytes) -> list[Message]:
-        return headers_message(peer, *[b.header for b in next(batches, [])])
-
-    says_with(peer, "reply_getheaders", reply)
-    with pytest.raises(FetchError, match="below the 1000000"):
-        fetcher.get_block_count()
-    assert len(fetcher._hashes) == 1
-
-
-def test_a_fork_of_less_work_puts_back_a_chain_at_the_minimum(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A chain held at the minimum work is put back, not dropped."""
+    """A fork held for its work, with less than the chain, is undone."""
     fetcher, peer = build()
     fetcher.get_block_count()
-    held = replace(fetcher._consensus, minimum_chain_work=fetcher._work[-1])
+    held = replace(fetcher._consensus, minimum_chain_work=fetcher._work[TIP - 2])
     monkeypatch.setattr(fetcher, "_consensus", held)
-    peer.chain = CHAIN.fork(9).extend(3, salt=b"cheap")
+    peer.chain = CHAIN.fork(9).extend(TIP - 2 - 9, salt=b"cheap")
     with pytest.raises(FetchError, match="no more work"):
         fetcher.get_block_count()
     assert len(fetcher._hashes) == TIP + 1
-
-
-def test_a_fork_that_reaches_the_minimum_work_replaces_a_chain_below_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Only the chain a synchronization ends with has to reach the minimum."""
-    monkeypatch.setattr(compact_filters, "MAX_HEADERS_RESULTS", 3)
-    reference, _ = build(verify_network=False)
-    reference.get_block_count()
-    fetcher, peer = build(verify_network=False)
-    required = replace(fetcher._consensus, minimum_chain_work=reference._work[-1])
-    monkeypatch.setattr(fetcher, "_consensus", required)
-    fork = CHAIN.fork(1).extend(TIP)
-    batches = iter(
-        [CHAIN.blocks[1:4]]
-        + [fork.blocks[i : i + 3] for i in range(2, fork.height + 1, 3)]
-    )
-
-    def reply(_payload: bytes) -> list[Message]:
-        return headers_message(peer, *[b.header for b in next(batches, [])])
-
-    says_with(peer, "reply_getheaders", reply)
-    assert fetcher.get_block_count() == fork.height
 
 
 def test_a_fork_interrupted_half_way_is_put_back(
