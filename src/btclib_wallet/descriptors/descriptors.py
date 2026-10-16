@@ -583,7 +583,32 @@ def _musig_ends(text: str) -> dict[int, int]:
     return ends
 
 
-def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> None:
+def _internal_key_span(
+    text: str, ends: dict[int, int], closes: dict[int, int]
+) -> range:
+    """Return a top-level tr/rawtr internal key with the outer arity read.
+
+    The scanner's argument maps already hold its boundaries. A musig()
+    below an origin or a script function is not this key, and an outer
+    arity fault is refused before any key is read.
+    """
+    name = text.partition("(")[0]
+    start, close = len(name) + 1, len(text) - 1
+    if (
+        name not in {"tr", "rawtr"}
+        or not text.endswith(")")
+        or closes.get(start) != close
+    ):
+        return range(-1, -1)
+    end = ends[start]
+    if end != close and (name != "tr" or ends.get(end + 1) != close):
+        return range(-1, -1)
+    return range(start, end)
+
+
+def _assert_musig_path(
+    text: str, start: int, close: int, steps: list[int], internal_key: range
+) -> None:
     """Refuse a ``musig()``'s path, and the faults Core reads with it.
 
     The participants are from `start` to the ")" at `close`, and `steps`
@@ -595,6 +620,10 @@ def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> N
     so does this, refusing there a hardened item of a multipath step as
     Core does, before the multipath, where the ``musig()`` starts an
     argument.
+
+    For a direct tr/rawtr internal key, `_parse_key` first refuses a
+    malformed participant, then a derivation on non-extended participants.
+    Other positions are left to `parse` for that refusal.
     """
     path_end = _KEY_END.search(text, close + 1)
     path = text[close + 1 : path_end.start() if path_end else len(text)]
@@ -605,6 +634,14 @@ def _assert_musig_path(text: str, start: int, close: int, steps: list[int]) -> N
             and _is_extended_key(key.rpartition("]")[2].partition("/")[0])
             for key in keys
         )
+        if not derives and start - len("musig(") == internal_key.start:
+            _parse_key(
+                text[internal_key.start : internal_key.stop],
+                {},
+                x_only=True,
+                compressed=True,
+                musig_allowed=True,
+            )
         if derives and any(key.rpartition("/")[2] in _WILDCARDS for key in keys):
             raise BTClibValueError(_RANGED_PARTICIPANT)
         elements, _, wildcard_hardening = _split_wildcard(path[1:].split("/"))
@@ -645,6 +682,7 @@ def _assert_multipath_items(text: str) -> None:
     # everything the pass asks of what lies ahead is worked out once, here,
     # so that no item reads the text again
     starts, ends, closes = _argument_ends(text)
+    internal_key = _internal_key_span(text, ends, closes)
     origin_ends = [match.start() for match in re.finditer(r"\]", text)]
     steps = [match.start() for match in re.finditer("<", text)]
     musig_ends = _musig_ends(text)
@@ -675,7 +713,7 @@ def _assert_multipath_items(text: str) -> None:
                 allowed = text.startswith(("tr(", "rawtr("))
                 _assert_musig_allowed(musig_allowed=allowed)
             if start in musig_ends:
-                _assert_musig_path(text, musig_ends[start], start, steps)
+                _assert_musig_path(text, musig_ends[start], start, steps, internal_key)
         elif in_origin:
             # a lone "/" is the empty element after it
             _assert_origin_path_element("" if item == "/" else item)
@@ -3941,11 +3979,12 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     whole path element, a key path with two ``<a;b>`` steps, a step with
     fewer than two elements, an element of an extended key's path that is no
     index or a step there with a repeated value, a ``musig()`` outside
-    ``tr()`` and ``rawtr()``, a ``musig()`` path beside a ranged participant
-    where every participant is an extended key, a hardened item of a
-    multipath step in the path of a ``musig()`` that starts an argument,
-    where it reads that path, and a ``musig()`` multipath in both its
-    participants and its path.
+    ``tr()`` and ``rawtr()``, a direct internal ``musig()`` path whose
+    participants are not all extended keys, a ``musig()`` path beside a
+    ranged participant where every participant is an extended key, a
+    hardened item of a multipath step in the path of a ``musig()`` that
+    starts an argument, where it reads that path, and a ``musig()``
+    multipath in both its participants and its path.
     """
     text = strip_checksum(descriptor)
     _assert_multipath_items(text)
