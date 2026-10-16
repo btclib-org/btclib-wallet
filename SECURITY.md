@@ -202,11 +202,22 @@ used to teach and to prototype as much as to build.
 - **`CompactFilterFetcher` checks the chain it follows and trusts one peer
     for the rest.** Every header connects to the one before it, carries the
     work its bits claim and carries the bits the retarget rules require
-    (`btclib.block.header_context.next_bits_required`); the median time past
-    and the clock are not asked. No chain with less work than the network's
-    `minimum_chain_work` is accepted. A fork is followed only if it ends
-    with more work than the chain it displaces; otherwise the chain held is
-    put back if it has the minimum work, and dropped if not. Every
+    (`btclib.block.header_context.next_bits_required`). Its time is after
+    the median time past of its parent, no more than two
+    hours ahead of the clock, and where the network enforces BIP94 not far
+    behind its parent at a retarget. No chain with less work than the
+    network's `minimum_chain_work` is followed: a call that ends on one fails,
+    and a later synchronization completes it or drops it. Until a chain has
+    the minimum work, its headers are downloaded without being kept, as
+    Bitcoin Core's headers presync does: the memory is a bit for every few
+    hundred headers, and the longest chain the rules allow at the time of
+    the clock bounds those bits. The chain is then downloaded again, and a
+    header is kept only after those that follow it match their bits. A peer
+    can still make the fetcher download as many low-work headers as it has
+    mined, up to that bound. A header's version is not checked. A fork is
+    followed only if it ends with more work than the chain it displaces;
+    otherwise the chain held is put back if it has the minimum work, and
+    dropped if not. Every
     `cfheaders` answers the request it came from and chains from the filter
     header held. Every `cfilter` is the filter of the block asked for and
     hashes, chained to the filter header before it, to the filter header
@@ -222,14 +233,10 @@ used to teach and to prototype as much as to build.
     makes a block authoritative, so the work of those blocks is signet's low
     difficulty. A block with a witness changed or removed is refused, one
     with every witness removed included: its coinbase commits to witnesses
-    and carries no nonce for them. The peer can keep a synchronization
-    going, and the fetcher's headers growing in memory, for as long as it
-    sends headers that pass the checks, the minimum work being checked when
-    a synchronization ends without failing ([ISS
-    354](https://github.com/btclib-org/btclib-wallet/issues/354)). It also
-    decides which blocks are downloaded, up to the `max_blocks` of the call,
-    and sees which they are; it is given no script. Use a peer you trust, or
-    run several fetchers and compare.
+    and carries no nonce for them. It also decides which blocks are
+    downloaded, up to the `max_blocks` of the call, and sees which they are;
+    it is given no script. Use a peer you trust, or run several fetchers and
+    compare.
 - **An explorer learns every txid and outpoint you look up**, which is a
     good deal of what a wallet is. A public deployment is named as a
     constant and never as a default, so nothing here contacts anyone
