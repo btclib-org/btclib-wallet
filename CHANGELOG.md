@@ -24,6 +24,196 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.16
+
+### The btclib and btclib-ecc floors are 2026.10.16
+
+btclib-wallet calls btclib-ecc's `_var` names, and btclib through 2026.10.9
+imports the names they replace (issue btclib-org/.github#1742).
+
+### `psbt/frost` calls BIP445 0.12.0's interface
+
+btclib-ecc's `frost` follows it from 2026.10.10 (closes #338).
+
+### `silent_payments.output_keys` returns the keys in address order
+
+It grouped them by scan key, so key `i` could be another address's
+(closes #415).
+
+### A DLC's transactions are built and signed
+
+The funding, execution and refund transactions of dlcspecs, with adaptor
+signatures, for the agreed terms only (closes #331).
+
+### DLC oracle announcements and attestations are read and verified
+
+`btclib_wallet.dlc.oracle` reads, writes, signs and verifies them
+(closes #332).
+
+### `block_header_from_raw` takes the network
+
+Its proof-of-work limit is the network's, so regtest and signet headers are
+read. electrs tests the Electrum and Esplora fetchers live (closes #328).
+
+### `ElectrumFetcher.assert_network` compares the genesis first
+
+A server of another chain is a `BTClibValueError`, before any proof of work
+(closes #341).
+
+### A global xpub key is a 78-byte xpub on the curve
+
+As in Bitcoin Core (closes #342).
+
+### An input or output BIP32 derivation key is a point
+
+Of 33 or 65 bytes, as in Bitcoin Core (closes #356, closes #377).
+
+### `combine` keeps the first psbt's value on a key conflict
+
+As Bitcoin Core's `Merge` does (closes #325).
+
+### The psbt, MuSig2 and BIP85 refusals print no refused bytes
+
+`deserialize_map` takes the map's name for its refusal (closes #351).
+
+### An xpub whose key is not a point is refused by its prefix
+
+No key byte is printed (closes #388).
+
+### Core's multipath messages for a glued key and odd origin steps
+
+`multipath_descriptors` and `parse` give them (closes #299, closes #301).
+
+### A bad origin fingerprint and a second multipath step come first
+
+As in Bitcoin Core's `ParsePubkey` (closes #353, closes #365).
+
+### The fault Bitcoin Core reads first in a key expression is reported
+
+In `multipath_descriptors` and `parse` (closes #367, closes #397, issue #370).
+
+### `KeyExpression.sec` refuses an out-of-range index
+
+As `Descriptor` does (closes #383).
+
+### Descriptor indexes that are not integers are refused
+
+With `BTClibTypeError` (closes #404).
+
+### `index_of` and `position_of` refuse a bad `last_index`
+
+One that is not an integer (closes #407), or is negative (closes #413).
+
+### `DescriptorWallet` refuses two branches holding the same descriptor
+
+`position_of` could not tell them apart (closes #411).
+
+### `DescriptorWallet` refuses two branches sharing a script
+
+However their descriptors are spelled (closes #414).
+
+### A bare HWI name is resolved against the PATH alone
+
+Its absolute directories only, and on Windows as `<name>.exe` (closes #416).
+
+### An HWI name with a directory part is checked as the file it runs
+
+Not through `shutil.which` (closes #422).
+
+### The `hwi.py` docstring says which whitespace is ignored
+
+The ASCII whitespace btclib strips (closes #274).
+
+### Branch and bound prunes on waste and skips clones
+
+As Core's `SelectCoinsBnB` does, a tie going to the lower waste (closes #357).
+
+### The change output pays for the output count's growth
+
+When it is the 253rd output, as `build_psbt` prices it (closes #384).
+
+### Branch and bound is checked against a brute-force search
+
+A property test over small pools (closes #327).
+
+### The fee estimate refusals carry their source once
+
+For `estimatesmartfee` (closes #374), and an empty `/fee-estimates` reply has
+its own message (closes #358).
+
+### The qa-assets corpora of Core and rust-bitcoin are replayed
+
+Through the psbt and descriptor parsers (closes #340).
+
+### bitcoin-s's descriptor cases and Trezor recording are run
+
+The cases neither this suite nor Core has (closes #334), and the address
+recording, vendored (closes #321).
+
+### Two descriptor rules where rust-miniscript differs are pinned
+
+Tests only (closes #392).
+
+### The descriptor and psbt fuzzers are seeded
+
+From the BIPs and rust-bitcoin (closes #326, closes #335).
+
+### The descriptor fuzz harness checks round trips
+
+Of the printed form and of each miniscript's script (closes #345).
+
+### ClusterFuzzLite installs the build backend from the hashed lock export
+
+Pinned and hashed, rather than resolved from the index (closes #319).
+
+### The multipath checks count their work instead of timing it
+
+So load cannot fail them (closes #391).
+
+### electrs and bitcoind start again on fresh ports
+
+When the port picked is taken (closes #410, closes #419).
+
+### The actionlint fork, `api-break` and the secret-free helper are ported
+
+As btclib-org/.github sets them (issue btclib-org/.github#1698, issue
+btclib-org/.github#1674, issue btclib-org/.github#1697, issue
+btclib-org/.github#1723).
+
+### `osv-scanner.toml` covers the HWI environment
+
+PYSEC-2026-1325 does not apply to it (closes #318).
+
+### `RELEASING.md` runs the dependents before the tag
+
+And reads the tag back from the API (issue btclib-org/.github#1647, issue
+btclib-org/.github#1660).
+
+### `REPOSITORY.md` on the tag-integrity ruleset and strict off
+
+What the ruleset does not check (issue btclib-org/.github#1635), and strict
+off on `main` (issue btclib-org/.github#1712).
+
+### The maintainer's bypass is everyday practice
+
+A merge through it waits for no required check (issue
+btclib-org/.github#1695).
+
+### `CONTRIBUTING.md` on Dependabot uv pull requests and the secrets baseline
+
+An owner commits the uv export (closes #336), and a `.secrets.baseline`
+conflict is resolved by rescanning.
+
+### Prose corrections
+
+The v2026.10.8 notes name GHSA-62jf-v327-86h5. `psbt/musig2.py` cites no
+closed issue (closes #350). Review wording findings are applied (closes #389).
+
+### Bumps
+
+The pre-commit hooks, the actions, the ClusterFuzzLite base image,
+bitcoin-core-rpc and btclib-mnemonics.
+
 ## v2026.10.9
 
 ### `Descriptor.expand` fills the scripts and the provider from one derivation

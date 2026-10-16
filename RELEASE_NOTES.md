@@ -9,6 +9,133 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.16
+
+- **btclib-wallet 2026.9.30 to 2026.10.9 fail at import beside btclib-ecc
+  2026.10.16** (issue btclib-org/.github#1742). `import btclib_wallet.bip32`
+  raises `ImportError`, and so does importing `psbt`, `descriptors` or
+  `wallet`: btclib-ecc 2026.10.16 renames `point_from_octets` to
+  `point_from_octets_var`, with no alias. Upgrade to this release, or keep
+  btclib-ecc below 2026.10.16.
+
+- **`silent_payments.output_keys` returns the keys in the order of the
+  addresses** ([ISS 415](https://github.com/btclib-org/btclib-wallet/issues/415)).
+  Through 2026.10.9 it grouped them by scan key, so for `[A1, B, A2]`, A1 and
+  A2 sharing a scan key, key 1 was A2's and key 2 was B's. A transaction that
+  paired key `i` with address `i` paid B's amount to A2 and A2's amount to B.
+  Upgrade. Act on it if you reordered the keys yourself: stop reordering
+  them.
+
+### Breaking changes
+
+- **btclib-wallet requires btclib 2026.10.16 and btclib-ecc 2026.10.16**
+  (issue btclib-org/.github#1742). Act on it if you pin either lower. Their
+  own release notes list what else they change.
+- **`block_header_from_raw` takes a required, keyword-only `network`**
+  ([ISS 328](https://github.com/btclib-org/btclib-wallet/issues/328)). It
+  checks the proof of work against that network's limit, where it used
+  mainnet's for every network. So the Electrum, Esplora, Bitcoin Core and Core
+  REST fetchers read regtest and signet headers. Act on it if you call it:
+  pass the network's name.
+- **`ElectrumFetcher.assert_network` raises `BTClibValueError` for a server
+  of another chain** ([ISS 341](https://github.com/btclib-org/btclib-wallet/issues/341)).
+  A mainnet fetcher over a regtest server raised `FetchError`, which
+  `FallbackFetcher` falls through. Act on it if you catch `FetchError` there:
+  catch `BTClibValueError`.
+- **`psbt.combine` keeps the first psbt's value for a key that several
+  psbts hold** ([ISS 325](https://github.com/btclib-org/btclib-wallet/issues/325)),
+  as Bitcoin Core does. It kept the last one's. Act on it if a later psbt
+  was meant to win: put it first.
+- **A psbt is refused for a BIP32 derivation key Bitcoin Core refuses**
+  ([ISS 342](https://github.com/btclib-org/btclib-wallet/issues/342),
+  [ISS 356](https://github.com/btclib-org/btclib-wallet/issues/356),
+  [ISS 377](https://github.com/btclib-org/btclib-wallet/issues/377)). In the
+  global map the key is a 78-byte xpub whose public key is a point. In an
+  input or output map it is a 33- or 65-byte public key that is a point.
+  Parsing, validating and serializing refuse any other. Act on it if you
+  build such a psbt: put the key BIP174 names there.
+- **`psbt_utils.deserialize_map` takes a required `which`**
+  ([ISS 351](https://github.com/btclib-org/btclib-wallet/issues/351)): the
+  map's name, `global`, `input` or `output`, for its refusal. Act on it if
+  you call it: pass the name.
+- **`multipath_descriptors` refuses what Bitcoin Core refuses**
+  ([ISS 299](https://github.com/btclib-org/btclib-wallet/issues/299),
+  [ISS 301](https://github.com/btclib-org/btclib-wallet/issues/301),
+  [ISS 353](https://github.com/btclib-org/btclib-wallet/issues/353),
+  [ISS 365](https://github.com/btclib-org/btclib-wallet/issues/365),
+  [ISS 367](https://github.com/btclib-org/btclib-wallet/issues/367),
+  [ISS 397](https://github.com/btclib-org/btclib-wallet/issues/397)). It
+  expanded these, and refuses them: a key origin fingerprint that is not 8
+  hex digits; a step with a repeated value, as `<1;1>`; a path element that
+  is no index; a key with a `[` and no `]`, or more than one `]`; a
+  `musig()` outside `tr()` and `rawtr()`; a `musig()` with a path and a
+  ranged participant; a hardened item of a step in a `musig()` path; a
+  multipath step in the argument of a function that takes no key, as
+  `older(<1;2>)`. `parse` refused each expansion, except those of the
+  repeated value and of `older(<1;2>)`, and the unhardened ones of a
+  hardened `musig()` step. Act on it if you hold such a descriptor: write it
+  as Core reads it.
+- **`DescriptorWallet` refuses two branches that share a script**
+  ([ISS 411](https://github.com/btclib-org/btclib-wallet/issues/411),
+  [ISS 414](https://github.com/btclib-org/btclib-wallet/issues/414)),
+  however their descriptors are spelled: a key origin added, a child xpub for
+  a derivation step, or a fixed chain that is an index of a ranged one.
+  `position_of` answered the first branch for both. The constructor derives
+  every chain at index 0, so a chain it cannot derive, such as a hardened
+  step with no `prv_keys`, is refused there. Act on it if you built such a
+  wallet: give each branch its own chain, and the private keys a hardened
+  step needs.
+- **`Descriptor.index_of` and `RangedWallet.position_of` refuse a
+  `last_index` that is not a non-negative integer**
+  ([ISS 407](https://github.com/btclib-org/btclib-wallet/issues/407),
+  [ISS 413](https://github.com/btclib-org/btclib-wallet/issues/413)): a
+  negative one with `BTClibValueError`, where they answered `None`, and a
+  `str`, `None`, `bytes`, `float` or `bool` with `BTClibTypeError`.
+  `KeyExpression.sec` refuses an index that is not an int from 0 to
+  2**31 - 1, as `Descriptor` does, a fixed key's included, and so do
+  `Miniscript.script` and `Miniscript.satisfy` through it
+  ([ISS 383](https://github.com/btclib-org/btclib-wallet/issues/383),
+  [ISS 404](https://github.com/btclib-org/btclib-wallet/issues/404)). Act on
+  it if you pass another: pass an int in range.
+- **`hwi` looks a bare executable name up in the absolute directories of
+  the PATH alone** ([ISS 416](https://github.com/btclib-org/btclib-wallet/issues/416),
+  [ISS 422](https://github.com/btclib-org/btclib-wallet/issues/422)). An empty
+  or relative PATH entry is skipped, and on Windows the current directory is
+  not searched and a bare name with no period is looked for as `<name>.exe`
+  only. A name with a directory part is checked as the file it names. Act
+  on it if `hwi` was found another way: put its directory on the PATH as an
+  absolute path, or pass the absolute path.
+- **The messages of some refusals change, and print no key bytes**
+  ([ISS 351](https://github.com/btclib-org/btclib-wallet/issues/351),
+  [ISS 388](https://github.com/btclib-org/btclib-wallet/issues/388),
+  [ISS 299](https://github.com/btclib-org/btclib-wallet/issues/299),
+  [ISS 367](https://github.com/btclib-org/btclib-wallet/issues/367),
+  [ISS 370](https://github.com/btclib-org/btclib-wallet/issues/370),
+  [ISS 358](https://github.com/btclib-org/btclib-wallet/issues/358),
+  [ISS 374](https://github.com/btclib-org/btclib-wallet/issues/374)): a
+  duplicated psbt map key, the MuSig2 and silent-payment key checks, a
+  partial signature, `bip85.mnemonic_from_root_key`'s `words` and `lang`, an
+  extended key whose public key is not a point, a multipath step glued to a
+  key, and the Esplora and Core fee estimate replies. `parse` refuses a
+  multipath step in a `musig()` path as `multipath key expression: use
+  multipath_descriptors first`. `parse` and `multipath_descriptors` report
+  the fault Bitcoin Core reads first in a descriptor with more than one. A
+  refused partial signature or MuSig2 key chains no `__cause__`, and
+  `bip85.mnemonic_from_root_key` refuses a `words` that is not an int with
+  `BTClibTypeError`, where it raised `BTClibValueError`. Act on it if you
+  match the old text: match the new one. Act on it if you catch
+  `BTClibValueError` for `words`: catch `BTClibTypeError` too.
+
+### New
+
+- **`btclib_wallet.dlc` builds, signs and verifies Discreet Log Contracts**
+  ([ISS 331](https://github.com/btclib-org/btclib-wallet/issues/331),
+  [ISS 332](https://github.com/btclib-org/btclib-wallet/issues/332)): the
+  funding, execution and refund transactions of dlcspecs, their adaptor
+  signatures, and the oracle announcements and attestations.
+
+`CHANGELOG.md`'s own `v2026.10.16` section has the rest.
+
 ## v2026.10.9
 
 - **A refused import, a password in an Esplora URL, a key that is not a
