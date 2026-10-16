@@ -2146,6 +2146,24 @@ def test_a_key_holds_no_whitespace() -> None:
                 function(descriptor)
 
 
+@pytest.mark.parametrize("fingerprint", ["dead", "deadbeeg", "012345678"])
+@pytest.mark.parametrize("function", [parse, multipath_descriptors])
+def test_a_musig_participants_fingerprint_fault_is_prefixed(
+    fingerprint: str, function: Callable[..., object]
+) -> None:
+    """Prefix a participant's fingerprint fault with musig() (issue #448)."""
+    message = r"^musig\(\): invalid key origin fingerprint: 8 hex digits expected$"
+    for descriptor in (
+        "tr(musig([dead]A,B))",
+        f"tr(musig([{fingerprint}]{MUSIG_A},{MUSIG_B}))",
+        f"rawtr(musig({MUSIG_A},[{fingerprint}/0h]{MUSIG_B}))",
+        f"tr({MUSIG_A[2:]},pk(musig([{fingerprint}]{MUSIG_A},{MUSIG_B})))",
+        f"tr(musig([{fingerprint}]{MUSIG_XPUB_A}/<0;1>/*,{MUSIG_XPUB_B}))",
+    ):
+        with pytest.raises(BTClibValueError, match=message):
+            function(descriptor)
+
+
 def test_a_space_by_a_function_name_is_no_key_fault() -> None:
     """Leave a space by a function name to `parse`, but in a key's place.
 
