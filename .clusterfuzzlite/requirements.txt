@@ -6,13 +6,13 @@ bitcoin-core-rpc==2026.10.8 \
     # via
     #   btclib
     #   btclib-wallet
-btclib==2026.10.8 \
-    --hash=sha256:bf8f5fe4a2dd2d5b66249736daec8e44deec334a22d29fae4470b72bf77706ce \
-    --hash=sha256:edf6be7429b2b06ee0715ee81bdaaeb8359c3e561b40115b61a99c78f6489bc5
+btclib==2026.10.16 \
+    --hash=sha256:5c2c7650a315275c656a6af5e2181039b963dd61a2ad6121d88b2a58a82e8e61 \
+    --hash=sha256:8a4035e8766eb41eaac1eb83681386c1621da3e2f94351f54ece482f7c406e6e
     # via btclib-wallet
-btclib-ecc==2026.10.10 \
-    --hash=sha256:7851602f4bddc77776ee660451f6c7eb280d198cf82115f4f64520c34676f07f \
-    --hash=sha256:c236c64b0742d9d9a895efb95d0eeb6e547d2dafc7da269a2a273774141b5567
+btclib-ecc==2026.10.16 \
+    --hash=sha256:22ce51a30314a66283ad45f6f163330bd53435b87c33d9503c35e30ffb50abce \
+    --hash=sha256:b8ad3e4d4295be647bd8ff99dd0bfd48973eb70aaabf3327bd45b1c1ae5f5f0e
     # via
     #   btclib
     #   btclib-wallet
