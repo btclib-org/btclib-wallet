@@ -814,7 +814,7 @@ def test_multipath_reads_a_key_where_core_does() -> None:
     # key or before a hardened wildcard: Core refuses either first
     key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
     for descriptor, message in (
-        (f"tr(musig({key},{xpub}/*)/x)", "requires every participant"),
+        (f"tr({key},pk(musig({key},{xpub}/*)/x))", "requires every participant"),
         (f"tr(musig({xpub},{MUSIG_XPUB_B})/x/*h)", "hardened wildcard"),
     ):
         assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
@@ -5383,6 +5383,98 @@ CORE_DERIVATIONS = [
         id="two-explicit-taproot-origins-first-wins",
     ),
 ]
+
+
+@pytest.mark.parametrize(
+    "later_key",
+    ["[dead]{xpub}/<0;1>/*", "{xpub}/x/<0;1>/*"],
+)
+@pytest.mark.parametrize("function", [parse, multipath_descriptors])
+def test_a_nonderivable_musig_precedes_a_later_key_fault(
+    later_key: str, function: Callable[..., object]
+) -> None:
+    """Read the internal key before a taproot leaf key (issue #451)."""
+    leaf = later_key.format(xpub=MUSIG_XPUB_A)
+    descriptor = f"tr(musig({MUSIG_A},{MUSIG_B})/0,pk({leaf}))"
+    message = r"^musig\(\) derivation requires every participant to be extended$"
+    with pytest.raises(BTClibValueError, match=message):
+        function(descriptor)
+
+
+@pytest.mark.parametrize("name", ["tr", "rawtr"])
+@pytest.mark.parametrize("path", ["/0", "/x", "/<0;1>/<2;3>"])
+@pytest.mark.parametrize(
+    "group", ["{a},{b}", "{a},{xpub}", "{xpub},{b}", "{a},{xpub}/*"]
+)
+def test_an_internal_musig_requires_extended_participants_before_its_path(
+    name: str, path: str, group: str
+) -> None:
+    """The participant kind is checked before aggregate path elements."""
+    participants = group.format(a=MUSIG_A, b=MUSIG_B, xpub=MUSIG_XPUB_A)
+    descriptor = f"{name}(musig({participants}){path})"
+    message = r"^musig\(\) derivation requires every participant to be extended$"
+    for function in (parse, multipath_descriptors):
+        with pytest.raises(BTClibValueError, match=message):
+            function(descriptor)
+
+
+@pytest.mark.parametrize(
+    "participant, message",
+    [
+        ("notakey", r"musig\(\): invalid key expression"),
+        (
+            "[dead]{a}",
+            r"musig\(\): invalid key origin fingerprint: 8 hex digits expected",
+        ),
+        (OFF_CURVE, r"musig\(\): not a public key"),
+    ],
+)
+def test_an_internal_musig_reads_a_participant_before_its_kind(
+    participant: str, message: str
+) -> None:
+    """An invalid participant precedes the aggregate's derivation refusal."""
+    first = participant.format(a=MUSIG_A)
+    descriptor = f"tr(musig({first},{MUSIG_B})/0,pk([dead]{MUSIG_XPUB_A}/<0;1>/*))"
+    for function in (parse, multipath_descriptors):
+        with pytest.raises(BTClibValueError, match=f"^{message}$"):
+            function(descriptor)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "tr({group}/0,{a},{b})",
+        "rawtr({group}/0,{a})",
+        "tr(raw({group}/0))",
+        "tr({a},wpkh({group}/0))",
+        "tr({a},combo({group}/0))",
+        "tr({a},pk({a},{group}/0))",
+        "tr([deadbeef]{group}/0)",
+        "tr({group}/0",
+        "tr({group}/0))",
+    ],
+)
+def test_multipath_leaves_an_unread_internal_musig_to_parse(template: str) -> None:
+    """Outer shape, arity, position and key origins are read before a key."""
+    group = f"musig({MUSIG_A},{MUSIG_B})"
+    descriptor = template.format(group=group, a=MUSIG_A, b=MUSIG_B)
+    assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
+    with pytest.raises(BTClibValueError):
+        parse(descriptor)
+
+
+def test_a_derivable_internal_musig_keeps_multipath_expansion() -> None:
+    """Extended participants and an ordinary fixed aggregate still expand."""
+    groups = (
+        f"musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})/0",
+        f"musig({MUSIG_A},{MUSIG_B})",
+    )
+    for group in groups:
+        descriptor = f"tr({group},pk({MUSIG_XPUB_A}/<0;1>/*))"
+        expected = [add_checksum(descriptor.replace("<0;1>", str(i))) for i in (0, 1)]
+        assert multipath_descriptors(descriptor) == expected
+        for single in expected:
+            assert parse(single).script_pub_key().script
 
 
 @pytest.mark.parametrize("descriptor, index, core, departures", CORE_DERIVATIONS)
