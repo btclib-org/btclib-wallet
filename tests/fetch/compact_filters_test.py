@@ -989,7 +989,7 @@ def witnesses_replaced(block: Block, witness: Witness | None) -> Block:
 
 
 def test_a_segwit_block_is_returned_with_its_witnesses() -> None:
-    """The control of the two tests below: the honest block passes."""
+    """The control of the tests below: the honest block passes."""
     chain, block = segwit_block()
     fetcher, _ = build(chain)
     assert fetcher.scan_blocks([WALLET])[3].serialize(
@@ -1018,21 +1018,34 @@ def test_a_block_with_a_witness_changed_or_removed_is_refused(witness: Witness) 
         fetcher.scan_blocks([WALLET])
 
 
-def test_a_block_with_every_witness_stripped_is_accepted() -> None:
-    """A peer can withhold every witness, and no witness is left to trust.
+def test_a_block_with_every_witness_stripped_is_refused() -> None:
+    """A coinbase that commits to witnesses has to carry the nonce.
 
-    `SECURITY.md` says so. Were such a block refused, that sentence goes.
+    btclib's `Block` returns early for a block with no witness, so this
+    is the fetcher's own check, Core's bad-witness-nonce-size.
     """
     chain, block = segwit_block()
     stripped = witnesses_replaced(block, None)
     assert not stripped.is_segwit
+    assert stripped.witness_commitment is not None
+    stripped.assert_valid_structure()
     fetcher, peer = build(chain)
+    # the block sits exactly at the activation height
+    fetcher._consensus = replace(fetcher._consensus, segwit_height=3)
+    says(peer, "reply_getdata", [peer.message("block", peer.block_payload(stripped))])
+    with pytest.raises(FetchError, match="without a 32-byte witness nonce"):
+        fetcher.scan_blocks([WALLET])
+
+
+def test_a_stripped_block_below_the_segwit_height_is_accepted() -> None:
+    """Before segwit a coinbase output may look like a commitment."""
+    chain, block = segwit_block()
+    stripped = witnesses_replaced(block, None)
+    fetcher, peer = build(chain)
+    fetcher._consensus = replace(fetcher._consensus, segwit_height=4)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(stripped))])
     served = fetcher.scan_blocks([WALLET])[3]
     assert served.serialize(check_validity=False) == stripped.serialize(
-        check_validity=False
-    )
-    assert served.serialize(check_validity=False) != block.serialize(
         check_validity=False
     )
 

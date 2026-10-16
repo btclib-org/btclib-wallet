@@ -541,6 +541,17 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 if height < 0:
                     raise BTClibValueError("a block that was not asked for")
                 block.assert_valid_structure()
+                # Core's bad-witness-nonce-size. btclib asks it only of a
+                # block that carries a witness, and a peer can strip them all
+                nonce = block.transactions[0].vin[0].script_witness.stack
+                if (
+                    height >= self._consensus.segwit_height
+                    and block.witness_commitment is not None
+                    and (len(nonce) != 1 or len(nonce[0]) != 32)
+                ):
+                    raise BTClibValueError(
+                        "a witness commitment without a 32-byte witness nonce"
+                    )
             blocks[height] = Block(
                 block.header,
                 [tx_for_network(tx, self.network) for tx in block.transactions],
