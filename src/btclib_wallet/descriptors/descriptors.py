@@ -586,11 +586,12 @@ def _musig_ends(text: str) -> dict[int, int]:
 def _internal_key_span(
     text: str, ends: dict[int, int], closes: dict[int, int]
 ) -> range:
-    """Return a top-level tr/rawtr internal key with the outer arity read.
+    """Return where a top-level tr() or rawtr() internal key lies.
 
     The scanner's argument maps already hold its boundaries. A musig()
-    below an origin or a script function is not this key, and an outer
-    arity fault is refused before any key is read.
+    below an origin or a script function is not this key. The range is
+    empty where the outer shape or the number of arguments is wrong, which
+    `parse` refuses before it reads a key.
     """
     name = text.partition("(")[0]
     start, close = len(name) + 1, len(text) - 1
@@ -3980,11 +3981,11 @@ def multipath_descriptors(descriptor: str) -> list[str]:
     fewer than two elements, an element of an extended key's path that is no
     index or a step there with a repeated value, a ``musig()`` outside
     ``tr()`` and ``rawtr()``, a direct internal ``musig()`` path whose
-    participants are not all extended keys, a ``musig()`` path beside a
-    ranged participant where every participant is an extended key, a
-    hardened item of a multipath step in the path of a ``musig()`` that
-    starts an argument, where it reads that path, and a ``musig()``
-    multipath in both its participants and its path.
+    participants are not all extended keys or one of them is invalid,
+    a ``musig()`` path beside a ranged participant where every participant
+    is an extended key, a hardened item of a multipath step in the path of
+    a ``musig()`` that starts an argument, where it reads that path, and a
+    ``musig()`` multipath in both its participants and its path.
     """
     text = strip_checksum(descriptor)
     _assert_multipath_items(text)
