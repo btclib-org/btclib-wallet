@@ -661,7 +661,9 @@ def _assert_multipath_items(text: str) -> None:
             )
             _assert_one_origin_end(_count(origin_ends, start, key_end))
             in_origin = True
-            _assert_fingerprint(item[1:])
+            inside = any(s <= start < c for c, s in musig_ends.items())
+            with _prefixed("musig(): " if inside else ""):
+                _assert_fingerprint(item[1:])
         elif item == "]":
             in_origin = False
         elif _KEY_END.fullmatch(item):
