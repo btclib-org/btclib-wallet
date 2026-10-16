@@ -275,7 +275,8 @@ def _file_name(name: str) -> str:
     period and runs that file only. So `hwi.exe` is the one file looked
     for, not the `hwi.bat` or `hwi.cmd` that PATHEXT would also find: a
     batch file is parsed by a shell. A name that contains a period, a
-    trailing one included, is taken as it stands.
+    trailing one included, is taken as it stands. A name with a directory
+    part is another case, which `is_available` says.
     """
     return name + ".exe" if _WINDOWS and "." not in name else name
 
@@ -344,11 +345,19 @@ def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
     A bare name is looked up only in the absolute directories of the PATH,
     never in the current directory, and the path found is what every
     command runs. A name with a directory part is not looked up on the
-    PATH: it is checked as the file it names, which is what the command
-    runs, since CreateProcess appends no `.exe` to a name that contains a
-    path. `shutil.which` is not asked, because on Windows with Python 3.12
-    or later it tries such a name with each PATHEXT extension appended,
-    and as it stands only where it already ends in one.
+    PATH: it is checked as the file it runs. This was run on Windows
+    (btclib-wallet#426), with a path to `hwi` and one file in its
+    directory: a `hwi.exe` runs, a file `hwi` runs, a `hwi.CMD` is not
+    found, and a `hwi.exe` in a directory whose name has a period runs
+    too. So such a name counts where it is a file as it stands, or where
+    `.exe` appended to its last component, if that has no period, is one.
+    A text file `hwi` is found too: running it fails with `OSError`
+    (WinError 193), which `_run` raises as `SignerError`, so
+    `is_available` answers True for it, as for any file it cannot tell is
+    a program. `shutil.which` is not asked,
+    because on Windows with Python 3.12 or later it tries such a name with
+    each PATHEXT extension appended, and as it stands only where it
+    already ends in one.
 
     True is not a promise that a device will answer, or that what is on
     the PATH is HWI at all: it is that there is something to run, which
@@ -357,7 +366,8 @@ def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
     name = _executable(executable)[0]
     if _is_bare(name):
         return _on_path(name) is not None
-    return _runnable(name)
+    head, tail = os.path.split(name)
+    return _runnable(name) or _runnable(str(pathlib.Path(head) / _file_name(tail)))
 
 
 def _watch(
