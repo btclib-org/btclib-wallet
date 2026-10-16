@@ -659,10 +659,10 @@ def _assert_multipath_items(text: str) -> None:
             key_end = (closes if start == whole.start else ends).get(
                 argument, len(text)
             )
-            _assert_one_origin_end(_count(origin_ends, start, key_end))
             in_origin = True
             inside = any(s <= start < c for c, s in musig_ends.items())
             with _prefixed("musig(): " if inside else ""):
+                _assert_one_origin_end(_count(origin_ends, start, key_end))
                 _assert_fingerprint(item[1:])
         elif item == "]":
             in_origin = False
@@ -678,7 +678,9 @@ def _assert_multipath_items(text: str) -> None:
                 _assert_musig_path(text, musig_ends[start], start, steps)
         elif in_origin:
             # a lone "/" is the empty element after it
-            _assert_origin_path_element("" if item == "/" else item)
+            inside = any(s <= start < c for c, s in musig_ends.items())
+            with _prefixed("musig(): " if inside else ""):
+                _assert_origin_path_element("" if item == "/" else item)
         elif item != "/" and text[start - 1 : start] in {"]", "(", ","}:
             key_end = (closes if key_start == whole.start else ends).get(
                 key_start, len(text)
