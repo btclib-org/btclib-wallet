@@ -5447,3 +5447,42 @@ def test_the_plain_key_origin_is_the_participants_entry_origin() -> None:
         psbt_in = descriptor.update_psbt_input(psbt_spending(descriptor), 0).inputs[0]
         origin = psbt_in.taproot_hd_key_paths[bytes.fromhex(SEC_KEYS[2])[1:]][1]
         assert origin.description == "aaaaaaaa/9h"
+
+
+@pytest.mark.parametrize(
+    "origin, fault",
+    [
+        ("[deadbeef]]", "more than one ']' in a single key expression"),
+        ("[deadbeef/x]", "invalid derivation index"),
+        ("[deadbeef/4294967296]", "invalid index"),
+    ],
+)
+@pytest.mark.parametrize("function", [parse, multipath_descriptors])
+def test_a_musig_participants_origin_fault_is_prefixed(
+    origin: str, fault: str, function: Callable[..., object]
+) -> None:
+    """Prefix a participant's origin fault with musig() (issue #450)."""
+    message = rf"^musig\(\): {re.escape(fault)}$"
+    for descriptor in (
+        f"tr(musig({origin}{MUSIG_A},{MUSIG_B}))",
+        f"rawtr(musig({MUSIG_A},{origin}{MUSIG_B}))",
+        f"tr({MUSIG_A[2:]},pk(musig({origin}{MUSIG_A},{MUSIG_B})))",
+        f"tr(musig({origin}{MUSIG_XPUB_A}/<0;1>/*,{MUSIG_XPUB_B}))",
+    ):
+        with pytest.raises(BTClibValueError, match=message):
+            function(descriptor)
+    for descriptor in (
+        f"wpkh({origin}{MUSIG_A})",
+        f"tr({origin}{MUSIG_A[2:]},pk(musig({MUSIG_A},{MUSIG_B})))",
+        f"tr(musig({MUSIG_A},{MUSIG_B}),pk({origin}{MUSIG_A[2:]}))",
+    ):
+        with pytest.raises(BTClibValueError, match=rf"^{re.escape(fault)}$"):
+            function(descriptor)
+
+
+@pytest.mark.parametrize("origin", ["deadbeef", "deadbeef/0", "deadbeef/2147483647h"])
+def test_a_musig_participants_valid_origin_is_accepted(origin: str) -> None:
+    """Keep valid participant origins, including a hardened boundary index."""
+    descriptor = f"tr(musig([{origin}]{MUSIG_A},{MUSIG_B}))"
+    assert isinstance(parse(descriptor), TrDescriptor)
+    assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
