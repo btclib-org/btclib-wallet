@@ -28,6 +28,7 @@ BIP390: https://github.com/bitcoin/bips/blob/master/bip-0390.mediawiki
 from __future__ import annotations
 
 import re
+import string
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -521,12 +522,25 @@ def _hardening(path: str) -> str:
 
 
 def _assert_key_item(key: str) -> None:
-    """Refuse a key holding ``<`` or ``>``, as Core does for its key item.
+    """Refuse a key item Core refuses before it reads a path.
 
-    Core splits a key expression on ``/`` and reads the first item as the
-    key: with a multipath step glued to it, as in ``xprv...<0;1>/*``, it is
-    "key '...' is not valid". The message leaves out the key, which can be
-    a private one, as no message here echoes one.
+    Leading or trailing whitespace is Core's ``IsSpace`` check on the key
+    item (`ParsePubkeyInner`), with "Key '...' is invalid due to
+    whitespace"; the message here leaves out the key. Then
+    `_assert_no_glued_step`.
+    """
+    # ASCII whitespace alone: the six characters of Core's ``IsSpace``
+    if key and (key[0] in string.whitespace or key[-1] in string.whitespace):
+        raise BTClibValueError("Key is invalid due to whitespace")
+    _assert_no_glued_step(key)
+
+
+def _assert_no_glued_step(key: str) -> None:
+    """Refuse ``<`` or ``>`` in a key item, as Core does.
+
+    That is a multipath step glued to the key, as in ``xprv...<0;1>/*``,
+    which Core reports as "key '...' is not valid". The message leaves out
+    the key, which can be a private one, as no message here echoes one.
     """
     if "<" in key or ">" in key:
         raise BTClibValueError("key is not valid")
@@ -660,6 +674,7 @@ def _neutered(xkey: str, prv_keys: dict[str, str]) -> str:
 
 _SEVERAL_ORIGIN_ENDS = "more than one ']' in a single key expression"
 _MISSING_ORIGIN_END = "missing ']' in the key origin"
+_ORIGIN_WITHOUT_START = "']' without the '[' that opens a key origin"
 
 
 def _origin_and_rest(expression: str) -> tuple[BIP32KeyOrigin | None, str, str]:
@@ -672,7 +687,7 @@ def _origin_and_rest(expression: str) -> tuple[BIP32KeyOrigin | None, str, str]:
         raise BTClibValueError(_SEVERAL_ORIGIN_ENDS)
     if not expression.startswith("["):
         if "]" in expression:
-            raise BTClibValueError("']' without the '[' that opens a key origin")
+            raise BTClibValueError(_ORIGIN_WITHOUT_START)
         return None, "", expression
     end = expression.find("]")
     if end < 0:
