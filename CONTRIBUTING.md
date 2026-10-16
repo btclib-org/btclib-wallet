@@ -700,6 +700,7 @@ reliance `REVIEWING.md` provides for.
 | `integration-hwi` | weekly, push to main | two emulators |
 | `integration-electrs` | pull request on its paths, push to main | — |
 | `scorecard` | weekly, push to main | — |
+| `verified-signatures` | push to main | — |
 | `links` | weekly | — |
 | `mutation` | weekly | — |
 | `vendored-vectors` | weekly | the pins in `tests/_data/README.md` |
@@ -719,6 +720,10 @@ that gates a merge would make a model's judgement a branch rule. `api-break`
 gates nothing either; it only labels. Why so little gates is the ceiling on
 concurrent jobs the plan puts on the whole organization, and
 `REPOSITORY.md`'s *Plan-gated settings* is where that lives.
+
+`verified-signatures` reports after each push to `main` whether every
+commit pushed is `verified`; [the standard's *Signatures*][s-sigs] has the
+rule.
 
 ### Mutation testing
 

@@ -192,8 +192,7 @@ gh api -X POST repos/btclib-org/btclib-wallet/rulesets --input - <<'JSON'
 {"name": "main-integrity", "target": "branch", "enforcement": "active",
  "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
  "bypass_actors": [],
- "rules": [{"type": "required_signatures"},
-           {"type": "required_linear_history"},
+ "rules": [{"type": "required_linear_history"},
            {"type": "non_fast_forward"},
            {"type": "deletion"}]}
 JSON
@@ -225,17 +224,22 @@ JSON
 `3296421` is `fametrano`'s account id,
 `gh api users/fametrano --jq .id`.
 
-Classic protection's own copy of the signature rule is off, and
-`main-integrity` is what requires a signature on `main`: [the standard
+Classic protection's own copy of the signature rule is off, as is the rule
+in every ruleset over `main`: [the standard
 states that value for every
 repository](https://github.com/btclib-org/.github/blob/main/README.md#branch-protection-and-rulesets).
-Read on 2026-09-27:
+Read on 2026-10-15:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet/branches/main/protection \
   --jq '.required_signatures.enabled'
 # false
 ```
+
+`verified-signatures.yml` checks after each push what lands on `main`: for
+each commit pushed it reads `.commit.verification.verified` from the API and
+fails naming any commit where it is not `true`. A red run is read in the
+Actions tab; the check is not a required one.
 
 ## Tag protection
 
@@ -267,8 +271,8 @@ for id in $(gh api repos/btclib-org/btclib-wallet/rulesets --jq '.[].id'); do
 done
 # {"bypass":[],"enforcement":"active","include":["refs/heads/main"],
 #  "methods":[],"name":"main-integrity",
-#  "rules":["required_signatures","required_linear_history",
-#   "non_fast_forward","deletion"],"target":"branch"}
+#  "rules":["required_linear_history","non_fast_forward","deletion"],
+#  "target":"branch"}
 # {"bypass":[[3296421,"pull_request"]],"enforcement":"active",
 #  "include":["refs/heads/main"],"methods":[["squash"]],
 #  "name":"main-self-merge","rules":["pull_request"],"target":"branch"}

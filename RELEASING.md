@@ -428,10 +428,10 @@ result.
    commit messages.
 
    That the commit is composed by GitHub and signed with its web-flow
-   key rather than yours costs nothing. What `main-integrity` requires
-   is a signature, not a signer, and it enforces that with no bypass
-   actor at all: a verified signature, linear history, no force push and
-   no branch deletion, for administrators too.
+   key rather than yours costs nothing: `verified-signatures.yml` asks
+   for a verified commit, not a particular signer. `main-integrity` has
+   no bypass actor at all: linear history, no force push and no branch
+   deletion, for administrators too.
 
    ```shell
    pr=<the release pull request's number>
