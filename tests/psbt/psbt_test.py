@@ -4220,7 +4220,7 @@ def test_a_misstated_segwit_v0_amount_is_refused_by_default() -> None:
         psbt_in.non_witness_utxo = prev_txs[i]
         psbt_in.partial_sigs = sessions[i].inputs[i].partial_sigs
     # extract_tx runs the scripts against the real outputs
-    spent = extract_tx(finalize(combined))
+    spent = extract_tx(finalize(combined), max_fee_rate=None)
     assert 2 * _ONE_BTC - spent.vout[0].value == 100_001_000
 
 
@@ -4232,7 +4232,7 @@ def test_a_non_witness_utxo_leaves_no_amount_to_misstate() -> None:
         psbt_in.non_witness_utxo = prev_tx
     signed, signed_vins = sign(psbt, key_manager)
     assert signed_vins == [0, 1]
-    assert extract_tx(finalize(signed)) is not None
+    assert extract_tx(finalize(signed), max_fee_rate=None) is not None
 
     misstated = deepcopy(psbt)
     misstated.inputs[1].witness_utxo = TxOut(1_000, prev_txs[1].vout[0].script_pub_key)
@@ -5924,7 +5924,7 @@ def test_extract_tx_verify_scripts_issue_191_vector() -> None:
     assert sig[-2] == 0x6B
     sig[-2] = 0x6A
     psbt.inputs[0].final_script_witness = Witness([bytes(sig)])
-    assert extract_tx(psbt) is not None
+    assert extract_tx(psbt, max_fee_rate=None) is not None
 
 
 def test_extract_tx_checks_the_amounts_by_default() -> None:

@@ -80,6 +80,7 @@ from btclib.tx.limits import SEQUENCE_FINAL
 from btclib.tx.tx import SEGWIT_MARKER
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
+from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet.psbt.psbt import Psbt, prevouts
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
@@ -97,10 +98,8 @@ __all__ = [
 # BTC, the largest fee `build_psbt` pays unless its caller raises it
 DEFAULT_MAX_FEE = 10_000_000
 
-# Core's wallet.h DEFAULT_MAX_TRANSACTION_FEERATE, the -maxfeerate
-# default: 0.10 BTC per kvB, the highest rate `build_psbt` pays unless its
-# caller raises it
-DEFAULT_MAX_FEE_RATE = FeeRate(sats_per_kvbyte=10_000_000)
+# The builder and the Extractor share the ceiling; keep its public name.
+DEFAULT_MAX_FEE_RATE = _DEFAULT_MAX_FEE_RATE
 
 
 @dataclass(frozen=True)
@@ -232,11 +231,7 @@ def _assert_fee_within(
     if fee > max_fee:
         err_msg = f"a fee of {fee} satoshi exceeds max_fee, {max_fee} satoshi"
         raise BTClibValueError(err_msg)
-    ceiling = fee_from_vsize(vsize, max_fee_rate)
-    if fee > ceiling:
-        err_msg = f"a fee of {fee} satoshi on {vsize} vbytes exceeds "
-        err_msg += f"max_fee_rate, which allows {ceiling} satoshi"
-        raise BTClibValueError(err_msg)
+    _assert_max_fee_rate(fee, vsize, max_fee_rate)
 
 
 def build_psbt(

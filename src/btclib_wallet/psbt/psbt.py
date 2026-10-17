@@ -36,6 +36,7 @@ from typing import Any, Protocol, TypeVar, cast
 
 from btclib.alias import BinaryData, Octets, ScriptList, String
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.fee import FeeRate
 from btclib.hashes import hash160, sha256
 from btclib.script import (
     Witness,
@@ -75,6 +76,7 @@ from btclib.utils import (
 from btclib_ecc.curves import sec_point
 from btclib_ecc.ecc import dsa, ssa
 
+from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
     HdKeyPaths,
@@ -3657,7 +3659,11 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 
 
 def extract_tx(
-    psbt: Psbt, *, check_validity: bool = True, verify_scripts: bool = True
+    psbt: Psbt,
+    *,
+    check_validity: bool = True,
+    verify_scripts: bool = True,
+    max_fee_rate: FeeRate | None = _DEFAULT_MAX_FEE_RATE,
 ) -> Tx:
     """Extract the Tx from the Psbt.
 
@@ -3694,7 +3700,15 @@ def extract_tx(
     (high-S) passes it. It needs every input's utxo and raises
     `BTClibValueError` where one is missing. `verify_scripts=False`
     extracts without these checks.
+
+    `max_fee_rate` refuses a fee above the ceiling priced on the final
+    transaction's virtual size, with `fee_from_vsize`'s rounding. Its
+    default is `btclib_wallet.tx_builder.DEFAULT_MAX_FEE_RATE`, shared
+    with the builder. A fee check needs every input's utxo even where
+    `verify_scripts` is false. `max_fee_rate=None` skips the fee check.
     """
+    if max_fee_rate is not None:
+        assert_type(max_fee_rate, FeeRate, "max fee rate")
     if check_validity:
         psbt.assert_valid()
         if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
@@ -3716,8 +3730,15 @@ def extract_tx(
 
     if check_validity:
         tx.assert_valid()
-    if verify_scripts:
-        verify_transaction(_spent_outputs(psbt.inputs), tx)
+    if verify_scripts or max_fee_rate is not None:
+        spent_outputs = _spent_outputs(psbt.inputs)
+        if verify_scripts:
+            verify_transaction(spent_outputs, tx)
+        if max_fee_rate is not None:
+            fee = sum(out.value for out in spent_outputs) - sum(
+                out.value for out in tx.vout
+            )
+            _assert_max_fee_rate(fee, tx.vsize, max_fee_rate)
     return tx
 
 
