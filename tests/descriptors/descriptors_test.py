@@ -2852,6 +2852,21 @@ B_KEY = MUSIG_XPUB_B
             "multipath steps of different length: [2, 3]",
         ),
         (
+            "tr({xo},{{multi_a(1,{x}/<0;1>,{y}/<0;1;2>),pk({y})}}x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({x}/<5;6>,{{multi_a(1,{y}/<2;3;4>/*,{y}/<3;4>/0),pk({y}/0/<0;1>)}}x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            (
+                "tr(musig({y}/1,{x},{x})/<0;1>/*,"
+                "{{or_d(pk({y}/<7;8;9>),pkh({x}/<5;6>)),pk({x})}}x)"
+            ),
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
             "tr({xo},{{multi_a(1,{x}/<0;1>,{x}/<0;1>),pk({x}/<0;1;2>)}})",
             "multipath steps of different length: [2, 3]",
         ),

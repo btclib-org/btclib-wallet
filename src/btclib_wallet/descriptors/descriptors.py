@@ -145,7 +145,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, replace
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from btclib.alias import Octets, ScriptList, TaprootScriptTree
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -2265,6 +2265,23 @@ def _assert_no_braces(key: str) -> None:
         raise BTClibValueError("unbalanced braces")
 
 
+def _refuse_unclosed_tree(
+    expression: str, prv_keys: dict[str, str], depth: int
+) -> NoReturn:
+    """Refuse a tree that does not end at the "}" closing its first "{".
+
+    Core reads the tree up to that "}", if there is one, before it finds
+    what follows, so a fault of the tree comes first.
+    """
+    level = 0
+    for match in re.finditer("[{}]", expression):
+        level += 1 if match[0] == "{" else -1
+        if not level:
+            _parse_tree(expression[: match.end()], prv_keys, depth)
+            break
+    raise BTClibValueError("unbalanced braces")
+
+
 def _parse_tree(
     expression: str, prv_keys: dict[str, str], depth: int
 ) -> DescriptorTree:
@@ -2284,7 +2301,7 @@ def _parse_tree(
         raise BTClibValueError(err_msg)
     if expression.startswith("{"):
         if not expression.endswith("}"):
-            raise BTClibValueError("unbalanced braces")
+            _refuse_unclosed_tree(expression, prv_keys, depth)
 
         def read_branches(branches: list[str]) -> DescriptorTree:
             if len(branches) != 2:
