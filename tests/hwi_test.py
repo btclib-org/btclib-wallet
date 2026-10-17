@@ -1106,9 +1106,9 @@ def test_windows_runs_hwi_and_hwi_exe_but_not_hwi_cmd_for_a_path_to_hwi(  # prag
 ) -> None:
     """Check on Windows the outcomes `is_available` states for a path to `hwi`.
 
-    Wine and Microsoft's page differ from Windows here, so this runs the
-    files. `is_available` holds the outcomes and the issue they come from
-    (issue btclib-org/btclib-wallet#426).
+    Microsoft's CreateProcessW page and Wine's `find_exe_file` differ from
+    Windows here, so this runs the files. `is_available` holds the outcomes
+    and the issue they come from (issue btclib-org/btclib-wallet#426).
     """
 
     def run(path: str) -> int:
