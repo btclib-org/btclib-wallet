@@ -3738,8 +3738,8 @@ def _taproot_key_path_psbt(
 
 _LEAF_PRV_KEY = _PRV_KEY + 3
 _LEAF_KEY = PrvKeyData(_LEAF_PRV_KEY).pub.sec[1:]
-# the leaf spent below, and the one shape a Finalizer can build a witness
-# for: `single_leaf_key`'s <32-byte key> OP_CHECKSIG
+# the single-key leaf spent below: `single_leaf_key`'s
+# <32-byte key> OP_CHECKSIG
 _LEAF_TREE: TaprootScriptTree = [(0xC0, [_LEAF_KEY, "OP_CHECKSIG"])]
 _LEAF_SCRIPT = taproot.serialize([_LEAF_KEY, "OP_CHECKSIG"])
 _LEAF_HASH = taproot.leaf_hash(0xC0, _LEAF_SCRIPT)
