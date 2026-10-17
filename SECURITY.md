@@ -233,7 +233,7 @@ used to teach and to prototype as much as to build.
     makes a block authoritative, so the work of those blocks is signet's low
     difficulty. A block with a witness changed or removed is refused, one
     with every witness removed included: its coinbase commits to witnesses
-    and carries no nonce for them. It also decides which blocks are
+    and carries no nonce for them. The peer also decides which blocks are
     downloaded, up to the `max_blocks` of the call, and sees which they are;
     it is given no script. Use a peer you trust, or run several fetchers and
     compare.

@@ -137,8 +137,8 @@ _MAX_BLOCKS = 100
 # of eleven blocks must be passed by the next one
 _MAX_BLOCKS_PER_SECOND = 6
 
-# Core's anti-DoS buffer: a fork from within this many blocks of the tip is
-# followed without a presync, as its parent has nearly the tip's work
+# Core's anti-DoS buffer: a chain needs the tip's work less that of this many
+# blocks at the tip's difficulty
 _NEAR_TIP_BLOCKS = 144
 
 
