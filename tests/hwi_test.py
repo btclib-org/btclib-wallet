@@ -1069,27 +1069,92 @@ def test_a_name_with_a_directory_part_is_checked_as_the_file_it_runs(
 ) -> None:
     """`is_available` answers about the file such a name runs, and no other.
 
-    CreateProcess runs a name with a directory part unchanged: it appends
-    no `.exe` and runs no batch file. So `<dir>/hwi` is available where
-    `<dir>` holds `hwi` and not where it holds only `hwi.CMD`, whichever
-    interpreter asks. `sys.platform` is switched along with the Windows
-    rules, so that a `shutil.which` call, which tries each PATHEXT
+    CreateProcess runs such a name as it stands or with `.exe` appended,
+    never with `.cmd` or `.bat` appended. So `<dir>/hwi` is available where
+    `<dir>` holds `hwi` or `hwi.exe` and not where it holds only `hwi.CMD`,
+    whichever interpreter asks. `sys.platform` is switched along with the
+    Windows rules, so that a `shutil.which` call, which tries each PATHEXT
     extension there, would take its Windows reading on every platform.
     """
     monkeypatch.setattr(hwi_module, "_WINDOWS", True)
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("PATHEXT", os.pathsep.join([".COM", ".EXE", ".BAT", ".CMD"]))
-    batch, plain = tmp_path / "batch", tmp_path / "plain"
-    for directory, name in [(batch, "hwi.CMD"), (plain, DEFAULT_EXECUTABLE)]:
+    batch, plain, binary = tmp_path / "batch", tmp_path / "plain", tmp_path / "binary"
+    for directory, name in [
+        (batch, "hwi.CMD"),
+        (plain, DEFAULT_EXECUTABLE),
+        (binary, "hwi.exe"),
+    ]:
         directory.mkdir()
         (directory / name).write_text("", encoding="ascii")
         (directory / name).chmod(0o755)
     assert not is_available(str(batch / DEFAULT_EXECUTABLE))
     assert not is_available([str(batch / DEFAULT_EXECUTABLE), "--flag"])
+    # run on Windows by the test below
     assert is_available(str(plain / DEFAULT_EXECUTABLE))
-    # a directory is not a file to run, whatever its name
-    (tmp_path / "nested" / DEFAULT_EXECUTABLE).mkdir(parents=True)
+    assert is_available(str(binary / DEFAULT_EXECUTABLE))
+    # a directory is not a file to run, whatever its name: each operand of
+    # `is_available`'s `or` is held to it
+    (tmp_path / "nested" / "hwi").mkdir(parents=True)
+    (tmp_path / "nested" / "hwi.exe").mkdir()
     assert not is_available(str(tmp_path / "nested" / DEFAULT_EXECUTABLE))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="runs the file on Windows")
+def test_windows_runs_hwi_and_hwi_exe_but_not_hwi_cmd_for_a_path_to_hwi(  # pragma: no cover -- the body needs Windows
+    tmp_path: Path,
+) -> None:
+    """Check on Windows the outcomes `is_available` states for a path to `hwi`.
+
+    Microsoft's CreateProcessW page differs from Windows here, so this runs
+    the files. `is_available` holds the outcomes and the issue they come
+    from (issue btclib-org/btclib-wallet#426).
+    """
+
+    def run(path: str) -> int:
+        return subprocess.run(  # noqa: S603
+            [path],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        ).returncode
+
+    system32 = Path(os.environ["SYSTEMROOT"]) / "System32"
+    batch, binary, plain = tmp_path / "batch", tmp_path / "binary", tmp_path / "plain"
+    for directory in (batch, binary, plain):
+        directory.mkdir()
+    (batch / "hwi.CMD").write_bytes(b"@echo off\r\nexit /b 0\r\n")
+    (binary / "hwi.exe").write_bytes((system32 / "whoami.exe").read_bytes())
+    (plain / "hwi").write_bytes((system32 / "whoami.exe").read_bytes())
+    period, text = tmp_path / "with.period", tmp_path / "text"
+    for directory in (period, text):
+        directory.mkdir()
+    (period / "hwi.exe").write_bytes((system32 / "whoami.exe").read_bytes())
+    (text / "hwi").write_text("not a program\n", encoding="ascii")
+    outcome: dict[str, int | str] = {}
+    for directory in (batch, binary, plain, period, text):
+        try:
+            outcome[directory.name] = run(str(directory / "hwi"))
+        except FileNotFoundError:
+            outcome[directory.name] = "FileNotFoundError"
+        except OSError as error:
+            outcome[directory.name] = f"OSError {getattr(error, 'winerror', None)}"
+    assert outcome == {
+        "batch": "FileNotFoundError",
+        "binary": 0,
+        "plain": 0,
+        "with.period": 0,
+        "text": "OSError 193",
+    }
+    assert is_available(str(binary / "hwi"))
+    assert not is_available(str(batch / "hwi"))
+    assert is_available(str(plain / "hwi"))
+    assert is_available(str(period / "hwi"))
+    assert is_available(str(text / "hwi"))
+    # the same two files, named in full, do run: the test's files are real
+    assert run(str(batch / "hwi.CMD")) == 0
+    assert run(str(binary / "hwi.exe")) == 0
 
 
 def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
