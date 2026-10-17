@@ -2390,17 +2390,32 @@ def _parse_combo(
     )
 
 
+def _parse_inner(
+    argument: str, context: str, network: str, prv_keys: dict[str, str]
+) -> Descriptor:
+    """Return the expression of a ``sh()`` or ``wsh()`` `argument`.
+
+    Core reads the expression up to its first "," or unmatched closing
+    bracket before it finds what follows, so a fault of that expression
+    comes first.
+    """
+    head = _split_unpaired_arguments(argument)[0]
+    if len(head) < len(argument):
+        _parse_expression(head, context, network, prv_keys)
+    return _parse_expression(argument, context, network, prv_keys)
+
+
 def _parse_sh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    inner = _parse_expression(args[0], _P2SH, network, prv_keys)
+    inner = _parse_inner(args[0], _P2SH, network, prv_keys)
     return ShDescriptor(inner, network=network)
 
 
 def _parse_wsh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    inner = _parse_expression(args[0], _P2WSH, network, prv_keys)
+    inner = _parse_inner(args[0], _P2WSH, network, prv_keys)
     return WshDescriptor(inner, network=network)
 
 

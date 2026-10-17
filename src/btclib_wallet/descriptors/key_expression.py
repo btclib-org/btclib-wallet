@@ -769,11 +769,9 @@ class _MultipathKeyError(BTClibValueError):
 
 
 def _assert_same_length(lengths: list[int]) -> None:
-    """Refuse the steps of a call that differ in length, as Core does.
+    """Refuse steps that differ in length, where Core compares them.
 
-    Core refuses them once it has read every key of a ``multi()``, a
-    ``multi_a()`` or a ``musig()``, and a key with no step goes with any.
-    `lengths` has a zero for such a key.
+    `lengths` has a zero for a key with no step, which goes with any.
     """
     different = sorted({length for length in lengths if length})
     if len(different) > 1:
@@ -1115,15 +1113,19 @@ def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
         inner, lambda args: _musig_participants(args, prv_keys)
     )
     suffix = expression[close + 1 :]
-    if suffix and not suffix.startswith("/"):
-        raise BTClibValueError("not a musig() derivation path: '/' expected")
-    if suffix:
+    # Core reads what does not start with "/" as no path, and compares the
+    # participants' steps before anything refuses it
+    path = suffix if suffix.startswith("/") else ""
+    if path:
         if any(not key.xkey for key in participants):
             err_msg = "musig() derivation requires every participant to be extended"
             raise BTClibValueError(err_msg)
         if any(key.is_ranged for key in participants):
             raise BTClibValueError(_RANGED_PARTICIPANT)
-    der_path, wildcard, multipath = _musig_der_path(suffix)
+    der_path, wildcard, multipath = _musig_der_path(path)
+    if path != suffix:
+        _assert_same_length(lengths)
+        raise BTClibValueError("not a musig() derivation path: '/' expected")
     _assert_musig_multipath(
         participants=lengths,
         path=multipath,

@@ -2836,6 +2836,22 @@ B_KEY = MUSIG_XPUB_B
             "multipath steps of different length: [2, 3]",
         ),
         (
+            "sh(wsh(and_v(v:pk({x}/<0;1>/*),pk({y}/<2;3;4>/*))),x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(sortedmulti(1,{y}/<7;8;9>,{y}/0/<0;1>),x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(or_d(pk({y}/<0;1;2>/*),pkh({y}/<5;6>)),x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr(musig({y}/<0;1;2>,{y}/<0;1>,{y})x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
             "tr({xo},{{multi_a(1,{x}/<0;1>,{x}/<0;1>),pk({x}/<0;1;2>)}})",
             "multipath steps of different length: [2, 3]",
         ),
@@ -2850,7 +2866,7 @@ def test_multipath_lengths_are_named_where_core_names_them(
     ``multi_a()`` or a ``musig()`` as it closes the call. It compares those
     of a miniscript or of a ``tr()`` at their end.
     """
-    descriptor = template.format(x=A_KEY, xo=XONLY, k="03" + XONLY)
+    descriptor = template.format(x=A_KEY, y=B_KEY, xo=XONLY, k="03" + XONLY)
     with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
         multipath_descriptors(descriptor)
 
