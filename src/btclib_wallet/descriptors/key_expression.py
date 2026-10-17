@@ -804,9 +804,8 @@ def _steps_set_aside() -> Iterator[list[int]]:
 def _steps_compared() -> Iterator[None]:
     """Refuse steps of different length read inside, once all are read.
 
-    Core compares them at the end of a miniscript and of a ``tr()``. Outside
-    `_steps_set_aside` this does nothing, `_parse_key` refusing the first step
-    there.
+    Outside `_steps_set_aside` this does nothing, `_parse_key` refusing the
+    first step there.
     """
     outer = _SET_ASIDE.get()
     if outer is None:
