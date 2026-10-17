@@ -345,19 +345,19 @@ def is_available(executable: str | Sequence[str] = DEFAULT_EXECUTABLE) -> bool:
     A bare name is looked up only in the absolute directories of the PATH,
     never in the current directory, and the path found is what every
     command runs. A name with a directory part is not looked up on the
-    PATH: it is checked as the file it runs. This was run on Windows
-    (btclib-wallet#426), with a path to `hwi` and one file in its
+    PATH: it is checked as the file it runs. Measured on Windows (issue
+    btclib-org/btclib-wallet#426), with a path to `hwi` and one file in its
     directory: a `hwi.exe` runs, a file `hwi` runs, a `hwi.CMD` is not
-    found, and a `hwi.exe` in a directory whose name has a period runs
-    too. So such a name counts where it is a file as it stands, or where
-    `.exe` appended to its last component, if that has no period, is one.
+    found, and a `hwi.exe` in a directory whose name has a period runs too.
+    So on Windows such a name counts where it is a file as it stands, or
+    where `.exe` appended to its last component, if that has no period, is
+    one.
     A text file `hwi` is found too: running it fails with `OSError`
-    (WinError 193), which `_run` raises as `SignerError`, so
-    `is_available` answers True for it, as for any file it cannot tell is
-    a program. `shutil.which` is not asked,
-    because on Windows with Python 3.12 or later it tries such a name with
-    each PATHEXT extension appended, and as it stands only where it
-    already ends in one.
+    (WinError 193), which `_run` raises as `SignerError`, so `is_available`
+    answers True for it, as for any file it cannot tell is a program.
+    `shutil.which` is not asked, because on Windows with Python 3.12 or
+    later it tries such a name with each PATHEXT extension appended, and as
+    it stands only where it already ends in one.
 
     True is not a promise that a device will answer, or that what is on
     the PATH is HWI at all: it is that there is something to run, which

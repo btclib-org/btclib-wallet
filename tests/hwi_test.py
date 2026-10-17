@@ -1070,12 +1070,11 @@ def test_a_name_with_a_directory_part_is_checked_as_the_file_it_runs(
     """`is_available` answers about the file such a name runs, and no other.
 
     CreateProcess runs such a name as it stands or with `.exe` appended,
-    and runs no batch file. So `<dir>/hwi` is available where `<dir>`
-    holds `hwi` or `hwi.exe` and not where it holds only `hwi.CMD`,
-    whichever interpreter asks.
-    `sys.platform` is switched along with the Windows rules, so that a
-    `shutil.which` call, which tries each PATHEXT extension there, would
-    take its Windows reading on every platform.
+    never with `.cmd` or `.bat` appended. So `<dir>/hwi` is available where
+    `<dir>` holds `hwi` or `hwi.exe` and not where it holds only `hwi.CMD`,
+    whichever interpreter asks. `sys.platform` is switched along with the
+    Windows rules, so that a `shutil.which` call, which tries each PATHEXT
+    extension there, would take its Windows reading on every platform.
     """
     monkeypatch.setattr(hwi_module, "_WINDOWS", True)
     monkeypatch.setattr(sys, "platform", "win32")
@@ -1094,8 +1093,10 @@ def test_a_name_with_a_directory_part_is_checked_as_the_file_it_runs(
     # run on Windows by the test below
     assert is_available(str(plain / DEFAULT_EXECUTABLE))
     assert is_available(str(binary / DEFAULT_EXECUTABLE))
-    # a directory is not a file to run, whatever its name
-    (tmp_path / "nested" / "hwi.exe").mkdir(parents=True)
+    # a directory is not a file to run, whatever its name: each operand of
+    # `is_available`'s `or` is held to it
+    (tmp_path / "nested" / "hwi").mkdir(parents=True)
+    (tmp_path / "nested" / "hwi.exe").mkdir()
     assert not is_available(str(tmp_path / "nested" / DEFAULT_EXECUTABLE))
 
 
@@ -1103,14 +1104,11 @@ def test_a_name_with_a_directory_part_is_checked_as_the_file_it_runs(
 def test_windows_runs_hwi_and_hwi_exe_but_not_hwi_cmd_for_a_path_to_hwi(  # pragma: no cover -- the body needs Windows
     tmp_path: Path,
 ) -> None:
-    """A path to `hwi` starts a file `hwi` or a `hwi.exe`, and no `hwi.CMD`.
+    """Check on Windows the outcomes `is_available` states for a path to `hwi`.
 
-    Run on Windows (btclib-wallet#426), where Microsoft's page and Wine
-    differ: with only a real `hwi.CMD` in the directory the path to `hwi`
-    finds no file; with only a real `hwi.exe`, or only a file `hwi`, it
-    runs it, also in a directory whose name has a period; a text file
-    `hwi` fails with `OSError` (WinError 193), not `FileNotFoundError`.
-    `is_available` is True for all but the first.
+    Wine and Microsoft's page differ from Windows here, so this runs the
+    files. `is_available` holds the outcomes and the issue they come from
+    (issue btclib-org/btclib-wallet#426).
     """
 
     def run(path: str) -> int:
