@@ -149,7 +149,7 @@ time ends* and *A backend is trusted, and not every backend alike*:
   `btclib_wallet.bip38`, which takes AES-256 as two callables
 - the privacy of a lookup against `EsploraFetcher`, `BitcoinCoreRestFetcher`
   or `ElectrumFetcher`: each learns every txid and outpoint asked of it;
-  and against `CompactFilterFetcher`'s peer, whose view SECURITY.md's
+  and against `CompactFilterFetcher`'s peers, whose view SECURITY.md's
   *A backend is trusted, and not every backend alike* states
 - the operating system, the interpreter, or the HWI binary or hardware
   device this package's caller names
