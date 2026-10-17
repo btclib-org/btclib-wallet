@@ -1016,8 +1016,9 @@ class _ScannedStr(str):
     These are `find`, `index`, `rfind`, `rindex`, `count`, `partition`,
     `rpartition`, `split`, `rsplit`, `startswith`, `endswith`, `in` and `[]`.
     A search that finds nothing examines up to the end it was given, one that
-    finds something up to the match, a split the whole text, a prefix test
-    the prefix, and a slice or an index the characters it returns.
+    finds something up to the match, `count` the whole range it is given, a
+    split the whole text, a prefix test the prefix, and a slice or an index the
+    characters it returns.
     """
 
     __slots__ = ()
@@ -1267,8 +1268,8 @@ def test_multipath_descriptors_reads_open_brackets_once(
 
     Each "(" opens an argument that runs to the end of the text. A pass that
     looks ahead from each one for where its argument ends reads the text once
-    per bracket: a hundred times the work, where `_scan_work` counts how it
-    looks ahead.
+    per bracket, a hundred times the work. `_scan_work` sees it where it counts
+    the method that looks ahead.
     """
 
     def work(count: int) -> int:
@@ -1319,7 +1320,7 @@ def test_the_work_count_sees_a_rescan_of_the_text(
 ) -> None:
     """Count a hundred times the work for ten times the text, as a rescan does.
 
-    The pass is made to rescan the text from each "(" and ",", in each of the
+    The pass is made to rescan the text at each "(" and ",", in each of the
     ways the count watches, and the count must show it.
     """
     argument_ends = descriptors._argument_ends
