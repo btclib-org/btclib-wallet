@@ -13,12 +13,9 @@ hold one of the scripts it was given.
 the filter; `PeerTransport` is the socket. This module is the protocol
 over them.
 
-**What is checked, and what one peer can still do** is stated once, in
-`SECURITY.md`, under *A backend is trusted, and not every backend alike*.
-
-**A first synchronization from the genesis block downloads the headers
-twice** where the network sets a minimum chain work, as Bitcoin Core's
-headers presync does.
+**What is checked, what one peer can still do, and what the headers
+presync costs a first synchronization** is stated once, in `SECURITY.md`,
+under *A backend is trusted, and not every backend alike*.
 
 **Not defended against.** Bitcoin Core answers nothing to a
 `getcfheaders` or `getcfilters` for blocks its filter index has not
