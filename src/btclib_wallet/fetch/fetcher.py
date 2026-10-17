@@ -221,10 +221,12 @@ class Fetcher(ABC):
         Checked on arrival, by `block_header_from_raw` where a backend
         reads the header raw, and by `CompactFilterFetcher` when it syncs
         its chain: `assert_valid` and `assert_valid_pow`.
-        `assert_valid_time` is not among the checks -- it compares against
-        the local clock, and a header that is genuinely on the chain should
-        not start failing this because the machine running it has
-        drifted.
+        `assert_valid_time` is not among the checks of a backend that reads
+        the header raw -- it compares against the local clock, and a header
+        that is genuinely on the chain should not start failing this because
+        the machine running it has drifted. `CompactFilterFetcher` asks it
+        of each header it syncs, with the median time past, as `SECURITY.md`
+        says.
 
         This method promises no more than that check. It does not say the
         header is on the chain the caller means, nor that it is truly at
