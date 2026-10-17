@@ -684,13 +684,16 @@ def test_a_hardened_key_is_derived_where_the_descriptor_holds_its_private_key(
 
 
 def test_a_multipath_descriptor_repeats_a_key_in_its_second_branch() -> None:
-    """Refuse the branch where the hardened steps meet, and only that one."""
+    """Refuse the branch where the hardened steps meet, and expand none."""
     key = TESTNET_XPRV
     multipath = f"wsh(or_i(pk({key}/<0;1h>),pk([deadbeef]{key}/<2;1h>)))"
-    first, second = multipath_descriptors(multipath)
+    first = multipath.replace("<0;1h>", "0").replace("<2;1h>", "2")
+    second = multipath.replace("<0;1h>", "1h").replace("<2;1h>", "1h")
     parse_descriptor(first, "testnet")
     with pytest.raises(BTClibValueError, match="repeats a public key"):
         parse_descriptor(second, "testnet")
+    with pytest.raises(BTClibValueError, match="repeats a public key"):
+        multipath_descriptors(multipath, "testnet")
 
 
 @pytest.mark.parametrize(

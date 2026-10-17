@@ -98,6 +98,7 @@ from btclib_wallet.descriptors import (
     wallet_policy_descriptor,
 )
 from btclib_wallet.descriptors.descriptors import __descsum_expand
+from btclib_wallet.descriptors.key_expression import _read_split
 from btclib_wallet.descriptors.miniscript import _ARITY, Miniscript
 from btclib_wallet.psbt.musig2 import nonce_gen, partial_sign, partial_sigs_agg
 from btclib_wallet.psbt.psbt import (
@@ -644,9 +645,9 @@ def test_invalid_multipath() -> None:
         multipath_descriptors(f"multi(1,{xpub}/<0;1>/*,{xpub}/<0;1;2>/*)")
     with pytest.raises(BTClibValueError, match="at least two elements"):
         multipath_descriptors(f"pk({xpub}/<0>)")
-    # and after a key that is not an extended one, once the whole text is read
+    # a key that is not an extended one is refused first, as Core does
     key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
-    with pytest.raises(BTClibValueError, match="at least two elements"):
+    with pytest.raises(BTClibValueError, match="cannot derive"):
         multipath_descriptors(f"pk({key}/<0>)")
     # and parse() does not read one, rather than reading it wrong
     with pytest.raises(BTClibValueError, match="multipath_descriptors"):
@@ -800,8 +801,9 @@ def test_multipath_reads_a_key_where_core_does() -> None:
     with pytest.raises(BTClibValueError, match=message):
         multipath_descriptors(comma)
     unread = f"pkh({xpub},{xpub}/x)"
-    assert multipath_descriptors(unread) == [add_checksum(unread)]
     for descriptor in (comma, unread):
+        with pytest.raises(BTClibValueError):
+            multipath_descriptors(descriptor)
         with pytest.raises(BTClibValueError):
             parse(descriptor)
     descriptor = f"pkh(musig({MUSIG_XPUB_A},{MUSIG_XPUB_B}/<0;0>)/x)"
@@ -817,7 +819,8 @@ def test_multipath_reads_a_key_where_core_does() -> None:
         (f"tr({key},pk(musig({key},{xpub}/*)/x))", "requires every participant"),
         (f"tr(musig({xpub},{MUSIG_XPUB_B})/x/*h)", "hardened wildcard"),
     ):
-        assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
+        with pytest.raises(BTClibValueError, match=message):
+            multipath_descriptors(descriptor)
         with pytest.raises(BTClibValueError, match=message):
             parse(descriptor)
 
@@ -858,21 +861,19 @@ def test_parse_refuses_the_fault_core_reads_first(template: str, message: str) -
         parse(template.format(xpub=xpub, key=key))
 
 
-def test_multipath_leaves_a_musig_behind_a_key_origin_to_parse() -> None:
-    """Expand a ``musig()`` behind a key origin, and let `parse` refuse it.
+def test_multipath_refuses_a_musig_behind_a_key_origin_as_parse_does() -> None:
+    """Refuse a ``musig()`` behind a key origin before its hardened item.
 
-    The hardened item of its multipath step is refused first only where
-    the ``musig()`` starts an argument, which Core needs to read one.
+    Core reads a ``musig()`` only where it starts an argument, so the
+    origin in front of it is the fault, and not the item of its path.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = f"tr([deadbeef]musig({xpub},{xpub})/<0h;1>)"
-    expanded = multipath_descriptors(descriptor)
-    assert len(expanded) == 2
-    for single in expanded:
-        with pytest.raises(
-            BTClibValueError, match="^musig[(][)] cannot be nested inside a key origin$"
-        ):
-            parse(single)
+    message = "^musig[(][)] cannot be nested inside a key origin$"
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
 
 
 @pytest.mark.parametrize(
@@ -896,15 +897,198 @@ def test_multipath_refuses_a_hardened_item_of_a_musig_step(template: str) -> Non
         parse(descriptor)
 
 
-def test_multipath_reads_a_key_to_the_end_of_the_text() -> None:
-    """Count a key's ``]`` up to the end of a text that closes nothing.
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        (
+            "tr(musig({xpub}/<0;1>,{xpub})/0h/<2;3>)",
+            r"^musig\(\) cannot have hardened derivation steps$",
+        ),
+        ("pkh({key}/<0;1>/<2;3>)", "^derivation path after a key that cannot derive$"),
+        (
+            "pkh([dead,beef/0]{xpub}/0/*)",
+            "^invalid key origin fingerprint: 8 hex digits expected$",
+        ),
+        (
+            "tr(musig({key},{xpub})/<0;1>/<2;3>)",
+            r"^musig\(\) derivation requires every participant to be extended$",
+        ),
+        ("pk(/<0>)", "^No key provided$"),
+        ("pk([deadbeef/0]/<0>)", "^No key provided$"),
+        ("pkh({xpub}/<0>,{xpub})", "^Key path value is not a valid uint32$"),
+        (
+            "rawtr({key},musig({xpub},{xpub})/<0h;1>)",
+            r"^rawtr\(\) takes one argument, 2 given$",
+        ),
+        (
+            "rawtr([deadbeef/0h]{key}/x,musig({xpub},{xpub})/<0h;1>)",
+            r"^rawtr\(\) takes one argument, 2 given$",
+        ),
+    ],
+)
+def test_multipath_and_parse_name_the_fault_core_reads_first(
+    template: str, message: str
+) -> None:
+    """Name the same fault in both functions, the one Core reads first.
 
-    The ``musig(`` is never closed, so no ``musig()`` path is read either.
+    `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf: a `musig()`
+    path is refused for a hardened step (2145-2147) before the multipath
+    check (2180-2181) and after the participants, an extended-key check
+    (2125-2127) comes before the path, `ParsePubkeyInner` refuses an empty
+    key (1989-1991) and a key that cannot derive (2043-2044) before it
+    reads the path (2049), `pkh()` hands its whole argument to
+    `ParsePubkey` (2410), which reads the fingerprint first (2226-2227),
+    and `rawtr()` takes one key.
     """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
+    descriptor = template.format(xpub=xpub, key=key)
+    with pytest.raises(BTClibValueError, match=message):
+        multipath_descriptors(descriptor)
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        (
+            "multi(1,{xpub}/<0;1>,{xpub}/<2;3>/<4;5>)",
+            "Multiple multipath key path specifiers found",
+        ),
+        (
+            "multi(1,{xpub}/<0;1>,{xpub}/<2;3>/<4;5>>)",
+            "Multiple multipath key path specifiers found",
+        ),
+        (
+            "multi(1,{xpub}/<0;1>,{xpub}/<2;2>)",
+            "Duplicated key path value 2 in multipath specifier",
+        ),
+        (
+            "multi(1,{xpub}/<0;1>,{xpub}/<2>)",
+            "a multipath step takes at least two elements",
+        ),
+        ("multi(1,{xpub}/<0;1>,{xpub}/<2;x>)", "invalid derivation index"),
+        (
+            "multi(1,{xpub}/<0;1>,[deadbeef/<2;3>/4]{xpub})",
+            "Key path value specifies multipath in a section where multipath is not allowed",
+        ),
+        ("multi(1,{xpub}/<0;1>,{xpub}/4<2;3>)", "Key path value is not a valid uint32"),
+        ("multi(1,{xpub}/<0;1>,{xpub}<2;3>)", "key is not valid"),
+        (
+            "tr({xpub}/<0;1>,pk(musig({xpub}/<2;3>,{xpub})/<4;5>))",
+            "musig(): Cannot have multipath participant keys if musig() is also multipath",
+        ),
+        (
+            "tr({xpub}/<0;1>,pk(musig({xpub},{xpub})/<2;3>/<4;5>))",
+            "musig(): Multiple multipath key path specifiers found",
+        ),
+        (
+            "tr({xpub}/<0;1>,pk(musig({xpub},{xpub})/<2h;3>))",
+            "musig() cannot have hardened derivation steps",
+        ),
+        (
+            "tr({xpub}/<0;1>,pk(musig({xpub},{xpub})/<2;3h>))",
+            "musig() cannot have hardened derivation steps",
+        ),
+        (
+            "multi(1,{xpub}/<0;1>,{xpub}/<2;3;4>)",
+            "multipath steps of different length: [2, 3]",
+        ),
+    ],
+)
+def test_multipath_reads_the_keys_after_the_first_step_as_parse_does(
+    template: str, message: str
+) -> None:
+    """Refuse the fault `parse` names in a key after the first with a step.
+
+    The first read runs with each step on its first path, so it reads
+    every key. A step Core refuses is refused there, and so are steps of
+    different length, where Core compares them.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
+        multipath_descriptors(template.format(xpub=xpub))
+
+
+def test_multipath_names_a_key_fault_before_different_lengths() -> None:
+    """Read every key of a call before comparing the lengths of its steps."""
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
+    descriptor = f"multi(1,{xpub}/<0;1>,{key}/<2;3;4>)"
+    with pytest.raises(
+        BTClibValueError, match="^derivation path after a key that cannot derive$"
+    ):
+        multipath_descriptors(descriptor)
+
+
+def test_multipath_reads_the_keys_in_the_network_it_is_given() -> None:
+    """Expand a test network descriptor with no network, or with its own."""
+    descriptor = f"wpkh({TESTNET_XPUB}/<0;1>/*)"
+    expansions = [f"wpkh({TESTNET_XPUB}/0/*)", f"wpkh({TESTNET_XPUB}/1/*)"]
+    for network in (None, "testnet"):
+        expanded = multipath_descriptors(descriptor, network)
+        assert [strip_checksum(d) for d in expanded] == expansions
+    with pytest.raises(
+        BTClibValueError, match="^not a mainnet key: version 0x043587cf$"
+    ):
+        multipath_descriptors(descriptor, "mainnet")
+
+
+def test_parse_reads_the_whole_argument_of_a_key_function_first() -> None:
+    """Name the key's fault, not the brackets: Core reads the argument whole."""
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     message = "^more than one ']' in a single key expression$"
     with pytest.raises(BTClibValueError, match=message):
-        multipath_descriptors(f"tr(musig([xyz]]{xpub}")
+        parse(f"pkh([deadbeef/0]]{xpub}/0))")
+
+
+def test_parse_reads_what_core_reads_before_the_brackets_and_the_rest() -> None:
+    """Name the fault inside ``sh()``, ``wsh()`` and ``musig()``, then the rest.
+
+    Core takes the argument of ``sh()`` and ``wsh()`` whole, ends a
+    descriptor at its first "," or unmatched closing bracket and reads what
+    is before it, and reads the participants of a ``musig()`` before it
+    finds a "{" unclosed.
+    """
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    for descriptor, message in (
+        (f"sh(wsh(multi(1,[dead,beef/0]{xpub})))", "missing ']' in the key"),
+        (f"pkh([deadbeef/0]]{xpub}/0),", "more than one ']'"),
+        (f"pkh({xpub}/0),", "not a descriptor expression"),
+        (f"pkh({xpub}))", "^unbalanced brackets$"),
+        (f"tr({xpub},{{pk({xpub}),pk({xpub}{{)}})", "^unbalanced braces$"),
+        (f"wsh(and_v(v:pk({xpub}}}),older(1)))", "^unbalanced braces$"),
+        (f"tr(musig({xpub}{{,{xpub})/x)", "musig\\(\\): invalid key expression"),
+    ):
+        with pytest.raises(BTClibValueError, match=message):
+            parse(descriptor)
+
+
+def test_unpaired_brackets_are_refused_once_the_arguments_are_read() -> None:
+    """Refuse brackets that do not pair, after a reader that accepts them."""
+    with pytest.raises(BTClibValueError, match="^unbalanced brackets$"):
+        _read_split("a)", lambda args: args)
+    assert _read_split("a,b", lambda args: args) == ["a", "b"]
+
+
+def test_parse_reads_the_keys_of_a_tr_before_counting_its_arguments() -> None:
+    """Name a key's fault before the third argument of ``tr()``."""
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    with pytest.raises(BTClibValueError, match="^invalid derivation index$"):
+        parse(f"tr({xpub}/x,pk({xpub}),{xpub})")
+    with pytest.raises(BTClibValueError, match="^tr[(][)] takes a key and at most"):
+        parse(f"tr({xpub},pk({xpub}),{xpub})")
+
+
+def test_multipath_keeps_the_text_of_the_items_it_expands() -> None:
+    """Write back each item as it was written, ``'`` and ``h`` included."""
+    xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
+    descriptor = f"multi(1,{xpub}/<0h;1'>,{xpub}/<2;3h>)"
+    assert [strip_checksum(d) for d in multipath_descriptors(descriptor)] == [
+        f"multi(1,{xpub}/0h,{xpub}/2)",
+        f"multi(1,{xpub}/1',{xpub}/3h)",
+    ]
 
 
 def test_multipath_refuses_a_musig_multipath_in_participant_and_path() -> None:
@@ -1005,20 +1189,14 @@ class _Work:
         self.count += max(stop - start, 0)
 
 
-def _longest(affix: str | tuple[str, ...]) -> int:
-    """Return the length of an affix, or of the longest of a tuple of them."""
-    return len(affix) if isinstance(affix, str) else max(map(len, affix), default=0)
-
-
 class _ScannedStr(str):
     """A text that counts the characters some of its `str` methods examine.
 
     These are `find`, `index`, `rfind`, `rindex`, `count`, `partition`,
-    `rpartition`, `split`, `rsplit`, `startswith`, `endswith`, `in` and `[]`.
+    `rpartition`, `split`, `rsplit`, `in` and `[]`.
     A search that finds nothing examines up to the end it was given, one that
     finds something up to the match, `count` the whole range it is given, a
-    split the whole text, a prefix test the prefix, and a slice or an index the
-    characters it returns.
+    split the whole text, and a slice or an index the characters it returns.
     """
 
     __slots__ = ()
@@ -1108,26 +1286,6 @@ class _ScannedStr(str):
     def rpartition(self, sep: str) -> tuple[str, str, str]:
         self.rfind(sep)
         return super().rpartition(sep)
-
-    @override
-    def startswith(
-        self,
-        prefix: str | tuple[str, ...],
-        start: SupportsIndex | None = None,
-        end: SupportsIndex | None = None,
-    ) -> bool:
-        self.work.count += _longest(prefix)
-        return super().startswith(prefix, start, end)
-
-    @override
-    def endswith(
-        self,
-        suffix: str | tuple[str, ...],
-        start: SupportsIndex | None = None,
-        end: SupportsIndex | None = None,
-    ) -> bool:
-        self.work.count += _longest(suffix)
-        return super().endswith(suffix, start, end)
 
     @override
     def __contains__(self, key: object) -> bool:
@@ -1224,12 +1382,11 @@ def _scan_work(text: str) -> int:
     `re.finditer`, on any string, and the `_ScannedStr` methods on the text
     `strip_checksum` returns. It does not see other `str` methods, iteration,
     `str` methods on copies of the text, or work on lists and dicts. It does
-    not depend on the machine or on its load. The result is checked against
-    the checksummed text.
+    not depend on the machine or on its load. The text need not be a
+    descriptor: the work counts up to the fault `parse` names.
     """
     work = _Work()
     strip = descriptors.strip_checksum
-    expected = [add_checksum(text)]
     scanned = type("_Scanned", (_ScannedStr,), {"__slots__": (), "work": work})
 
     with pytest.MonkeyPatch.context() as patch:
@@ -1238,7 +1395,8 @@ def _scan_work(text: str) -> int:
                 patch.setattr(descriptors, name, _ScannedPattern(value, work))
         patch.setattr(descriptors, "re", _ScannedRe(work))
         patch.setattr(descriptors, "strip_checksum", lambda d: scanned(strip(d)))
-        assert multipath_descriptors(text) == expected
+        with contextlib.suppress(BTClibValueError):
+            multipath_descriptors(text)
     return work.count
 
 
@@ -1254,6 +1412,15 @@ def test_multipath_descriptors_reads_a_long_text_once() -> None:
         return _scan_work("raw(" + ",".join(["0"] * count) + ")")
 
     assert work(160_000) < 11 * work(16_000)
+
+
+def test_the_work_count_sees_the_expansion_of_a_step() -> None:
+    """Count the scan for steps and the reading of the expansions.
+
+    A descriptor with a step is read once as written and once for each of
+    its expansions, so it costs more than the same one with no step.
+    """
+    assert _scan_work(f"wpkh({XPUB}/<0;1>/*)") > _scan_work(f"wpkh({XPUB}/0/*)")
 
 
 @pytest.mark.parametrize(
@@ -1302,13 +1469,15 @@ _RESCANS = {
     "count": lambda text, pos: text.count("<", pos),
     "in": lambda text, _: "<" in text,
     "slice": lambda text, pos: text[pos:],
-    "search": lambda text, pos: descriptors._MULTIPATH_STEP.search(text, pos),  # noqa: PLW0108
-    "finditer": lambda text, pos: list(descriptors._MULTIPATH_STEP.finditer(text, pos)),
-    "split pattern": lambda text, _: descriptors._MULTIPATH_STEP.split(text),
-    "findall": lambda text, pos: descriptors._MULTIPATH_STEP.findall(text, pos),  # noqa: PLW0108
-    "sub": lambda text, _: descriptors._MULTIPATH_STEP.sub("", text),
-    "subn": lambda text, _: descriptors._MULTIPATH_STEP.subn("", text),
-    "fullmatch": lambda text, pos: descriptors._MULTIPATH_STEP.fullmatch(text, pos),  # noqa: PLW0108
+    "search": lambda text, pos: descriptors._POLICY_MUSIG_CALL.search(text, pos),  # noqa: PLW0108
+    "finditer": lambda text, pos: list(
+        descriptors._POLICY_MUSIG_CALL.finditer(text, pos)
+    ),
+    "split pattern": lambda text, _: descriptors._POLICY_MUSIG_CALL.split(text),
+    "findall": lambda text, pos: descriptors._POLICY_MUSIG_CALL.findall(text, pos),  # noqa: PLW0108
+    "sub": lambda text, _: descriptors._POLICY_MUSIG_CALL.sub("", text),
+    "subn": lambda text, _: descriptors._POLICY_MUSIG_CALL.subn("", text),
+    "fullmatch": lambda text, pos: descriptors._POLICY_MUSIG_CALL.fullmatch(text, pos),  # noqa: PLW0108
     "re.finditer": lambda text, _: list(vars(descriptors)["re"].finditer("<", text)),
     "re.search": lambda text, _: vars(descriptors)["re"].search("<[^<>]*>", text),
 }
@@ -1323,15 +1492,15 @@ def test_the_work_count_sees_a_rescan_of_the_text(
     The pass is made to rescan the text at each "(" and ",", in each of the
     ways the count watches, and the count must show it.
     """
-    argument_ends = descriptors._argument_ends
+    parse_text = descriptors._parse_text
 
-    def rescanning(text: str) -> object:
+    def rescanning(text: str, *args: Any) -> object:
         for pos, char in enumerate(text):
             if char in ",(":
                 rescan(text, pos)
-        return argument_ends(text)
+        return parse_text(text, *args)
 
-    monkeypatch.setattr(descriptors, "_argument_ends", rescanning)
+    monkeypatch.setattr(descriptors, "_parse_text", rescanning)
 
     def work(count: int) -> int:
         return _scan_work("raw(" + ",".join(["0"] * count) + ")")
@@ -1349,11 +1518,15 @@ def test_the_work_count_sees_a_rescan_of_the_text(
 def test_multipath_refuses_a_step_in_a_function_argument(template: str) -> None:
     """Refuse a step in a function argument, which Core refuses too.
 
-    The message is the key one, not Core's, which differs by function.
+    A step that follows no "/" is not expanded, and `parse` names the
+    argument it cannot read. The message is not Core's, which differs by
+    function.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = template.format(xpub=xpub)
-    with pytest.raises(BTClibValueError, match="^key is not valid$"):
+    with pytest.raises(
+        BTClibValueError, match="^invalid older[(][)] number: digits expected$"
+    ):
         multipath_descriptors(descriptor)
 
 
@@ -2128,12 +2301,11 @@ def test_a_key_holds_no_whitespace() -> None:
         with pytest.raises(BTClibValueError, match=r"^more than one '\]'"):
             function(f"pkh( [deadbeef]]{XPUB})")
     # pkh() reads its whole argument as one key, "," included, so the
-    # space after the "," is inside the key: `parse` refuses the key, and
-    # multipath_descriptors leaves it unread
+    # space after the "," is inside the key, which both functions refuse
     inside = f"pkh({XPUB}, {KEY})"
-    assert multipath_descriptors(inside) == [add_checksum(inside)]
-    with pytest.raises(BTClibValueError, match="^invalid key expression$"):
-        parse(inside)
+    for function in (parse, multipath_descriptors):
+        with pytest.raises(BTClibValueError, match="^invalid key expression$"):
+            function(inside)
     for function in (parse, multipath_descriptors):
         with pytest.raises(BTClibValueError, match=message):
             function(f"pkh({XPUB},{KEY} )")
@@ -2166,12 +2338,12 @@ def test_a_musig_participants_fingerprint_fault_is_prefixed(
 
 
 def test_a_space_by_a_function_name_is_no_key_fault() -> None:
-    """Leave a space by a function name to `parse`, but in a key's place.
+    """Refuse a space by a function name where a script stands, not as a key's.
 
     Core reads a function where a script stands, and refuses the script,
-    never the key: `parse` refuses it, and `multipath_descriptors` leaves
-    it unread. A ``musig()`` where a key stands is read as the key, up to
-    its ")", so a space before it is the key's whitespace (issue #443).
+    never the key, and so do both functions. A ``musig()`` where a key
+    stands is read as the key, up to its ")", so a space before it is the
+    key's whitespace (issue #443).
     """
     message = "^Key is invalid due to whitespace$"
     musig = f"musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})"
@@ -2180,16 +2352,18 @@ def test_a_space_by_a_function_name_is_no_key_fault() -> None:
         f"sh( wpkh({KEY}))",
         f"tr({musig[:5]} {musig[5:]})",
     ):
-        assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
-        with pytest.raises(BTClibValueError):
-            parse(descriptor)
+        for function in (parse, multipath_descriptors):
+            with pytest.raises(BTClibValueError) as excinfo:
+                function(descriptor)
+            assert "whitespace" not in str(excinfo.value)
     for descriptor in (f"tr( {musig})", f"pkh( {musig})"):
         for function in (parse, multipath_descriptors):
             with pytest.raises(BTClibValueError, match=message):
                 function(descriptor)
-    # where no key may stand, the musig() is refused for its position
-    with pytest.raises(BTClibValueError, match=r"^musig\(\) is only allowed in tr"):
-        multipath_descriptors(f"wsh( {musig})")
+    # where no key may stand, the space is no key's: it is the script's
+    for function in (parse, multipath_descriptors):
+        with pytest.raises(BTClibValueError, match="^not a miniscript fragment"):
+            function(f"wsh( {musig})")
 
 
 def test_a_slash_introduces_a_path_step() -> None:
@@ -2391,7 +2565,7 @@ UNPARSABLE = [
     (f"multi(x,{KEY})", "threshold"),
     ("multi(1)", "at least one key"),
     (f"pk({KEY}))", "unbalanced"),
-    (f"pk(({KEY})", "unbalanced"),
+    (f"pk(({KEY})", "not a key expression"),
     (f"tr({XONLY},pk({XONLY}),pk({XONLY}))", "at most one tree"),
     (f"tr({XONLY},{{pk({XONLY})}})", "two subtrees"),
     (f"tr({XONLY},{{pk({XONLY}),pk({XONLY})}}x)", "unbalanced braces"),
@@ -2453,11 +2627,11 @@ CORE_UNPARSABLE = [
     # Core: musig() participants with multipath steps of different lengths
     (
         "tr(musig(xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc/<0;1>,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/<0;1;2>))",
-        "use multipath_descriptors first",
+        r"^multipath steps of different length: \[2, 3\]$",
     ),
     (
         "tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/<0;1>,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/<0;1;2>))",
-        "use multipath_descriptors first",
+        r"^multipath steps of different length: \[2, 3\]$",
     ),
     # Core: multi() inside tr()
     (
@@ -2494,13 +2668,13 @@ CORE_UNPARSABLE = [
     # Core: a taptree 129 braces deep, which no bracket closes
     (
         "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1," + "{" * 129 + ")",
-        "unbalanced brackets",
+        "unbalanced braces",
     ),
     (
         "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,"
         + "{" * 129
         + ")",
-        "unbalanced brackets",
+        "unbalanced braces",
     ),
     # Core: a taptree pair with a third branch
     (
@@ -2573,12 +2747,151 @@ def test_core_unparsable(descriptor: str, message: str) -> None:
         parse(descriptor)
 
 
+A_KEY = MUSIG_XPUB_A
+B_KEY = MUSIG_XPUB_B
+
+
+@pytest.mark.parametrize(
+    "template, message",
+    [
+        # lengths of one multi-family call or musig(), refused when Core
+        # closes it, before it reads what follows
+        (
+            "tr({xo},{{multi_a(1,{x}/<0;1>,{x}/<0;1;2>),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{sortedmulti_a(1,{x}/<0;1>,{x}/<0;1;2>),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr(musig({x}/<0;1>,{x}/<0;1;2>),pk(x))",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{pk(musig({x}/<0;1>,{x}/<0;1;2>)),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{and_v(v:pk(musig({x}/<0;1>,{x}/<0;1;2>)),pk(x)),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{multi_a(1,musig({x}/<0;1>,{k}),{x}/<0;1;2>),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({x}/<0;1>,{{multi_a(1,{x}/<0;1>,{x}/<0;1;2>),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr(musig({x},{x})/<0;1>,{{pk(musig({x}/<0;1>,{x}/<0;1;2>)),pk(x)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(multi(1,{x}/<0;1>,{x}/<0;1;2>))",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(sortedmulti(1,{x}/<0;1>,{x}/<0;1;2>))",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "sh(multi(1,{x}/<0;1>,{x}/<0;1;2>))",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "sh(wsh(multi(1,{x}/<0;1>,{x}/<0;1;2>)))",
+            "multipath steps of different length: [2, 3]",
+        ),
+        # what Core reads in the call before it compares the lengths
+        ("wsh(multi(3,{x}/<0;1>,{x}/<0;1;2>))", "invalid k in k-of-n multi: 3"),
+        (
+            "tr({xo},{{sortedmulti_a(3,{x}/<0;1>,{x}/<0;1;2>),pk(x)}})",
+            "invalid k in k-of-n sortedmulti_a: 3",
+        ),
+        ("wsh(multi(1,{x}/<0;1>,{x}/<0;1;2>,x))", "invalid key expression"),
+        (
+            "tr({xo},{{multi_a(1,{x}/<0;1>,{x}/<0;1;2>,x),pk(x)}})",
+            "invalid key expression",
+        ),
+        # Core compares the lengths of a miniscript, and of a tr(), at the end
+        ("wsh(or_d(multi(1,{x}/<0;1>,{x}/<0;1;2>),pk(x)))", "invalid key expression"),
+        ("tr({x}/<0;1>,{{pk({x}/<0;1;2>),pk(x)}})", "invalid key expression"),
+        # and before they read what follows
+        (
+            "tr({xo},{{and_v(v:pk({x}/<0;1>/*),pk({x}/<2;3;4>/*)),pk(/0)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{and_v(v:pk({x}/<0;1>/*),pk({x}/<2;3;4>/*)),pk({k}/0)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(and_v(v:pk({x}/<0;1>/*),pk({x}/<2;3;4>/*))),x",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({x}/<0;1>/*,pk({x}/<2;3;4>/*)),x",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "sh(wsh(and_v(v:pk({x}/<0;1>/*),pk({y}/<2;3;4>/*))),x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(sortedmulti(1,{y}/<7;8;9>,{y}/0/<0;1>),x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(or_d(pk({y}/<0;1;2>/*),pkh({y}/<5;6>)),x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr(musig({y}/<0;1;2>,{y}/<0;1>,{y})x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{multi_a(1,{x}/<0;1>,{y}/<0;1;2>),pk({y})}}x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({x}/<5;6>,{{multi_a(1,{y}/<2;3;4>/*,{y}/<3;4>/0),pk({y}/0/<0;1>)}}x)",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            (
+                "tr(musig({y}/1,{x},{x})/<0;1>/*,"
+                "{{or_d(pk({y}/<7;8;9>),pkh({x}/<5;6>)),pk({x})}}x)"
+            ),
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{multi_a(1,{x}/<0;1>,{x}/<0;1>),pk({x}/<0;1;2>)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+    ],
+)
+def test_multipath_lengths_are_named_where_core_names_them(
+    template: str, message: str
+) -> None:
+    """Name the fault Core reads first, lengths of one call included.
+
+    Core compares the lengths of the steps in a ``multi()``, a
+    ``multi_a()`` or a ``musig()`` as it closes the call. It compares those
+    of a miniscript or of a ``tr()`` at their end.
+    """
+    descriptor = template.format(x=A_KEY, y=B_KEY, xo=XONLY, k="03" + XONLY)
+    with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
+        multipath_descriptors(descriptor)
+
+
 def test_core_multipath_lengths() -> None:
     """Refuse musig() participants whose multipath steps differ in length.
 
-    Core's case, which `parse` refuses with every multipath key and
-    `multipath_descriptors` is what compares the lengths of. The same
-    descriptor with two steps on both participants expands.
+    Core's case, which `parse` and `multipath_descriptors` both refuse
+    as Core does. The same descriptor with two steps on both participants
+    expands.
     """
     xprv = "xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc"
     for first in (xprv, MUSIG_XPUB_A):
@@ -2907,13 +3220,10 @@ BIP390_INVALID = [
         f"tr(musig({MUSIG_XPUB_A}/*,{MUSIG_XPUB_B})/0/*)",
         "ranged participant and derivation",
     ),
-    # BIP390 refuses a multipath musig() holding multipath participants;
-    # btclib refuses the whole shape earlier and for the general reason,
-    # `parse` taking one path per key and `multipath_descriptors` being
-    # what expands the <a;b> steps textually, as BIP389 defines them
+    # BIP390 refuses a multipath musig() holding multipath participants
     (
         f"tr(musig({MUSIG_XPUB_A}/<0;1>,{MUSIG_XPUB_B})/<2;3>)",
-        "multipath key expression",
+        "Cannot have multipath participant keys",
     ),
     (f"tr(musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})/0h/*)", "hardened derivation steps"),
     (f"tr(musig({MUSIG_XPUB_A},{MUSIG_XPUB_B})/0/*h)", "hardened wildcard"),
@@ -4818,7 +5128,7 @@ UNECHOED = [
     ),
     (f"wpkh(#{WIF})", r"^invalid descriptor checksum: \w{8} expected$"),
     (f"wpkh({WIF}))", "^unbalanced brackets$"),
-    (f"sh(multi(1,({WIF}))", "^unbalanced brackets$"),
+    (f"sh(multi(1,({WIF}))", "^not a key expression$"),
     (f"wpkh({WIF}", r"^not a descriptor expression: expected name\(arguments\)$"),
     (f"tr({XPRV_ROOT},{{pk({WIF}),pk({MUSIG_A_WIF})}}x)", "^unbalanced braces$"),
     (
@@ -5459,9 +5769,11 @@ def test_multipath_leaves_an_unread_internal_musig_to_parse(template: str) -> No
     """Outer shape, arity, position and key origins are read before a key."""
     group = f"musig({MUSIG_A},{MUSIG_B})"
     descriptor = template.format(group=group, a=MUSIG_A, b=MUSIG_B)
-    assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
-    with pytest.raises(BTClibValueError):
+    with pytest.raises(BTClibValueError) as parsed:
         parse(descriptor)
+    with pytest.raises(BTClibValueError) as expanded:
+        multipath_descriptors(descriptor)
+    assert str(expanded.value) == str(parsed.value)
 
 
 def test_a_derivable_internal_musig_keeps_multipath_expansion() -> None:
