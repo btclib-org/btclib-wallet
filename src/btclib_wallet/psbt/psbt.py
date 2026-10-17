@@ -2378,9 +2378,19 @@ def _assert_taproot_sig_hash_type(signature: bytes, psbt_in: PsbtIn, what: str) 
     `_assert_sig_hash_type` asks of a partial signature. A Finalizer that
     skipped the comparison would happily build a witness whose signature
     commits to other outputs than the ones the psbt was built for.
+
+    An input without the field accepts SIGHASH_DEFAULT and SIGHASH_ALL,
+    the two types that commit to every input and every output. BIP174
+    leaves the choice to the signer there, and cosigners of one input
+    may choose differently (bitcoin/bitcoin#36507). Any other type is
+    refused, as `_assert_sig_hash_type` refuses it (GHSA-qq38-77mp-j6wr).
     """
     hash_type = signature[-1] if len(signature) == 65 else DEFAULT
-    if (psbt_in.sig_hash_type or DEFAULT) != hash_type:
+    if psbt_in.sig_hash_type is None:
+        accepted: tuple[int, ...] = (DEFAULT, ALL)
+    else:
+        accepted = (psbt_in.sig_hash_type,)
+    if hash_type not in accepted:
         err_msg = f"invalid {what} sig_hash type: {hash_type}, "
         err_msg += f"the input asks for {psbt_in.sig_hash_type}"
         raise BTClibValueError(err_msg)
@@ -3107,9 +3117,10 @@ def _assert_taproot_sigs_verify(
 
     The Finalizer's own checks, asked one role earlier: a key path
     signature against the output key being spent, a script path one
-    against the key its tapleaf hash names. The sig_hash type each
-    commits to has to be the type the input asks for, which is what
-    `_assert_taproot_sig_hash_type` answers and what decides the message.
+    against the key its tapleaf hash names. Whether the sig_hash type
+    each commits to is one the input accepts is
+    `_assert_taproot_sig_hash_type`'s question, and that type decides the
+    message.
 
     request_in is `_assert_ecdsa_sigs_verify`'s, for the same reason: the
     signatures an answer was sent are not checked against it, and None is
@@ -3287,7 +3298,7 @@ def assert_signed(psbt: Psbt, *, allow_partial: bool = False) -> None:
     Verification is `_assert_ecdsa_sigs_verify`'s and
     `_assert_taproot_sigs_verify`'s, so it covers every input kind either
     signature kind belongs to, and the sig_hash type each commits to must
-    be the type the input asks for. An input that does not say what was
+    be one the input accepts. An input that does not say what was
     signed -- no utxo, no redeem script, no witness script -- is refused
     here rather than skipped: the Finalizer's leniency is for a role that
     has the finalized scripts to fall back on, while a caller asking this
@@ -3488,8 +3499,8 @@ def _assert_sig_hash_type(psbt_in: PsbtIn) -> None:
     The type a signature commits to is the byte appended to its DER
     encoding, which is where the script engine reads it too.
 
-    An input without the field asks for SIGHASH_ALL, as
-    `_assert_taproot_sig_hash_type` has it ask for SIGHASH_DEFAULT.
+    An input without the field asks for SIGHASH_ALL;
+    `_assert_taproot_sig_hash_type` says what it asks of a taproot one.
     Otherwise a signer answering a request with SIGHASH_NONE would have
     its signature accepted (GHSA-qq38-77mp-j6wr).
 
@@ -3591,7 +3602,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 
     Deciding that an input has enough data is two checks beyond the
     presence of a signature, and both are per input: the sighash type
-    each signature commits to is the one the input asks for, and each
+    each signature commits to is one the input accepts, and each
     signature verifies against the key it is filed under.
 
     What is then built is the spend the input's own kind asks for, which

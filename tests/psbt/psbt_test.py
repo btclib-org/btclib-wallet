@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from btclib import var_bytes, var_int
-from btclib.alias import Octets
+from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibTypeError, BTClibValueError, ScriptError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
@@ -6238,7 +6238,7 @@ def test_finalizer_checks_a_witness_sighash_single_signature_past_the_outputs(
 
 
 def test_an_ecdsa_signature_of_another_type_is_refused_without_the_field() -> None:
-    """No PSBT_IN_SIGHASH_TYPE asks for SIGHASH_ALL, as it asks for DEFAULT.
+    """No PSBT_IN_SIGHASH_TYPE asks for SIGHASH_ALL on an ECDSA input.
 
     The advisory's reproduction (3): a SIGHASH_NONE answer to a request
     that named no type is refused by every role that reads it.
@@ -6257,6 +6257,102 @@ def test_an_ecdsa_signature_of_another_type_is_refused_without_the_field() -> No
         assert_signed(answer)
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(answer)
+
+
+@pytest.mark.parametrize("path", ["key", "script"])
+def test_a_taproot_all_signature_is_accepted_without_the_field(path: str) -> None:
+    """No PSBT_IN_SIGHASH_TYPE accepts SIGHASH_ALL beside SIGHASH_DEFAULT.
+
+    The two types commit to the same inputs and outputs. Without the
+    field, BIP174 lets a signer pick either, and refusing the 65-byte
+    form is the failure of bitcoin/bitcoin#36507.
+    """
+    request, key_manager = _unsigned_taproot_psbt(path)
+    asking_all = deepcopy(request)
+    asking_all.inputs[0].sig_hash_type = 1  # ALL
+    answer, _ = sign(asking_all, key_manager)
+    answer.inputs[0].sig_hash_type = None
+
+    assert_signatures_only(request, answer)
+    assert_signed(answer)
+    prev_out = answer.inputs[0].witness_utxo
+    assert prev_out is not None
+    verify_transaction([prev_out], extract_tx(finalize(answer)))
+
+
+@pytest.mark.parametrize("hash_type", _NOT_ALL)
+@pytest.mark.parametrize("path", ["key", "script"])
+def test_a_taproot_signature_of_another_type_is_refused_without_the_field(
+    path: str, hash_type: Any
+) -> None:
+    """The advisory's reproduction (3), for taproot.
+
+    An answer of a type that commits to less than SIGHASH_ALL does, to a
+    request that named no type, is refused by every role that reads it.
+    """
+    request, key_manager = _unsigned_taproot_psbt(path)
+    asking = deepcopy(request)
+    asking.inputs[0].sig_hash_type = hash_type
+    answer, _ = sign(asking, key_manager, allowed_sig_hash_types={hash_type})
+    answer.inputs[0].sig_hash_type = None
+
+    err_msg = f"sig_hash type: {hash_type}, the input asks for None"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signatures_only(request, answer)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signed(answer)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(answer)
+
+
+def test_two_cosigners_of_one_leaf_may_sign_all_and_default() -> None:
+    """The spend of bitcoin/bitcoin#36507, on a 2-of-2 leaf.
+
+    One cosigner signs SIGHASH_ALL, the other SIGHASH_DEFAULT, and the
+    input carries no PSBT_IN_SIGHASH_TYPE. The finalizer builds no
+    CHECKSIGADD witness, so the script engine is asked directly.
+    """
+    second_prv_key = _PRV_KEY + 4
+    second_key = PrvKeyData(second_prv_key).pub.sec[1:]
+    leaf: ScriptList = [_LEAF_KEY, "OP_CHECKSIG", second_key, "OP_CHECKSIGADD"]
+    leaf += ["OP_2", "OP_NUMEQUAL"]
+    tree: TaprootScriptTree = [(0xC0, leaf)]
+    script = taproot.serialize(leaf)
+    leaf_hash = taproot.leaf_hash(0xC0, script)
+    prev_out = TxOut(100_000, ScriptPubKey.p2tr(PubKeyData(_TAPROOT_PUB_KEY), tree))
+    tx, _ = _spending_tx(prev_out)
+    control_block = input_script_sig(PubKeyData(_TAPROOT_PUB_KEY), tree, 0)[1]
+
+    request = Psbt.from_tx(tx)
+    psbt_in = request.inputs[0]
+    psbt_in.witness_utxo = prev_out
+    psbt_in.taproot_internal_key = _TAPROOT_INTERNAL_KEY
+    psbt_in.taproot_merkle_root = tree_helper(tree)[1]
+    psbt_in.taproot_leaf_scripts[control_block] = (script, 0xC0)
+    psbt_in.taproot_hd_key_paths = {
+        _LEAF_KEY: ([leaf_hash], BIP32KeyOrigin(b"\x00" * 4, "m/1")),
+        second_key: ([leaf_hash], BIP32KeyOrigin(b"\x00" * 4, "m/2")),
+    }
+
+    asking_all = deepcopy(request)
+    asking_all.inputs[0].sig_hash_type = 1  # ALL
+    first, _ = sign(asking_all, _KeyManager(by_pub_key={_LEAF_KEY: _LEAF_PRV_KEY}))
+    first.inputs[0].sig_hash_type = None
+    second, _ = sign(request, _KeyManager(by_pub_key={second_key: second_prv_key}))
+    combined = combine([first, second])
+
+    assert_signatures_only(request, combined)
+    assert_signed(combined)
+    signatures = combined.inputs[0].taproot_script_spend_signatures
+    first_sig = signatures[_LEAF_KEY + leaf_hash]
+    second_sig = signatures[second_key + leaf_hash]
+    assert (len(first_sig), first_sig[-1]) == (65, sig_hash.ALL)
+    assert len(second_sig) == 64
+    spend = deepcopy(tx)
+    spend.vin[0].script_witness = Witness(
+        [second_sig, first_sig, script, control_block]
+    )
+    verify_transaction([prev_out], spend)
 
 
 def test_a_combine_keeps_the_first_value_of_a_conflicting_key() -> None:
