@@ -75,15 +75,10 @@ it is and satisfies it from the input's own fields. It lives here rather
 than in `psbt` because of the direction above -- this module imports that
 one -- and a caller passes it: `finalize(psbt, solver=miniscript_solver)`.
 
-`parse` refuses a ``<a;b>`` step that Bitcoin Core accepts, and what
-reaches a `Descriptor` is one path per key. `multipath_descriptors`
+`parse` refuses every ``<a;b>`` step, even one Bitcoin Core accepts, and
+what reaches a `Descriptor` is one path per key. `multipath_descriptors`
 expands the steps and hands each result to `parse`, so that one reader
-names the faults. Steps of different length in one ``multi()``,
-``multi_a()`` or ``musig()`` are refused by `parse` itself, once that call
-is read, where Core refuses them. Elsewhere they are the one fault
-`multipath_descriptors` names, after the expansions are read. BIP390's rule
-that a multipath ``musig()`` may not hold multipath participants is
-`parse`'s, with Core's message.
+names the faults; its docstring says which.
 
 A parsed descriptor holds no key that signs. `parse` neuters an xprv to
 the xpub the `KeyExpression` then carries, and hands the private spelling
@@ -220,6 +215,7 @@ from btclib_wallet.descriptors.key_expression import (
     _read_split,
     _split_function,
     _split_unpaired_arguments,
+    _steps_compared,
     _steps_set_aside,
 )
 from btclib_wallet.descriptors.miniscript import (
@@ -2252,8 +2248,9 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     this one is unspendable or unsafe.
     """
     _assert_no_closing_brace(expression)
-    node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
-    _assert_sane(node, prv_keys)
+    with _steps_compared():
+        node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
+        _assert_sane(node, prv_keys)
     return node
 
 
@@ -2478,14 +2475,15 @@ def _parse_sorted_multi(
 def _parse_tr(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    internal_key = _parse_key(
-        args[0], prv_keys, x_only=True, compressed=True, musig_allowed=True
-    )
-    tree = None if len(args) == 1 else _parse_tree(args[1], prv_keys, 0)
-    # Core reads the key and the tree before it finds a third argument
-    if len(args) > 2:
-        err_msg = f"tr() takes a key and at most one tree, {len(args)} given"
-        raise BTClibValueError(err_msg)
+    with _steps_compared():
+        internal_key = _parse_key(
+            args[0], prv_keys, x_only=True, compressed=True, musig_allowed=True
+        )
+        tree = None if len(args) == 1 else _parse_tree(args[1], prv_keys, 0)
+        # Core reads the key and the tree before it finds a third argument
+        if len(args) > 2:
+            err_msg = f"tr() takes a key and at most one tree, {len(args)} given"
+            raise BTClibValueError(err_msg)
     return TrDescriptor(internal_key, tree, network=network)
 
 
@@ -2566,8 +2564,9 @@ def _parse_miniscript_expression(
     language and leaves the judgement to the caller.
     """
     _assert_no_closing_brace(expression)
-    node = _parse_miniscript(expression, _MINISCRIPT_CONTEXTS[context], prv_keys)
-    _assert_sane(node, prv_keys)
+    with _steps_compared():
+        node = _parse_miniscript(expression, _MINISCRIPT_CONTEXTS[context], prv_keys)
+        _assert_sane(node, prv_keys)
     return MiniscriptDescriptor(node, network=network)
 
 
@@ -3698,11 +3697,9 @@ def multipath_descriptors(descriptor: str, network: str | None = None) -> list[s
     or with a stray "<" or ">", or that is in a ``musig()`` whose path and
     participants both hold one.
 
-    Steps of different length in one ``multi()``, ``multi_a()`` or
-    ``musig()`` are refused by `parse` where Core refuses them, once that
-    call is read. In other places Core compares them at the end of the
-    ``tr()`` or of the miniscript, and this function does the same: it
-    reads as many expansions as the shortest step has, then names the lengths.
+    Steps of different length are refused by `parse` where Core refuses
+    them: once it has read a ``multi()``, a ``multi_a()`` or a ``musig()``,
+    and at the end of a miniscript or of a ``tr()``.
 
     The keys are read in `network` as `parse` reads them. With none, the
     network of a key is not checked, which is `parse`'s call to make on the
@@ -3722,9 +3719,9 @@ def multipath_descriptors(descriptor: str, network: str | None = None) -> list[s
     if not set_aside:
         return [add_checksum(text)]
     steps = _multipath_steps(text)
-    lengths = {len(items) for _, _, items in steps}
     descriptors = []
-    for i in range(min(lengths)):
+    # `parse` has refused steps of different length
+    for i in range(len(steps[0][2])):
         pieces = []
         last = 0
         for start, end, items in steps:
@@ -3734,9 +3731,6 @@ def multipath_descriptors(descriptor: str, network: str | None = None) -> list[s
         single = "".join(pieces)
         read(single)
         descriptors.append(add_checksum(single))
-    if len(lengths) != 1:
-        err_msg = f"multipath steps of different length: {sorted(lengths)}"
-        raise BTClibValueError(err_msg)
     return descriptors
 
 

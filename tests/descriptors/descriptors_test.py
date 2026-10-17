@@ -1004,16 +1004,15 @@ def test_multipath_reads_the_keys_after_the_first_step_as_parse_does(
 
     The first read runs with each step on its first path, so it reads
     every key. A step Core refuses is refused there, and so are steps of
-    different length in one ``multi()``, as Core refuses them. Steps of
-    different length elsewhere are named after the expansions are read.
+    different length, where Core compares them.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
         multipath_descriptors(template.format(xpub=xpub))
 
 
-def test_multipath_names_a_fault_of_the_expansion_before_different_lengths() -> None:
-    """Read the first descriptors before comparing the lengths of the steps."""
+def test_multipath_names_a_key_fault_before_different_lengths() -> None:
+    """Read every key of a call before comparing the lengths of its steps."""
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     key = "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
     descriptor = f"multi(1,{xpub}/<0;1>,{key}/<2;3;4>)"
@@ -2819,6 +2818,23 @@ B_KEY = MUSIG_XPUB_B
         # Core compares the lengths of a miniscript, and of a tr(), at the end
         ("wsh(or_d(multi(1,{x}/<0;1>,{x}/<0;1;2>),pk(x)))", "invalid key expression"),
         ("tr({x}/<0;1>,{{pk({x}/<0;1;2>),pk(x)}})", "invalid key expression"),
+        # and before they read what follows
+        (
+            "tr({xo},{{and_v(v:pk({x}/<0;1>/*),pk({x}/<2;3;4>/*)),pk(/0)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({xo},{{and_v(v:pk({x}/<0;1>/*),pk({x}/<2;3;4>/*)),pk({k}/0)}})",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "wsh(and_v(v:pk({x}/<0;1>/*),pk({x}/<2;3;4>/*))),x",
+            "multipath steps of different length: [2, 3]",
+        ),
+        (
+            "tr({x}/<0;1>/*,pk({x}/<2;3;4>/*)),x",
+            "multipath steps of different length: [2, 3]",
+        ),
         (
             "tr({xo},{{multi_a(1,{x}/<0;1>,{x}/<0;1>),pk({x}/<0;1;2>)}})",
             "multipath steps of different length: [2, 3]",

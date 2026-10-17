@@ -802,6 +802,24 @@ def _steps_set_aside() -> Iterator[list[int]]:
         _SET_ASIDE.reset(token)
 
 
+@contextmanager
+def _steps_compared() -> Iterator[None]:
+    """Refuse steps of different length read inside, once all are read.
+
+    Core compares them at the end of a miniscript and of a ``tr()``. Outside
+    `_steps_set_aside` this does nothing, `_parse_key` refusing the first step
+    there.
+    """
+    outer = _SET_ASIDE.get()
+    if outer is None:
+        yield
+        return
+    with _steps_set_aside() as steps:
+        yield
+    _assert_same_length(steps)
+    outer += steps
+
+
 def _first_path(key: str) -> str:
     """Return a key with the first item of each multipath step."""
     return re.sub(r"<([^;>]*)[^>]*>", r"\1", key)
