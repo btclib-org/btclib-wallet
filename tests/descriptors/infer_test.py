@@ -319,7 +319,10 @@ def _text(template: str) -> str:
 
 
 def _descriptors(template: str) -> list[Descriptor]:
-    return [parse(one, "regtest") for one in multipath_descriptors(_text(template))]
+    return [
+        parse(one, "regtest")
+        for one in multipath_descriptors(_text(template), "regtest")
+    ]
 
 
 def _provider(descriptors: list[Descriptor], indexes: range = range(1)) -> Provider:

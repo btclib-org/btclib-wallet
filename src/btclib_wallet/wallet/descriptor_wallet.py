@@ -185,17 +185,17 @@ class DescriptorWallet(RangedWallet):
     ) -> DescriptorWallet:
         """Return the wallet of a descriptor, checksum verified.
 
-        BIP389's ``<0;1>`` is what makes one line of text a whole wallet,
-        and it is expanded positionally: as many branches as the
-        multipath steps have elements, branch 0 taking the first element
-        of every step. A descriptor with no such step is one chain, and
-        a wallet of one branch -- which is what a caller watching a
-        single chain has, and not an error.
+        BIP389's ``<0;1>`` is what makes one line of text a whole wallet.
+        `multipath_descriptors` expands it: as many branches as a step has
+        elements, branch 0 taking the first element of every step. Each
+        branch is read in `network`. A descriptor with no such step is one
+        chain, and a wallet of one branch -- which is what a caller watching
+        a single chain has, and not an error.
         """
         return cls(
             [
                 _parse_descriptor(single, network, prv_keys)
-                for single in multipath_descriptors(descriptor)
+                for single in multipath_descriptors(descriptor, network)
             ],
             prv_keys,
         )

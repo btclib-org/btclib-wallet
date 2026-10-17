@@ -124,7 +124,6 @@ _EXEMPT: dict[str, str] = {
     "Between them they are what `tests/bip322_test.py` runs: three": _UPSTREAM_FACT,
     "Four of the calls are not here, being loops rather than literals: the": _UPSTREAM_FACT,
     "Not in a release: `INVALID_POLICY` (-19). The rest of the table is in": _UPSTREAM_FACT,
-    "One of the fourteen is refused for a reason of btclib's own rather than": _UPSTREAM_FACT,
     "RSA (828365') is the one application with no vector here, because the": _UPSTREAM_FACT,
     "Re-checked again on 2026-09-29: still the same 17, byte for byte. The": _UPSTREAM_FACT,
     "Re-checked against the tip on 2026-09-29: the 34 `* Case:` entries are": _UPSTREAM_FACT,

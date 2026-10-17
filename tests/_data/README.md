@@ -591,11 +591,8 @@ Re-pinned to the tip again on 2026-09-29: that commit,
 header, and the six valid and fourteen invalid descriptors are still the
 ones the 2026-08-06 pin held.
 
-One of the fourteen is refused for a reason of btclib's own rather than
-the BIP's, and the entry in the module says so: a multipath `musig()`
-holding multipath participants is refused because `parse` takes no `<a;b>`
-step at all, `multipath_descriptors` being what expands them textually as
-BIP389 defines.
+The invalid one that holds multipath participants and a multipath path is
+refused by `parse` with Bitcoin Core's own message.
 
 ### Not vendored as a file: BIP388's wallet-policy vectors
 
