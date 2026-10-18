@@ -1518,15 +1518,15 @@ def test_the_work_count_sees_a_rescan_of_the_text(
 def test_multipath_refuses_a_step_in_a_function_argument(template: str) -> None:
     """Refuse a step in a function argument, which Core refuses too.
 
-    A step that follows no "/" is not expanded, and `parse` names the
-    argument it cannot read. The message is not Core's, which differs by
-    function.
+    A step that follows no "/" is not expanded, and Core's descriptor
+    reader falls back to the enclosing P2WSH context when miniscript
+    cannot read the argument. The earlier key is read first, so its
+    own fault would win; the argument ends the parse before the paths'
+    lengths are compared.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = template.format(xpub=xpub)
-    with pytest.raises(
-        BTClibValueError, match="^invalid older[(][)] number: digits expected$"
-    ):
+    with pytest.raises(BTClibValueError, match="^A function is needed within P2WSH$"):
         multipath_descriptors(descriptor)
 
 
@@ -5185,7 +5185,7 @@ UNECHOED = [
     ),
     (
         f"wsh(and_v(v:pk({WIF}),older({MUSIG_A_WIF})))",
-        r"^invalid older\(\) number: digits expected$",
+        "^A function is needed within P2WSH$",
     ),
     (
         f"wsh(thresh({WIF},pk({MUSIG_A_WIF})))",
