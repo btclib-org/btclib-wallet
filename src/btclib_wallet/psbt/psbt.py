@@ -26,6 +26,7 @@ one stored transaction could not be both.
 from __future__ import annotations
 
 import base64
+import re
 import secrets
 import string
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
@@ -47,12 +48,14 @@ from btclib.script import (
     is_p2wpkh,
     is_p2wsh,
     p2ms_m_and_keys,
+    push_int,
     serialize,
     sig_hash,
     taproot,
     type_and_payload,
 )
 from btclib.script.engine import verify_transaction
+from btclib.script.limits import MAX_STACK_SIZE
 from btclib.script.sig_hash import (
     ALL,
     ANYONECANPAY,
@@ -68,6 +71,7 @@ from btclib.utils import (
     assert_type,
     bytes_from_octets,
     bytesio_from_binarydata,
+    decode_num,
     fields_from_json_object,
     is_integer,
     list_from_json_array,
@@ -2222,11 +2226,14 @@ def _finalized_input(psbt_in: PsbtIn) -> tuple[bytes, Witness]:
 _NO_CODESEP = 0xFFFFFFFF
 
 # a tapscript spending a single key: a 32-byte push of it followed by
-# OP_CHECKSIG, which is the leaf shape whose witness is one signature and
-# therefore the only script path a Finalizer here can build
+# OP_CHECKSIG, whose witness is one signature
 _SINGLE_KEY_LEAF_SIZE = 34
 _PUSH_32 = 0x20
 _OP_CHECKSIG = 0xAC
+_MULTI_A_LEAF = re.compile(
+    rb"(\x20.{32}\xac(?:\x20.{32}\xba)*)([\x51-\x60]|\x01.|\x02..)\x9c",
+    re.DOTALL,
+)
 
 
 _TAPROOT_NEEDS_UTXOS = (
@@ -2363,8 +2370,9 @@ def single_leaf_key(script: bytes) -> bytes:
     What a Finalizer has to know to build the witness of a script path
     spend is what the leaf script pops, and that is a property of the
     script rather than of the psbt: one signature for this shape, and for
-    a leaf that asks for more -- a threshold of CHECKSIGADD, a hash
-    preimage -- the psbt says nothing about what else goes on the stack.
+    a leaf that asks for a hash preimage the psbt says nothing about what
+    else goes on the stack. A multi_a leaf is read separately, by
+    `_multi_a_leaf`.
     """
     if (
         len(script) != _SINGLE_KEY_LEAF_SIZE
@@ -2372,9 +2380,75 @@ def single_leaf_key(script: bytes) -> bytes:
         or script[-1] != _OP_CHECKSIG
     ):
         err_msg = "cannot finalize a taproot script path whose leaf script "
-        err_msg += f"is not a single key and OP_CHECKSIG: {script.hex()}"
+        err_msg += (
+            f"is neither a single key and OP_CHECKSIG nor a multi_a: {script.hex()}"
+        )
         raise BTClibValueError(err_msg)
     return script[1:-1]
+
+
+def _multi_a_leaf(script: bytes) -> tuple[int, list[bytes]] | None:
+    """Return the threshold and script-ordered keys of a BIP379 multi_a."""
+    match = _MULTI_A_LEAF.fullmatch(script)
+    if match is None:
+        return None
+    key_commands, number = match.groups()
+    # Each key needs a witness slot; the first pushed key needs one more.
+    if len(key_commands) // 34 >= MAX_STACK_SIZE:
+        return None
+    keys = [key_commands[i + 1 : i + 33] for i in range(0, len(key_commands), 34)]
+    threshold = number[0] - 0x50 if len(number) == 1 else decode_num(number[1:])
+    if not 1 <= threshold <= len(keys) or serialize([push_int(threshold)]) != number:
+        return None
+    return threshold, keys
+
+
+def _taproot_script_stack(
+    psbt: Psbt,
+    vin_i: int,
+    leaf_hash: bytes,
+    script: bytes,
+    multi: tuple[int, list[bytes]],
+) -> list[bytes]:
+    """Verify the leaf's signatures and return the witness of the quorum.
+
+    With more signatures than the threshold, the quorum is the last
+    threshold keys in script order that signed, as Bitcoin Core picks it.
+    """
+    psbt_in = psbt.inputs[vin_i]
+    threshold, keys = multi
+    allowed_keys = set(keys)
+    signatures: dict[bytes, bytes] = {}
+    for key_data, signature in psbt_in.taproot_script_spend_signatures.items():
+        pub_key = key_data[:LEAF_HASH_SIZE]
+        if pub_key not in allowed_keys:
+            err_msg = f"taproot script path signature of {pub_key.hex()}, which is "
+            err_msg += f"not the key of leaf script {script.hex()}"
+            raise BTClibValueError(err_msg)
+        hash_type = _assert_taproot_sig_hash_type(
+            signature, psbt_in, "taproot script path signature"
+        )
+        msg = taproot_sig_hash(psbt, vin_i, leaf_hash=leaf_hash, hash_type=hash_type)
+        if not ssa.verify_(msg, pub_key, signature[:64]):
+            err_msg = f"invalid taproot script path signature for key {pub_key.hex()}"
+            raise BTClibValueError(err_msg)
+        signatures[pub_key] = signature
+
+    stack = []
+    needed = threshold
+    for pub_key in reversed(keys):
+        signature = signatures.get(pub_key, b"") if needed else b""
+        stack.append(signature)
+        needed -= bool(signature)
+    if needed:
+        err_msg = "not enough taproot script path signatures: "
+        err_msg += f"{threshold - needed} < {threshold}"
+        raise BTClibValueError(err_msg)
+    # CHECKSIG consumes the top stack element for the first key; each
+    # CHECKSIGADD then consumes the next. Extra signatures would make
+    # NUMEQUAL fail, so only the quorum is nonempty. The stack was built
+    # from the last key, which is the bottom of the witness.
+    return stack
 
 
 def _assert_taproot_sig_hash_type(signature: bytes, psbt_in: PsbtIn, what: str) -> int:
@@ -2405,8 +2479,9 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
     The key path is preferred when the input carries both, as Bitcoin
     Core's finalizer prefers it: it is the cheaper spend and the one the
     output key commits to directly. The script path witness is the
-    signature, the leaf script and its control block, which is BIP341's
-    order and needs the leaf to be a single-key one.
+    signatures, the leaf script and its control block, which is BIP341's
+    order. A single-key leaf needs one signature; a BIP379 multi_a needs
+    one element per key, nonempty for its quorum and empty otherwise.
 
     Each signature is verified against the hash it says it committed to,
     for the reason the legacy path verifies its own: a Finalizer is the
@@ -2431,7 +2506,11 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
     if not psbt_in.taproot_script_spend_signatures:
         raise BTClibValueError("missing taproot signature")
 
-    if len(psbt_in.taproot_script_spend_signatures) > 1:
+    leaf_hashes = {
+        key_data[LEAF_HASH_SIZE:]
+        for key_data in psbt_in.taproot_script_spend_signatures
+    }
+    if len(leaf_hashes) > 1:
         # which leaf to spend is a choice, and one the psbt does not
         # record: two signatures under two leaves are two spends, both
         # valid, and picking either would be this function deciding what
@@ -2440,21 +2519,13 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
         err_msg += "path signatures: the psbt does not say which leaf to spend"
         raise BTClibValueError(err_msg)
 
-    key_data, signature = next(iter(psbt_in.taproot_script_spend_signatures.items()))
-    pub_key, leaf_hash = key_data[:LEAF_HASH_SIZE], key_data[LEAF_HASH_SIZE:]
-    hash_type = _assert_taproot_sig_hash_type(
-        signature, psbt_in, "taproot script path signature"
-    )
+    leaf_hash = next(iter(leaf_hashes))
     script, control_block = leaf_script(psbt_in, leaf_hash)
-    if single_leaf_key(script) != pub_key:
-        err_msg = f"taproot script path signature of {pub_key.hex()}, which is "
-        err_msg += f"not the key of leaf script {script.hex()}"
-        raise BTClibValueError(err_msg)
-    msg = taproot_sig_hash(psbt, vin_i, leaf_hash=leaf_hash, hash_type=hash_type)
-    if not ssa.verify_(msg, pub_key, signature[:64]):
-        err_msg = f"invalid taproot script path signature for key {pub_key.hex()}"
-        raise BTClibValueError(err_msg)
-    return b"", Witness([signature, script, control_block])
+    multi = _multi_a_leaf(script)
+    if multi is None:
+        multi = (1, [single_leaf_key(script)])
+    stack = _taproot_script_stack(psbt, vin_i, leaf_hash, script, multi)
+    return b"", Witness([*stack, script, control_block])
 
 
 def _witness_v0_script_code(psbt_in: PsbtIn, script: bytes) -> bytes:
@@ -2883,7 +2954,7 @@ def _sign_taproot_script_path(
     What the leaf script demands *besides* this key is not asked: a key
     in a threshold of CHECKSIGADD signs its own line, the rest of the
     quorum being other signers' turn. Whether the leaf can then be
-    finalized is `single_leaf_key`'s question, one role later.
+    finalized is the Finalizer's question, one role later.
 
     A record whose leaf version `_is_valid_leaf_version` refuses is
     excluded from the candidates: it is not a leaf any spend can reveal,
@@ -3616,10 +3687,10 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 
     A `solver` answers for the inputs whose spend is the caller's to
     know. It is asked before this function builds anything, and not only
-    where this function refuses, which the sizer of `psbt_size` is: two
-    of the shapes below are refusals -- a taproot input with more than
-    one script path signature, and a leaf that is not a single-key one --
-    but a witness script of no standard kind is *not*. That one is built
+    where this function refuses, which the sizer of `psbt_size` is: a
+    taproot input with signatures of different leaves, or a leaf that is
+    neither single-key nor multi_a, is refused, but a witness script of
+    no standard kind is *not*. That one is built
     from the signatures and the script, which is the satisfaction of a
     multisig and a guess for anything else, so a caller with a script of
     their own has to be able to answer over it rather than after it.
