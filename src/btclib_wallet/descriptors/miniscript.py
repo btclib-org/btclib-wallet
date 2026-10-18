@@ -2052,10 +2052,11 @@ def _read_multi(
 
 
 class _InvalidTimelockError(BTClibValueError):
-    """A number Core refuses before it constructs a miniscript node.
+    """An ``older()`` or ``after()`` number Core refuses before building a node.
 
-    A descriptor falls back to its enclosing script context on this
-    failure. The standalone parser keeps the number's own diagnostic.
+    Inside ``wsh()``, the descriptor reader reports Core's P2WSH fallback
+    on this failure. Elsewhere, under ``tr()`` or in the standalone parser,
+    the number's own diagnostic stands.
     """
 
 
