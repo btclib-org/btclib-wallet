@@ -35,7 +35,7 @@ whose filter matches, and gives the peer no script (closes #329).
 
 At and above the segwit height, as Bitcoin Core does (closes #385).
 
-### `parse` and `multipath_descriptors` refuse a key holding whitespace
+### `parse` and `multipath_descriptors` refuse a key with leading or trailing whitespace
 
 With Core's message less the key, "Key is invalid due to whitespace"
 (closes #443).
@@ -62,12 +62,16 @@ In `tr()` and `rawtr()` (closes #451).
 
 ### `is_available` accepts a path to hwi that Windows runs
 
-On Windows, a name with a directory part when `.exe` appended to it is a
-file (closes #426).
+On Windows, it also accepts a path with a directory part where that path
+plus `.exe` is a file (closes #426).
 
 ### The BIP445 sign/verify vectors are siv2r/bips 363f693's
 
 BIP445 0.12.1 (closes #369).
+
+### Script-path and timelocked spends are exercised on Core
+
+Tests only (closes #460).
 
 ### The work-count docstrings read once
 
