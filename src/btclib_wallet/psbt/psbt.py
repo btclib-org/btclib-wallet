@@ -2224,8 +2224,7 @@ def _finalized_input(psbt_in: PsbtIn) -> tuple[bytes, Witness]:
 _NO_CODESEP = 0xFFFFFFFF
 
 # a tapscript spending a single key: a 32-byte push of it followed by
-# OP_CHECKSIG, which is the leaf shape whose witness is one signature and
-# therefore the script path whose witness holds a single signature
+# OP_CHECKSIG, whose witness is one signature
 _SINGLE_KEY_LEAF_SIZE = 34
 _PUSH_32 = 0x20
 _OP_CHECKSIG = 0xAC
@@ -2364,8 +2363,8 @@ def single_leaf_key(script: bytes) -> bytes:
     spend is what the leaf script pops, and that is a property of the
     script rather than of the psbt: one signature for this shape, and for
     a leaf that asks for a hash preimage the psbt says nothing about what
-    else goes on the stack. A CHECKSIGADD threshold is read separately
-    by the Finalizer.
+    else goes on the stack. A multi_a leaf is read separately, by
+    `_multi_a_leaf`.
     """
     if (
         len(script) != _SINGLE_KEY_LEAF_SIZE
@@ -2373,7 +2372,9 @@ def single_leaf_key(script: bytes) -> bytes:
         or script[-1] != _OP_CHECKSIG
     ):
         err_msg = "cannot finalize a taproot script path whose leaf script "
-        err_msg += f"is not a single key and OP_CHECKSIG: {script.hex()}"
+        err_msg += (
+            f"is neither a single key and OP_CHECKSIG nor a multi_a: {script.hex()}"
+        )
         raise BTClibValueError(err_msg)
     return script[1:-1]
 
@@ -2401,7 +2402,11 @@ def _taproot_script_stack(
     script: bytes,
     multi: tuple[int, list[bytes]],
 ) -> list[bytes]:
-    """Verify the leaf's signatures and fill its quorum in script-key order."""
+    """Verify the leaf's signatures and return the witness of the quorum.
+
+    With more signatures than the threshold, the quorum is the last
+    threshold keys in script order that signed, as Bitcoin Core picks it.
+    """
     psbt_in = psbt.inputs[vin_i]
     threshold, keys = multi
     allowed_keys = set(keys)
@@ -2423,7 +2428,7 @@ def _taproot_script_stack(
 
     stack = []
     needed = threshold
-    for pub_key in keys:
+    for pub_key in reversed(keys):
         signature = signatures.get(pub_key, b"") if needed else b""
         stack.append(signature)
         needed -= bool(signature)
@@ -2433,8 +2438,9 @@ def _taproot_script_stack(
         raise BTClibValueError(err_msg)
     # CHECKSIG consumes the top stack element for the first key; each
     # CHECKSIGADD then consumes the next. Extra signatures would make
-    # NUMEQUAL fail, so only the quorum is nonempty.
-    return list(reversed(stack))
+    # NUMEQUAL fail, so only the quorum is nonempty. The stack was built
+    # from the last key, which is the bottom of the witness.
+    return stack
 
 
 def _assert_taproot_sig_hash_type(signature: bytes, psbt_in: PsbtIn, what: str) -> int:

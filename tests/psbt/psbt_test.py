@@ -3571,8 +3571,8 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     with pytest.raises(BTClibValueError, match="no leaf script for tapleaf hash"):
         finalize(psbt)
 
-    # a leaf whose script is not a single key and OP_CHECKSIG: what else
-    # goes on the stack is not something the psbt says
+    # a leaf whose script is neither a single key and OP_CHECKSIG nor a
+    # multi_a: what else goes on the stack is not something the psbt says
     psbt = _taproot_signed(
         "a key in a script is a MuSig2 Aggregate Pubkey, with all partial"
     )
@@ -3591,7 +3591,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     psbt.inputs[0].taproot_leaf_scripts = {control_block: (script, 0xC0)}
     leaf_hash_ = tagged_hash(b"TapLeaf", b"\xc0" + var_bytes.serialize(script))
     psbt.inputs[0].taproot_script_spend_signatures = {key_data[:32] + leaf_hash_: sig}
-    err_msg = "not a single key and OP_CHECKSIG"
+    err_msg = "neither a single key and OP_CHECKSIG nor a multi_a"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 

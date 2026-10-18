@@ -82,7 +82,7 @@ def test_finalize_spends_multi_a_in_script_key_order(
     assert psbt == unchanged
     witness = finalized.inputs[0].final_script_witness
     assert witness is not None
-    selected = set(sorted(signers)[:threshold])
+    selected = set(sorted(signers)[-threshold:])
     leaf_hash = taproot.leaf_hash(0xC0, script)
     expected = [
         psbt.inputs[0].taproot_script_spend_signatures[key + leaf_hash]
@@ -137,7 +137,9 @@ def test_finalize_does_not_guess_an_invalid_multi_a_threshold(number: bytes) -> 
     psbt.inputs[0].taproot_script_spend_signatures = {
         keys[0] + taproot.leaf_hash(0xC0, altered_script): signature
     }
-    with pytest.raises(BTClibValueError, match="not a single key and OP_CHECKSIG"):
+    with pytest.raises(
+        BTClibValueError, match="neither a single key and OP_CHECKSIG nor a multi_a"
+    ):
         finalize(psbt)
 
 
@@ -158,5 +160,7 @@ def test_finalize_reserves_stack_space_for_the_first_multi_a_key(count: int) -> 
     )
     with pytest.raises(ScriptError, match="more than 1000 stack elements"):
         verify_transaction([spent], tx)
-    with pytest.raises(BTClibValueError, match="not a single key and OP_CHECKSIG"):
+    with pytest.raises(
+        BTClibValueError, match="neither a single key and OP_CHECKSIG nor a multi_a"
+    ):
         finalize(psbt)
