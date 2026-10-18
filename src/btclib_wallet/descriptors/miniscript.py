@@ -2083,6 +2083,15 @@ def _read_unclosed_multisig_keys(
         )
 
 
+class _InvalidTimelockError(BTClibValueError):
+    """An ``older()`` or ``after()`` number Core refuses before building a node.
+
+    Inside ``wsh()``, the descriptor reader reports Core's P2WSH fallback
+    on this failure. Elsewhere, under ``tr()`` or in the standalone parser,
+    the number's own diagnostic stands.
+    """
+
+
 def _read_number(name: str, argument: str) -> int:
     """Return the number a fragment's argument is, refusing anything else.
 
@@ -2111,7 +2120,10 @@ def _read_leaf(
         digest = bytes_from_octets(argument, _DATA_SIZE[name])
         return Miniscript(name, context, data=digest)
     if name in {"older", "after"}:
-        return Miniscript(name, context, threshold=_read_number(name, argument))
+        try:
+            return Miniscript(name, context, threshold=_read_number(name, argument))
+        except BTClibValueError as error:
+            raise _InvalidTimelockError(str(error)) from error
     return _read_multi(name, argument, context, prv_keys)
 
 

@@ -2441,7 +2441,10 @@ def _parse_sh(
 def _parse_wsh(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    inner = _parse_inner(args[0], _P2WSH, network, prv_keys)
+    try:
+        inner = _parse_inner(args[0], _P2WSH, network, prv_keys)
+    except miniscript._InvalidTimelockError as error:
+        raise BTClibValueError("A function is needed within P2WSH") from error
     return WshDescriptor(inner, network=network)
 
 
