@@ -63,7 +63,7 @@ In `tr()` and `rawtr()` (closes #451).
 ### `is_available` accepts a path to hwi that Windows runs
 
 On Windows, it also accepts a path with a directory part where that path
-plus `.exe` is a file (closes #426).
+plus `.exe` is a file, if its last part has no period (closes #426).
 
 ### The BIP445 sign/verify vectors are siv2r/bips 363f693's
 
