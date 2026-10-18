@@ -1833,12 +1833,15 @@ _CLOSE = ")"
 _NAME_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz_0123456789")
 
 
-def _expression_end(text: str, pos: int) -> int:
+def _expression_end(text: str, pos: int, *, stop_at_close: bool) -> int:
     """Return the index one past the expression starting at `pos`.
 
     Which ends at the comma or the close bracket that is not inside a
     bracket of its own: a KEY expression may hold a ``musig()`` with
     commas of its own, and a subexpression may hold anything.
+
+    A multisig stops at its matching parenthesis, leaving any trailing
+    text for the caller, so its keys are read before that text is refused.
     """
     depth = 0
     for i in range(pos, len(text)):
@@ -1849,6 +1852,8 @@ def _expression_end(text: str, pos: int) -> int:
             if not depth:
                 return i
             depth -= 1
+            if stop_at_close and not depth:
+                return i + 1
         elif char == "," and not depth:
             return i
     return len(text)
@@ -2107,7 +2112,7 @@ def _read_fragment(
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
     if name == "thresh":
-        end = _expression_end(expression, pos + 1)
+        end = _expression_end(expression, pos + 1, stop_at_close=False)
         if expression[end : end + 1] != ",":
             raise BTClibValueError("thresh() takes a threshold and subexpressions")
         threshold = _read_number(name, expression[pos + 1 : end])
@@ -2118,7 +2123,7 @@ def _read_fragment(
         return end + 1
     if name not in _LEAVES:
         raise BTClibValueError("unknown miniscript fragment")
-    end = _expression_end(expression, pos)
+    end = _expression_end(expression, pos, stop_at_close=name in {"multi", "multi_a"})
     if expression[end - 1 : end] != ")":
         raise BTClibValueError(f"unbalanced brackets in {name}()")
     built.append(

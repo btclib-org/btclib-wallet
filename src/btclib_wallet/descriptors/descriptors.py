@@ -2279,6 +2279,11 @@ def _refuse_unclosed_tree(
         if not level:
             _parse_tree(expression[: match.end()], prv_keys, depth)
             break
+    else:
+        first = _split_unpaired_arguments(expression[1:])[0]
+        # Core reads a multisig's keys before finding the absent tree end.
+        if first.startswith("multi_a("):
+            _parse_tree(first, prv_keys, depth + 1)
     raise BTClibValueError("unbalanced braces")
 
 
@@ -2314,7 +2319,8 @@ def _parse_tree(
 
         return _read_split(expression[1:-1], read_branches)
     name = expression.partition("(")[0]
-    if name in _TREE_FUNCTIONS:
+    # An unterminated multi_a falls through to miniscript, as Core does.
+    if name in _TREE_FUNCTIONS and (name != "multi_a" or expression.endswith(")")):
         return _read_split(
             _split_function(expression)[1],
             lambda args: _parse_multi_a(name, args, prv_keys),
@@ -2629,6 +2635,8 @@ def _parse_expression(
         # fragment written where a p2wsh one belongs
         _assert_position(name, context, (_P2TR,))
     if name not in _PARSERS and context in _MINISCRIPT_CONTEXTS:
+        return _parse_miniscript_expression(expression, context, network, prv_keys)
+    if name == "multi" and context == _P2WSH and not expression.endswith(")"):
         return _parse_miniscript_expression(expression, context, network, prv_keys)
     name, arguments = _split_function(expression)
     if name not in _PARSERS:
