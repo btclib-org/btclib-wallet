@@ -36,6 +36,7 @@ from typing import Any, Protocol, TypeVar, cast
 
 from btclib.alias import BinaryData, Octets, ScriptList, String
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.fee import FeeRate
 from btclib.hashes import hash160, sha256
 from btclib.script import (
     Witness,
@@ -75,6 +76,7 @@ from btclib.utils import (
 from btclib_ecc.curves import sec_point
 from btclib_ecc.ecc import dsa, ssa
 
+from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
     HdKeyPaths,
@@ -2227,11 +2229,18 @@ _PUSH_32 = 0x20
 _OP_CHECKSIG = 0xAC
 
 
-def _spent_outputs(inputs: Iterable[PsbtIn]) -> list[TxOut]:
+_TAPROOT_NEEDS_UTXOS = (
+    "a taproot signature commits to the amount and script of every input"
+)
+
+
+def _spent_outputs(inputs: Iterable[PsbtIn], *, reason: str) -> list[TxOut]:
     """Return the output each of these inputs spends, in order.
 
     An input carrying no utxo raises, which is `prevouts`' rule and says
-    why. The inputs are an iterable rather than a psbt's list because
+    why: `reason` is what it says.
+
+    The inputs are an iterable rather than a psbt's list because
     that is all the answer needs: a caller reading one input at a time --
     `btclib_wallet.psbt.psbt_view` -- streams them past, and the whole previous
     transaction of a non-witness utxo is dropped as soon as the one
@@ -2241,8 +2250,7 @@ def _spent_outputs(inputs: Iterable[PsbtIn]) -> list[TxOut]:
     for i, psbt_in in enumerate(inputs):
         prev_out = _prev_out(psbt_in)
         if prev_out is None:
-            err_msg = f"no utxo for input {i}: a taproot signature commits "
-            err_msg += "to the amount and script of every input"
+            err_msg = f"no utxo for input {i}: {reason}"
             raise BTClibValueError(err_msg)
         outs.append(prev_out)
     return outs
@@ -2265,7 +2273,7 @@ def prevouts(psbt: Psbt) -> list[TxOut]:
     # which makes this the list that most wants to have been checked
     psbt.assert_valid()
 
-    return _spent_outputs(psbt.inputs)
+    return _spent_outputs(psbt.inputs, reason=_TAPROOT_NEEDS_UTXOS)
 
 
 def _taproot_sig_hash(
@@ -3657,7 +3665,11 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 
 
 def extract_tx(
-    psbt: Psbt, *, check_validity: bool = True, verify_scripts: bool = True
+    psbt: Psbt,
+    *,
+    check_validity: bool = True,
+    verify_scripts: bool = True,
+    max_fee_rate: FeeRate | None = _DEFAULT_MAX_FEE_RATE,
 ) -> Tx:
     """Extract the Tx from the Psbt.
 
@@ -3694,7 +3706,15 @@ def extract_tx(
     (high-S) passes it. It needs every input's utxo and raises
     `BTClibValueError` where one is missing. `verify_scripts=False`
     extracts without these checks.
+
+    `max_fee_rate` refuses a fee above the ceiling priced on the final
+    transaction's virtual size, with `fee_from_vsize`'s rounding. Its
+    default is `btclib_wallet.tx_builder.DEFAULT_MAX_FEE_RATE`, shared
+    with the builder. A fee check needs every input's utxo even where
+    `verify_scripts` is false. `max_fee_rate=None` skips the fee check.
     """
+    if max_fee_rate is not None:
+        assert_type(max_fee_rate, FeeRate, "max fee rate")
     if check_validity:
         psbt.assert_valid()
         if any(psbt_out.sp_v0_info for psbt_out in psbt.outputs):
@@ -3716,9 +3736,26 @@ def extract_tx(
 
     if check_validity:
         tx.assert_valid()
-    if verify_scripts:
-        verify_transaction(_spent_outputs(psbt.inputs), tx)
+    if verify_scripts or max_fee_rate is not None:
+        reason = _TAPROOT_NEEDS_UTXOS
+        if not verify_scripts:
+            reason = "the fee check needs every input's amount"
+        spent_outputs = _spent_outputs(psbt.inputs, reason=reason)
+        if verify_scripts:
+            verify_transaction(spent_outputs, tx)
+        _assert_fee_within_rate(spent_outputs, tx, max_fee_rate)
     return tx
+
+
+def _assert_fee_within_rate(
+    spent_outputs: list[TxOut], tx: Tx, max_fee_rate: FeeRate | None
+) -> None:
+    """Refuse the fee of tx where it exceeds max_fee_rate; None skips."""
+    if max_fee_rate is not None:
+        fee = sum(out.value for out in spent_outputs) - sum(
+            out.value for out in tx.vout
+        )
+        _assert_max_fee_rate(fee, tx.vsize, max_fee_rate)
 
 
 _TypeA = TypeVar("_TypeA")

@@ -93,6 +93,7 @@ from btclib_wallet.bip32 import (
     decode_hd_key_paths,
 )
 from btclib_wallet.psbt.psbt import (
+    _TAPROOT_NEEDS_UTXOS,
     PSBT_MAGIC_BYTES,
     _assert_map_count,
     _assert_unsigned,
@@ -430,7 +431,8 @@ class PsbtView:
         """Return the view's own list of spent outputs, read once and kept."""
         if self._prevouts is None:
             self._prevouts = _spent_outputs(
-                self.input(i) for i in range(self.input_count)
+                (self.input(i) for i in range(self.input_count)),
+                reason=_TAPROOT_NEEDS_UTXOS,
             )
         return self._prevouts
 
