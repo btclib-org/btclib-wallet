@@ -145,7 +145,7 @@ def test_core_relays_a_taproot_script_path_spend(
     invalid.vin[0].script_witness = Witness(
         [bytes(len(signature)), script, control_block]
     )
-    with pytest.raises(RpcError) as refused:
+    with pytest.raises(RpcError, match="Invalid Schnorr signature") as refused:
         BitcoinCoreFetcher(node, "regtest").broadcast(invalid)
     assert refused.value.code == -26
     _mine_spend(node, funded_miner, signed)
@@ -160,7 +160,7 @@ def test_core_relays_an_older_spend_only_when_its_sequence_matures(
     descriptor = parse(f"wsh(and_v(v:pk({key}),older({delay})))", "regtest")
     signed = _signed_spend(node, funded_miner, descriptor, signer, sequence=delay)
     assert signed.tx.vin[0].sequence == delay
-    with pytest.raises(RpcError) as refused:
+    with pytest.raises(RpcError, match="non-BIP68-final") as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
 
@@ -169,7 +169,7 @@ def test_core_relays_an_older_spend_only_when_its_sequence_matures(
     funded_miner.call(
         "generatetoaddress", [delay - 2, funded_miner.call("getnewaddress")]
     )
-    with pytest.raises(RpcError) as refused:
+    with pytest.raises(RpcError, match="non-BIP68-final") as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
     funded_miner.call("generatetoaddress", [1, funded_miner.call("getnewaddress")])
@@ -193,7 +193,7 @@ def test_core_relays_an_after_spend_only_when_its_lock_height_passes(
     )
     assert signed.tx.lock_time == lock_height
     assert signed.tx.vin[0].sequence == 0xFFFFFFFE
-    with pytest.raises(RpcError) as refused:
+    with pytest.raises(RpcError, match="non-final") as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
 
@@ -202,7 +202,7 @@ def test_core_relays_an_after_spend_only_when_its_lock_height_passes(
         "generatetoaddress",
         [lock_height - height - 1, funded_miner.call("getnewaddress")],
     )
-    with pytest.raises(RpcError) as refused:
+    with pytest.raises(RpcError, match="non-final") as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
     funded_miner.call("generatetoaddress", [1, funded_miner.call("getnewaddress")])
