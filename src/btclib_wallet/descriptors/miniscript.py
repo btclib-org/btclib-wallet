@@ -2039,10 +2039,12 @@ def _read_multi(
     if not _NUMBER.fullmatch(threshold):
         raise BTClibValueError(f"invalid {name}() threshold: digits expected")
     tapscript = context == TAPSCRIPT
-    return Miniscript(
-        name,
-        context,
-        keys=tuple(
+    read = []
+    for key in keys:
+        # Core refuses an empty key as structure, reading no key after it.
+        if not key:
+            raise BTClibValueError(f"empty key in {name}()")
+        read.append(
             _parse_key(
                 key,
                 prv_keys,
@@ -2050,8 +2052,11 @@ def _read_multi(
                 compressed=True,
                 musig_allowed=tapscript,
             )
-            for key in keys
-        ),
+        )
+    return Miniscript(
+        name,
+        context,
+        keys=tuple(read),
         threshold=_int_from_digits(threshold, f"{name}() threshold"),
     )
 
@@ -2073,7 +2078,12 @@ def _read_unclosed_multisig_keys(
     if fragment[end - 1 : end] == ")":
         return
     threshold, *keys = fragment[start + 1 :].split(",")
-    if not _NUMBER.fullmatch(threshold):
+    # Core reads the threshold as an int64_t, and reads no key past one
+    # that is not.
+    digits = threshold.removeprefix("-")
+    if not _NUMBER.fullmatch(digits):
+        return
+    if len(digits.lstrip("0")) > 19 or int(digits) >= 2**63 + (digits != threshold):
         return
     for key in keys[:-1]:
         if not key:
@@ -2162,7 +2172,9 @@ def _read_fragment(
         return end + 1
     if name not in _LEAVES:
         raise BTClibValueError("unknown miniscript fragment")
-    end = _expression_end(expression, pos, stop_at_close=name in {"multi", "multi_a"})
+    # Core reads a multisig's keys only in its own context.
+    own = "multi_a" if context == TAPSCRIPT else "multi"
+    end = _expression_end(expression, pos, stop_at_close=name == own)
     if expression[end - 1 : end] != ")":
         if name in {"multi", "multi_a"}:
             _read_unclosed_multisig_keys(

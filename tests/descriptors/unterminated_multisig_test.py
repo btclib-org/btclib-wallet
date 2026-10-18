@@ -31,6 +31,9 @@ _STRUCTURAL = "not a descriptor expression: expected name(arguments)"
         f"tr({_X_ONLY},multi_a(1,[dead]]{_KEY})junk))",
         f"tr({_X_ONLY},{{multi_a(1,[dead]]{_KEY}))),pk({_X_ONLY})}})",
         f"wsh(multi(1,[dead]]{_KEY},{_KEY})",
+        f"wsh(multi(-1,[dead]]{_KEY},{_KEY})",
+        f"wsh(multi(9223372036854775807,[dead]]{_KEY},{_KEY})",
+        f"wsh(multi(-9223372036854775808,[dead]]{_KEY},{_KEY})",
         f"sh(wsh(multi(1,[dead]]{_KEY},{_KEY}))",
         f"tr({_X_ONLY},multi_a(1,[dead]]{_KEY},{_X_ONLY})",
         f"wsh(multi(1,[dead]]{_KEY},{_KEY}}}))",
@@ -53,10 +56,35 @@ def test_a_multisig_key_is_read_before_its_trailing_structure(
     "descriptor,message",
     [
         (f"wsh(multi(x,[dead]]{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
+        (
+            f"wsh(multi(9223372036854775808,[dead]]{_KEY},{_KEY})",
+            r"unbalanced brackets in multi\(\)",
+        ),
+        (
+            f"wsh(multi(-9223372036854775809,[dead]]{_KEY},{_KEY})",
+            r"unbalanced brackets in multi\(\)",
+        ),
+        pytest.param(
+            f"wsh(multi({'9' * 5000},[dead]]{_KEY},{_KEY})",
+            r"unbalanced brackets in multi\(\)",
+            id="threshold-of-5000-digits",
+        ),
         (f"wsh(multi(1,,[dead]]{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
         (f"wsh(multi(1,{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
         (f"wsh(multi(1,{_KEY},[dead]]{_KEY})", r"unbalanced brackets in multi\(\)"),
         (f"wsh(multi(1,{_KEY}),{_KEY}))", "trailing characters after the miniscript"),
+        (f"wsh(multi(1,){_KEY},{_KEY}))", r"empty key in multi\(\)"),
+        (
+            f"wsh(and_v(v:pk({_KEY}),multi_a(1,[dead]{_KEY}){_KEY},{_KEY})))",
+            r"unbalanced brackets in multi_a\(\)",
+        ),
+        (
+            (
+                f"tr({_X_ONLY},and_v(v:pk({_X_ONLY}),"
+                f"multi(1,[dead]{_X_ONLY}){_X_ONLY},{_X_ONLY})))"
+            ),
+            r"unbalanced brackets in multi\(\)",
+        ),
         (
             f"wsh(and_v(v:pk({_KEY}),multi_a(1,[dead]]{_KEY},{_KEY})",
             r"unbalanced brackets in multi_a\(\)",
