@@ -30,6 +30,13 @@ _STRUCTURAL = "not a descriptor expression: expected name(arguments)"
         f"sh(wsh(multi(1,[dead]]{_KEY})junk)))",
         f"tr({_X_ONLY},multi_a(1,[dead]]{_KEY})junk))",
         f"tr({_X_ONLY},{{multi_a(1,[dead]]{_KEY}))),pk({_X_ONLY})}})",
+        f"wsh(multi(1,[dead]]{_KEY},{_KEY})",
+        f"sh(wsh(multi(1,[dead]]{_KEY},{_KEY}))",
+        f"tr({_X_ONLY},multi_a(1,[dead]]{_KEY},{_X_ONLY})",
+        f"wsh(multi(1,[dead]]{_KEY},{_KEY}}}))",
+        f"tr({_X_ONLY},multi_a(1,[dead]]{_KEY},{_X_ONLY}}}))",
+        f"wsh(and_v(v:pk({_KEY}),multi(1,[dead]]{_KEY},{_KEY})",
+        f"tr({_X_ONLY},and_v(v:pk({_X_ONLY}),multi_a(1,[dead]]{_X_ONLY},{_X_ONLY})",
     ],
 )
 def test_a_multisig_key_is_read_before_its_trailing_structure(
@@ -40,6 +47,32 @@ def test_a_multisig_key_is_read_before_its_trailing_structure(
         BTClibValueError, match=r"^more than one '\]' in a single key expression$"
     ):
         read(descriptor)
+
+
+@pytest.mark.parametrize(
+    "descriptor,message",
+    [
+        (f"wsh(multi(x,[dead]]{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
+        (f"wsh(multi(1,,[dead]]{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
+        (f"wsh(multi(1,{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
+        (f"wsh(multi(1,{_KEY},[dead]]{_KEY})", r"unbalanced brackets in multi\(\)"),
+        (f"wsh(multi(1,{_KEY}),{_KEY}))", "trailing characters after the miniscript"),
+        (
+            f"wsh(and_v(v:pk({_KEY}),multi_a(1,[dead]]{_KEY},{_KEY})",
+            r"unbalanced brackets in multi_a\(\)",
+        ),
+        (
+            f"tr({_X_ONLY},and_v(v:pk({_X_ONLY}),multi(1,[dead]]{_X_ONLY},{_X_ONLY})",
+            r"unbalanced brackets in multi\(\)",
+        ),
+    ],
+)
+def test_a_multisig_structure_fault_is_not_a_key_fault(
+    descriptor: str, message: str
+) -> None:
+    """Core refuses these as structure and names no key fault."""
+    with pytest.raises(BTClibValueError, match=f"^{message}$"):
+        parse(descriptor)
 
 
 @pytest.mark.parametrize("read", [parse, multipath_descriptors])
@@ -67,8 +100,11 @@ def test_a_valid_key_does_not_make_trailing_structure_valid(
         f"tr({_X_ONLY},multi_a(1,[dead]]{_KEY}",
     ],
 )
-def test_no_miniscript_key_is_read_without_a_function_close(descriptor: str) -> None:
-    """No closing parenthesis leaves Core no inner function to read."""
+def test_no_key_is_read_here(descriptor: str) -> None:
+    """Core reads no key here.
+
+    sh() has no miniscript, and wsh() and tr() leave the last key unended.
+    """
     with pytest.raises(BTClibValueError) as caught:
         parse(descriptor)
     assert str(caught.value) == _STRUCTURAL

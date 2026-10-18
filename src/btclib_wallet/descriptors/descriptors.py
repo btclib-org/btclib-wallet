@@ -222,6 +222,7 @@ from btclib_wallet.descriptors.miniscript import (
     Miniscript,
     SpendContext,
     _assert_sane,
+    _read_unclosed_multisig_keys,
     _script_number,
 )
 from btclib_wallet.descriptors.miniscript import from_script as _miniscript_from_script
@@ -2247,6 +2248,8 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     the leaf is where it is said, a tree being several scripts of which
     this one is unspendable or unsafe.
     """
+    if expression.startswith("multi_a("):
+        _read_unclosed_multisig_keys(expression, miniscript.TAPSCRIPT, prv_keys)
     _assert_no_closing_brace(expression)
     with _steps_compared():
         node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
@@ -2601,6 +2604,10 @@ def _parse_miniscript_expression(
     not one to hand a wallet. `miniscript.parse` on its own answers for the
     language and leaves the judgement to the caller.
     """
+    if expression.startswith("multi("):
+        _read_unclosed_multisig_keys(
+            expression, _MINISCRIPT_CONTEXTS[context], prv_keys
+        )
     _assert_no_closing_brace(expression)
     with _steps_compared():
         node = _parse_miniscript(expression, _MINISCRIPT_CONTEXTS[context], prv_keys)

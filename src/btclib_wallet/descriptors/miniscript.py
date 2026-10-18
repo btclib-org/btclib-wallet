@@ -2056,6 +2056,33 @@ def _read_multi(
     )
 
 
+def _read_unclosed_multisig_keys(
+    fragment: str, context: str, prv_keys: dict[str, str]
+) -> None:
+    """Read each key a comma ends in a multisig with no closing parenthesis.
+
+    Core reads the threshold and then every key up to the next comma
+    before it finds that the fragment does not close. A multisig outside
+    its own context has no key read.
+    """
+    start = fragment.index("(")
+    tapscript = context == TAPSCRIPT
+    if (fragment[:start] == "multi_a") != tapscript:
+        return
+    end = _expression_end(fragment, start, stop_at_close=True)
+    if fragment[end - 1 : end] == ")":
+        return
+    threshold, *keys = fragment[start + 1 :].split(",")
+    if not _NUMBER.fullmatch(threshold):
+        return
+    for key in keys[:-1]:
+        if not key:
+            return
+        _parse_key(
+            key, prv_keys, x_only=tapscript, compressed=True, musig_allowed=tapscript
+        )
+
+
 def _read_number(name: str, argument: str) -> int:
     """Return the number a fragment's argument is, refusing anything else.
 
@@ -2125,6 +2152,10 @@ def _read_fragment(
         raise BTClibValueError("unknown miniscript fragment")
     end = _expression_end(expression, pos, stop_at_close=name in {"multi", "multi_a"})
     if expression[end - 1 : end] != ")":
+        if name in {"multi", "multi_a"}:
+            _read_unclosed_multisig_keys(
+                expression[pos - len(name) :], context, prv_keys
+            )
         raise BTClibValueError(f"unbalanced brackets in {name}()")
     built.append(
         _assert_typed(
