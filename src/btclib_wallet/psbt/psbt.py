@@ -2374,7 +2374,7 @@ def _assert_taproot_sig_hash_type(signature: bytes, psbt_in: PsbtIn, what: str) 
 
     BIP341 appends the type to the 64 bytes when it is not the default
     one, so the signature says which hash it signed; what this adds is
-    that it must be the type the *input* asks for, as
+    that it must be a type the *input* accepts, as
     `_assert_sig_hash_type` asks of a partial signature. A Finalizer that
     skipped the comparison would happily build a witness whose signature
     commits to other outputs than the ones the psbt was built for.
@@ -2828,7 +2828,7 @@ def _taproot_signature(sig: bytes, psbt_in: PsbtIn) -> bytes:
 
     BIP341 appends the type to the 64 bytes for every type but the
     default one, which is appended as nothing rather than as its zero
-    byte: `_assert_taproot_sig_hash_type` is this rule read back, and
+    byte: `_assert_taproot_sig_hash_type` reads this encoding back, and
     both taproot paths write through here so that the signature the
     Signer files and the one the Finalizer checks are one shape.
     """
@@ -3499,10 +3499,10 @@ def _assert_sig_hash_type(psbt_in: PsbtIn) -> None:
     The type a signature commits to is the byte appended to its DER
     encoding, which is where the script engine reads it too.
 
-    An input without the field asks for SIGHASH_ALL;
-    `_assert_taproot_sig_hash_type` says what it asks of a taproot one.
-    Otherwise a signer answering a request with SIGHASH_NONE would have
-    its signature accepted (GHSA-qq38-77mp-j6wr).
+    An input without the field asks for SIGHASH_ALL. Otherwise a signer
+    answering a request with SIGHASH_NONE would have its signature
+    accepted (GHSA-qq38-77mp-j6wr). `_assert_taproot_sig_hash_type` says
+    what it asks of a taproot one.
 
     Presence is `is not None` rather than truthiness: 0 is
     SIGHASH_DEFAULT, which an input may ask for and no ECDSA signature

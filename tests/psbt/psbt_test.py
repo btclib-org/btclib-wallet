@@ -3927,8 +3927,8 @@ def test_sign_leaves_a_taproot_input_already_signed_alone() -> None:
 def test_sign_appends_the_sig_hash_type_a_taproot_input_asks_for() -> None:
     """BIP341 appends the type where it is not the default, as `sign` does.
 
-    Every other taproot test here leaves sig_hash_type unset, which is
-    SIGHASH_DEFAULT and appends nothing; this is the other half.
+    The taproot tests that leave sig_hash_type unset sign SIGHASH_DEFAULT
+    and append nothing; this is the other half.
 
     `assert_signatures_only` is asked as well as the Finalizer, both
     verifying the 64 bytes and not the 65: the type byte is what the
@@ -6280,6 +6280,29 @@ def test_a_taproot_all_signature_is_accepted_without_the_field(path: str) -> Non
     verify_transaction([prev_out], extract_tx(finalize(answer)))
 
 
+@pytest.mark.parametrize("path", ["key", "script"])
+def test_a_taproot_all_signature_is_refused_with_an_explicit_default(
+    path: str,
+) -> None:
+    """An explicit SIGHASH_DEFAULT is a field, and the field asks for it alone.
+
+    A falsy value is not an absent field: only the absent one accepts
+    SIGHASH_ALL beside SIGHASH_DEFAULT, and BIP174 has the Finalizer fail
+    on a signature that does not match a field that is there.
+    """
+    request, key_manager = _unsigned_taproot_psbt(path)
+    asking_all = deepcopy(request)
+    asking_all.inputs[0].sig_hash_type = 1  # ALL
+    answer, _ = sign(asking_all, key_manager)
+    answer.inputs[0].sig_hash_type = 0  # an explicit DEFAULT is a field
+
+    err_msg = "sig_hash type: 1, the input asks for 0"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signed(answer)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(answer)
+
+
 @pytest.mark.parametrize("hash_type", _NOT_ALL)
 @pytest.mark.parametrize("path", ["key", "script"])
 def test_a_taproot_signature_of_another_type_is_refused_without_the_field(
@@ -6309,8 +6332,8 @@ def test_two_cosigners_of_one_leaf_may_sign_all_and_default() -> None:
     """The spend of bitcoin/bitcoin#36507, on a 2-of-2 leaf.
 
     One cosigner signs SIGHASH_ALL, the other SIGHASH_DEFAULT, and the
-    input carries no PSBT_IN_SIGHASH_TYPE. The finalizer builds no
-    CHECKSIGADD witness, so the script engine is asked directly.
+    input carries no PSBT_IN_SIGHASH_TYPE. The witness is built by hand
+    and the script engine is asked directly.
     """
     second_prv_key = _PRV_KEY + 4
     second_key = PrvKeyData(second_prv_key).pub.sec[1:]
