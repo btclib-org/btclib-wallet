@@ -9,6 +9,37 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.18
+
+- **`parse` and `multipath_descriptors` refuse a key with a space before or
+  after it** ([ISS 443](https://github.com/btclib-org/btclib-wallet/issues/443)),
+  as Bitcoin Core does: "Key is invalid due to whitespace". Act on it if you
+  pass a descriptor with a space by a key: remove the space.
+- **`multipath_descriptors` reads a descriptor as `parse` does**
+  ([ISS 393](https://github.com/btclib-org/btclib-wallet/issues/393),
+  [ISS 370](https://github.com/btclib-org/btclib-wallet/issues/370),
+  [ISS 448](https://github.com/btclib-org/btclib-wallet/issues/448),
+  [ISS 450](https://github.com/btclib-org/btclib-wallet/issues/450),
+  [ISS 451](https://github.com/btclib-org/btclib-wallet/issues/451)). It
+  hands every expansion to `parse`, so it refuses a descriptor whose
+  expansion `parse` refuses, where it returned the expansion, and it parses
+  a descriptor with no multipath step, where it returned it unread. It
+  takes an optional `network`; with none, the network of a key is not
+  checked. Where a descriptor has several faults, `parse` and
+  `multipath_descriptors` report the one Bitcoin Core reads first, a
+  `musig()` participant's fingerprint and origin faults carry the `musig():`
+  prefix in both, and `parse` gives Core's message for a `musig()` with a
+  step in both its participants and its path. Act on it if you match the
+  text of a refusal: match the new one. Act on it if you expanded a
+  descriptor `parse` refuses: write it as Core reads it.
+- **`CompactFilterFetcher` finds the blocks that touch a wallet's scripts
+  over p2p**
+  ([ISS 329](https://github.com/btclib-org/btclib-wallet/issues/329)): it
+  reads the BIP157/158 filters one peer serves and downloads only the
+  blocks whose filter matches.
+
+`CHANGELOG.md`'s own `v2026.10.18` section has the rest.
+
 ## v2026.10.16
 
 - **btclib-wallet 2026.9.30 to 2026.10.9 fail at import beside btclib-ecc

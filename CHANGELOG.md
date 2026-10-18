@@ -24,6 +24,81 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.18
+
+### `CompactFilterFetcher` finds a wallet's blocks over p2p
+
+It reads the BIP157/158 filters one peer serves, downloads only the blocks
+whose filter matches, and gives the peer no script (closes #329).
+
+### A compact-filter block whose coinbase lacks the witness nonce is refused
+
+At and above the segwit height, as Bitcoin Core does (closes #385).
+
+### `parse` and `multipath_descriptors` refuse a key with leading or trailing whitespace
+
+With Core's message less the key, "Key is invalid due to whitespace"
+(closes #443).
+
+### Leading zeros are accepted in descriptor and miniscript numbers
+
+In `older()`, `after()`, `thresh()` and the thresholds of the `multi`
+family, printed back without them, as Core does (closes #355).
+
+### `multipath_descriptors` hands every expansion to `parse`
+
+It takes an optional `network`, reads each step on its first path so that
+every key is read, and refuses what `parse` refuses, in the order Core reads
+it (closes #393, closes #370).
+
+### `multipath_descriptors` prefixes a musig participant's faults
+
+The fingerprint and the origin ones, as `parse` does (closes #448,
+closes #450).
+
+### An internal musig key is read before the later keys
+
+In `tr()` and `rawtr()` (closes #451).
+
+### `is_available` accepts a path to hwi that Windows runs
+
+On Windows, it also accepts a path with a directory part where that path
+plus `.exe` is a file, if its last part has no period (closes #426).
+
+### The BIP445 sign/verify vectors are siv2r/bips 363f693's
+
+BIP445 0.12.1 (closes #369).
+
+### Script-path and timelocked spends are exercised on Core
+
+Tests only (closes #460).
+
+### The work-count docstrings read once
+
+Tests' and `_ScannedStr`'s (closes #409).
+
+### `SECURITY.md` says a defect easy to rediscover is fixed as soon as possible
+
+As btclib-org/.github sets it (issue btclib-org/.github#1771).
+
+### `CONTRIBUTING.md` takes the organization's shared half
+
+The tree's docs drop the maintainer's bypass (issue
+btclib-org/.github#1740).
+
+### `verified-signatures.yml` checks the signatures on `main`
+
+On each push (issue btclib-org/.github#1738).
+
+### The review call sets `cache-mode: none`
+
+`.github/actionlint.yaml` is deleted (closes #402).
+
+### `uv.lock` takes pydantic 2.14.0
+
+So the pyroma hook builds nothing from source on Python 3.15 (issue
+btclib-org/btclib#2685).
+
 ## v2026.10.16
 
 ### The btclib and btclib-ecc floors are 2026.10.16
