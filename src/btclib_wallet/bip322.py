@@ -553,7 +553,8 @@ def assert_as_valid(
     elif isinstance(payload, Tx):
         tx = payload
     else:
-        # BIP322 verifies a virtual spend, outside transaction fee policy.
+        # the scripts are run by _assert_scripts, against `prevouts`; a
+        # virtual spend has no fee policy
         tx = extract_tx(payload, verify_scripts=False, max_fee_rate=None)
         prevouts += _psbt_prevouts(payload)[1:]
 

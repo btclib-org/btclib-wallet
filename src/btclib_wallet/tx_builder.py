@@ -98,7 +98,9 @@ __all__ = [
 # BTC, the largest fee `build_psbt` pays unless its caller raises it
 DEFAULT_MAX_FEE = 10_000_000
 
-# The builder and the Extractor share the ceiling; keep its public name.
+# Core's -maxfeerate default, 0.10 BTC per kvB: the highest rate
+# `build_psbt` pays and `psbt.extract_tx` lets through unless the caller
+# raises it
 DEFAULT_MAX_FEE_RATE = _DEFAULT_MAX_FEE_RATE
 
 

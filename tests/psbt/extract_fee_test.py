@@ -67,7 +67,10 @@ def test_extract_tx_fee_check_needs_the_utxo_without_script_checks() -> None:
     """Turning both checks off keeps extraction without UTXO data available."""
     psbt = _finalized_psbt(1)
     psbt.inputs[0].witness_utxo = None
-    with pytest.raises(BTClibValueError, match="^no utxo for input 0:"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^no utxo for input 0: the fee check needs every input's amount$",
+    ):
         extract_tx(psbt, verify_scripts=False)
     assert extract_tx(psbt, verify_scripts=False, max_fee_rate=None) is not None
 

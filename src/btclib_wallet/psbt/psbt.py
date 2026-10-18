@@ -2229,11 +2229,18 @@ _PUSH_32 = 0x20
 _OP_CHECKSIG = 0xAC
 
 
-def _spent_outputs(inputs: Iterable[PsbtIn]) -> list[TxOut]:
+_TAPROOT_NEEDS_UTXOS = (
+    "a taproot signature commits to the amount and script of every input"
+)
+
+
+def _spent_outputs(inputs: Iterable[PsbtIn], *, reason: str) -> list[TxOut]:
     """Return the output each of these inputs spends, in order.
 
     An input carrying no utxo raises, which is `prevouts`' rule and says
-    why. The inputs are an iterable rather than a psbt's list because
+    why: `reason` is what it says.
+
+    The inputs are an iterable rather than a psbt's list because
     that is all the answer needs: a caller reading one input at a time --
     `btclib_wallet.psbt.psbt_view` -- streams them past, and the whole previous
     transaction of a non-witness utxo is dropped as soon as the one
@@ -2243,8 +2250,7 @@ def _spent_outputs(inputs: Iterable[PsbtIn]) -> list[TxOut]:
     for i, psbt_in in enumerate(inputs):
         prev_out = _prev_out(psbt_in)
         if prev_out is None:
-            err_msg = f"no utxo for input {i}: a taproot signature commits "
-            err_msg += "to the amount and script of every input"
+            err_msg = f"no utxo for input {i}: {reason}"
             raise BTClibValueError(err_msg)
         outs.append(prev_out)
     return outs
@@ -2267,7 +2273,7 @@ def prevouts(psbt: Psbt) -> list[TxOut]:
     # which makes this the list that most wants to have been checked
     psbt.assert_valid()
 
-    return _spent_outputs(psbt.inputs)
+    return _spent_outputs(psbt.inputs, reason=_TAPROOT_NEEDS_UTXOS)
 
 
 def _taproot_sig_hash(
@@ -3731,15 +3737,25 @@ def extract_tx(
     if check_validity:
         tx.assert_valid()
     if verify_scripts or max_fee_rate is not None:
-        spent_outputs = _spent_outputs(psbt.inputs)
+        reason = _TAPROOT_NEEDS_UTXOS
+        if not verify_scripts:
+            reason = "the fee check needs every input's amount"
+        spent_outputs = _spent_outputs(psbt.inputs, reason=reason)
         if verify_scripts:
             verify_transaction(spent_outputs, tx)
-        if max_fee_rate is not None:
-            fee = sum(out.value for out in spent_outputs) - sum(
-                out.value for out in tx.vout
-            )
-            _assert_max_fee_rate(fee, tx.vsize, max_fee_rate)
+        _assert_fee_within_rate(spent_outputs, tx, max_fee_rate)
     return tx
+
+
+def _assert_fee_within_rate(
+    spent_outputs: list[TxOut], tx: Tx, max_fee_rate: FeeRate | None
+) -> None:
+    """Refuse the fee of tx where it exceeds max_fee_rate; None skips."""
+    if max_fee_rate is not None:
+        fee = sum(out.value for out in spent_outputs) - sum(
+            out.value for out in tx.vout
+        )
+        _assert_max_fee_rate(fee, tx.vsize, max_fee_rate)
 
 
 _TypeA = TypeVar("_TypeA")
