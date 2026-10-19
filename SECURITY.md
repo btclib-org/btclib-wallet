@@ -214,7 +214,8 @@ used to teach and to prototype as much as to build.
     hundred headers, and the longest chain the rules allow at the time of
     the clock bounds those bits. The chain is then downloaded again, and a
     header is kept only once enough later ones have matched the commitments
-    of the first download. A peer can still make the fetcher download as
+    of the first download, or once the chain has the work the first download
+    found. A peer can still make the fetcher download as
     many low-work headers as it has mined, up to that bound. A header's
     version is not checked. A fork is
     followed only if it ends with more work than the chain it displaces;

@@ -225,9 +225,8 @@ class Fetcher(ABC):
         the header raw -- it compares against the local clock, and a header
         that is genuinely on the chain should not start failing this because
         the machine running it has drifted. `CompactFilterFetcher` asks it
-        once, when it first holds a header, and also requires the time to be
-        after the median time past of the parent. `SECURITY.md` says what
-        else it checks.
+        once, when it first holds a header; `SECURITY.md` says what else it
+        checks.
 
         This method promises no more than that check. It does not say the
         header is on the chain the caller means, nor that it is truly at
