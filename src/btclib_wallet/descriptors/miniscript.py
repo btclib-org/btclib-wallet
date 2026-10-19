@@ -1833,12 +1833,15 @@ _CLOSE = ")"
 _NAME_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz_0123456789")
 
 
-def _expression_end(text: str, pos: int) -> int:
+def _expression_end(text: str, pos: int, *, stop_at_close: bool) -> int:
     """Return the index one past the expression starting at `pos`.
 
     Which ends at the comma or the close bracket that is not inside a
     bracket of its own: a KEY expression may hold a ``musig()`` with
     commas of its own, and a subexpression may hold anything.
+
+    A multisig stops at its matching parenthesis, leaving any trailing
+    text for the caller, so its keys are read before that text is refused.
     """
     depth = 0
     for i in range(pos, len(text)):
@@ -1849,6 +1852,8 @@ def _expression_end(text: str, pos: int) -> int:
             if not depth:
                 return i
             depth -= 1
+            if stop_at_close and not depth:
+                return i + 1
         elif char == "," and not depth:
             return i
     return len(text)
@@ -2034,10 +2039,12 @@ def _read_multi(
     if not _NUMBER.fullmatch(threshold):
         raise BTClibValueError(f"invalid {name}() threshold: digits expected")
     tapscript = context == TAPSCRIPT
-    return Miniscript(
-        name,
-        context,
-        keys=tuple(
+    read = []
+    for key in keys:
+        # Core refuses an empty key as structure, reading no key after it.
+        if not key:
+            raise BTClibValueError(f"empty key in {name}()")
+        read.append(
             _parse_key(
                 key,
                 prv_keys,
@@ -2045,10 +2052,45 @@ def _read_multi(
                 compressed=True,
                 musig_allowed=tapscript,
             )
-            for key in keys
-        ),
+        )
+    return Miniscript(
+        name,
+        context,
+        keys=tuple(read),
         threshold=_int_from_digits(threshold, f"{name}() threshold"),
     )
+
+
+def _read_unclosed_multisig_keys(
+    fragment: str, context: str, prv_keys: dict[str, str]
+) -> None:
+    """Read each key a comma ends in a multisig with no closing parenthesis.
+
+    Core reads the threshold and then every key up to the next comma
+    before it finds that the fragment does not close. A multisig outside
+    its own context has no key read.
+    """
+    start = fragment.index("(")
+    tapscript = context == TAPSCRIPT
+    if (fragment[:start] == "multi_a") != tapscript:
+        return
+    end = _expression_end(fragment, start, stop_at_close=True)
+    if fragment[end - 1 : end] == ")":
+        return
+    threshold, *keys = fragment[start + 1 :].split(",")
+    # Core reads the threshold as an int64_t, and reads no key past one
+    # that is not.
+    digits = threshold.removeprefix("-")
+    if not _NUMBER.fullmatch(digits):
+        return
+    if len(digits.lstrip("0")) > 19 or int(digits) >= 2**63 + (digits != threshold):
+        return
+    for key in keys[:-1]:
+        if not key:
+            return
+        _parse_key(
+            key, prv_keys, x_only=tapscript, compressed=True, musig_allowed=tapscript
+        )
 
 
 class _InvalidTimelockError(BTClibValueError):
@@ -2119,7 +2161,7 @@ def _read_fragment(
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
     if name == "thresh":
-        end = _expression_end(expression, pos + 1)
+        end = _expression_end(expression, pos + 1, stop_at_close=False)
         if expression[end : end + 1] != ",":
             raise BTClibValueError("thresh() takes a threshold and subexpressions")
         threshold = _read_number(name, expression[pos + 1 : end])
@@ -2130,8 +2172,14 @@ def _read_fragment(
         return end + 1
     if name not in _LEAVES:
         raise BTClibValueError("unknown miniscript fragment")
-    end = _expression_end(expression, pos)
+    # Core reads a multisig's keys only in its own context.
+    own = "multi_a" if context == TAPSCRIPT else "multi"
+    end = _expression_end(expression, pos, stop_at_close=name == own)
     if expression[end - 1 : end] != ")":
+        if name in {"multi", "multi_a"}:
+            _read_unclosed_multisig_keys(
+                expression[pos - len(name) :], context, prv_keys
+            )
         raise BTClibValueError(f"unbalanced brackets in {name}()")
     built.append(
         _assert_typed(
