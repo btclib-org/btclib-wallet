@@ -26,12 +26,14 @@ _ORIGINS = st.builds(
     st.lists(st.integers(0, 0xFFFFFFFF), max_size=5),
 )
 _KEYS = st.integers(1, 32).map(lambda k: bytes_from_point(mult(k)))
+# R is a point's x-coordinate, so a parser that checks it (BIP340) reads
+# the field; s and the sighash byte are drawn freely
+_SCHNORR = st.tuples(_KEYS, _HASH).map(lambda pair: pair[0][1:] + pair[1])
 _SIGNATURES = st.one_of(
-    st.binary(min_size=64, max_size=64),
-    st.tuples(
-        st.binary(min_size=64, max_size=64),
-        st.sampled_from([1, 2, 3, 0x81, 0x82, 0x83]),
-    ).map(lambda pair: pair[0] + bytes([pair[1]])),
+    _SCHNORR,
+    st.tuples(_SCHNORR, st.sampled_from([1, 2, 3, 0x81, 0x82, 0x83])).map(
+        lambda pair: pair[0] + bytes([pair[1]])
+    ),
 )
 # 0xfc names a proprietary field. Its identifier length and subtype are
 # encoded even when the identifier is empty (BIP174's proprietary key).

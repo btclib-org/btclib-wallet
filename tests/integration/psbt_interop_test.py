@@ -90,6 +90,120 @@ def _batch() -> list[dict[str, Any]]:
     return cases
 
 
+# decodepsbt's name for each field btclib-wallet holds, from
+# src/rpc/rawtransaction.cpp of Bitcoin Core. An unknown record is one
+# Core did not recognize, so a field filed under a wrong key type shows
+# there as well as missing from its own name.
+_CORE_GLOBAL = {
+    "hd_key_paths": "global_xpubs",
+    "unknown": "proprietary",
+}
+_CORE_INPUT = {
+    "non_witness_utxo": "non_witness_utxo",
+    "witness_utxo": "witness_utxo",
+    "partial_sigs": "partial_signatures",
+    "sig_hash_type": "sighash",
+    "redeem_script": "redeem_script",
+    "witness_script": "witness_script",
+    "hd_key_paths": "bip32_derivs",
+    "final_script_sig": "final_scriptSig",
+    "final_script_witness": "final_scriptwitness",
+    "ripemd160_preimages": "ripemd160_preimages",
+    "sha256_preimages": "sha256_preimages",
+    "hash160_preimages": "hash160_preimages",
+    "hash256_preimages": "hash256_preimages",
+    "taproot_key_spend_signature": "taproot_key_path_sig",
+    "taproot_script_spend_signatures": "taproot_script_path_sigs",
+    "taproot_leaf_scripts": "taproot_scripts",
+    "taproot_hd_key_paths": "taproot_bip32_derivs",
+    "taproot_internal_key": "taproot_internal_key",
+    "taproot_merkle_root": "taproot_merkle_root",
+    "unknown": "proprietary",
+    "musig2_participant_pub_keys": "musig2_participant_pubkeys",
+    "musig2_pub_nonces": "musig2_pubnonces",
+    "musig2_partial_sigs": "musig2_partial_sigs",
+}
+_CORE_OUTPUT = {
+    "redeem_script": "redeem_script",
+    "witness_script": "witness_script",
+    "hd_key_paths": "bip32_derivs",
+    "taproot_internal_key": "taproot_internal_key",
+    "taproot_tree": "taproot_tree",
+    "taproot_hd_key_paths": "taproot_bip32_derivs",
+    "unknown": "proprietary",
+    "musig2_participant_pub_keys": "musig2_participant_pubkeys",
+}
+# The fields of a v0 PSBT that the unsigned transaction carries, which
+# the txid comparison already covers.
+_IN_TRANSACTION = {
+    "previous_tx_id",
+    "output_index",
+    "sequence",
+    "required_time_lock_time",
+    "required_height_lock_time",
+}
+_OUT_TRANSACTION = {"amount", "script_pub_key"}
+_GLOBAL_TRANSACTION = {
+    "tx_version",
+    "version",
+    "inputs",
+    "outputs",
+    "fallback_lock_time",
+}
+
+
+def _map_gaps(
+    label: str,
+    held: object,
+    core: dict[str, Any],
+    names: dict[str, str],
+    transaction: set[str],
+) -> list[str]:
+    """Name each field btclib-wallet holds that Core does not report."""
+    gaps = []
+    for name, value in vars(held).items():
+        if not value or name in transaction:
+            continue
+        # Core reads a null Taproot merkle root as absent and omits it
+        if name == "taproot_merkle_root" and not any(value):
+            continue
+        core_name = names.get(name)
+        if core_name is None:
+            gaps.append(f"{label}.{name}: no Core name is mapped")
+        elif core_name not in core:
+            gaps.append(f"{label}.{name}: Core omits {core_name}")
+    if core.get("unknown"):
+        gaps.append(f"{label}: Core files {sorted(core['unknown'])} as unknown")
+    return gaps
+
+
+def _core_gaps(original: Psbt, response: dict[str, Any]) -> list[str]:
+    """Return every field Core drops or does not recognize, empty if none."""
+    gaps = _map_gaps("global", original, response, _CORE_GLOBAL, _GLOBAL_TRANSACTION)
+    for kind, held, decoded, names, transaction in (
+        (
+            "inputs",
+            original.inputs,
+            response.get("inputs", []),
+            _CORE_INPUT,
+            _IN_TRANSACTION,
+        ),
+        (
+            "outputs",
+            original.outputs,
+            response.get("outputs", []),
+            _CORE_OUTPUT,
+            _OUT_TRANSACTION,
+        ),
+    ):
+        if len(held) != len(decoded):
+            gaps.append(f"{kind}: Core decodes {len(decoded)}, expected {len(held)}")
+            continue
+        for index, (item, core) in enumerate(zip(held, decoded, strict=True)):
+            gaps += _map_gaps(f"{kind}[{index}]", item, core, names, transaction)
+    return gaps
+
+
 def _core_result(node: BitcoinCoreRpcClient, case: dict[str, Any]) -> dict[str, Any]:
     """Keep the full response and distinguish Core's explicit v2 refusal."""
     try:
@@ -108,10 +222,12 @@ def _core_result(node: BitcoinCoreRpcClient, case: dict[str, Any]) -> dict[str, 
         }
     original = Psbt.b64decode(case["base64"])
     matches = response.get("tx", {}).get("txid") == original.tx.id.hex()
+    gaps = _core_gaps(original, response)
     return {
-        "status": "accepted" if matches else "disagreement",
+        "status": "accepted" if matches and not gaps else "disagreement",
         "response": response,
         "unsigned_tx_matches": matches,
+        "core_gaps": gaps,
     }
 
 
