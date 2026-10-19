@@ -213,9 +213,10 @@ used to teach and to prototype as much as to build.
     Bitcoin Core's headers presync does: the memory is a bit for every few
     hundred headers, and the longest chain the rules allow at the time of
     the clock bounds those bits. The chain is then downloaded again, and a
-    header is kept only after those that follow it match their bits. A peer
-    can still make the fetcher download as many low-work headers as it has
-    mined, up to that bound. A header's version is not checked. A fork is
+    header is kept only once enough later ones have matched the commitments
+    of the first download. A peer can still make the fetcher download as
+    many low-work headers as it has mined, up to that bound. A header's
+    version is not checked. A fork is
     followed only if it ends with more work than the chain it displaces;
     otherwise the chain held is put back if it has the minimum work, and
     dropped if not. Every

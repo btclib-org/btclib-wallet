@@ -596,9 +596,11 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def _connect(self, batch: list[BlockHeader]) -> int:
         """Add a batch of headers to the chain, returning how many were new.
 
-        The first header's parent is held, as `_low_work_sync` has seen. A
-        header already held is passed over, and a header that differs from
-        the one held at its height replaces it and everything above it.
+        The first header's parent is held. `_low_work_sync` has seen it for
+        a batch of its own; headers the presync released follow its start or
+        the headers connected before them. A header already held is passed
+        over, and a header that differs from the one held at its height
+        replaces it and everything above it.
         """
         parent_height = self._height_of[batch[0].previous_block_hash]
         added = 0
