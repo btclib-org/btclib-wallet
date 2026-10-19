@@ -1,0 +1,18 @@
+version = "2026.10.16"
+repository = "https://github.com/btclib-org/btclib"
+revision = "e08fd77724503266656fe011ddb2dfa65bd1f414"
+source_path = "tests/strategies/__init__.py"
+source_sha256 = "60b448a35034adb7b89c30e2c618c13c823cabf6ea45e7fc6ace62f4aa1a3464"
+sdist_sha256 = "5c2c7650a315275c656a6af5e2181039b963dd61a2ad6121d88b2a58a82e8e61"
+
+[definitions]
+_UINT32 = "6e8153a7a77adbaf3da1943105b58600bb7c6ebb063c990498a098307fa5687a"
+_OCTETS = "7aa895c34d5dbf0a596d5fdc8ee87b66edefd4f4a3eaecfd5cb0d54a151a2f12"
+MAX_OUTPUTS = "847ba5e3d2f991eba0b4365565dd38827a0292f1a7feaa2828cb37e4f46ab22e"
+TX_IDS = "cdb7b899c123a097dd6d43aedd581a0c27e328865e24f604d5606bfd0dcddb81"
+OUT_POINTS = "97d83b7d4222401e6f5d54f26ba8f6b5e51d36910eb77232c40938ab4c6f7657"
+WITNESSES = "fffcad5202d34b8bbf2c17dd125c970bb3c25b7fd785e49f9757e66f51dccb2d"
+_SMALL_TX_OUTS = "44af9c2c00e3d7ba0b520aaf55a2c509b50cc08d807b27f3571730ee99bcf263"
+TX_INS = "4f52794db3deb1861bbab77842d1133702c6e3e939adcbe41440914301259e34"
+_txs = "d2ad397ddd2c20e7671c56c038e5edde2027cbfb6de437c4419cb6136cc453ea"
+TXS = "6edaa517d6aef1ff51c0786797b3c60250fef806fa52e6e2ad3b3bc316e7f320"

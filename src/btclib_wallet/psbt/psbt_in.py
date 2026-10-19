@@ -79,6 +79,7 @@ from btclib_wallet.psbt.psbt_utils import (
     serialize_musig2_participant_pub_keys,
     serialize_sized_int,
     serialize_taproot_bip32,
+    taproot_bip32_from_dict,
     taproot_bip32_to_dict,
 )
 
@@ -872,7 +873,7 @@ class PsbtIn:
         )
         taproot_hd_key_paths = cast(
             Mapping[Octets, tuple[list[Octets], BIP32KeyOrigin]],
-            decode_from_bip32_derivs(
+            taproot_bip32_from_dict(
                 dict_["taproot_hd_key_paths"], check_validity=False
             ),
         )
