@@ -28,9 +28,12 @@ name: integration-bitcoind
 # firmware release or an app whose screens changed wording, none of which
 # is a claim a branch's review has anything to do with. Here those
 # testcases skip for want of BTCLIB_HWI or BTCLIB_HWI_SIGN, the electrs
-# ones (integration-electrs.yml's) for want of BTCLIB_ELECTRS, and the
+# ones (integration-electrs.yml's) for want of BTCLIB_ELECTRS, the
 # qa-assets replay (qa-assets.yml's) for want of BTCLIB_QA_ASSETS or
-# BTCLIB_RUST_BITCOIN_QA_ASSETS. Each switch's skip message starts
+# BTCLIB_RUST_BITCOIN_QA_ASSETS, the generated psbt comparison (also
+# qa-assets.yml's) for want of BTCLIB_PSBT_INTEROP or BTCLIB_BITCOIN_S,
+# and the check of the copied strategies against btclib's source for want
+# of BTCLIB_BTCLIB_STRATEGIES. Each switch's skip message starts
 # `set BTCLIB_`: `skip-reason-prefix` below
 # exempts such a skip from the check that the node's own tests ran, where
 # a testcase skipping for any other reason, a missing bitcoind among them,

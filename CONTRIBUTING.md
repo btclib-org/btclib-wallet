@@ -641,6 +641,10 @@ BTCLIB_RUST_BITCOIN_QA_ASSETS=/path/to/rust-bitcoin-qa-assets \
     pytest tests/integration/qa_assets_test.py -n 0 --no-cov
 ```
 
+Its `psbt-interop` job, which runs on the clock and by hand and never on a
+pull request, compares generated psbts with bitcoin-s and Core;
+`tests/README.md`'s *Generated PSBT interoperability* has its command.
+
 `codeql.yml` has no line here: its jobs run `github/codeql-action` and no
 command of this project's, so reproducing it locally means the CodeQL CLI
 and a database rather than a `uv run`.
