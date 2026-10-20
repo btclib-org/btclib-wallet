@@ -364,7 +364,7 @@ def _identifying_script(psbt_out: PsbtOut) -> bytes:
     """
     if psbt_out.sp_v0_info:
         return SP_V0_INFO_VERSION + psbt_out.sp_v0_info
-    return psbt_out.script_pub_key
+    return psbt_out.script_pub_key or b""
 
 
 def _serialized_sp_globals(psbt: Psbt) -> list[bytes]:
@@ -425,7 +425,9 @@ def _tx_out(psbt_out: PsbtOut, *, for_identifier: bool) -> TxOut:
     """
     return TxOut(
         psbt_out.amount or 0,
-        _identifying_script(psbt_out) if for_identifier else psbt_out.script_pub_key,
+        _identifying_script(psbt_out)
+        if for_identifier
+        else psbt_out.script_pub_key or b"",
         check_validity=False,
     )
 
@@ -807,9 +809,7 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
     Version 2 alone, where the two are the output: BIP370 requires both
     fields, and an output map carrying neither is one of its invalid
     vectors. A version 0 output is under no such rule -- its amount and
-    script are read from the unsigned transaction, which can carry a
-    zero amount and an empty script, and neither is distinguishable from
-    a field that is not there.
+    script are read from the unsigned transaction.
     """
     if version != PSBT_V2:
         # the two BIP375 fields, for the reason the input pair above is
@@ -833,7 +833,7 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
     # not exist while inputs may still be added; an output with neither
     # field is the same missing script BIP370 refuses, and one of BIP375's
     # own invalid vectors
-    if not psbt_out.script_pub_key and not psbt_out.sp_v0_info:
+    if psbt_out.script_pub_key is None and not psbt_out.sp_v0_info:
         raise BTClibValueError(f"output {i}: missing PSBT_OUT_SCRIPT")
 
 
@@ -1206,6 +1206,12 @@ class Psbt:
         self.inputs = list(inputs)
         self.outputs = list(outputs)
         self.version = version
+        # a version 0 transaction always carries its output scripts,
+        # empty ones included
+        if version == PSBT_V0:
+            for psbt_out in self.outputs:
+                if psbt_out.script_pub_key is None:
+                    psbt_out.script_pub_key = b""
         self.hd_key_paths = decode_hd_key_paths(hd_key_paths)
         self.unknown = dict(sorted(decode_dict_bytes_bytes(unknown).items()))
         self.fallback_lock_time = fallback_lock_time
@@ -1826,9 +1832,9 @@ def _combine_sp_script(psbt_out: PsbtOut, out: PsbtOut) -> None:
     Asked after sp_v0_info is merged, so out's says whether either copy
     pays a silent payment.
     """
-    if not out.sp_v0_info or not psbt_out.script_pub_key:
+    if not out.sp_v0_info or psbt_out.script_pub_key is None:
         return
-    if not out.script_pub_key:
+    if out.script_pub_key is None:
         out.script_pub_key = psbt_out.script_pub_key
     elif out.script_pub_key != psbt_out.script_pub_key:
         err_msg = "mismatched silent payment output script: "
