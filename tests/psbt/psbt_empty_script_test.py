@@ -33,7 +33,7 @@ def test_output_script_presence_round_trips(script: bytes | None) -> None:
 
 @pytest.mark.parametrize("script", [b"", "", {"hex": "", "asm": ""}])
 def test_empty_output_script_json_spellings(script: object) -> None:
-    """Existing byte, hex and script-dict representations still mean empty."""
+    """Byte, hex and script-dict spellings of the empty script mean b""."""
     encoded = PsbtOut().to_dict()
     encoded["script_pub_key"] = script
     assert PsbtOut.from_dict(encoded).script_pub_key == b""

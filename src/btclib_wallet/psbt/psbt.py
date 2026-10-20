@@ -809,9 +809,7 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
     Version 2 alone, where the two are the output: BIP370 requires both
     fields, and an output map carrying neither is one of its invalid
     vectors. A version 0 output is under no such rule -- its amount and
-    script are read from the unsigned transaction. Zero amounts and
-    empty scripts are valid values in either version; only None denotes
-    a missing field in version 2.
+    script are read from the unsigned transaction.
     """
     if version != PSBT_V2:
         # the two BIP375 fields, for the reason the input pair above is
@@ -1208,8 +1206,8 @@ class Psbt:
         self.inputs = list(inputs)
         self.outputs = list(outputs)
         self.version = version
-        # A version 0 transaction always carries its output scripts,
-        # including empty ones. Absence is meaningful only in a v2 map.
+        # a version 0 transaction always carries its output scripts,
+        # empty ones included
         if version == PSBT_V0:
             for psbt_out in self.outputs:
                 if psbt_out.script_pub_key is None:

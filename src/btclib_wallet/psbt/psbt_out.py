@@ -113,11 +113,7 @@ _V2_FIELDS = {
 
 
 def _serialized_v2_fields(psbt_out: PsbtOut) -> list[bytes]:
-    """Return the two BIP370 fields of an output map, in type-byte order.
-
-    Zero satoshi and a zero-byte script are valid field values. Only
-    None means that the output map does not carry the field.
-    """
+    """Return the two BIP370 fields of an output map, in type-byte order."""
     serialized: list[bytes] = []
     if psbt_out.amount is not None:
         serialized.append(
