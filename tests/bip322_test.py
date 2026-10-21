@@ -4,8 +4,9 @@
 
 """Tests for the `btclib_wallet.bip322` module.
 
-The BIP's own vectors and btcd's independent BIP322 corpus are vendored
-whole under `tests/_data/`; `tests/_data/README.md` pins each revision.
+The BIP's own vectors and the BIP322 vectors of btcd, from which the
+BIP's generated vectors come, are vendored whole under `tests/_data/`;
+`tests/_data/README.md` pins each revision.
 They cover the transaction hashes, signature variants and refusals,
 including the distinction between invalid and inconclusive signatures.
 """
@@ -105,7 +106,7 @@ _BTCD_XFAIL = {
         "generated-negative-test-vectors.json",
         "error",
         24,
-    ): "BIP322's Verification Process does not state a PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE check",
+    ): "a PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE differing from the message is not yet checked (issue #493)",
 }
 
 
@@ -862,6 +863,11 @@ def test_a_failing_script_is_invalid_even_with_an_upgradeable_version(
         (
             serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
             b"\x16\x00\x14" + b"\x22" * 20,
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x17\x00\x14" + b"\x11" * 20,
             False,
         ),
     ],

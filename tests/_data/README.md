@@ -437,10 +437,10 @@ tip of both paths — and each is pinned below in its own entry all the
 same, a shared placeholder path being what kept the BIP327 files out of
 the weekly check.
 
-Between them they are what `tests/bip322_test.py` runs: three
-transaction hashes, eight *simple* signatures, ten *full*, three
-*proof of funds*, and 36 error cases, with nothing left out and nothing
-marked `xfail`. Two of the three proof-of-funds vectors were, until
+Between them they are the BIP's own vectors that `tests/bip322_test.py`
+runs: three transaction hashes, eight *simple* signatures, ten *full*,
+three *proof of funds*, and 36 error cases, with nothing left out and
+nothing marked `xfail`. Two of the three proof-of-funds vectors were, until
 issue btclib-org/btclib#513: their psbts carry a funding transaction
 whose input is a null tx_id with vout 0, which `OutPoint.assert_valid`
 refused and Bitcoin Core's `CheckTransaction` accepts.
@@ -680,20 +680,23 @@ plus the `\n` the `end-of-file-fixer` hook added, so our blob is
 The BIP322 corpus of btcsuite/btcd#2521
 is run by `tests/bip322_test.py`, including its expected invalid and
 inconclusive outcomes. Cases needing BIP322-specific interpreter rules
-remain strict expected failures under issue #493. The generic signed
-message mismatch also remains an expected failure: the BIP's
-Verification Process does not specify checking that PSBT field.
+remain strict expected failures under issue #493. So does the case
+"proof-of-funds generic signed message does not match" of
+`generated-negative-test-vectors.json`: a proof of funds whose
+`PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE` differs from the message is not yet
+refused, and issue #493 tracks the check.
 
 ### `tests/_data/btcd/basic-test-vectors.json`
 
 ```text
 repo    guggero/btcd
 path    bip322/testdata/basic-test-vectors.json
-commit  e385217fe438acf1b947c2ce9b358f8a3af4b9e9
 ref     bip-322
+commit  96dc402d9ca6e9761ac05ff2a2445faa93c9c93c  2026-09-16
 blob    eae62fecb7dd9fea151112b73bf056c01e88f62f
 ours    253c778fdb15505f616fd0b57190b5d29cd2c62f
 pulled  2026-10-21
+behind  0 revisions; that commit is the tip of the path
 ```
 
 Verdict: **identical but for the final newline**, which `end-of-file-fixer`
@@ -704,11 +707,12 @@ adds to the upstream bytes.
 ```text
 repo    guggero/btcd
 path    bip322/testdata/generated-test-vectors.json
-commit  e385217fe438acf1b947c2ce9b358f8a3af4b9e9
 ref     bip-322
+commit  96dc402d9ca6e9761ac05ff2a2445faa93c9c93c  2026-09-16
 blob    911c8a41ef5cb2ff0ab875b33a01273f1c351ae5
 ours    32f00f6a82d256c6e2e3283c1fada1ecca8f5ab1
 pulled  2026-10-21
+behind  0 revisions; that commit is the tip of the path
 ```
 
 Verdict: **identical but for the final newline**, as above.
@@ -718,10 +722,11 @@ Verdict: **identical but for the final newline**, as above.
 ```text
 repo    guggero/btcd
 path    bip322/testdata/generated-negative-test-vectors.json
-commit  e385217fe438acf1b947c2ce9b358f8a3af4b9e9
 ref     bip-322
+commit  96dc402d9ca6e9761ac05ff2a2445faa93c9c93c  2026-09-16
 blob    0c74fc527deeb597563f92f44de99005abafe4e8
 pulled  2026-10-21
+behind  0 revisions; that commit is the tip of the path
 ```
 
 Verdict: **identical**.
