@@ -50,35 +50,36 @@ aliases to that same source, not another implementation;
 itself. The seam lets the test suite exercise all of this while opening no
 socket.
 
-**A protocol's code is split in three, and where each part lives is one
-rule for every protocol.** The codec -- the framing, the envelope and the
-shape of each answer -- is pure and sits beside `btclib.p2p`, outside this
-package, as `btclib.electrum` does: this `__init__` imports every fetcher,
-so a server importing anything under `btclib_wallet.fetch` would load `urllib`,
-`ssl` and `socket` with it. The client transport is this package's, in
-`btclib_wallet.fetch.transport`, which states its network policy once, and
-for the p2p stream in `btclib_wallet.fetch.peer_transport`. The
-socket a server listens on is not btclib's at all: btclib-node holds its own,
-over `btclib.p2p`'s codec. The HTTP transport is `bitcoin-core-rpc`'s instead,
+**A protocol's code is split in three, and where each part lives is one rule for
+every protocol.** The codec -- the framing, the envelope and the shape of each
+answer -- is pure and sits outside this package, as `btclib.p2p` and
+`btclib_wallet.electrum` do: this `__init__` imports every fetcher, so a server
+importing anything under `btclib_wallet.fetch` would load `urllib`, `ssl` and
+`socket` with it. The client transport is this package's, in
+`btclib_wallet.fetch.transport`, which states its network policy once, and for
+the p2p stream in `btclib_wallet.fetch.peer_transport`. The socket a server
+listens on is not btclib's at all: btclib-node holds its own, over
+`btclib.p2p`'s codec. The HTTP transport is `bitcoin-core-rpc`'s instead,
 because a transport useful without btclib belongs to that package: it is a
 standalone client depending on nothing beyond the standard library, and a caller
 with no bitcoin library has a use for an HTTP transport and none for a line
-transport without btclib's codec.
+transport without `btclib_wallet.electrum`'s codec.
 
-**The exceptions a `Fetcher` raises are btclib's**, and that costs one
-translation. The package declares a `FetchError`, an `HttpError` and an
-`RpcError` of its own -- it declares zero dependencies and imports
-nothing of btclib's -- so those are not the classes
-`btclib.exceptions` declares, and `fetcher.client_errors` re-raises them
-as the ones a caller catches, `status` and `code` carried across. What
-that buys back is the import cost: `btclib.exceptions` no longer reaches
-a protocol client, so `urllib.request`, `ssl` and `socket` are loaded by
-the code that fetches and not by every module that catches.
+**The exceptions a `Fetcher` raises are `btclib_wallet.exceptions`'**, and that
+costs one translation. The package declares a `FetchError`, an `HttpError` and
+an `RpcError` of its own -- it declares zero dependencies and imports nothing of
+btclib's -- so those are not the classes `btclib_wallet.exceptions` declares,
+and `fetcher.client_errors` re-raises them as the ones a caller catches,
+`status` and `code` carried across. What that buys back is the import cost:
+`btclib_wallet.exceptions` reaches no protocol client, so `urllib.request`,
+`ssl` and `socket` are loaded by the code that fetches and not by every module
+that catches.
 
 The re-exported client is the exception:
 `btclib_wallet.fetch.BitcoinCoreRpcClient` is the package's class unchanged, so
-calling it directly raises the package's exceptions and not btclib's. It is the
-client's API, reached through btclib's name for it.
+calling it directly raises `bitcoin_core_rpc`'s exceptions, not
+`btclib_wallet.exceptions`'. It is the client's API, reached through btclib's
+name for it.
 
 Importing the package does not connect to anything, and constructing a
 fetcher does not either: the first call is what opens a connection, and
@@ -115,8 +116,8 @@ than to a caller of the ones shipped here --
 says which layer it is reaching into.
 
 `FetchError`, `HttpError` and `RpcError` are not here because no exception
-is: `btclib.exceptions` holds every one of them together, which is what
-lets a caller see at a glance what the library raises.
+is: `btclib_wallet.exceptions` holds them, beside the package's other public
+exceptions.
 
 **`CachingFetcher` and `FallbackFetcher` answer the same interface from
 another `Fetcher`, not from a network.** Neither is a backend: both

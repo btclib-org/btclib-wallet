@@ -26,12 +26,12 @@ from btclib.block.genesis import genesis_block
 from btclib.block.proof_of_work import (
     block_work,
 )
-from btclib.exceptions import FetchError
 from btclib.network import NETWORKS
 from btclib.p2p import GetHeaders, Headers, Message
 from btclib.p2p.headers_sync import HeadersSyncState
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from tests.fetch.peer_chain_test import (

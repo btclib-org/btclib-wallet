@@ -14,9 +14,9 @@ The names it re-exports are the package's own, unchanged, so that
 `from btclib_wallet.fetch.bitcoin_core import BitcoinCoreRpcClient` keeps
 resolving. Their behaviour is the package's too, exceptions included: a
 `client.call` reached that way raises `bitcoin_core_rpc.RpcError`, not
-`btclib.exceptions.RpcError`. The `Fetcher` interface is where btclib's
-own exceptions are promised, and `_call` below is the line that makes it
-true.
+`btclib_wallet.exceptions.RpcError`. The `Fetcher` interface is where this
+package's own exceptions are promised, and `_call` below is the line that
+makes it true.
 """
 
 from collections.abc import Mapping, Sequence
@@ -32,12 +32,13 @@ from bitcoin_core_rpc import (
 )
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -155,12 +156,12 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         *,
         max_body_size: int | None,
     ) -> Any:
-        """Invoke one rpc method, raising btclib's exceptions for it.
+        """Invoke one rpc method, raising this package's exceptions for it.
 
         The one line of this class that crosses into `bitcoin_core_rpc`,
         which is why every method below goes through it: the package
         declares a `FetchError` of its own, and what a `Fetcher` promises
-        its caller is `btclib.exceptions`'. `client_errors` carries the
+        its caller is `btclib_wallet.exceptions`'. `client_errors` carries the
         `status` and the `code` across.
 
         `max_body_size` is omitted rather than passed as None when a
@@ -243,7 +244,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         none given.
 
         Both comparisons are the client's `assert_chain`, this method being
-        the translation into btclib's vocabulary and btclib's exceptions:
+        the translation into btclib's vocabulary and this package's exceptions:
         `chain_from_network` on the way in, `client_errors` on the way out.
         The check itself belongs beside the protocol it reads, and lived
         here only while `bitcoin_core_rpc` did not have it.

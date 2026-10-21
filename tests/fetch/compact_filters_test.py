@@ -24,7 +24,7 @@ from bitcoin_core_rpc import FetchError as RpcFetchError
 from btclib.block.block import Block
 from btclib.block.block_header import BlockHeader
 from btclib.block.build import build_block, build_coinbase
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.p2p import (
     BlockFilterType,
     CFHeaders,
@@ -41,6 +41,7 @@ from btclib.p2p import (
 from btclib.script import ScriptPubKey, Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from tests.fetch.peer_chain_test import (
@@ -400,7 +401,7 @@ def test_a_silent_peer_is_a_fetch_error_and_the_next_call_greets_again() -> None
 
 
 def test_a_transport_that_cannot_send_is_a_fetch_error() -> None:
-    """A transport's error is translated to btclib's `FetchError`."""
+    """A transport's error is translated to this package's `FetchError`."""
     fetcher, peer = build()
 
     def refuse(_message: Message, _timeout: float) -> None:

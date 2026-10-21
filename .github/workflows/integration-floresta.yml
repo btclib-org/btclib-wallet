@@ -53,6 +53,8 @@ on:
       - .python-version
       - tests/integration/floresta_*.py
       - src/btclib_wallet/fetch/**
+      - src/btclib_wallet/electrum.py
+      - src/btclib_wallet/exceptions.py
 
 # least privilege for the GITHUB_TOKEN: nothing here writes
 permissions:

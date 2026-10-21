@@ -66,7 +66,7 @@ timelocks -- 5184 blocks, 576 blocks -- are the deployed ones.
 
 import pytest
 from btclib.b32 import p2wsh
-from btclib.exceptions import BTClibValueError, NoDescriptorError
+from btclib.exceptions import BTClibValueError
 from btclib.script import Command, op_int, script
 from btclib.utils import encode_num
 
@@ -79,6 +79,7 @@ from btclib_wallet.descriptors import (
     parse,
     strip_checksum,
 )
+from btclib_wallet.exceptions import NoDescriptorError
 from btclib_wallet.wallet import KeyGroup, ScriptWallet
 
 # The ranged shape, twice: the descriptor of each (wallet, branch), and

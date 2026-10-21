@@ -29,7 +29,6 @@ from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
-    InconclusiveError,
     ScriptError,
 )
 from btclib.hashes import hash160, magic_message
@@ -56,6 +55,7 @@ from ecc.exceptions import EccRuntimeError
 from ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
+from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx, finalize
 from tests import (
     EXCESS_PADDING,

@@ -32,11 +32,8 @@ dependencies = [
     # (`is_p2ms_var`, `output_pubkey_from_merkle_root_var` and the
     # others) and which imports `ecc` in place of `btclib_ecc`: below it
     # this tree fails at import. It carries `Tx.parse_without_witness`
-    # (issue #196), the fixes of GHSA-9r97-9x22-2pp4,
-    # GHSA-rw95-w37r-537w, GHSA-9fr5-46w5-5f9r and GHSA-c6h8-5hv5-3gv7,
-    # and `btclib.electrum`'s `block_headers_request` and
-    # `block_headers_response`, which `ElectrumFetcher.get_block_headers`
-    # asks through
+    # (issue #196) and the fixes of GHSA-9r97-9x22-2pp4,
+    # GHSA-rw95-w37r-537w, GHSA-9fr5-46w5-5f9r and GHSA-c6h8-5hv5-3gv7
     "btclib>=2026.10.24",
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `ecc.curves`, `ecc.ecc` less `bms`, which stays btclib's
