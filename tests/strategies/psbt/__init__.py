@@ -53,15 +53,7 @@ def psbts(
     musig2: bool = False,
 ) -> Psbt:
     """Draw a v0 or v2 PSBT with independent optional metadata families."""
-    transactions = TXS
-    if version == 2:
-        # Psbt's v2 model uses an empty script as an absent output field.
-        # Keep those transactions in the v0 draws rather than asking that
-        # model to represent an output it refuses to construct.
-        transactions = transactions.filter(
-            lambda tx: all(output.script_pub_key.script for output in tx.vout)
-        )
-    psbt = Psbt.from_tx(deepcopy(draw(transactions)))
+    psbt = Psbt.from_tx(deepcopy(draw(TXS)))
     psbt.version = version
     psbt.unknown = draw(_UNKNOWN)
     if version == 2:

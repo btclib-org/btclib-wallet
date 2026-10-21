@@ -159,7 +159,12 @@ def _map_gaps(
     names: dict[str, str],
     transaction: set[str],
 ) -> list[str]:
-    """Name each field btclib-wallet holds that Core does not report."""
+    """Name each held field whose key Core's answer lacks.
+
+    Only the key is checked, not the value or an entry count: Core always
+    emits the global `global_xpubs` and `proprietary`, even empty. A record
+    Core files as unknown is named too.
+    """
     gaps = []
     for name, value in vars(held).items():
         if not value or name in transaction:
@@ -178,7 +183,11 @@ def _map_gaps(
 
 
 def _core_gaps(original: Psbt, response: dict[str, Any]) -> list[str]:
-    """Return every field Core drops or does not recognize, empty if none."""
+    """Return each held field whose key Core's answer lacks, empty if none.
+
+    It also names a differing number of inputs or outputs. Values and entry
+    counts inside a map are not compared.
+    """
     gaps = _map_gaps("global", original, response, _CORE_GLOBAL, _GLOBAL_TRANSACTION)
     for kind, held, decoded, names, transaction in (
         (
