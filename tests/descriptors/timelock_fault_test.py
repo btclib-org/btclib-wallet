@@ -2,24 +2,28 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""P2WSH timelock parse failures, as Bitcoin Core v31.1 reports them.
+"""Timelock parse failures, as Bitcoin Core v31.1 reports them.
 
-Issue btclib-org/btclib-wallet#437. A step inside a timelock argument is
-not a derivation path: miniscript refuses the number, and Core's descriptor
-reader reports its P2WSH fallback rather than a later key or path fault.
+Issues btclib-org/btclib-wallet#437 and btclib-org/btclib-wallet#475. A
+step inside a timelock argument is not a derivation path: miniscript
+refuses the number, and Core's descriptor reader reports its fallback for
+wsh() or for a tr() leaf rather than a later key or path fault.
 """
 
 from __future__ import annotations
 
 import pytest
 from btclib.exceptions import BTClibValueError
+from btclib.key import PrvKeyData
 
 from btclib_wallet.bip32 import rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.descriptors import add_checksum, multipath_descriptors, parse
 from btclib_wallet.descriptors.miniscript import parse as parse_miniscript
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed(bytes(range(16))))
+_X_ONLY = PrvKeyData(1).pub.sec.hex()[2:]
 _P2WSH_FAULT = "^A function is needed within P2WSH$"
+_TR_LEAF_FAULT = r"^tr\(\) leaf is not a valid descriptor function$"
 
 
 @pytest.mark.parametrize("fragment", ["older", "after"])
@@ -36,6 +40,35 @@ def test_a_bad_timelock_reports_the_p2wsh_fallback(
         parse(text)
     with pytest.raises(BTClibValueError, match=_P2WSH_FAULT):
         multipath_descriptors(text)
+
+
+@pytest.mark.parametrize("fragment", ["older", "after"])
+@pytest.mark.parametrize("argument", ["<1;2>", "x", "+1", "0", "2147483648"])
+@pytest.mark.parametrize(
+    "tree",
+    [
+        "{leaf}",
+        "and_v(v:pk({key}),{leaf})",
+        "{{pk({key}),and_v(v:pk({key}),{leaf})}}",
+    ],
+)
+def test_a_bad_timelock_in_a_tr_leaf_reports_the_leaf_fallback(
+    fragment: str, argument: str, tree: str
+) -> None:
+    """Parsing and multipath expansion report the same fault in a tr() leaf."""
+    leaf = f"{fragment}({argument})"
+    text = f"tr({_X_ONLY},{tree.format(key=f'{_XPUB}/0/*', leaf=leaf)})"
+    with pytest.raises(BTClibValueError, match=_TR_LEAF_FAULT):
+        parse(text)
+    with pytest.raises(BTClibValueError, match=_TR_LEAF_FAULT):
+        multipath_descriptors(text)
+
+
+def test_a_key_fault_before_the_timelock_in_a_tr_leaf_is_preserved() -> None:
+    """A leaf's fallback does not hide the key its reader reached first."""
+    text = f"tr({_X_ONLY},and_v(v:pk(nope),older(0)))"
+    with pytest.raises(BTClibValueError, match="^invalid key expression$"):
+        parse(text)
 
 
 @pytest.mark.parametrize("fragment", ["older", "after"])
