@@ -118,7 +118,9 @@ _QUESTIONS: dict[str, Callable[[Fetcher], object]] = {
 # `electrum_test.py`, and
 # `test_estimate_fee_verifies_the_network_before_asking_anything` in all
 # three of `bitcoin_core_test.py`, `electrum_test.py` and `esplora_test.py`,
-# and `test_sync_and_scan_blocks_verify_the_network_first` in
+# `test_get_balance_verifies_the_network_before_asking_the_balance` in
+# `esplora_test.py`, and
+# `test_sync_and_scan_blocks_verify_the_network_first` in
 # `compact_filters_test.py`
 _ELSEWHERE = {
     ("CompactFilterFetcher", "scan_blocks"),
@@ -129,6 +131,7 @@ _ELSEWHERE = {
     ("ElectrumFetcher", "get_tx_merkle"),
     ("EsploraFetcher", "broadcast"),
     ("EsploraFetcher", "estimate_fee"),
+    ("EsploraFetcher", "get_balance"),
 }
 
 

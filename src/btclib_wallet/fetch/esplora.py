@@ -24,7 +24,8 @@ substituted transaction is caught. `get_block_header` checks less:
 well-formed and carry a proof of work, which is
 cheap for a host to fabricate compared with the transaction it would
 have to forge to pass the id check. The height and the tip hash have
-nothing here to check them against at all, and are taken on trust.
+nothing here to check them against at all, and are taken on trust, as is
+an address's balance.
 
 Which chain the explorer serves is a separate question from the answers
 above, and `verify_network` is what asks it: declared once on
@@ -41,20 +42,21 @@ that is a merkle branch checked against a header, which is what the
 Electrum backend of issue btclib-org/btclib#204 adds and this one cannot. That
 is the trade the fallback exists to offer, and `SECURITY.md` states it.
 
-The endpoints reached here answer in plain text rather than json:
-`/tx/<txid>/hex`, `/blocks/tip/height`, `/blocks/tip/hash`,
-`/block-height/<height>` and `/block/<hash>/header`, read; `POST /tx`,
-written. The json renderings beside them carry the same values with more
-to disagree about -- and `/hex` is what makes the id check above possible
-at all. That these are what a second deployment has to serve is why they
-are the thing to check before naming one: a host answering json where
-this expects text is not compatible in the way that matters.
+Every endpoint here but `/fee-estimates` and `/address/<address>` answers in
+plain text rather than json: `/tx/<txid>/hex`, `/blocks/tip/height`,
+`/blocks/tip/hash`, `/block-height/<height>` and `/block/<hash>/header`,
+read; `POST /tx`, written. The json renderings beside them carry the same
+values with more to disagree about -- and `/hex` is what makes the id check
+above possible at all. That these are what a second deployment has to serve
+is why they are the thing to check before naming one: a host answering json
+where this expects text is not compatible in the way that matters.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
+from typing import cast
 from urllib.parse import urlsplit
 
 from btclib.alias import Octets
@@ -63,9 +65,10 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, Htt
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import Tx
-from btclib.utils import bytes_from_octets
+from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
+from btclib_wallet.fetch.balance import Balance, script_pub_key_for_network
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -117,12 +120,16 @@ _MAX_HEIGHT_BODY = 64
 _MAX_HASH_BODY = 128
 _MAX_HEADER_BODY = 256
 _MAX_TX_BODY = DEFAULT_MAX_BODY_SIZE
-# `/fee-estimates` is the one endpoint here answering json rather than
-# plain text, and the one whose body is more than a single small value:
-# an object of up to the documented set of confirmation targets below,
-# each a small decimal, formatted with the json punctuation around them.
-# Generous over that and still nowhere near DEFAULT_MAX_BODY_SIZE
+# `/fee-estimates` answers json rather than plain text, a body that is
+# more than a single small value: an object of up to the documented set
+# of confirmation targets below, each a small decimal, formatted with the
+# json punctuation around them. Generous over that and still nowhere near
+# DEFAULT_MAX_BODY_SIZE
 _MAX_FEE_ESTIMATES_BODY = 4096
+# `/address/<address>` answers json too: the address, and two objects of
+# five integers each. An address is at most 90 characters (BIP173), so
+# this leaves room for twenty-digit integers and whitespace
+_MAX_ADDRESS_BODY = 1024
 
 # API.md's own set of confirmation targets: 1-25, 144, 504 and 1008. The
 # highest of them is the target above which no deployment answers, and
@@ -187,11 +194,13 @@ class EsploraFetcher(NetworkVerifyingFetcher):
     caller has to call the method, and `broadcast`'s own docstring is
     where its non-idempotence is stated, at the point a caller meets it.
 
-    Also a `FeeEstimator`: `estimate_fee` is `GET /fee-estimates`, the
-    one endpoint here answering json rather than plain text and the one
-    answering a fixed set of confirmation targets rather than the one
-    asked for -- `estimate_fee`'s own docstring is where the resolution
-    between the two is stated.
+    Also a `FeeEstimator`: `estimate_fee` is `GET /fee-estimates`, which
+    answers json rather than plain text, and a fixed set of confirmation
+    targets rather than the one asked for -- `estimate_fee`'s own
+    docstring is where the resolution between the two is stated.
+
+    Also a `BalanceReader`: `get_balance` is `GET /address/<address>`,
+    which answers json too.
     """
 
     def __init__(
@@ -353,11 +362,11 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
         `POST /tx` with the wire serialization's hex, witness included, as
         the body -- what a peer relays and eventually mines, not the
-        stripped form `Tx.id` hashes. The server answers the same way its
-        GET endpoints do, plain text and not json, which is why this
-        shares `_request` with `text` rather than opening a second seam:
-        the bounded read, the `transport` argument and the `client_errors`
-        translation are the same regardless of which verb sent the body.
+        stripped form `Tx.id` hashes. The server answers in plain text,
+        not json, which is why this shares `_request` with `text` rather
+        than opening a second seam: the bounded read, the `transport`
+        argument and the `client_errors` translation are the same
+        regardless of which verb sent the body.
 
         The id is computed from `tx` before the request, the way
         `tx_from_raw` recomputes one from a fetched serialization: a
@@ -392,7 +401,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         """Return a fee rate expected to confirm within `target` blocks.
 
         `GET /fee-estimates`, an object from confirmation target to
-        sat/vB -- unlike every other endpoint here, in json. `target` is
+        sat/vB, in json. `target` is
         resolved to the smallest key the deployment actually quotes at or
         above it: the smaller target's price is never below the larger's,
         so rounding this way over-pays and never under-pays. A target
@@ -417,3 +426,45 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 raise FetchError(err_msg)
             rate = FeeRate.from_sats_per_vbyte(available[quoted_target], round_up=True)
             return FeeQuote(rate=rate, target=quoted_target)
+
+    def get_balance(self, address: str) -> Balance:
+        """Return the balance of `address`, from `GET /address/<address>`.
+
+        The address is checked by `script_pub_key_for_network` before any
+        request, and what is sent is its spelling on this fetcher's
+        network. `confirmed` is `chain_stats`' `funded_txo_sum` less its
+        `spent_txo_sum`, and `unconfirmed` is the same difference over
+        `mempool_stats`. An answer for another address, or with a sum
+        that is not an integer, or with a negative confirmed balance, is
+        a `FetchError`.
+        """
+        canonical = script_pub_key_for_network(address, self.network).address
+        self._verify_once()
+        source = f"address {canonical}"
+        with fetch_errors(source):
+            payload = json.loads(self.text(f"/address/{canonical}", _MAX_ADDRESS_BODY))
+            if not isinstance(payload, dict):
+                raise BTClibTypeError(f"not an object: {payload!r}")
+            answered = payload.get("address")
+            if answered != canonical:
+                raise FetchError(f"{source}: the server answered for {answered!r}")
+            confirmed = _txo_balance(payload, "chain_stats")
+            unconfirmed = _txo_balance(payload, "mempool_stats")
+            if confirmed < 0:
+                raise BTClibValueError(f"negative confirmed balance: {confirmed}")
+            return Balance(confirmed=confirmed, unconfirmed=unconfirmed)
+
+
+def _txo_balance(payload: dict[str, object], key: str) -> int:
+    """Return `funded_txo_sum` less `spent_txo_sum` of `payload[key]`.
+
+    A bool is refused as a sum: json's `true` is not one satoshi.
+    """
+    stats = payload.get(key)
+    if not isinstance(stats, dict):
+        raise BTClibTypeError(f"{key}: not an object: {stats!r}")
+    funded = stats.get("funded_txo_sum")
+    spent = stats.get("spent_txo_sum")
+    if not (is_integer(funded) and is_integer(spent)):
+        raise BTClibTypeError(f"{key}: invalid sums: {funded!r}, {spent!r}")
+    return cast(int, funded) - cast(int, spent)

@@ -36,6 +36,10 @@ carrying no fee estimation at all, the capability being RPC-only
 together with the confirmation target it is actually valid for, which
 need not be the target asked for.
 
+**`BalanceReader` is a third `Protocol`, for a backend that reports an
+address's balance.** `EsploraFetcher` satisfies it, and `Balance` is what a
+call returns: the confirmed satoshis and the mempool's signed change to them.
+
 **It adds no dependency.** The standard library is the whole of every
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`
 for the Electrum protocol's line, `socket` for the p2p stream. The HTTP
@@ -82,6 +86,7 @@ what raises if there is nothing to connect to.
 
 **What is exported, and what is not.** The fetchers, the interface they
 implement, `Broadcaster` and `FeeEstimator` beside it with `FeeQuote`,
+`BalanceReader` with `Balance`,
 the clients a Bitcoin Core node is reached through --
 `BitcoinCoreRpcClient` for the JSON-RPC server, `BitcoinCoreRestClient`
 for `-rest` -- and the transport seam:
@@ -123,6 +128,7 @@ way `btclib_wallet.fetch.fetcher` does for the interface itself.
 
 from bitcoin_core_rpc import BitcoinCoreRestClient, BitcoinCoreRpcClient
 
+from btclib_wallet.fetch.balance import Balance, BalanceReader
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.broadcaster import Broadcaster
@@ -145,6 +151,8 @@ from btclib_wallet.fetch.transport import (
 __all__ = [
     "BLOCKSTREAM_INFO",
     "DEFAULT_TIMEOUT",
+    "Balance",
+    "BalanceReader",
     "BitcoinCoreFetcher",
     "BitcoinCoreRestClient",
     "BitcoinCoreRestFetcher",
