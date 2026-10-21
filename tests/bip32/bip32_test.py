@@ -68,7 +68,6 @@ from btclib_wallet.bip32.bip32 import (
 from btclib_wallet.bip32.der_path import _indexes_from_der_path_str
 from tests import (
     NOT_STRIPPED,
-    assert_secret_free,
     chained_text,
     load,
     needs_bindings,
@@ -78,6 +77,7 @@ from tests import (
     vector_id,
 )
 from tests.exception_family_test import TYPE_ERRORS
+from tests.secret_free import assert_secret_free
 
 # the bindings, None where they are not installed: every test reading
 # them is marked `bindings`, skipped in that configuration
