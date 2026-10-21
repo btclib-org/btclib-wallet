@@ -692,7 +692,7 @@ refused, and issue #493 tracks the check.
 repo    guggero/btcd
 path    bip322/testdata/basic-test-vectors.json
 ref     bip-322
-commit  96dc402d9ca6e9761ac05ff2a2445faa93c9c93c  2026-09-16
+commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
 blob    eae62fecb7dd9fea151112b73bf056c01e88f62f
 ours    253c778fdb15505f616fd0b57190b5d29cd2c62f
 pulled  2026-10-21
@@ -708,7 +708,7 @@ adds to the upstream bytes.
 repo    guggero/btcd
 path    bip322/testdata/generated-test-vectors.json
 ref     bip-322
-commit  96dc402d9ca6e9761ac05ff2a2445faa93c9c93c  2026-09-16
+commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
 blob    911c8a41ef5cb2ff0ab875b33a01273f1c351ae5
 ours    32f00f6a82d256c6e2e3283c1fada1ecca8f5ab1
 pulled  2026-10-21
@@ -723,7 +723,7 @@ Verdict: **identical but for the final newline**, as above.
 repo    guggero/btcd
 path    bip322/testdata/generated-negative-test-vectors.json
 ref     bip-322
-commit  96dc402d9ca6e9761ac05ff2a2445faa93c9c93c  2026-09-16
+commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
 blob    0c74fc527deeb597563f92f44de99005abafe4e8
 pulled  2026-10-21
 behind  0 revisions; that commit is the tip of the path
