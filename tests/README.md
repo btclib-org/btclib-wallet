@@ -101,6 +101,35 @@ says where it omits them. `integration-bitcoind.yml`,
 and each job fails if its tests skipped rather than ran. `qa-assets.yml`
 runs the replay weekly, and it fails on a directory its checkout lacks.
 
+## Generated PSBT interoperability
+
+`tests.strategies.psbt.psbts` draws v0 and v2 PSBTs from btclib's
+transaction strategies, with optional BIP371 Taproot and BIP373 MuSig2
+metadata. The ordinary suite checks the binary, base64 and dictionary
+round trips without starting another program or reaching the network.
+`tests/strategies/provenance/manifest.toml` pins each copied transaction strategy
+to the release in `uv.lock`; the provenance tests check its bytes.
+
+The `qa-assets` workflow also compares generated PSBTs with bitcoin-s
+and Bitcoin Core. This job runs on its clock and on manual dispatch:
+the compiler's cold downloads do not belong to a pull request's checks.
+Its Scala helper pins the parser dependency. A local run needs Scala CLI,
+a JDK, and the node binary:
+
+```shell
+BTCLIB_INTEGRATION=1 BTCLIB_PSBT_INTEROP=1 \
+BTCLIB_BITCOIND=/path/to/bitcoind \
+BTCLIB_BITCOIN_S="scala-cli run --server=false \
+.github/interop/PsbtRoundTrip.scala" \
+BTCLIB_PSBT_REPORT=/tmp/psbt-interop.json \
+    uv run --locked --no-default-groups --group test \
+    pytest tests/integration/psbt_interop_test.py -n 0 --no-cov
+```
+
+The report retains each generated input and each parser's answer,
+including version-support refusals. A disagreement is evidence to read
+against BIP174 or BIP370 before filing a bug; the workflow files no issue.
+
 ## Fuzzing, and replaying a crash it finds
 
 `tests/fuzz_test.py` is Hypothesis over every parser of the public
