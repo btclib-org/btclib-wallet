@@ -675,6 +675,57 @@ Verdict: **identical but for a trailing newline** -- our blob is that one
 plus the `\n` the `end-of-file-fixer` hook added, so our blob is
 `ddc130d1`.
 
+## guggero/btcd
+
+The BIP322 corpus of btcsuite/btcd#2521
+is run by `tests/bip322_test.py`, including its expected invalid and
+inconclusive outcomes. Cases needing BIP322-specific interpreter rules
+remain strict expected failures under issue #493. The generic signed
+message mismatch also remains an expected failure: the BIP's
+Verification Process does not specify checking that PSBT field.
+
+### `tests/_data/btcd/basic-test-vectors.json`
+
+```text
+repo    guggero/btcd
+path    bip322/testdata/basic-test-vectors.json
+commit  e385217fe438acf1b947c2ce9b358f8a3af4b9e9
+ref     bip-322
+blob    eae62fecb7dd9fea151112b73bf056c01e88f62f
+ours    253c778fdb15505f616fd0b57190b5d29cd2c62f
+pulled  2026-10-21
+```
+
+Verdict: **identical but for the final newline**, which `end-of-file-fixer`
+adds to the upstream bytes.
+
+### `tests/_data/btcd/generated-test-vectors.json`
+
+```text
+repo    guggero/btcd
+path    bip322/testdata/generated-test-vectors.json
+commit  e385217fe438acf1b947c2ce9b358f8a3af4b9e9
+ref     bip-322
+blob    911c8a41ef5cb2ff0ab875b33a01273f1c351ae5
+ours    32f00f6a82d256c6e2e3283c1fada1ecca8f5ab1
+pulled  2026-10-21
+```
+
+Verdict: **identical but for the final newline**, as above.
+
+### `tests/_data/btcd/generated-negative-test-vectors.json`
+
+```text
+repo    guggero/btcd
+path    bip322/testdata/generated-negative-test-vectors.json
+commit  e385217fe438acf1b947c2ce9b358f8a3af4b9e9
+ref     bip-322
+blob    0c74fc527deeb597563f92f44de99005abafe4e8
+pulled  2026-10-21
+```
+
+Verdict: **identical**.
+
 ## bitcoin/bitcoin
 
 ### `tests/_data/descriptor_checksums.json`
