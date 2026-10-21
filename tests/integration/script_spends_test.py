@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient
-from btclib.exceptions import RpcError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.script import Witness
@@ -27,6 +26,7 @@ from btclib_wallet.descriptors import (
     miniscript_solver,
     parse,
 )
+from btclib_wallet.exceptions import RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_size import SCHNORR_SIG_SIZE, SIG_SIZE

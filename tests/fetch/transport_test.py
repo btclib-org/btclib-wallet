@@ -23,9 +23,10 @@ from typing import Any, Self
 
 import pytest
 from bitcoin_core_rpc import FetchError as RpcFetchError
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import transport as transport_module
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.transport import (
@@ -281,7 +282,7 @@ def test_a_failed_read_is_a_fetch_error(tcp: list[Any]) -> None:
 
 
 def test_electrum_fetcher_translates_what_the_transport_raises(tcp: list[Any]) -> None:
-    """Through the fetcher, the transport's failure is btclib's `FetchError`."""
+    """A failed transport is this package's `FetchError` to the caller."""
     context = fake_context(b"")
     transport = TlsLineTransport(HOST, PORT, context=context)
     endpoint = ElectrumFetcher(transport=transport, verify_network=False)

@@ -109,7 +109,6 @@ from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
-    InconclusiveError,
 )
 from btclib.hashes import hash160
 from btclib.key import PrvKeyData, PubKeyData
@@ -127,6 +126,7 @@ from btclib_ecc.ecc import dsa, ssa
 from btclib_ecc.exceptions import BTClibEccRuntimeError
 from btclib_ecc.hashes import tagged_hash
 
+from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx
 from btclib_wallet.psbt.psbt import _b64decode
 

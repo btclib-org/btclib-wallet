@@ -27,10 +27,11 @@ from bitcoin_core_rpc import (
     SessionTransport,
     chain_from_network,
 )
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, HttpError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint
 
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.broadcaster import Broadcaster
 from tests.fetch import (

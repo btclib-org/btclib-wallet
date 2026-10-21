@@ -30,7 +30,6 @@ from btclib.alias import Command
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
-    NoDescriptorError,
 )
 from btclib.script import script
 from btclib.script.script import op_int
@@ -44,6 +43,7 @@ from btclib_wallet.bip32 import bip32, fingerprint
 from btclib_wallet.bip32.bip32 import BIP32KeyData, derive_from_account
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import KeyExpression, add_checksum, parse
+from btclib_wallet.exceptions import NoDescriptorError
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet import DescriptorWallet, KeyGroup, ScriptWallet
 from btclib_wallet.wallet import script_wallet as script_wallet_module

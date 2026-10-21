@@ -7,10 +7,8 @@
 No socket anywhere here, `LineRecorded` below being the whole of what
 answers: `tests/fetch/transport_test.py` is where `TlsLineTransport`
 is tested, over a fake connection of its own.
-btclib's own `tests/electrum_test.py` tests the codec these calls are
-built on; the literals below are that module's own, repeated rather than
-imported, so that the two suites agree on what a real server would answer
-without one importing the other.
+`tests/electrum_test.py` tests the codec these calls are built on, with
+the same literals.
 """
 
 from __future__ import annotations
@@ -20,11 +18,12 @@ import json
 import pytest
 from bitcoin_core_rpc import FetchError as RpcFetchError
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, RpcError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint
 
+from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT
 from tests.fetch import (
@@ -35,9 +34,9 @@ from tests.fetch import (
     TX_ID,
 )
 
-# block 481824's transaction at index 1 -- btclib's own
-# tests/electrum_test.py says how the branch below was derived, with its
-# own positive control against the real header
+# block 481824's transaction at index 1 -- tests/electrum_test.py says
+# how the branch below was derived, with its own positive control against
+# the real header
 MERKLE_TX_ID = "c2bfb6f1bf791308c6b8f73f5d4181be9aa490da6e73c188f9ebd0723e8531b6"
 MERKLE_TX_RAW = (
     "0200000001d40c5407d03e50fdfbdaa1ec97b3ce0cc29d72e7ca360c18221cf903d8b5f51b"

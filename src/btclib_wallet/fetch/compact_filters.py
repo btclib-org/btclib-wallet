@@ -62,7 +62,6 @@ from btclib.block.proof_of_work import block_work
 from btclib.exceptions import (
     BTClibTypeError,
     BTClibValueError,
-    FetchError,
 )
 from btclib.network import NETWORKS
 from btclib.p2p import (
@@ -98,6 +97,7 @@ from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer, is_octets
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     block_header_height,
