@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 import btclib_wallet
+import btclib_wallet.exceptions
 from tests import module_names
 
 
@@ -112,30 +113,57 @@ def test_the_tests_package_imports_no_submodule() -> None:
 
 
 # the top-level units of this package, which btclib also still carries
-# under its own name until its side of btclib-org/btclib#2129 removes them
-_UNITS = tuple(sorted(btclib_wallet.__all__))
+# under its own name until its side of btclib-org/btclib#2129 removes them.
+# `exceptions` is a module of both packages, so what is stale there is a
+# class this package declares, imported from btclib's module
+_UNITS = tuple(sorted(set(btclib_wallet.__all__) - {"exceptions"}))
+_CLASSES = frozenset(
+    f"btclib.exceptions.{name}" for name in btclib_wallet.exceptions.__all__
+)
 
 
 def _stale_units_imported_by(path: Path) -> set[str]:
-    """Return every `btclib.<unit>` one source file's own imports name.
+    """Return every `btclib.<unit>`, or moved class, a file's imports name.
 
     `from btclib import bip32`, `from btclib.bip32 import BIP32Key` and
     `import btclib.bip32.bip32` name the same unit three ways, and each is
     read: the `from` module with each of its aliases covers the first two,
     and an `import` is a complete dotted name on its own.
+
+    A moved class can also be reached as an attribute of btclib's module:
+    `btclib.exceptions.FetchError` after `import btclib.exceptions`, and
+    `exceptions.FetchError` after `from btclib import exceptions`. Each name
+    a file binds to that module is read, and so is every attribute of it.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     names: set[str] = set()
+    # the local spellings of btclib.exceptions in this file
+    module_names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
+            module_names.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "btclib.exceptions"
+            )
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names.add(node.module)
             names.update(f"{node.module}.{alias.name}" for alias in node.names)
+            if node.module == "btclib":
+                module_names.update(
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name == "exceptions"
+                )
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and ast.unparse(node.value) in module_names:
+            names.add(f"btclib.exceptions.{node.attr}")
     return {
         name
         for name in names
-        if any(name == f"btclib.{u}" or name.startswith(f"btclib.{u}.") for u in _UNITS)
+        if name in _CLASSES
+        or any(name == f"btclib.{u}" or name.startswith(f"btclib.{u}.") for u in _UNITS)
     }
 
 
@@ -153,11 +181,21 @@ def test_the_stale_unit_scan_finds_a_planted_import(tmp_path: Path) -> None:
         "from btclib.psbt.psbt import Psbt\n"
         "import btclib.wallet\n"
         "from btclib.script import taproot\n"
+        "from btclib.exceptions import BTClibValueError, FetchError\n"
+        "import btclib.exceptions\n"
+        "btclib.exceptions.RpcError, btclib.exceptions.BTClibTypeError\n"
+        "from btclib import exceptions as btclib_exceptions\n"
+        "btclib_exceptions.SignerError\n"
+        "from btclib_wallet import exceptions\n"
+        "exceptions.HttpError\n"
         "from btclib_wallet import mnemonic\n",
         encoding="utf-8",
     )
     assert _stale_units_imported_by(planted) == {
         "btclib.bip32",
+        "btclib.exceptions.FetchError",
+        "btclib.exceptions.RpcError",
+        "btclib.exceptions.SignerError",
         "btclib.psbt.psbt",
         "btclib.psbt.psbt.Psbt",
         "btclib.wallet",
@@ -353,3 +391,38 @@ def test_btclib_imports_nothing_of_btclib_wallet() -> None:
         )
     }
     assert found == {}
+
+
+@pytest.mark.parametrize(
+    "module_name, heavy_expected",
+    [
+        ("btclib_wallet.electrum", False),
+        ("btclib_wallet.exceptions", False),
+        ("btclib_wallet.fetch", True),
+    ],
+)
+def test_the_codec_and_the_exceptions_open_nothing(
+    module_name: str, heavy_expected: bool
+) -> None:
+    """Importing either loads no client, no HTTP and no TLS.
+
+    `btclib_wallet.fetch`'s `__init__` imports every fetcher, and
+    `urllib`, `ssl` and `socket` behind them. A server of the Electrum
+    protocol imports the codec alone, and every module catching a
+    `FetchError` imports the exceptions alone: neither pays for a client.
+
+    `socket` is not asserted absent: `importlib.metadata`, which reads the
+    version of btclib, imports it through `email.utils` on interpreters
+    before 3.13. A subprocess, because `unimported` leaves in
+    `sys.modules` a `bitcoin_core_rpc` an earlier test imported.
+    `btclib_wallet.fetch` is the control, which loads them.
+    """
+    probe = f"import {module_name}, sys; print(sorted(sys.modules))"
+    loaded = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", probe],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    ).stdout
+    heavy = {"bitcoin_core_rpc", "http.client", "ssl", "urllib.request"}
+    assert bool(set(ast.literal_eval(loaded)) & heavy) is heavy_expected

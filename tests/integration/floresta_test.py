@@ -28,10 +28,11 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from btclib import electrum
-from btclib.exceptions import BTClibValueError, FetchError
+from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint
 
+from btclib_wallet import electrum
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from tests.integration.conftest import (
     FlorestaStack,

@@ -283,8 +283,8 @@ describes.
   `fuzz/` are published, `tests/_data/README.md` says where every
   vendored file came from, and SECURITY.md states what is not defended.
 - **Least privilege.** `fetch/__init__.py`'s own docstring is the
-  argument in full: the codec a server would need sits outside this
-  package, and importing `fetch` pays for a client's dependencies —
+  argument in full: the codec a server would need sits outside `fetch`,
+  and importing `fetch` pays for a client's dependencies —
   `urllib`, `ssl`, `socket` — only because a caller asked for one, never
   because a caller only wanted to parse. `core_import.py` builds the
   request Bitcoin Core's `importdescriptors` takes and opens no RPC
@@ -298,8 +298,8 @@ describes.
 - **Layering.** btclib does not import this package, and this package
   does not reimplement a primitive btclib already defines
   (`tests/imports_test.py`). `descriptors/`'s own three modules import
-  only the ones before them; `fetch`'s own codec sits in `btclib.p2p`
-  and `btclib.electrum`, outside this package, for the reason above.
+  only the ones before them; `fetch`'s own codecs sit outside it, in
+  `btclib.p2p` and `btclib_wallet.electrum`, for the reason above.
 
 **Where this package reaches past ecc's own dispatch, it says so.**
 `bip32/bip32.py` and `silent_payments.py` are the two modules calling the
