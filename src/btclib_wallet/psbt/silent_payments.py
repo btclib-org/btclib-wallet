@@ -689,19 +689,18 @@ def assert_output_scripts_as_valid(psbt: Psbt) -> None:
     without the shares to derive it is not.
     """
     scripted = [
-        (i, psbt_out)
+        (i, psbt_out.sp_v0_info, script)
         for i, psbt_out in enumerate(psbt.outputs)
-        if psbt_out.sp_v0_info and psbt_out.script_pub_key
+        if psbt_out.sp_v0_info and (script := psbt_out.script_pub_key) is not None
     ]
     # coverage before derivation: a script derived from fewer inputs than
     # the recipient sums is the error to name, rather than whichever
     # refusal deriving it would meet first
-    for _, psbt_out in scripted:
-        _assert_covered(psbt, psbt_out.sp_v0_info[:SP_SCAN_KEY_SIZE])
+    for _, info, _ in scripted:
+        _assert_covered(psbt, info[:SP_SCAN_KEY_SIZE])
     derived = output_scripts(psbt) if scripted else {}
-    for i, psbt_out in scripted:
-        script = psbt_out.script_pub_key
-        scan_key = psbt_out.sp_v0_info[:SP_SCAN_KEY_SIZE]
+    for i, info, script in scripted:
+        scan_key = info[:SP_SCAN_KEY_SIZE]
         if i not in derived:
             err_msg = f"output {i}: PSBT_OUT_SCRIPT with no ECDH share to derive it "
             err_msg += f"from, for scan key {scan_key.hex()}"
@@ -724,7 +723,7 @@ def _assert_modifiable_cleared(psbt: Psbt) -> None:
     """
     if psbt.tx_modifiable is None:
         return
-    if not any(o.sp_v0_info and o.script_pub_key for o in psbt.outputs):
+    if not any(o.sp_v0_info and o.script_pub_key is not None for o in psbt.outputs):
         return
     if psbt.tx_modifiable & (INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE):
         err_msg = "PSBT_GLOBAL_TX_MODIFIABLE still invites changes, with a silent "
@@ -759,7 +758,7 @@ def _assert_output_scripts_set(psbt: Psbt, what: str) -> None:
     pays the empty script, which anybody can spend.
     """
     for i, psbt_out in enumerate(psbt.outputs):
-        if psbt_out.sp_v0_info and not psbt_out.script_pub_key:
+        if psbt_out.sp_v0_info and psbt_out.script_pub_key is None:
             err_msg = f"output {i}: silent payment output with no PSBT_OUT_SCRIPT, "
             raise BTClibValueError(err_msg + what)
 
