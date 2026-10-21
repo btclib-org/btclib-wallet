@@ -372,6 +372,9 @@ UNKNWON_DEVICE_TYPE = "UNKNWON_DEVICE_TYPE"
 # BOLT9's own name for the feature at bits 8/9, `optin` for opt-in
 # (09-features.md), which src/btclib_wallet/bolt9.py transcribes
 var_onion_optin = "var_onion_optin"
+# btcd's own spelling of the outcome its SignMuSig2 answers on success,
+# which tests/psbt/_data/btcd/sign_bip373.go compares against
+SignSuccesful = "SignSuccesful"
 
 [tool.typos.default.extend-words]
 # "nd" is the Neutered Derivation of the bip32 docstrings, as for

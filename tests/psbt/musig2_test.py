@@ -129,6 +129,59 @@ def test_aggregating_bip373s_partial_signatures_spends_the_output(
     verify_transaction(spent, tx)
 
 
+def btcd_vectors() -> list[Any]:
+    """Select the four psbts btcd signed: BIP373's participants-only ones.
+
+    `tests/_data/README.md` says how they were made, by btcd's code alone,
+    and how to make them again.
+    """
+    return [
+        pytest.param(test_vector, id=vector_id(index, test_vector["description"]))
+        for index, test_vector in enumerate(
+            load("psbt", "_data", "btcd", "signed_psbts.json")["signed psbts"], 1
+        )
+    ]
+
+
+@pytest.mark.parametrize("test_vector", btcd_vectors())
+def test_btcds_musig2_sessions_are_read_verified_and_spent(
+    test_vector: dict[str, str],
+) -> None:
+    """A second implementation's session: read, verified, aggregated, spent.
+
+    btcd made the nonces and the partial signatures, over a session it
+    derived for itself from BIP373's participants-only psbt. So each psbt
+    holds btclib-wallet to btcd's reading of the session -- the message,
+    the tweaks, the key data the fields are filed under -- where the four
+    vectors above hold it to Bitcoin Core's.
+    """
+    encoded = test_vector["encoded psbt"]
+    psbt = Psbt.b64decode(encoded)
+    assert psbt.b64encode() == encoded
+
+    # what btcd signed is BIP373's own psbt, and it added nothing else
+    unsigned = deepcopy(psbt)
+    unsigned.inputs[0].musig2_pub_nonces = {}
+    unsigned.inputs[0].musig2_partial_sigs = {}
+    assert unsigned.b64encode() in {
+        vector["encoded psbt"]
+        for vector in load("psbt", "_data", "bip373_test_vectors.json")["valid psbts"]
+        if "participant pubkeys only" in vector["description"]
+    }
+
+    aggregate_pub_key, leaf_hash = session_of(psbt)
+    participants = psbt.inputs[0].musig2_participant_pub_keys[aggregate_pub_key]
+    assert len(psbt.inputs[0].musig2_partial_sigs) == len(participants)
+    for participant_pub_key in participants:
+        assert musig2.partial_sig_verify(
+            psbt, 0, participant_pub_key, aggregate_pub_key, leaf_hash=leaf_hash
+        )
+
+    spent = prevouts(psbt)
+    musig2.partial_sigs_agg(psbt, 0, aggregate_pub_key, leaf_hash=leaf_hash)
+    verify_transaction(spent, extract_tx(finalize(psbt)))
+
+
 def _participants_only_psbt() -> Psbt:
     """Return BIP373's first vector: the participants of the output key.
 

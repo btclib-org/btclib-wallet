@@ -1138,7 +1138,7 @@ def test_creation() -> None:
     assert psbt_from_tx_ == psbt
 
 
-# all the updater stuff are missing
+# the Updater is replayed in rust_psbt_test.py, over rust-psbt's cases
 
 
 def test_psbt_combination() -> None:
