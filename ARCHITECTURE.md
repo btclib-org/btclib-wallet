@@ -18,7 +18,9 @@ holds the first half: a module exporting a name it does not define fails
 it unless `REEXPORTED` records the name, and no entry there is btclib's;
 `tests/imports_test.py` adds that every import of a unit that moved here
 names this package rather than btclib's copy. The second half is
-btclib's own: its `pyproject.toml` does not depend on this package. The
+btclib's own: its `pyproject.toml` does not depend on this package, and
+`test_btclib_imports_nothing_of_btclib_wallet` in `tests/imports_test.py`
+holds it here. The
 edge is btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
 `src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on it
 and on [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc),
