@@ -70,11 +70,12 @@ CLEANSTACK, MINIMALIF and CONST_SCRIPTCODE for the required ones, and the
 ``DISCOURAGE_`` family for the upgradeable ones -- the backticks because a
 name ending in an underscore is a link reference to docutils, which
 sphinx runs with `-W`. Two of those flags fall short of the BIP: the
-engine applies MINIMALIF only to witness v0 scripts, so a legacy P2SH
-script is not held to it, and it refuses OP_CODESEPARATOR only in legacy
-scripts, so P2WSH and tapscript are not held to that. Issue #493 tracks
-both. The one rule of the list that is not a flag is
-"all signatures MUST use SIGHASH_ALL", which no set of flags can express:
+engine applies MINIMALIF to witness v0 scripts, and tapscript has its own
+consensus rule, so a legacy P2SH script is not held to it, and it refuses
+OP_CODESEPARATOR only in legacy scripts, so P2WSH and tapscript are not
+held to that. Issue #493 tracks both. The one rule of the list that is not a
+flag is "all signatures MUST use SIGHASH_ALL", which no set of flags can
+express:
 it is a rule about the stack elements the interpreter consumed as
 signatures, and which elements those were is not readable from the
 witness -- the control block of a single-leaf taproot tree is 65 bytes,
