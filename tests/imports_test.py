@@ -12,8 +12,8 @@ bites the caller who happens to arrive from the other side stays
 invisible.
 
 And every module must reach the units of this package by this package's
-name. The units were cut out of `btclib`, which still publishes them at
-its old paths, so a `btclib.bip32` left behind would import, run and pass
+name. The units were cut out of `btclib`. Where btclib still publishes
+one at its old path, a stale import of it would import, run and pass
 against a copy nobody maintains here.
 """
 
@@ -107,10 +107,10 @@ def test_the_tests_package_imports_no_submodule() -> None:
     assert ast.literal_eval(loaded) == ["btclib_wallet"]
 
 
-# the top-level units of this package, which btclib also still carries
-# under its own name until its side of btclib-org/btclib#2129 removes them.
-# `exceptions` is a module of both packages, so what is stale there is a
-# class this package declares, imported from btclib's module
+# the top-level units of this package, any of which btclib may still
+# carry under its own name. `exceptions` is a module of both packages, so
+# what is stale there is a class this package declares, imported from
+# btclib's module
 _UNITS = tuple(sorted(set(btclib_wallet.__all__) - {"exceptions"}))
 _CLASSES = frozenset(
     f"btclib.exceptions.{name}" for name in btclib_wallet.exceptions.__all__
@@ -201,8 +201,8 @@ def test_the_stale_unit_scan_finds_a_planted_import(tmp_path: Path) -> None:
 def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
     """Every import of a unit of this package names this package.
 
-    Static rather than a probe of `sys.modules`: btclib still carries the
-    units, so a stale import resolves and runs, and nothing at run time
+    Static rather than a probe of `sys.modules`: where btclib still carries
+    a unit, a stale import of it resolves and runs, and nothing at run time
     says which of the two copies answered. The sources are the checkout's,
     which is what the suite runs: the package is installed editable.
     """
