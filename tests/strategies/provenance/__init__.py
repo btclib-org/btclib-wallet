@@ -16,7 +16,8 @@ def _definition_hashes(source: bytes) -> dict[str, str]:
 
     The span is made of the original lines rather than an AST rendering:
     whitespace, comments within a definition and spelling all count.
-    Imports, the module docstring and comments outside a span do not.
+    Imports, the module docstring and comments outside a span do not. Any
+    other top-level node is refused rather than skipped.
     """
     lines = source.splitlines(keepends=True)
     hashes = {}
@@ -30,8 +31,13 @@ def _definition_hashes(source: bytes) -> dict[str, str]:
         elif isinstance(node, ast.FunctionDef):
             name = node.name
             start = min([node.lineno, *(item.lineno for item in node.decorator_list)])
-        else:
+        elif isinstance(node, ast.Import | ast.ImportFrom) or (
+            isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+        ):
             continue
+        else:
+            msg = f"unsupported top-level node: {type(node).__name__}"
+            raise TypeError(msg)
         assert node.end_lineno is not None
         assert name not in hashes, f"duplicate definition: {name}"
         definition = b"".join(lines[start - 1 : node.end_lineno])

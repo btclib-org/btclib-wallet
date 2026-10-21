@@ -113,6 +113,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # the release integration-bitcoind.yml pins, and the sha256 of its linux
+      # tarball as the guix builders attested it in bitcoin-core/guix.sigs
       BITCOIND_VERSION: "31.1"
       BITCOIND_SHA256: >-
         b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e

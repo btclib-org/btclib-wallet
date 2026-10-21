@@ -51,6 +51,16 @@ def test_unsupported_assignments_are_not_silently_partly_hashed(source: bytes) -
         _definition_hashes(source)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [b"X: int = 1\n", b"class C:\n    pass\n", b"async def f() -> None:\n    pass\n"],
+)
+def test_unhashed_node_kinds_are_refused(source: bytes) -> None:
+    """A node the hashes would skip cannot hide in the copy."""
+    with pytest.raises(TypeError, match="unsupported top-level node"):
+        _definition_hashes(source)
+
+
 def test_duplicate_names_cannot_hide_an_extra_definition() -> None:
     """A second binding cannot overwrite the first one's provenance."""
     with pytest.raises(AssertionError, match="duplicate definition: a"):

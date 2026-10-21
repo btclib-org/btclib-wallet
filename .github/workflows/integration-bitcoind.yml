@@ -98,8 +98,8 @@ jobs:
       # guix builders attested it in bitcoin-core/guix.sigs. Pinned rather
       # than resolved to "latest": a run that installs whatever is newest
       # reports the day Core released rather than the day this tree
-      # changed. integration-hwi.yml and integration-electrs.yml pin the same
-      # two values for their own tests
+      # changed. integration-hwi.yml, integration-electrs.yml and qa-assets.yml
+      # pin the same two values for their own tests
       bitcoind-version: "31.1"
       bitcoind-sha256: >-
         b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
