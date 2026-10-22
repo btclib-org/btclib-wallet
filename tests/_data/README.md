@@ -884,6 +884,52 @@ The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, and
 that parse is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains
 nothing from it.
 
+### Not vendored as a file: the raw node and raw leaf vectors of a closed pull request
+
+```text
+repo    bitcoin/bitcoin
+path    src/test/descriptor_tests.cpp
+ref     9c4854fa276672ffbd5b82579c0088a2e56b25d0
+commit  c9d15420226b6338e4b18f9acf337187203d7b09  2025-08-01
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, every case the pull request adds.
+bitcoin/bitcoin#30243 implements `rawnode()` and `rawleaf()`, and was
+closed unmerged until a BIP exists. It is no branch of the repository, so
+`ref` is its head: a commit, from which the API walks back to the last one
+touching the path.
+
+`tests/descriptors/raw_descriptors_test.py` holds its `Check` cases as
+`CORE_CHECKS`, in both spellings with the scripts, and its
+`CheckUnparsable` cases as `CORE_UNPARSABLE`. Core reads the error of the
+public string alone, so the private one is only held to be refused. The
+messages are Core's, except those of a function in a position it is not
+allowed in: `parse` words each of them as "NAME() is not allowed inside
+CONTEXT". Not here: the functional test of the pull request, which needs a
+node and a wallet.
+
+### Not vendored as a file: the draft BIP for raw() inside other descriptors
+
+```text
+repo    bitcoin/bips
+path    bip-raw-as-subscript.md
+ref     3197eb9b27fd0c5aacd833b791399777053cc18b
+commit  3197eb9b27fd0c5aacd833b791399777053cc18b  2024-12-27
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**. bitcoin/bips#1721 is a draft BIP, closed, that
+specifies `raw()` inside `sh()`, `wsh()` and a `tr()` tree. It is no
+branch either, and `ref` is its head.
+
+`BIP_VECTORS` in `tests/descriptors/raw_descriptors_test.py` holds its
+valid vectors, and `BIP_INVALID` its invalid ones, with the space after a
+comma left out: Core refuses a function name that starts with a space.
+Its other examples are a to-do list in the draft.
+
 ## bitcoin-core/HWI
 
 Nothing is vendored from HWI and nothing is imported from it: `btclib_wallet.hwi`

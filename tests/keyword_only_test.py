@@ -128,6 +128,8 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.descriptors:PkDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:PkhDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:RawDescriptor.__init__": ["network"],
+    "btclib_wallet.descriptors:RawLeaf.__init__": ["bare"],
+    "btclib_wallet.descriptors:RawPkhDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:RawTrDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:ShDescriptor.__init__": ["network"],
     "btclib_wallet.descriptors:TrDescriptor.__init__": ["network"],

@@ -2530,14 +2530,13 @@ UNPARSABLE = [
     (f"pkh({XPUB}/ 0 h)", "invalid derivation index"),
     # Core: an address that is not one, and a script that is not hex
     ("addr(asdf)", "base58"),
-    ("raw(asdf)", "hex script"),
+    ("raw(asdf)", "^Raw script is not hex$"),
     # the position rules
     (f"wsh(sh(pk({KEY})))", "not allowed inside"),
     (f"sh(combo({KEY}))", "not allowed inside"),
     (f"wsh(wpkh({KEY}))", "not allowed inside"),
     (f"sh(tr({XONLY}))", "not allowed inside"),
     ("sh(addr(1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH))", "not allowed inside"),
-    ("sh(raw(00))", "not allowed inside"),
     # Core: rawtr() is top level only, and a SCRIPT function where a tree
     # leaf is expected is that same rule and not an unimplemented one
     (f"sh(rawtr({XONLY}))", "not allowed inside"),
@@ -2726,11 +2725,6 @@ CORE_UNPARSABLE = [
     (
         "sh(rawtr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
         "rawtr\\(\\) is not allowed inside sh",
-    ),
-    # Core: raw() inside sh()
-    (
-        "sh(raw(00))",
-        "raw\\(\\) is not allowed inside sh",
     ),
 ]
 
@@ -4820,6 +4814,7 @@ MINISCRIPT_CORPUS = (
     f"wsh(or_b(pk({RANGED_A}),a:pk({RANGED_B})))",
     f"wsh(or_i(and_v(or_c(pk({RANGED_A}),v:pk({RANGED_B})),ripemd160({DIGEST_20})),0))",
     f"wsh(and_b(pk({RANGED_A}),a:and_v(v:pk({RANGED_B}),1)))",
+    f"wsh(or_d(pk({RANGED_A}),and_v(v:pkh({RANGED_B}),rawpkh({DIGEST_20}))))",
     (
         f"tr({RANGED_A},{{multi_a(2,{RANGED_B},{RANGED_C}),"
         f"and_v(v:multi_a(2,{RANGED_B},{RANGED_C}),hash160({DIGEST_20}))}})"
@@ -5172,7 +5167,7 @@ UNECHOED = [
     (f"addr(bc1{HEX_PRV}bqqqqqq)", "^invalid data character$"),
     (f"addr(bc1{HEX_PRV}qqqqqqb)", "^invalid character in checksum$"),
     (f"addr(bc1{HEX_PRV}qqqqqq)", "^invalid checksum$"),
-    (f"raw({WIF})", r"^raw\(\) takes a hex script$"),
+    (f"raw({WIF})", "^Raw script is not hex$"),
     (f"{WIF}(0)", "^unknown descriptor function$"),
     (f"wsh({WIF})", "^not a miniscript fragment: a name expected$"),
     (
