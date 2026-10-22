@@ -511,7 +511,7 @@ def test_a_signer_derives_the_scripts_and_freezes_the_psbt() -> None:
     }
     stripped = deepcopy(signed)
     for i in expected:
-        stripped.outputs[i].script_pub_key = b""
+        stripped.outputs[i].script_pub_key = None
     stripped.tx_modifiable = 0xFF
 
     role.set_output_scripts(stripped)
@@ -681,7 +681,7 @@ _SPENT = TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_SEC)))
 _PREV_TX = Tx(2, 0, [TxIn(OutPoint(b"\x06" * 32, 0))], [_SPENT])
 
 
-def _sp_psbt(*, script: bytes = b"") -> Psbt:
+def _sp_psbt(*, script: bytes | None = None) -> Psbt:
     """Return the psbt above, its output script as given."""
     psbt_in = PsbtIn(
         non_witness_utxo=_PREV_TX,
@@ -700,6 +700,45 @@ def _derived() -> Psbt:
     role.set_input_share(psbt, 0, _PRV_KEY, aux=bytes(32))
     role.set_output_scripts(psbt)
     return psbt
+
+
+def test_an_empty_silent_payment_script_is_present_but_wrong() -> None:
+    """Only absence defers derivation; a present empty script is checked."""
+    absent = _sp_psbt()
+    assert Psbt.parse(absent.serialize()).outputs[0].script_pub_key is None
+    role.assert_output_scripts_as_valid(absent)
+
+    empty = _sp_psbt(script=b"")
+    assert Psbt.parse(empty.serialize()).outputs[0].script_pub_key == b""
+    assert absent.unique_id == empty.unique_id
+    with pytest.raises(BTClibValueError, match="no ECDH share"):
+        role.assert_output_scripts_as_valid(empty)
+
+    derived = _derived()
+    derived.outputs[0].script_pub_key = b""
+    with pytest.raises(BTClibValueError, match="not the silent payment script"):
+        role.assert_output_scripts_as_valid(derived)
+    with pytest.raises(BTClibValueError, match="not the silent payment script"):
+        sign(derived, _SIGNER)
+    finalized = finalize(sign(_derived(), _SIGNER)[0])
+    finalized.outputs[0].script_pub_key = b""
+    with pytest.raises(BTClibValueError, match="not the silent payment script"):
+        extract_tx(finalized)
+    derived.tx_modifiable = 0b11
+    with pytest.raises(BTClibValueError, match="still invites changes"):
+        role.assert_as_valid(derived)
+
+
+def test_combine_preserves_empty_script_presence() -> None:
+    """An empty script fills absence but conflicts with a derived script."""
+    absent = _sp_psbt()
+    empty = _sp_psbt(script=b"")
+    for copies in ([absent, empty], [empty, absent], [empty, empty]):
+        assert combine(copies).outputs[0].script_pub_key == b""
+    derived = _derived()
+    for copies in ([empty, derived], [derived, empty]):
+        with pytest.raises(BTClibValueError, match="mismatched silent payment output"):
+            combine(copies)
 
 
 def test_sign_waits_for_the_silent_payment_script() -> None:
@@ -770,7 +809,7 @@ def test_extract_tx_checks_the_silent_payment_outputs() -> None:
     assert extract_tx(finalized).vout[0].script_pub_key.script == expected
 
     dropped = deepcopy(finalized)
-    dropped.outputs[0].script_pub_key = b""
+    dropped.outputs[0].script_pub_key = None
     with pytest.raises(BTClibValueError, match="the extracted transaction would pay"):
         extract_tx(dropped)
     extracted = extract_tx(dropped, check_validity=False, verify_scripts=False)
@@ -841,7 +880,7 @@ def test_combine_merges_a_silent_payment_script() -> None:
     derived = _derived()
     script = derived.outputs[0].script_pub_key
     without = _derived()
-    without.outputs[0].script_pub_key = b""
+    without.outputs[0].script_pub_key = None
     for psbts in ([without, derived], [derived, without], [derived, derived]):
         assert combine(psbts).outputs[0].script_pub_key == script
 

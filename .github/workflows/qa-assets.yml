@@ -1,6 +1,10 @@
 ---
 name: qa-assets
 
+# Published fuzz corpora and generated PSBT interoperability cases.
+# The latter are round-tripped through bitcoin-s and decoded by Core,
+# with every disagreement kept as an artifact for BIP174/BIP370 triage.
+#
 # The fuzz corpora of psbts and descriptors of Bitcoin Core and
 # rust-bitcoin, replayed through this package's parsers. Both qa-assets
 # repositories grow as their fuzzers run, so a parser that handled last
@@ -99,3 +103,109 @@ jobs:
         run: >-
           uv run --locked --no-default-groups --group test
           pytest tests/integration/qa_assets_test.py -n 0 --no-cov
+
+  psbt-interop:
+    name: Generated PSBTs against bitcoin-s and Core
+    # Cold compiler and dependency downloads belong to the clock rather
+    # than the checks of an unrelated pull request. workflow_dispatch is
+    # also available on a branch before it lands.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # the release integration-bitcoind.yml pins, and the sha256 of its linux
+      # tarball as the guix builders attested it in bitcoin-core/guix.sigs
+      BITCOIND_VERSION: "31.1"
+      BITCOIND_SHA256: >-
+        b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+      SCALA_CLI_VERSION: "1.18.0"
+      SCALA_CLI_SHA256: >-
+        eb41442f870bcae75aa5d6622ac96a173dae14fed59f71c97125eb21536bb060
+      COURSIER_REPOSITORIES: https://repo.maven.apache.org/maven2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out btclib-org/.github's scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/.github
+          ref: main
+          path: standard
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Setup uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - name: Read the locked btclib version
+        id: btclib-version
+        run: |
+          uv run --locked --no-default-groups --group test \
+            python - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+
+          lock = tomllib.loads(Path("uv.lock").read_text())
+          package = next(p for p in lock["package"] if p["name"] == "btclib")
+          print("ref=v" + package["version"])
+          PYTHON
+      # The source is read and hashed, never imported or executed. The
+      # provenance manifest checks the bytes, so a moved tag is refused.
+      - name: Checkout the locked upstream strategies
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/btclib
+          ref: ${{ steps.btclib-version.outputs.ref }}
+          path: upstream-btclib
+          persist-credentials: false
+          sparse-checkout: tests/strategies
+      - name: Install bitcoind
+        id: bitcoind
+        run: |
+          daemon=$(uv run --no-project --python 3.15 \
+            standard/.github/scripts/install_bitcoind.py \
+            "$BITCOIND_VERSION" "$BITCOIND_SHA256")
+          echo "path=$daemon" >> "$GITHUB_OUTPUT"
+          "$daemon" -version | head -n 1
+      - name: Install the pinned Scala CLI
+        run: |
+          url="https://github.com/VirtusLab/scala-cli/releases/download"
+          curl --proto '=https' --proto-redir '=https' --fail --location \
+            "$url/v${SCALA_CLI_VERSION}/scala-cli-x86_64-pc-linux.gz" \
+            --output "$RUNNER_TEMP/scala-cli.gz"
+          echo "$SCALA_CLI_SHA256  $RUNNER_TEMP/scala-cli.gz" | sha256sum --check
+          gzip --decompress --stdout "$RUNNER_TEMP/scala-cli.gz" > "$RUNNER_TEMP/scala-cli"
+          chmod +x "$RUNNER_TEMP/scala-cli"
+          "$RUNNER_TEMP/scala-cli" version
+      - name: Compare the generated PSBTs
+        env:
+          BTCLIB_BITCOIND: ${{ steps.bitcoind.outputs.path }}
+          BTCLIB_BTCLIB_STRATEGIES: >-
+            ${{ github.workspace }}/upstream-btclib/tests/strategies/__init__.py
+        run: |
+          export BTCLIB_INTEGRATION=1
+          export BTCLIB_PSBT_INTEROP=1
+          export BTCLIB_PSBT_REPORT="$PWD/psbt-interop.json"
+          export BTCLIB_BITCOIN_S
+          BTCLIB_BITCOIN_S="$RUNNER_TEMP/scala-cli run .github/interop/PsbtRoundTrip.scala"
+          BTCLIB_BITCOIN_S+=" --server=false --java-home $JAVA_HOME_17_X64"
+          uv run --locked --no-default-groups --group test \
+            pytest tests/integration/psbt_interop_test.py \
+            tests/integration/strategy_provenance_test.py -n 0 --no-cov \
+            --junitxml=psbt-interop.xml
+      - name: Fail if the comparison did not run
+        run: |
+          uv run --no-project --python 3.15 \
+            standard/.github/scripts/check_node_ran.py psbt-interop.xml
+      - name: Upload the comparison report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: psbt-interop-report
+          path: |
+            psbt-interop.json
+            psbt-interop.xml
+          if-no-files-found: error
+          retention-days: 90

@@ -113,20 +113,13 @@ _V2_FIELDS = {
 
 
 def _serialized_v2_fields(psbt_out: PsbtOut) -> list[bytes]:
-    """Return the two BIP370 fields of an output map, in type-byte order.
-
-    `is not None` for the amount, an output paying zero satoshi being an
-    output; truthiness for the script, an empty one being what an output
-    that does not carry the field has -- the two are indistinguishable
-    here, and a psbt saying an output pays to no script at all is not
-    one a Constructor writes.
-    """
+    """Return the two BIP370 fields of an output map, in type-byte order."""
     serialized: list[bytes] = []
     if psbt_out.amount is not None:
         serialized.append(
             serialize_sized_int(PSBT_OUT_AMOUNT, psbt_out.amount, 8, signed=True)
         )
-    if psbt_out.script_pub_key:
+    if psbt_out.script_pub_key is not None:
         serialized.append(serialize_bytes(PSBT_OUT_SCRIPT, psbt_out.script_pub_key))
     return serialized
 
@@ -195,6 +188,10 @@ class PsbtOut:
     its own, BIP370's amount and script_pub_key of the output being
     built, and what no key type names in `unknown`. A field a psbt
     does not carry is None, or empty for the collection types.
+
+    script_pub_key is None when PSBT_OUT_SCRIPT is absent, and b"" when
+    the field is present with an empty script. Its JSON form is null
+    for absence and a script dictionary otherwise.
     """
 
     redeem_script: bytes
@@ -205,7 +202,7 @@ class PsbtOut:
     taproot_hd_key_paths: dict[bytes, tuple[list[bytes], BIP32KeyOrigin]]
     unknown: dict[bytes, bytes]
     amount: int | None
-    script_pub_key: bytes
+    script_pub_key: bytes | None
     musig2_participant_pub_keys: dict[bytes, list[bytes]]
     sp_v0_info: bytes
     sp_v0_label: int | None
@@ -221,7 +218,7 @@ class PsbtOut:
         | None = None,
         unknown: Mapping[Octets, Octets] | None = None,
         amount: int | None = None,
-        script_pub_key: Octets = b"",
+        script_pub_key: Octets | None = None,
         musig2_participant_pub_keys: Mapping[Octets, Sequence[Octets]] | None = None,
         sp_v0_info: Octets = b"",
         sp_v0_label: int | None = None,
@@ -236,7 +233,9 @@ class PsbtOut:
         self.taproot_hd_key_paths = decode_taproot_bip32(taproot_hd_key_paths)
         self.unknown = dict(sorted(decode_dict_bytes_bytes(unknown).items()))
         self.amount = amount
-        self.script_pub_key = bytes_from_octets(script_pub_key)
+        self.script_pub_key = (
+            None if script_pub_key is None else bytes_from_octets(script_pub_key)
+        )
         self.musig2_participant_pub_keys = decode_musig2_participant_pub_keys(
             musig2_participant_pub_keys
         )
@@ -302,7 +301,11 @@ class PsbtOut:
             "taproot_hd_key_paths": taproot_bip32_to_dict(self.taproot_hd_key_paths),
             "unknown": dict(sorted(encode_dict_bytes_bytes(self.unknown).items())),
             "amount": self.amount,
-            "script_pub_key": script_to_dict(self.script_pub_key),
+            "script_pub_key": (
+                None
+                if self.script_pub_key is None
+                else script_to_dict(self.script_pub_key)
+            ),
             "musig2_participant_pub_keys": encode_musig2_participant_pub_keys(
                 self.musig2_participant_pub_keys
             ),
@@ -339,7 +342,11 @@ class PsbtOut:
             taproot_hd_key_paths,
             dict_["unknown"],
             dict_["amount"],
-            script_from_dict(dict_["script_pub_key"]),
+            (
+                None
+                if dict_["script_pub_key"] is None
+                else script_from_dict(dict_["script_pub_key"])
+            ),
             dict_["musig2_participant_pub_keys"],
             dict_["sp_v0_info"],
             dict_["sp_v0_label"],
@@ -445,7 +452,7 @@ class PsbtOut:
         taproot_hd_key_paths: dict[Octets, tuple[list[bytes], BIP32KeyOrigin]] = {}
         unknown: dict[Octets, Octets] = {}
         amount: int | None = None
-        script_pub_key = b""
+        script_pub_key: bytes | None = None
         musig2_participant_pub_keys: dict[Octets, Sequence[Octets]] = {}
         sp_fields: dict[bytes, Any] = {}
 

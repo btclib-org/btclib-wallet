@@ -4,14 +4,11 @@
 
 """Tests for the `btclib_wallet.bip322` module.
 
-The vectors are BIP322's own two files, vendored whole under
-`tests/_data/`; `tests/_data/README.md` pins the revision of each. They
-are what the BIP publishes and what its reference implementation was
-checked against, so what they cover is what this module is held to: the
-three transaction hashes, every variant in both directions, and the
-error cases -- a wrong message, a wrong signer, a wrong address, a
-malformed encoding -- which a verifier that answered "valid" too readily
-would pass all of the first group and none of the second.
+The BIP's own vectors and the BIP322 vectors of btcd, from which the
+BIP's generated vectors come, are vendored whole under `tests/_data/`;
+`tests/_data/README.md` pins each revision.
+They cover the transaction hashes, signature variants and refusals,
+including the distinction between invalid and inconclusive signatures.
 """
 
 from __future__ import annotations
@@ -26,6 +23,7 @@ import pytest
 from btclib import b58
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
+from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
 from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
@@ -34,7 +32,7 @@ from btclib.exceptions import (
 )
 from btclib.hashes import hash160, magic_message
 from btclib.script import ScriptPubKey, address, serialize
-from btclib.script.engine import ALL_FLAGS, ScriptFlag
+from btclib.script.engine import ALL_FLAGS, ScriptFlag, sig_op_cost
 from btclib.script.sig_hash import (
     ALL,
     ANYONECANPAY,
@@ -50,10 +48,11 @@ from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import secp256k1
 from btclib_ecc.ecc import dsa, ssa
+from btclib_ecc.exceptions import BTClibEccRuntimeError
 from btclib_ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
-from btclib_wallet.psbt import Psbt, finalize
+from btclib_wallet.psbt import Psbt, extract_tx, finalize
 from tests import (
     EXCESS_PADDING,
     NOT_STRIPPED,
@@ -65,6 +64,104 @@ from tests import (
 
 BASIC = load("_data", "basic-test-vectors.json", encoding="utf-8")
 GENERATED = load("_data", "generated-test-vectors.json", encoding="utf-8")
+BTCD = {
+    name: load("_data", "btcd", name, encoding="utf-8")
+    for name in (
+        "basic-test-vectors.json",
+        "generated-test-vectors.json",
+        "generated-negative-test-vectors.json",
+    )
+}
+_BTCD_XFAIL = {
+    (
+        "basic-test-vectors.json",
+        "error",
+        18,
+    ): "BIP322 forbids CODESEPARATOR in P2WSH; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "basic-test-vectors.json",
+        "error",
+        19,
+    ): "BIP322 forbids CODESEPARATOR in tapscript; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        5,
+    ): "BIP322 forbids CODESEPARATOR in P2WSH; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        6,
+    ): "BIP322 forbids CODESEPARATOR in tapscript; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        11,
+    ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        12,
+    ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        24,
+    ): "a PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE differing from the message is not yet checked (issue #493)",
+}
+
+
+def _btcd_params() -> list[Any]:
+    """Return every pinned btcd vector with its expected validation state."""
+    return [
+        pytest.param(
+            group,
+            case,
+            marks=(
+                pytest.mark.xfail(
+                    reason=_BTCD_XFAIL[name, group, i],
+                    strict=True,
+                    raises=AssertionError,
+                )
+                if (name, group, i) in _BTCD_XFAIL
+                else ()
+            ),
+            id=vector_id(i, name, group, case.get("description", case.get("type"))),
+        )
+        for name, groups in BTCD.items()
+        for group, cases in groups.items()
+        for i, case in enumerate(cases)
+    ]
+
+
+@pytest.mark.parametrize("group, case", _btcd_params())
+def test_btcd_vector(group: str, case: dict[str, Any]) -> None:
+    """Compare all three BIP322 outcomes with btcd's reference corpus.
+
+    The files are from btcsuite/btcd PR 2521; tests/_data/README.md pins
+    their bytes and revision. A malformed signature remains invalid,
+    while a well-formed proof using an upgradeable rule is inconclusive.
+    """
+    msg, addr = case["message"].encode(), case["address"]
+    if group == "tx_hashes":
+        spend = bip322.to_spend(msg, ScriptPubKey.from_address(addr).script)
+        assert bip322.message_hash(msg).hex() == case["message_hash"]
+        assert spend.id.hex() == case["to_spend_tx_hash"]
+        assert bip322.to_sign(spend).id.hex() == case["to_sign_tx_hash"]
+        return
+
+    signatures = case.get("bip322_signatures", [case.get("signature")])
+    for signature in signatures:
+        try:
+            bip322.assert_as_valid(msg, addr, signature)
+        except InconclusiveError:
+            result = "inconclusive"
+        except (ValueError, BTClibRuntimeError, BTClibEccRuntimeError):
+            result = "invalid"
+        else:
+            result = "valid"
+        assert result == case.get("expected_result", "valid")
+
 
 # the two private keys of the round-trip tests below, and the second is
 # there to be the wrong one: a signature that verifies for the key that
@@ -688,8 +785,10 @@ def test_a_version_that_is_not_0_or_2_is_inconclusive() -> None:
     False for both, an inconclusive signature not being a valid one.
     """
     msg, addr = b"version", _address(WIF, "p2wpkh")
-    signed = bip322.sign(msg, b58.prv_key_data_from_wif(WIF), addr)
-    _, tx = _to_sign_of(msg, addr, witness=signed.payload, version=1)
+    spend, tx = _to_sign_of(msg, addr, version=1)
+    key = b58.prv_key_data_from_wif(WIF)
+    signature = dsa.sign_(from_tx(spend.vout, tx, 0, ALL), key.q).serialize() + b"\x01"
+    tx.vin[0].script_witness = Witness([signature, key.pub.sec])
 
     with pytest.raises(InconclusiveError, match="BIP322 allows 0 and 2"):
         bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
@@ -713,6 +812,113 @@ def test_an_unknown_witness_version_is_inconclusive() -> None:
     with pytest.raises(InconclusiveError, match="upgradeable rule"):
         bip322.assert_as_valid(msg, addr, sig)
     assert not bip322.verify(msg, addr, sig)
+
+
+@pytest.mark.parametrize("version", [1, 3])
+def test_a_failing_script_is_invalid_even_with_an_upgradeable_version(
+    version: int,
+) -> None:
+    """Required rules take precedence over an unknown transaction version."""
+    msg, addr = b"required before upgradeable", _address(WIF, "p2wpkh")
+    signed = bip322.sign(
+        msg, b58.prv_key_data_from_wif(OTHER_WIF), _address(OTHER_WIF, "p2wpkh")
+    )
+    _, tx = _to_sign_of(msg, addr, witness=signed.payload, version=version)
+    with pytest.raises(ValueError) as caught:
+        bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+    assert not isinstance(caught.value, InconclusiveError)
+
+
+@pytest.mark.parametrize(
+    "script_pub_key, script_sig, is_witness",
+    [
+        (ScriptPubKey.p2pkh(WIF_PUB).script, b"", False),
+        (b"\x51", b"", False),
+        (b"\x00\x14" + b"\x11" * 20, b"", True),
+        (b"\x00\x20" + b"\x11" * 32, b"", True),
+        (b"\x51\x20" + b"\x11" * 32, b"", True),
+        (b"\x52\x02\x11\x22", b"", True),
+        *[
+            (
+                serialize(["OP_HASH160", hash160(program), "OP_EQUAL"]),
+                serialize([program]),
+                True,
+            )
+            for program in (
+                b"\x00\x14" + b"\x11" * 20,
+                b"\x00\x20" + b"\x11" * 32,
+                b"\x52\x02\x11\x22",
+            )
+        ],
+        (serialize(["OP_HASH160", hash160(b"\x51"), "OP_EQUAL"]), b"\x01\x51", False),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"",
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x4c\x16\x00\x14" + b"\x11" * 20,
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x16\x00\x14" + b"\x22" * 20,
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x17\x00\x14" + b"\x11" * 20,
+            False,
+        ),
+    ],
+)
+def test_proof_of_funds_requires_funding_transactions_for_legacy_inputs(
+    script_pub_key: bytes, script_sig: bytes, is_witness: bool
+) -> None:
+    """Witness inputs alone may omit their funding transaction."""
+    spend = bip322.to_spend(b"pof input types", ScriptPubKey.p2pkh(WIF_PUB).script)
+    funding = Tx(
+        2,
+        0,
+        [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)],
+        [TxOut(1000, script_pub_key)],
+    )
+    psbt = Psbt.from_tx(
+        bip322.to_sign(spend, extra_inputs=[TxIn(OutPoint(funding.id, 0))])
+    )
+    # The virtual first input may use a Witness UTXO for a legacy challenge.
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[1].witness_utxo = funding.vout[0]
+    psbt.inputs[1].final_script_sig = script_sig
+    if is_witness:
+        assert bip322._psbt_prevouts(psbt) == [spend.vout[0], funding.vout[0]]
+    else:
+        with pytest.raises(BTClibValueError, match="input 1: missing non-witness utxo"):
+            bip322._psbt_prevouts(psbt)
+    psbt.inputs[1].non_witness_utxo = funding
+    assert bip322._psbt_prevouts(psbt) == [spend.vout[0], funding.vout[0]]
+
+
+def test_a_later_funding_transaction_does_not_justify_an_earlier_legacy_input() -> None:
+    """The Non-Witness UTXO reuse exception applies only to preceding inputs."""
+    spend = bip322.to_spend(b"pof order", ScriptPubKey.p2wpkh(WIF_PUB).script)
+    funding = Tx(
+        2,
+        0,
+        [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)],
+        [TxOut(1000, ScriptPubKey.p2pkh(WIF_PUB).script)] * 2,
+    )
+    psbt = Psbt.from_tx(
+        bip322.to_sign(
+            spend, extra_inputs=[TxIn(OutPoint(funding.id, i)) for i in range(2)]
+        )
+    )
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[1].witness_utxo = funding.vout[0]
+    psbt.inputs[2].non_witness_utxo = funding
+    with pytest.raises(BTClibValueError, match="input 1: missing non-witness utxo"):
+        bip322._psbt_prevouts(psbt)
 
 
 def test_proof_of_funds_reuses_an_earlier_non_witness_utxo() -> None:
@@ -1079,3 +1285,84 @@ def test_a_created_psbt_is_signed_and_finalized_into_a_proof() -> None:
     sig = bip322.Sig(finalize(psbt))
     assert sig.variant == bip322.PROOF_OF_FUNDS
     assert bip322.verify(msg, addr, sig.b64encode())
+
+
+def _p2sh_checksig_proof(n_extra: int) -> tuple[bytes, str, bip322.Sig, int]:
+    """Build a proof of funds each of whose inputs has a sigop cost of 796.
+
+    Each redeem script is `OP_0 OP_IF` then 199 `OP_CHECKSIG` then
+    `OP_ENDIF OP_1`: the checks sit in an unexecuted branch, so the
+    script succeeds, and `sig_op_cost` still counts every one of them.
+    `n_extra` is how many funding outputs the proof spends beside the
+    virtual `to_spend`, so the transaction has `n_extra + 1` inputs.
+    """
+    # OP_0 OP_IF, 199 CHECKSIG, OP_ENDIF OP_1
+    redeem = b"\x00\x63" + b"\xac" * 199 + b"\x68\x51"
+    script_sig = b"\x4c" + bytes([len(redeem)]) + redeem
+    spk = ScriptPubKey.p2sh(redeem)
+    msg = b"m"
+    spend = bip322.to_spend(msg, spk.script)
+    coinbase = [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)]
+    funding = Tx(2, 0, coinbase, [TxOut(1000, spk.script)] * n_extra)
+    extra = [TxIn(OutPoint(funding.id, i), b"", 0xFFFFFFFF) for i in range(n_extra)]
+    psbt = Psbt.from_tx(bip322.to_sign(spend, extra_inputs=extra))
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    # both cases under test carry at least one funding input
+    psbt.inputs[1].non_witness_utxo = funding
+    for psbt_in in psbt.inputs:
+        psbt_in.final_script_sig = script_sig
+    tx = extract_tx(psbt, verify_scripts=False, max_fee_rate=None)
+    prevouts = [spend.vout[0], *funding.vout]
+    return msg, spk.address, bip322.Sig(psbt), sig_op_cost(prevouts, tx)
+
+
+@pytest.mark.parametrize(
+    "n_extra,expected_cost,over_limit",
+    [
+        # 100 inputs: under MAX_BLOCK_SIGOPS_COST
+        (99, 79_600, False),
+        # 104 inputs: the case of issue #502, over the block limit
+        (103, 82_784, True),
+    ],
+    ids=["100-inputs", "104-inputs"],
+)
+def test_assert_as_valid_refuses_a_proof_over_the_block_sigop_limit(
+    n_extra: int, expected_cost: int, over_limit: bool
+) -> None:
+    """BIP322 asks for consensus rules, which cap a block's sigop cost.
+
+    The construction is yyforyongyu's against btcsuite/btcd#2521: P2SH
+    inputs whose redeem scripts bury `OP_CHECKSIG` in an unexecuted branch.
+    `verify_transaction` does not count them.
+    """
+    msg, addr, sig, cost = _p2sh_checksig_proof(n_extra)
+    assert cost == expected_cost
+    assert (cost > MAX_BLOCK_SIGOPS_COST) is over_limit
+    if over_limit:
+        with pytest.raises(BTClibValueError, match="over the block limit"):
+            bip322.assert_as_valid(msg, addr, sig)
+        assert not bip322.verify(msg, addr, sig)
+        return
+    bip322.assert_as_valid(msg, addr, sig)
+    assert bip322.verify(msg, addr, sig)
+
+
+@pytest.mark.parametrize("to_sign_cost", [79_996, 79_997], ids=["at", "over"])
+def test_the_sigop_limit_counts_to_spend_too(to_sign_cost: int) -> None:
+    """The limit is on `to_spend` and `to_sign` together, at its edge.
+
+    A p2pkh `to_spend` costs 4, so a `to_sign` costing 79,996 is the
+    last one accepted. Its further input is a p2wsh whose witness script
+    is `OP_CHECKMULTISIG` and `OP_CHECKSIG`, which count 20 and 1 there.
+    """
+    spend = bip322.to_spend(b"m", ScriptPubKey.from_address(p2pkh(WIF_PUB)).script)
+    tx = bip322.to_sign(spend, extra_inputs=[TxIn(OutPoint(b"\x01" * 32, 0), b"", 0)])
+    witness_script = b"\xae" * (to_sign_cost // 20) + b"\xac" * (to_sign_cost % 20)
+    tx.vin[1].script_witness = Witness([witness_script])
+    prevouts = [spend.vout[0], TxOut(1000, ScriptPubKey.p2wsh(witness_script))]
+    assert sig_op_cost(prevouts, tx) == to_sign_cost
+    if to_sign_cost + 4 <= MAX_BLOCK_SIGOPS_COST:
+        bip322._assert_sig_op_cost(spend, prevouts, tx)
+        return
+    with pytest.raises(BTClibValueError, match="over the block limit"):
+        bip322._assert_sig_op_cost(spend, prevouts, tx)

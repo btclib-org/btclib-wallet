@@ -64,13 +64,19 @@ signature whose recovered key is the point at infinity is its
 `except` has to catch. `verify` collapses all three states to a
 boolean, and an inconclusive signature is not a valid one.
 
-What is enforced is BIP322's list, through the engine's own flags: the
+What is enforced is BIP322's list as far as the engine's flags reach: the
 consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
 CLEANSTACK, MINIMALIF and CONST_SCRIPTCODE for the required ones, and the
 ``DISCOURAGE_`` family for the upgradeable ones -- the backticks because a
 name ending in an underscore is a link reference to docutils, which
-sphinx runs with `-W`. The one rule of the list that is not a flag is
-"all signatures MUST use SIGHASH_ALL", which no set of flags can express:
+sphinx runs with `-W`. Two of those flags fall short of the BIP: the
+engine applies MINIMALIF to witness v0 scripts, and tapscript has its own
+consensus rule, so a legacy P2SH script is not held to it, and it refuses
+OP_CODESEPARATOR only in legacy scripts, so P2WSH and tapscript are not
+held to that. Issue #493 tracks both. Two rules of the list are not
+flags. The block's limit on sigop cost is checked by counting `to_spend`
+and `to_sign` together with `sig_op_cost`. The other is "all signatures
+MUST use SIGHASH_ALL", which no set of flags can express:
 it is a rule about the stack elements the interpreter consumed as
 signatures, and which elements those were is not readable from the
 witness -- the control block of a single-leaf taproot tree is 65 bytes,
@@ -98,6 +104,7 @@ import string
 from dataclasses import dataclass
 
 from btclib.alias import Octets, String
+from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
 from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
@@ -107,8 +114,8 @@ from btclib.exceptions import (
 from btclib.hashes import hash160
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import serialize
-from btclib.script.engine import ALL_FLAGS, ScriptFlag, verify_transaction
-from btclib.script.script_pub_key import ScriptPubKey, type_and_payload
+from btclib.script.engine import ALL_FLAGS, ScriptFlag, sig_op_cost, verify_transaction
+from btclib.script.script_pub_key import ScriptPubKey, is_segwit, type_and_payload
 from btclib.script.sig_hash import ALL, DEFAULT, from_tx
 from btclib.script.sig_hash import taproot as taproot_sig_hash
 from btclib.script.taproot import output_prvkey_from_merkle_root, output_pubkey
@@ -368,6 +375,25 @@ class Sig:
         return cls(Psbt.parse(payload_bin, check_validity=check_validity))
 
 
+def _is_witness_spend(script_pub_key: bytes, script_sig: bytes) -> bool:
+    """Recognize native witness programs and their canonical P2SH wrapper.
+
+    A finalized PSBT carries the wrapped program in its script_sig, not
+    necessarily in its redeem_script field. Future witness versions are
+    witness inputs too; the upgradeable rules decide their validity.
+    """
+    if is_segwit(script_pub_key):
+        return True
+    script_type, payload = type_and_payload(script_pub_key)
+    return (
+        script_type == "p2sh"
+        and bool(script_sig)
+        and script_sig[0] == len(script_sig) - 1
+        and is_segwit(script_sig[1:])
+        and hash160(script_sig[1:]) == payload
+    )
+
+
 def _psbt_prevouts(psbt: Psbt) -> list[TxOut]:
     """Return the output each input of a proof of funds spends.
 
@@ -381,6 +407,10 @@ def _psbt_prevouts(psbt: Psbt) -> list[TxOut]:
     it does in `psbt.prevouts`, and a witness utxo contradicting it is
     refused: `Psbt.assert_valid` compares the two fields of one input,
     and cannot see a transaction carried by an earlier one.
+
+    Additional legacy inputs require that transaction, as BIP322's
+    basic validation specifies. Only witness inputs may rely on a
+    Witness UTXO alone; the first input spends the virtual `to_spend`.
     """
     transactions: dict[bytes, Tx] = {}
     outs: list[TxOut] = []
@@ -400,6 +430,16 @@ def _psbt_prevouts(psbt: Psbt) -> list[TxOut]:
         ):
             err_msg = f"input {i}: mismatched witness utxo / non-witness utxo output"
             raise BTClibValueError(err_msg)
+        if (
+            i
+            and prev_tx is None
+            and not _is_witness_spend(
+                prev_out.script_pub_key.script, psbt_in.final_script_sig
+            )
+        ):
+            raise BTClibValueError(
+                f"input {i}: missing non-witness utxo for legacy input"
+            )
         outs.append(prev_out)
     return outs
 
@@ -472,6 +512,21 @@ def _assert_hash_types(hash_types: list[int]) -> None:
         if hash_type not in (ALL, DEFAULT):
             err_msg = f"hash type {hash_type:#04x}: BIP322 requires SIGHASH_ALL"
             raise BTClibValueError(err_msg)
+
+
+def _assert_sig_op_cost(spend: Tx, prevouts: list[TxOut], tx: Tx) -> None:
+    """Refuse a proof whose two transactions no valid block can hold.
+
+    BIP322 asks that `to_spend` and `to_sign` together satisfy all
+    consensus rules. `verify_transaction` does not count sigops, and
+    Core refuses a block whose sigop cost is over `MAX_BLOCK_SIGOPS_COST`
+    (`bad-blk-sigops`). `to_spend` is a coinbase to `sig_op_cost`, so its
+    `prevouts` are not read.
+    """
+    cost = sig_op_cost([], spend) + sig_op_cost(prevouts, tx)
+    if cost > MAX_BLOCK_SIGOPS_COST:
+        err_msg = f"sigop cost {cost}: over the block limit of {MAX_BLOCK_SIGOPS_COST}"
+        raise BTClibValueError(err_msg)
 
 
 def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
@@ -559,8 +614,9 @@ def assert_as_valid(
         prevouts += _psbt_prevouts(payload)[1:]
 
     _assert_shape(tx, spend, prevouts)
-    _assert_upgradeable(tx)
+    _assert_sig_op_cost(spend, prevouts, tx)
     _assert_scripts(prevouts, tx)
+    _assert_upgradeable(tx)
 
 
 def _assert_structurally_valid_(addr: String, sig: Sig | String) -> None:
