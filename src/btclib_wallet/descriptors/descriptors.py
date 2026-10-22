@@ -2551,9 +2551,10 @@ def _parse_other_leaf(
     if name in _PARSERS and _P2TR not in _PARSERS[name][0]:
         # a SCRIPT function where a leaf is expected: a position rule and
         # not something a later release adds, which is what the position
-        # table says and Bitcoin Core's own message says too. ``pk()``
-        # and ``pkh()`` allow tr() among their positions and fall through
-        # to be read, ``pkh()`` as the BIP379 fragment of that name
+        # table says and Bitcoin Core's own message says too. ``pk()``,
+        # ``pkh()``, ``raw()`` and ``rawpkh()`` allow tr() among their
+        # positions and fall through to be read, ``pkh()`` and ``rawpkh()``
+        # as BIP379 fragments
         _assert_position(name, _P2TR, _PARSERS[name][0])
     if name == "raw" or name in _RAW_TREE_FUNCTIONS:
         return _read_split(_split_function(expression)[1], _RAW_TREE_PARSERS[name])
@@ -4116,8 +4117,9 @@ def _assert_policy_top_level(descriptor: Descriptor) -> None:
     Two nestings are checked here: a ``pk()`` directly inside ``sh()``, a
     miniscript where BIP388 allows ``wsh`` or ``tr`` only; and the
     functions that take a script or a node as bytes -- ``raw()`` and
-    ``rawpkh()`` inside ``sh()`` or ``wsh()``, ``raw()``, ``rawleaf()`` and
-    ``rawnode()`` inside ``tr()`` -- which BIP388 has no template for.
+    ``rawpkh()`` inside ``sh()`` or ``wsh()``, ``raw()``, ``rawpkh()``,
+    ``rawleaf()`` and ``rawnode()`` inside ``tr()`` -- which BIP388 has no
+    template for, and which `parse` accepts.
     `parse` refuses every other nesting BIP388 forbids, reading ``pkh``
     under ``tr`` as BIP379's miniscript fragment.
     """

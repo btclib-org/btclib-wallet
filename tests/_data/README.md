@@ -880,9 +880,11 @@ The revision this refresh crosses is bitcoin/bitcoin#35819, *test: add
 coverage for untested descriptor parse error paths*: new lines, almost
 all new `CheckUnparsable` cases, and one new `Check(...)`-shaped case
 asserting that a taptree of exactly 128 nesting levels parses.
-The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, and
-that parse is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains
-nothing from it.
+The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, except
+the case of `raw()` inside `sh()`, which that pull request adds and this
+tree accepts by the draft BIP of bitcoin/bips#1721, as
+`raw_descriptors_test.py`'s docstring says. That parse is
+`test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains nothing from it.
 
 ### Not vendored as a file: the raw node and raw leaf vectors of a closed pull request
 
@@ -1673,6 +1675,11 @@ Only the cases bitcoin-s runs count: its commented-out ones are left out,
 among them the public-key cases of `KeyExpressionTest.scala` that derive
 hardened steps.
 
+The cases `sh(raw(deadbeef))` and `wsh(raw(deadbeef))` are BIP385's
+invalid vectors. The draft BIP of bitcoin/bips#1721 makes `raw()` valid
+there, and this tree follows it, so the test holds them as `ACCEPTED_HERE`:
+accepted, with the script, where bitcoin-s refuses.
+
 An accepted descriptor's script is bitcoin-s's. Its checksum, and its
 addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
 `getdescriptorinfo` and `deriveaddresses`, run with no chain on mainnet. Where
@@ -1703,7 +1710,7 @@ from pathlib import Path
 from tests.descriptors import bitcoin_s_test as t
 
 text = "".join(f.read_text() for f in Path(sys.argv[1]).glob("*.scala"))
-cases = [d for d, *_ in t.ACCEPTED + t.REFUSED] + [t.RANGED]
+cases = [d for d, *_ in t.ACCEPTED + t.ACCEPTED_HERE + t.REFUSED] + [t.RANGED]
 cases += [d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED]
 for d, _ in t.CHECKSUM_REFUSED:
     cases += [d[4 : d.index(")")], d.partition(")")[2].lstrip("#")]
@@ -1741,7 +1748,7 @@ def selected(s):
     )
 
 
-held = {d for d, *_ in t.ACCEPTED + t.REFUSED} | {t.RANGED}
+held = {d for d, *_ in t.ACCEPTED + t.ACCEPTED_HERE + t.REFUSED} | {t.RANGED}
 held |= {d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED}
 missing = []
 for path in Path(sys.argv[1]).glob("*.scala"):

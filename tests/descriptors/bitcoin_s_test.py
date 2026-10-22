@@ -13,6 +13,9 @@ as the argument of ``pkh()``.
 
 No case is left out as unsupported: ``combo()``, ``addr()`` and ``raw()``
 are all supported.
+
+Two cases are accepted here where bitcoin-s refuses them: ``raw()`` inside
+``sh()`` and ``wsh()``, which the draft BIP of bitcoin/bips#1721 allows.
 """
 
 import pytest
@@ -53,6 +56,22 @@ ACCEPTED = [
         "tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,{pk(xprvA2JDeKCSNNZky6uBCviVfJSKyQ1mDYahRjijr5idH2WwLsEd4Hsb2Tyh8RfQMuPh7f7RtyzTtdrbdqqsunu5Mm3wDvUAKRHSC34sJ7in334/0),{{pk(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL),pk(df12b7035bdac8e3bab862a3a83d06ea6b17b6753d52edecba9be46f5d09e076)},pk(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1)}})",
         "qy83vqvg",
         "512071fff39599a7b78bc02623cbe814efebf1a404f5d8ad34ea80f213bd8943f574",
+    ),
+]
+
+# each: the descriptor, the script it gives, and why this tree accepts what
+# bitcoin-s refuses. They are BIP385's own invalid vectors, and the draft BIP
+# of bitcoin/bips#1721 makes ``raw()`` valid inside ``sh()`` and ``wsh()``
+ACCEPTED_HERE = [
+    (
+        "sh(raw(deadbeef))",
+        "a914f04df4c4b30d2b7ac6e1ed2445aeb12a9cb4d2ec87",
+        "bitcoin/bips#1721 allows raw() inside sh()",
+    ),
+    (
+        "wsh(raw(deadbeef))",
+        "00205f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953",
+        "bitcoin/bips#1721 allows raw() inside wsh()",
     ),
 ]
 
@@ -275,6 +294,21 @@ def test_refused(descriptor: str, message: str) -> None:
     """Refuse the descriptors bitcoin-s refuses."""
     with pytest.raises(VALUE_ERRORS, match=message):
         parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "descriptor, script, reason",
+    [
+        pytest.param(*case, id=vector_id(index, case[0]))
+        for index, case in enumerate(ACCEPTED_HERE)
+    ],
+)
+def test_accepted_here_where_bitcoin_s_refuses(
+    descriptor: str, script: str, reason: str
+) -> None:
+    """Accept what bitcoin-s refuses, by the draft BIP named in the reason."""
+    assert reason
+    assert parse(descriptor).script_pub_key().script.hex() == script
 
 
 def test_ranged_descriptor() -> None:
