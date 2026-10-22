@@ -6,7 +6,7 @@
 # one kept beside it as pyproject.toml.orig; the ceiling is the next
 # minor, which is where uv's versioning policy puts a breaking change,
 # this backend releasing with uv and versioned by it
-requires = ["uv_build>=0.12.0,<0.13"]
+requires = ["uv_build>=0.12.0,<0.14"]
 build-backend = "uv_build"
 
 [project]
@@ -174,14 +174,14 @@ check = [
     # pyroma builds this project non-isolated to read its metadata, so the
     # environment carries [build-system]'s own specifier and the isolated
     # fallback, which needs an index, is never asked for
-    "uv_build>=0.12.0,<0.13",
+    "uv_build>=0.12.0,<0.14",
 ]
 # the build backend .clusterfuzzlite/build.sh installs btclib-wallet with, in
 # the fuzz container and non-isolated, so that the backend is a hashed entry
 # of .clusterfuzzlite/requirements.txt -- this lock exported -- rather than
 # whatever an isolated build resolves off the index. [build-system]'s own
 # specifier, the way `check`'s is
-fuzz = ["uv_build>=0.12.0,<0.13"]
+fuzz = ["uv_build>=0.12.0,<0.14"]
 mutation = ["cosmic-ray>=8.7.0"]
 # the marker because the `sphinx` release the lock resolves declares a
 # Requires-Python above requires-python's floor, and an unmarked bound
