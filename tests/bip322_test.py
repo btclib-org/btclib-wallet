@@ -1288,7 +1288,7 @@ def test_a_created_psbt_is_signed_and_finalized_into_a_proof() -> None:
 
 
 def _p2sh_checksig_proof(n_extra: int) -> tuple[bytes, str, bip322.Sig, int]:
-    """Build a proof of funds whose each input costs 796 sigops.
+    """Build a proof of funds each of whose inputs has a sigop cost of 796.
 
     Each redeem script is `OP_0 OP_IF` then 199 `OP_CHECKSIG` then
     `OP_ENDIF OP_1`: the checks sit in an unexecuted branch, so the
@@ -1329,20 +1329,40 @@ def _p2sh_checksig_proof(n_extra: int) -> tuple[bytes, str, bip322.Sig, int]:
 def test_assert_as_valid_refuses_a_proof_over_the_block_sigop_limit(
     n_extra: int, expected_cost: int, over_limit: bool
 ) -> None:
-    """BIP322 asks for consensus rules; a block may not hold 80,001 sigops.
+    """BIP322 asks for consensus rules, which cap a block's sigop cost.
 
-    The construction is yyforyongyu's against btcd PR 2521: P2SH inputs
-    whose redeem scripts bury `OP_CHECKSIG` in an unexecuted branch.
-    `verify_transaction` does not count them, and before the check here
-    `assert_as_valid` accepted a proof no valid block can contain.
+    The construction is yyforyongyu's against btcsuite/btcd#2521: P2SH
+    inputs whose redeem scripts bury `OP_CHECKSIG` in an unexecuted branch.
+    `verify_transaction` does not count them.
     """
     msg, addr, sig, cost = _p2sh_checksig_proof(n_extra)
     assert cost == expected_cost
     assert (cost > MAX_BLOCK_SIGOPS_COST) is over_limit
     if over_limit:
-        with pytest.raises(BTClibValueError, match="invalid sigop cost"):
+        with pytest.raises(BTClibValueError, match="over the block limit"):
             bip322.assert_as_valid(msg, addr, sig)
         assert not bip322.verify(msg, addr, sig)
         return
     bip322.assert_as_valid(msg, addr, sig)
     assert bip322.verify(msg, addr, sig)
+
+
+@pytest.mark.parametrize("to_sign_cost", [79_996, 79_997], ids=["at", "over"])
+def test_the_sigop_limit_counts_to_spend_too(to_sign_cost: int) -> None:
+    """The limit is on `to_spend` and `to_sign` together, at its edge.
+
+    A p2pkh `to_spend` costs 4, so a `to_sign` costing 79,996 is the
+    last one accepted. Its further input is a p2wsh whose witness script
+    is `OP_CHECKMULTISIG` and `OP_CHECKSIG`, which count 20 and 1 there.
+    """
+    spend = bip322.to_spend(b"m", ScriptPubKey.from_address(p2pkh(WIF_PUB)).script)
+    tx = bip322.to_sign(spend, extra_inputs=[TxIn(OutPoint(b"\x01" * 32, 0), b"", 0)])
+    witness_script = b"\xae" * (to_sign_cost // 20) + b"\xac" * (to_sign_cost % 20)
+    tx.vin[1].script_witness = Witness([witness_script])
+    prevouts = [spend.vout[0], TxOut(1000, ScriptPubKey.p2wsh(witness_script))]
+    assert sig_op_cost(prevouts, tx) == to_sign_cost
+    if to_sign_cost + 4 <= MAX_BLOCK_SIGOPS_COST:
+        bip322._assert_sig_op_cost(spend, prevouts, tx)
+        return
+    with pytest.raises(BTClibValueError, match="over the block limit"):
+        bip322._assert_sig_op_cost(spend, prevouts, tx)
