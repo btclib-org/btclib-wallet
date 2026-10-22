@@ -1,0 +1,13 @@
+[package]
+name = "miniscript-compare"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+description = "Reads descriptors off stdin and prints what rust-miniscript makes of each."
+
+[dependencies]
+# a fixed revision, so that every run reads the same parser
+miniscript = { git = "https://git.rust-bitcoin.org/rust-bitcoin/rust-miniscript", rev = "96a1c917dacc539f57c13bbcf9dc8e4fd443377a" }
+
+[workspace]

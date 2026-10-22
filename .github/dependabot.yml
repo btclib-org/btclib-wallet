@@ -1,7 +1,6 @@
 ---
-# three of the four ecosystems this repository has: the pre-commit hook
-# revisions are left out. Dependabot has a pre-commit ecosystem, and the
-# maintainer decided to keep pre-commit.ci for them instead
+# The pre-commit hook revisions are left out: Dependabot has a pre-commit
+# ecosystem, and the maintainer decided to keep pre-commit.ci for them instead
 # (btclib-org/.github#1391): its weekly autoupdate, configured in the ci:
 # block of .pre-commit-config.yaml, already rewrites rev: for every repo:
 # but local and meta, so a second bot on the same pin would only compete
@@ -9,9 +8,14 @@
 # typos moves by a hand edit of its additional_dependencies, and pyroma by
 # the uv ecosystem below, uv.lock being where its version is pinned.
 #
+# The cargo lock of .github/interop/miniscript-compare is left out too, on
+# purpose: its rev is the fixed revision of rust-miniscript that the
+# descriptor comparison reads, and a bump changes what the comparison
+# measures.
+#
 # every pull request here runs the whole merge gate, so each ecosystem
 # groups its updates into a single pull request rather than paying for
-# that once each. Neither declares a target-branch: without one dependabot
+# that once each. None declares a target-branch: without one dependabot
 # opens against the default branch, which is the only branch a change
 # lands on -- and a target-branch naming a branch that is not there is
 # not an error anywhere, it is a repository where nothing is proposed.

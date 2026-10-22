@@ -590,6 +590,8 @@ ignore = [
 # and the device wait, whose whole output is one line for the log of the
 # job that started an emulator
 ".github/scripts/wait_for_hwi_device.py" = ["T201"]
+# and the descriptor comparison, whose output is the disagreements it found
+".github/scripts/compare_descriptors.py" = ["T201"]
 # the D rules are not here: a public test function states what it
 # verifies under the same docstring gate as the library
 "tests/**" = [
