@@ -103,6 +103,7 @@ import string
 from dataclasses import dataclass
 
 from btclib.alias import Octets, String
+from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
 from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
@@ -112,7 +113,7 @@ from btclib.exceptions import (
 from btclib.hashes import hash160
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import serialize
-from btclib.script.engine import ALL_FLAGS, ScriptFlag, verify_transaction
+from btclib.script.engine import ALL_FLAGS, ScriptFlag, sig_op_cost, verify_transaction
 from btclib.script.script_pub_key import ScriptPubKey, is_segwit, type_and_payload
 from btclib.script.sig_hash import ALL, DEFAULT, from_tx
 from btclib.script.sig_hash import taproot as taproot_sig_hash
@@ -512,6 +513,22 @@ def _assert_hash_types(hash_types: list[int]) -> None:
             raise BTClibValueError(err_msg)
 
 
+def _assert_sig_op_cost(prevouts: list[TxOut], tx: Tx) -> None:
+    """Refuse a `to_sign` no valid block can hold.
+
+    BIP322's verification process asks that `to_spend` and `to_sign`
+    satisfy all consensus rules. `verify_transaction` does not count
+    sigops, and Core refuses any block whose sigop cost is over
+    `MAX_BLOCK_SIGOPS_COST` (`bad-blk-sigops`), so a proof whose two
+    transactions together cost more than that cannot be one a consensus
+    node would accept. A P2PKH `to_spend` alone costs 4.
+    """
+    cost = sig_op_cost(prevouts, tx)
+    if cost > MAX_BLOCK_SIGOPS_COST:
+        err_msg = f"invalid sigop cost: {cost} > {MAX_BLOCK_SIGOPS_COST}"
+        raise BTClibValueError(err_msg)
+
+
 def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
     """Run the engine, telling an invalid signature from an inconclusive one.
 
@@ -597,6 +614,7 @@ def assert_as_valid(
         prevouts += _psbt_prevouts(payload)[1:]
 
     _assert_shape(tx, spend, prevouts)
+    _assert_sig_op_cost(prevouts, tx)
     _assert_scripts(prevouts, tx)
     _assert_upgradeable(tx)
 
