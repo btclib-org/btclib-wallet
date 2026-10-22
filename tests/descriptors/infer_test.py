@@ -17,6 +17,7 @@ are held to Core's source at bitcoin/bitcoin@9be056a8a7 (the v31.1 tag),
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 import pytest
@@ -35,9 +36,11 @@ from btclib_wallet.descriptors import (
     Descriptor,
     Provider,
     TrDescriptor,
+    add_checksum,
     infer_descriptor,
     multipath_descriptors,
     parse,
+    strip_checksum,
 )
 from btclib_wallet.descriptors.descriptors import _multi_a, _rebuilt
 
@@ -452,12 +455,124 @@ def _tr(tree: list) -> tuple[bytes, Provider]:  # type: ignore[type-arg]
     return b"\x51\x20" + output_key, Provider(keys={sec: None}, trees=trees)
 
 
-def test_a_tree_core_cannot_infer_is_a_rawtr() -> None:
-    """A leaf of another version, and a leaf that is no descriptor's."""
-    for tree in ([(0xC2, [bytes.fromhex(K1[2:]), "OP_CHECKSIG"])], [(0xC0, ["OP_1"])]):
-        script, provider = _tr(tree)
-        inferred = infer_descriptor(script, provider, "regtest")
-        assert inferred.startswith("rawtr(")
+X1 = K1[2:]
+X34 = K34[2:]
+PK_X1: list = [bytes.fromhex(X1), "OP_CHECKSIG"]  # type: ignore[type-arg]
+PK_X34: list = [bytes.fromhex(X34), "OP_CHECKSIG"]  # type: ignore[type-arg]
+
+
+def _inferred(tree: list) -> str:  # type: ignore[type-arg]
+    script, provider = _tr(tree)
+    return infer_descriptor(script, provider, "regtest")
+
+
+def _hash(leaf: list, version: int = 0xC0) -> str:  # type: ignore[type-arg]
+    """Return the tapleaf hash of a script, as btclib folds a tree of it."""
+    return tree_helper([(version, leaf)])[1].hex()
+
+
+def test_a_leaf_that_infers_to_nothing_else_is_a_rawleaf() -> None:
+    """A tree of a ``pk()`` and an ``OP_1`` keeps its key and its ``pk()``."""
+    assert _inferred([[(0xC0, PK_X1)], [(0xC0, ["OP_1"])]]) == add_checksum(
+        f"tr({X1},{{pk({X1}),rawleaf(51,c0)}})"
+    )
+    # a branch holds its two nodes unordered, and the leaves come back in the
+    # order of their scripts, as Core reads its records
+    assert _inferred([[(0xC0, ["OP_1"])], [(0xC0, PK_X1)]]) == add_checksum(
+        f"tr({X1},{{pk({X1}),rawleaf(51,c0)}})"
+    )
+    assert _inferred([(0xC0, PK_X1)]) == add_checksum(f"tr({X1},pk({X1}))")
+    assert _inferred([(0xC0, ["OP_1"])]) == add_checksum(f"tr({X1},rawleaf(51,c0))")
+
+
+def test_a_leaf_of_another_version_is_a_rawleaf_whatever_its_script_is() -> None:
+    """The version is part of what the output key commits to, so it is kept.
+
+    The script of a ``pk()`` in a leaf of version c2 is no ``pk()`` leaf: a
+    ``tr()`` of one is another output. Core's PR 30243 infers the script and
+    drops the version.
+    """
+    pk_script = "20" + X1 + "ac"
+    assert _inferred([(0xC2, PK_X1)]) == add_checksum(
+        f"tr({X1},rawleaf({pk_script},c2))"
+    )
+    assert _inferred([[(0xC0, PK_X1)], [(0x06, PK_X1)]]) == add_checksum(
+        f"tr({X1},{{rawleaf({pk_script},06),pk({X1})}})"
+    )
+    tr = parse(f"tr({X1},pk({X1}))", "regtest")
+    other = parse(f"tr({X1},rawleaf({pk_script},c2))", "regtest")
+    assert tr.script_pub_key() != other.script_pub_key()
+
+
+def test_a_leaf_with_no_script_is_the_node_of_its_hash() -> None:
+    """``rawleaf()`` with no HEX is refused, and its node commits as it does."""
+    inferred = _inferred([[(0xC0, PK_X1)], [(0xC0, [])]])
+    assert inferred == add_checksum(f"tr({X1},{{rawnode({_hash([])}),pk({X1})}})")
+    script, _ = _tr([[(0xC0, PK_X1)], [(0xC0, [])]])
+    assert parse(inferred, "regtest").script_pub_key().script == script
+
+
+def test_a_branch_with_no_known_leaf_is_a_rawnode() -> None:
+    """Record only some leaves, and the rest is the hash of its branch."""
+    tree = [[(0xC0, PK_X1)], [[(0xC0, PK_X34)], [(0xC0, ["OP_1"])]]]
+    script, provider = _tr(tree)
+    ((output_key, (internal, root, leaves)),) = provider.trees.items()
+    first = next(c for c, (s, _) in leaves.items() if s == serialize(PK_X1))
+    known = replace(
+        provider, trees={output_key: (internal, root, {first: leaves[first]})}
+    )
+    branch = tree_helper([[(0xC0, PK_X34)], [(0xC0, ["OP_1"])]])[1].hex()
+    inferred = infer_descriptor(script, known, "regtest")
+    assert inferred == add_checksum(f"tr({X1},{{pk({X1}),rawnode({branch})}})")
+    assert parse(inferred, "regtest").script_pub_key().script == script
+    # nothing known of the tree: the root, under the internal key
+    none = replace(provider, trees={output_key: (internal, root, {})})
+    inferred = infer_descriptor(script, none, "regtest")
+    assert inferred == add_checksum(f"tr({X1},rawnode({root.hex()}))")
+    assert parse(inferred, "regtest").script_pub_key().script == script
+
+
+def test_equal_subtrees_are_inferred_twice() -> None:
+    """Two equal leaves have one control block, and both are in the tree."""
+    both = [[(0xC0, PK_X1)], [(0xC0, PK_X1)]]
+    assert _inferred(both) == add_checksum(f"tr({X1},{{pk({X1}),pk({X1})}})")
+    nested = [[(0xC0, ["OP_1"])], [(0xC0, ["OP_1"])]]
+    inferred = _inferred([nested, nested])
+    leaf = "rawleaf(51,c0)"
+    assert inferred == add_checksum(f"tr({X1},{{{{{leaf},{leaf}}},{{{leaf},{leaf}}}}})")
+
+
+def test_a_tree_inferred_from_its_descriptor_is_that_descriptor() -> None:
+    """Expand a descriptor and infer its script back, raw functions included.
+
+    A ``raw()`` leaf is read back as the ``rawleaf()`` of version c0, which is
+    the one text an inferred leaf has, and the leaves are in the order of their
+    scripts. The provider of a descriptor gives each key the origin it is its
+    own master by, which is left out of the comparison.
+    """
+    pk_x34 = "20" + X34 + "ac"
+    for text, expected in (
+        (
+            f"tr({X1},{{pk({X34}),rawnode({_hash(PK_X1)})}})",
+            f"tr({X1},{{pk({X34}),rawnode({_hash(PK_X1)})}})",
+        ),
+        (
+            f"tr({X1},{{raw({pk_x34}),rawleaf(51,c2)}})",
+            f"tr({X1},{{pk({X34}),rawleaf(51,c2)}})",
+        ),
+        (
+            f"tr({X1},{{raw(51),rawleaf(51,06)}})",
+            f"tr({X1},{{rawleaf(51,06),rawleaf(51,c0)}})",
+        ),
+        (
+            f"tr({X1},{{{{pk({X1}),rawleaf(51,06)}},rawnode({_hash(['OP_1'])})}})",
+            f"tr({X1},{{{{pk({X1}),rawleaf(51,06)}},rawnode({_hash(['OP_1'])})}})",
+        ),
+    ):
+        descriptor = parse(text, "regtest")
+        script = descriptor.script_pub_key().script
+        inferred = infer_descriptor(script, descriptor.provider(), "regtest")
+        assert re.sub(r"\[[0-9a-f]{8}\]", "", strip_checksum(inferred)) == expected
 
 
 def test_a_tree_the_output_key_does_not_commit_to_is_a_rawtr() -> None:
@@ -500,14 +615,17 @@ def test_a_record_proving_nothing_is_skipped() -> None:
     )
     (other_control, other_leaf) = list(leaves.items())[1]
     half = {output_key: (internal, root, {other_control: other_leaf})}
+    # what is left is the other leaf, and the hash of the one that is not proved
+    unproved = _hash(leaf)
+    expected = add_checksum(f"tr({X1},{{pk({X34}),rawnode({unproved})}})")
     inferred = infer_descriptor(script, replace(provider, trees=half), "regtest")
-    assert inferred.startswith("rawtr(")
+    assert inferred == expected
     # the version byte of the other leaf's only record is not its version
     wrong_byte = bytes([0xC2 | control[0] & 1]) + control[1:]
     mislabelled = {wrong_byte: (leaf_script, version), other_control: other_leaf}
     trees = {output_key: (internal, root, mislabelled)}
     inferred = infer_descriptor(script, replace(provider, trees=trees), "regtest")
-    assert inferred.startswith("rawtr(")
+    assert inferred == expected
 
 
 def test_control_blocks_that_contradict_each_other() -> None:

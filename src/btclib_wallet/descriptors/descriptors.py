@@ -44,6 +44,11 @@ The grammar read is BIP380 to BIP390:
   ``multi_a()`` and ``sortedmulti_a()`` (BIP386, BIP387)
 - ``rawtr``, which no BIP specifies: Bitcoin Core's `doc/descriptors.md`
   is what defines it, and the key it takes is the output key itself
+- ``rawnode``, ``rawleaf``, ``rawpkh``, and ``raw`` inside ``sh()``,
+  ``wsh()`` and a ``tr()`` tree, which no BIP specifies either: they let a
+  descriptor say what it knows of an output it knows in part. Bitcoin
+  Core's bitcoin/bitcoin#30243 specifies the first two, and the draft BIP
+  of bitcoin/bips#1721 the nested ``raw``
 - key expressions: hex public keys (compressed, uncompressed and, inside
   ``tr()`` and ``rawtr()``, x-only), WIF private keys, xpub/xprv with a
   derivation path, key origin, ``/*`` and ``/*h`` wildcards, both ``h``
@@ -126,8 +131,9 @@ wallet wants.
 
 What this module exports is the checksum functions, `parse` and
 `multipath_descriptors`, and the fragment classes a parsed descriptor is
-made of -- `DescriptorTree` and the `MultiA` a tree leaf may be among
-them, both being names a caller reads off `TrDescriptor.tree`.
+made of -- `DescriptorTree` and the `MultiA`, `RawLeaf` and `RawNode` a
+tree may hold among them, all being names a caller reads off
+`TrDescriptor.tree`.
 `KeyExpression` and `PrvKeys` are `key_expression`'s and the `Miniscript`
 a `MiniscriptDescriptor` holds is `miniscript`'s; the package `__init__`
 re-exports the first two, being what a caller reads off
@@ -147,7 +153,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, NoReturn, cast
 
-from btclib.alias import Octets, ScriptList, TaprootScriptTree
+from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, ripemd160
 from btclib.key import PubKeyData
@@ -159,14 +165,11 @@ from btclib.network import (
 )
 from btclib.script.limits import MAX_PUBKEYS_PER_MULTISIG, MAX_SCRIPT_ELEMENT_SIZE
 from btclib.script.script import op_code_spans, op_int, serialize
-from btclib.script.script import parse as _parse_script
 from btclib.script.script_pub_key import ScriptPubKey, script_from_script_pub_key
 from btclib.script.taproot import (
     MAX_TREE_DEPTH,
-    input_script_sig,
     leaf_hash,
     output_pubkey_from_merkle_root,
-    tree_helper,
 )
 from btclib.script.witness import Witness
 from btclib.tx.tx_in import TxIn
@@ -222,6 +225,7 @@ from btclib_wallet.descriptors.miniscript import (
     Miniscript,
     SpendContext,
     _assert_sane,
+    _has_raw_key_hash,
     _read_unclosed_multisig_keys,
     _script_number,
 )
@@ -245,6 +249,9 @@ __all__ = [
     "PkhDescriptor",
     "Provider",
     "RawDescriptor",
+    "RawLeaf",
+    "RawNode",
+    "RawPkhDescriptor",
     "RawTrDescriptor",
     "ShDescriptor",
     "TrDescriptor",
@@ -399,6 +406,21 @@ _MAX_BARE_MULTISIG_KEYS = 3
 # is what refuses them anywhere a SCRIPT expression is expected
 _TREE_FUNCTIONS = ("multi_a", "sortedmulti_a")
 
+# the two functions that name a tree node whose script, or whose subtree,
+# is not a descriptor's to say. No BIP specifies them: Bitcoin Core's
+# bitcoin/bitcoin#30243 does, and they belong inside tr() only for the reason
+# the two above do
+_RAW_TREE_FUNCTIONS = ("rawnode", "rawleaf")
+
+# what a hex argument is: whole bytes, as Bitcoin Core's `IsHex` reads it
+_HEX_BYTES = re.compile(r"(?:[0-9a-fA-F]{2})+")
+# the bytes of a tree node's hash and of the hash160 a p2pkh script holds
+_NODE_HASH_SIZE = 32
+_KEY_HASH_SIZE = 20
+# rawleaf() takes a script and a leaf version of one byte
+_RAWLEAF_ARGUMENTS = 2
+_LEAF_VERSION_DIGITS = 2
+
 _THRESHOLD = re.compile(r"[0-9]+")
 # a multipath step. A text that `parse` has read, each step on its first
 # path, holds no "<" or ">" but in one, as a whole element of a key's path
@@ -527,23 +549,76 @@ class MultiA:
         return stack
 
 
+@dataclass(frozen=True)
+class RawLeaf:
+    """``rawleaf(HEX,VER)`` or ``raw(HEX)``: a tree leaf written as its bytes.
+
+    A leaf of a ``tr()`` script tree that says which script and which leaf
+    version the output key commits to, and nothing about the keys in it. No
+    BIP specifies ``rawleaf()``: Bitcoin Core's bitcoin/bitcoin#30243 does, and
+    the draft BIP of bitcoin/bips#1721 specifies ``raw()`` there, a leaf
+    of version c0. `bare` says the leaf was written the second way, which
+    is a different text and a different checksum for the same output.
+
+    The version is printed as two hex digits, whereas PR 30243 prints it
+    with ``%x``, and its own parser refuses the one digit that prints for a
+    version below 0x10.
+    """
+
+    script: bytes
+    version: int = _TAPSCRIPT_LEAF_VERSION
+    bare: bool = field(default=False, kw_only=True)
+
+    def __post_init__(self) -> None:
+        """Refuse a ``raw()`` leaf of a version other than c0."""
+        if self.bare and self.version != _TAPSCRIPT_LEAF_VERSION:
+            raise BTClibValueError("a raw() leaf has the leaf version c0")
+
+    @override
+    def __str__(self) -> str:
+        """Return the leaf as ``raw(HEX)``, or as ``rawleaf(HEX,VER)``."""
+        if self.bare:
+            return _expression("raw", self.script.hex())
+        return _expression("rawleaf", self.script.hex(), f"{self.version:02x}")
+
+
+@dataclass(frozen=True)
+class RawNode:
+    """``rawnode(HEX)``: a node of a ``tr()`` tree known by its hash alone.
+
+    A branch, or the whole tree, whose subtree the descriptor does not
+    hold: the output key commits to it, and no script of it can be spent
+    from here. No BIP specifies it: Bitcoin Core's bitcoin/bitcoin#30243 does.
+    A hash that is a leaf's own is still a node here, the descriptor
+    having no script to show for it.
+    """
+
+    digest: bytes
+
+    @override
+    def __str__(self) -> str:
+        """Return the node as ``rawnode(HEX)``."""
+        return _expression("rawnode", self.digest.hex())
+
+
 def _tree_expression(tree: DescriptorTree) -> str:
     """Return a BIP386 TREE as text: a leaf, or two subtrees in braces."""
     if isinstance(tree, tuple):
         return f"{{{_tree_expression(tree[0])},{_tree_expression(tree[1])}}}"
-    if isinstance(tree, (MultiA, Miniscript)):
+    if isinstance(tree, (MultiA, Miniscript, RawLeaf, RawNode)):
         return str(tree)
     return _expression("pk", str(tree))
 
 
 # A tr() script tree. A leaf is the KEY expression a `pk()` leaf is, the
-# `MultiA` of BIP387's two functions; a branch is a tuple, which is what
+# `MultiA` of BIP387's two functions, a miniscript or a `RawLeaf`; a node
+# known by its hash is a `RawNode`; a branch is a tuple, which is what
 # tells a branch from a leaf. The leaves hold KEY expressions and not
 # scripts because a ranged descriptor has no script until an index is
 # given
-DescriptorLeaf = KeyExpression | MultiA | Miniscript
-#: A `DescriptorLeaf`, or a branch, a tuple of two subtrees.
-DescriptorTree = DescriptorLeaf | tuple["DescriptorTree", "DescriptorTree"]
+DescriptorLeaf = KeyExpression | MultiA | Miniscript | RawLeaf
+#: A `DescriptorLeaf`, a `RawNode`, or a branch, a tuple of two subtrees.
+DescriptorTree = DescriptorLeaf | RawNode | tuple["DescriptorTree", "DescriptorTree"]
 
 
 def _leaf_keys(leaf: DescriptorLeaf) -> tuple[KeyExpression, ...]:
@@ -552,19 +627,30 @@ def _leaf_keys(leaf: DescriptorLeaf) -> tuple[KeyExpression, ...]:
         return leaf.keys
     if isinstance(leaf, Miniscript):
         return leaf.key_expressions
+    if isinstance(leaf, RawLeaf):
+        return ()
     return (leaf,)
 
 
 def _tree_leaves(tree: DescriptorTree) -> tuple[DescriptorLeaf, ...]:
     """Return the leaves left to right, which is the order they are numbered.
 
-    `taproot.tree_helper` walks the left subtree before the right one, so
-    the n-th leaf here is the n-th leaf there, and that number is what
-    `taproot.input_script_sig` takes.
+    `_tree_walk` visits the left subtree before the right one, so the n-th
+    leaf here is the n-th leaf there. A `RawNode` is no leaf and is not
+    numbered.
     """
     if isinstance(tree, tuple):
         return _tree_leaves(tree[0]) + _tree_leaves(tree[1])
+    if isinstance(tree, RawNode):
+        return ()
     return (tree,)
+
+
+def _has_raw_node(tree: DescriptorTree) -> bool:
+    """Return True where a subtree of the tree is known by its hash alone."""
+    if isinstance(tree, tuple):
+        return _has_raw_node(tree[0]) or _has_raw_node(tree[1])
+    return isinstance(tree, RawNode)
 
 
 def _tree_keys(tree: DescriptorTree) -> tuple[KeyExpression, ...]:
@@ -576,40 +662,68 @@ def _tree_keys(tree: DescriptorTree) -> tuple[KeyExpression, ...]:
 
 def _leaf_script(
     leaf: DescriptorLeaf, index: int, network: str, prv_keys: PrvKeys | None
-) -> ScriptList:
-    """Return the tapscript of one leaf: a key, a ``multi_a()``, a miniscript.
-
-    Read back into commands where the leaf is a miniscript, that being
-    what a `TaprootLeaf` holds: the round trip is exact for these bytes,
-    every push a miniscript writes being the minimal one.
-    """
+) -> bytes:
+    """Return the tapscript of one leaf."""
     if isinstance(leaf, MultiA):
-        return leaf._script(index, network, prv_keys)
+        return serialize(leaf._script(index, network, prv_keys))
     if isinstance(leaf, Miniscript):
-        return _parse_script(leaf.script(index, network, prv_keys))
-    return [leaf.sec(index, network, prv_keys)[1:], "OP_CHECKSIG"]
+        return leaf.script(index, network, prv_keys)
+    if isinstance(leaf, RawLeaf):
+        return leaf.script
+    return serialize([leaf.sec(index, network, prv_keys)[1:], "OP_CHECKSIG"])
 
 
-def _leaf_scripts(
+def _leaf_version(leaf: DescriptorLeaf) -> int:
+    """Return the leaf version of one leaf, c0 unless a `RawLeaf` says."""
+    return leaf.version if isinstance(leaf, RawLeaf) else _TAPSCRIPT_LEAF_VERSION
+
+
+@dataclass(frozen=True)
+class _TreeLeaf:
+    """One leaf of a tree walk, with what a control block proves it by."""
+
+    depth: int
+    version: int
+    script: bytes
+    # the hashes of the siblings from the leaf up to the root
+    path: bytes
+
+
+def _tree_walk(
     tree: DescriptorTree,
     depth: int,
     index: int,
     network: str,
     prv_keys: PrvKeys | None,
-) -> list[tuple[int, bytes]]:
-    """Return each leaf's depth and serialized script, left to right.
+) -> tuple[list[_TreeLeaf], bytes]:
+    """Return the leaves of a tree left to right, and its merkle root.
 
-    The depth is what BIP371's PSBT_OUT_TAP_TREE carries beside the
-    script, and the two together are the tree: a depth-first walk that
-    records how deep each leaf sits is enough to rebuild the shape it was
-    walked from. The order is `_tree_leaves`'s, which is the order
-    `taproot.tree_helper` numbers them in.
+    BIP341's `taproot_tree_helper`, which `btclib.script.taproot.tree_helper`
+    is, taking a `RawNode` as a hash with no leaf below it. The leaves are
+    in the order `_tree_leaves` numbers them, and the depth is the number
+    of branches above each.
+
+    A branch puts its leaves one level below itself, and a leaf's depth is
+    the length of the merkle path proving it: refused here, before the
+    recursion, MAX_TREE_DEPTH also bounds the recursion well inside
+    Python's.
     """
     if isinstance(tree, tuple):
-        return _leaf_scripts(tree[0], depth + 1, index, network, prv_keys) + (
-            _leaf_scripts(tree[1], depth + 1, index, network, prv_keys)
-        )
-    return [(depth, serialize(_leaf_script(tree, index, network, prv_keys)))]
+        if depth == MAX_TREE_DEPTH:
+            raise BTClibValueError(f"script tree deeper than {MAX_TREE_DEPTH}")
+        left, left_hash = _tree_walk(tree[0], depth + 1, index, network, prv_keys)
+        right, right_hash = _tree_walk(tree[1], depth + 1, index, network, prv_keys)
+        leaves = [replace(leaf, path=leaf.path + right_hash) for leaf in left]
+        leaves += [replace(leaf, path=leaf.path + left_hash) for leaf in right]
+        low, high = sorted((left_hash, right_hash))
+        return leaves, tagged_hash(b"TapBranch", low + high)
+    if isinstance(tree, RawNode):
+        if len(tree.digest) != _NODE_HASH_SIZE:
+            raise BTClibValueError("256 bits digest expected")
+        return [], tree.digest
+    script = _leaf_script(tree, index, network, prv_keys)
+    version = _leaf_version(tree)
+    return [_TreeLeaf(depth, version, script, b"")], leaf_hash(version, script)
 
 
 def _leaf_stack(
@@ -622,9 +736,9 @@ def _leaf_stack(
 ) -> list[bytes] | None:
     """Return what satisfies one leaf, None where the signatures do not.
 
-    None rather than a refusal, for a miniscript leaf as for the other
-    two: which leaf the signatures at hand open is the question the caller
-    is walking the tree to answer, so a leaf they do not open is an answer
+    None rather than a refusal, for a miniscript leaf as for the others:
+    which leaf the signatures at hand open is the question the caller is
+    walking the tree to answer, so a leaf they do not open is an answer
     and not an error -- including one whose branches want a preimage or a
     lock time this spend does not have.
     """
@@ -636,21 +750,13 @@ def _leaf_stack(
             return leaf.satisfy(offered, spend, index, network, prv_keys)
         except BTClibValueError:
             return None
+    if isinstance(leaf, RawLeaf):
+        # bytes name no key, so no signature opens the leaf
+        return None
     signature = _offered_signature(
         signatures, leaf.sec(index, network, prv_keys), x_only=True
     )
     return None if signature is None else [signature]
-
-
-def _taproot_script_tree(
-    tree: DescriptorTree, index: int, network: str, prv_keys: PrvKeys | None
-) -> TaprootScriptTree:
-    if isinstance(tree, tuple):
-        return [
-            _taproot_script_tree(tree[0], index, network, prv_keys),
-            _taproot_script_tree(tree[1], index, network, prv_keys),
-        ]
-    return [(_TAPSCRIPT_LEAF_VERSION, _leaf_script(tree, index, network, prv_keys))]
 
 
 def _required_signature(signatures: Mapping[bytes, bytes], sec: bytes) -> bytes:
@@ -1463,9 +1569,12 @@ class ShDescriptor(Descriptor):
         Delegated rather than dispatched on: the argument of a
         ``sh(wsh())`` is what knows there is a witness script below the
         redeem script, and it is the same method that fills it for a
-        native ``wsh()``.
+        native ``wsh()``. A ``raw()`` or a ``rawpkh()`` argument is no
+        such fragment: it holds no key to fill, and its bytes are the
+        redeem script.
         """
-        self.inner._update_map(psbt_map, index, prv_keys)
+        if not isinstance(self.inner, _SCRIPT_ONLY):
+            self.inner._update_map(psbt_map, index, prv_keys)
         psbt_map.redeem_script = self.inner.redeem_script(index, prv_keys)
 
 
@@ -1515,9 +1624,12 @@ class WshDescriptor(Descriptor):
 
         Which is the whole difference between a native ``wsh()`` and a
         wrapped one, in the psbt as in the spend: the same witness script,
-        and a redeem script only where something wraps it.
+        and a redeem script only where something wraps it. A ``raw()``
+        or a ``rawpkh()`` argument holds no key to fill, and its bytes
+        are the witness script.
         """
-        self.inner._update_map(psbt_map, index, prv_keys)
+        if not isinstance(self.inner, _SCRIPT_ONLY):
+            self.inner._update_map(psbt_map, index, prv_keys)
         psbt_map.witness_script = self.inner.redeem_script(index, prv_keys)
 
 
@@ -1796,6 +1908,17 @@ class RawDescriptor(Descriptor):
         return [self.script]
 
     @override
+    def _stack(
+        self,
+        signatures: Mapping[bytes, bytes],
+        index: int,
+        prv_keys: PrvKeys | None,
+        spend: SpendContext | None,
+    ) -> list[bytes]:
+        """Refuse, as `_satisfy` does: ``wsh()`` asks for the stack."""
+        raise BTClibValueError("raw() cannot be satisfied: it holds no key")
+
+    @override
     def _satisfy(
         self,
         signatures: Mapping[bytes, bytes],
@@ -1820,9 +1943,83 @@ class RawDescriptor(Descriptor):
 
         Those bytes may be the script an input spends, and they are then
         its script_pub_key, which the psbt has from the utxo; what a
-        descriptor is asked here is what the utxo does not say.
+        descriptor is asked here is what the utxo does not say. Inside
+        ``sh()`` or ``wsh()`` the bytes are the script that function
+        embeds, and it writes them itself.
         """
         raise BTClibValueError("raw() cannot update a psbt: it holds no key")
+
+
+@dataclass(frozen=True)
+class RawPkhDescriptor(Descriptor):
+    """``rawpkh(HEX)``: a p2pkh output paying to the hash160 HEX, no BIP.
+
+    ``pkh(KEY)`` with the hash of the key and not the key, for an output
+    whose key the descriptor does not know. Bitcoin Core does not read it.
+    Inside a miniscript the same text is the fragment ``pkh(KEY)`` is, with
+    the hash for the key; inside ``tr()`` it is refused pending the BIP.
+    """
+
+    key_hash: bytes
+
+    @override
+    def __str__(self) -> str:
+        return _expression("rawpkh", self.key_hash.hex())
+
+    @property
+    @override
+    def key_expressions(self) -> tuple[KeyExpression, ...]:
+        """Return no KEY expression, the descriptor fixing none."""
+        return ()
+
+    @override
+    def _scripts(self, index: int, prv_keys: PrvKeys | None) -> list[bytes]:
+        if len(self.key_hash) != _KEY_HASH_SIZE:
+            raise BTClibValueError("160 bits digest expected")
+        return [
+            serialize(
+                ["OP_DUP", "OP_HASH160", self.key_hash, "OP_EQUALVERIFY", "OP_CHECKSIG"]
+            )
+        ]
+
+    @override
+    def _stack(
+        self,
+        signatures: Mapping[bytes, bytes],
+        index: int,
+        prv_keys: PrvKeys | None,
+        spend: SpendContext | None,
+    ) -> list[bytes]:
+        """Refuse, as `_satisfy` does: ``wsh()`` asks for the stack."""
+        raise BTClibValueError("rawpkh() cannot be satisfied: it holds no key")
+
+    @override
+    def _satisfy(
+        self,
+        signatures: Mapping[bytes, bytes],
+        index: int,
+        prv_keys: PrvKeys | None,
+        spend: SpendContext | None,
+    ) -> tuple[bytes, Witness]:
+        """Refuse: the hash of a key is not the key the spend has to push."""
+        raise BTClibValueError("rawpkh() cannot be satisfied: it holds no key")
+
+    @override
+    def _update_map(
+        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
+    ) -> None:
+        """Refuse, for the reason ``raw()`` does: a hash holds no key origin."""
+        raise BTClibValueError("rawpkh() cannot update a psbt: it holds no key")
+
+
+# the fragments that are a script and nothing else: what ``sh()`` and
+# ``wsh()`` embed as it is, with no key origin of its own to write
+_SCRIPT_ONLY = (RawDescriptor, RawPkhDescriptor)
+
+
+def _control_block(x_only: bytes, parity: int, leaf: _TreeLeaf) -> bytes:
+    """Return BIP341's control block of a leaf."""
+    return bytes([parity + leaf.version]) + x_only + leaf.path
 
 
 @dataclass(frozen=True)
@@ -1846,37 +2043,36 @@ class TrDescriptor(Descriptor):
             return (self.internal_key,)
         return (self.internal_key, *_tree_keys(self.tree))
 
-    @override
-    def _scripts(self, index: int, prv_keys: PrvKeys | None) -> list[bytes]:
-        script_tree = (
-            None
-            if self.tree is None
-            else _taproot_script_tree(self.tree, index, self.network, prv_keys)
-        )
-        internal_key = _pub_key_data(
-            self.internal_key.sec(index, self.network, prv_keys), self.network
-        )
-        return [ScriptPubKey.p2tr(internal_key, script_tree).script]
+    def _tree(
+        self, index: int, prv_keys: PrvKeys | None
+    ) -> tuple[list[_TreeLeaf], bytes]:
+        """Return the leaves in tree order, and the merkle root."""
+        if self.tree is None:
+            return [], b""
+        return _tree_walk(self.tree, 0, index, self.network, prv_keys)
 
-    def _leaf(
-        self,
-        script_tree: TaprootScriptTree,
-        index: int,
-        leaf: int,
-        prv_keys: PrvKeys | None,
-    ) -> tuple[bytes, bytes]:
-        """Return one leaf's serialized script and its control block.
+    def _output(
+        self, index: int, prv_keys: PrvKeys | None
+    ) -> tuple[bytes, bytes, int, list[_TreeLeaf]]:
+        """Return the internal key, the output key, its parity and the leaves.
 
-        The one place either is built, a spend and an update of the same
-        leaf wanting the same bytes. The tree is a parameter because both
-        callers have computed it already -- and because a ``tr()`` with no
-        tree has no leaf, which they answer for themselves.
+        The one place the output key is built, a script and a control
+        block wanting the same key and the same parity. The internal key is
+        asked as `btclib.script.taproot.output_pubkey` asks it, for its
+        length, its prefix and its network.
         """
         internal_key = _pub_key_data(
             self.internal_key.sec(index, self.network, prv_keys), self.network
         )
-        script, control_block = input_script_sig(internal_key, script_tree, leaf)
-        return serialize(script), control_block
+        internal_key.assert_valid()
+        leaves, root = self._tree(index, prv_keys)
+        x_only = internal_key.sec[1:33]
+        output_key, parity = output_pubkey_from_merkle_root(x_only, root)
+        return x_only, output_key, parity, leaves
+
+    @override
+    def _scripts(self, index: int, prv_keys: PrvKeys | None) -> list[bytes]:
+        return [serialize(["OP_1", self._output(index, prv_keys)[1]])]
 
     def taproot_merkle_root(
         self, index: int = 0, prv_keys: PrvKeys | None = None
@@ -1889,11 +2085,7 @@ class TrDescriptor(Descriptor):
         """
         _assert_prv_keys(prv_keys)
         self._assert_index(index)
-        if self.tree is None:
-            return b""
-        return tree_helper(
-            _taproot_script_tree(self.tree, index, self.network, prv_keys)
-        )[1]
+        return self._tree(index, prv_keys)[1]
 
     def taproot_leaf_scripts(
         self, index: int = 0, prv_keys: PrvKeys | None = None
@@ -1904,18 +2096,18 @@ class TrDescriptor(Descriptor):
         Updater is needed for rather than convenient: a control block
         holds the merkle path from its leaf to the root, which is the
         whole tree seen from that leaf, and a psbt carrying one leaf's
-        script has no way to compute another's.
+        script has no way to compute another's. A `RawNode` has no leaf,
+        and sits in the path of the control blocks of its siblings.
         """
         _assert_prv_keys(prv_keys)
         self._assert_index(index)
         if self.tree is None:
             return {}
-        script_tree = _taproot_script_tree(self.tree, index, self.network, prv_keys)
-        leaf_scripts: dict[bytes, tuple[bytes, int]] = {}
-        for leaf in range(len(_tree_leaves(self.tree))):
-            script, control_block = self._leaf(script_tree, index, leaf, prv_keys)
-            leaf_scripts[control_block] = (script, _TAPSCRIPT_LEAF_VERSION)
-        return leaf_scripts
+        x_only, _, parity, leaves = self._output(index, prv_keys)
+        return {
+            _control_block(x_only, parity, leaf): (leaf.script, leaf.version)
+            for leaf in leaves
+        }
 
     def _taproot_hd_key_paths(
         self, index: int, prv_keys: PrvKeys | None
@@ -1940,10 +2132,9 @@ class TrDescriptor(Descriptor):
         """
         leaf_hashes: dict[bytes, list[bytes]] = {}
         if self.tree is not None:
-            script_tree = _taproot_script_tree(self.tree, index, self.network, prv_keys)
-            for number, leaf in enumerate(_tree_leaves(self.tree)):
-                script = self._leaf(script_tree, index, number, prv_keys)[0]
-                hash_ = leaf_hash(_TAPSCRIPT_LEAF_VERSION, script)
+            walked = self._tree(index, prv_keys)[0]
+            for leaf, record in zip(_tree_leaves(self.tree), walked, strict=True):
+                hash_ = leaf_hash(record.version, record.script)
                 for key in _leaf_keys(leaf):
                     hashes = leaf_hashes.setdefault(
                         key.sec(index, self.network, prv_keys)[1:], []
@@ -1999,12 +2190,12 @@ class TrDescriptor(Descriptor):
             return b"", Witness([signature])
         if self.tree is None:
             raise BTClibValueError("no signature for the tr() internal key")
-        script_tree = _taproot_script_tree(self.tree, index, self.network, prv_keys)
-        for number, leaf in enumerate(_tree_leaves(self.tree)):
+        x_only, _, parity, walked = self._output(index, prv_keys)
+        for leaf, record in zip(_tree_leaves(self.tree), walked, strict=True):
             stack = _leaf_stack(leaf, signatures, index, self.network, prv_keys, spend)
             if stack is not None:
-                script, control_block = self._leaf(script_tree, index, number, prv_keys)
-                return b"", Witness([*stack, script, control_block])
+                control_block = _control_block(x_only, parity, record)
+                return b"", Witness([*stack, record.script, control_block])
         err_msg = "no signature for the tr() internal key or for any of its leaves"
         raise BTClibValueError(err_msg)
 
@@ -2023,13 +2214,20 @@ class TrDescriptor(Descriptor):
 
         Empty for a ``tr(KEY)``, whose output key commits to no script at
         all, and which BIP371 says so about by leaving the field out.
+        Refused where a ``rawnode()`` is in the tree: the field is the
+        whole tree, and a node known by its hash has no leaf to publish.
         """
         _assert_prv_keys(prv_keys)
         self._assert_index(index)
         if self.tree is None:
             return []
-        scripts = _leaf_scripts(self.tree, 0, index, self.network, prv_keys)
-        return [(depth, _TAPSCRIPT_LEAF_VERSION, script) for depth, script in scripts]
+        if _has_raw_node(self.tree):
+            err_msg = "a tr() with a rawnode() has no whole tree to publish"
+            raise BTClibValueError(err_msg)
+        return [
+            (leaf.depth, leaf.version, leaf.script)
+            for leaf in self._tree(index, prv_keys)[0]
+        ]
 
     @override
     def _update_map(
@@ -2328,6 +2526,13 @@ def _parse_tree(
             _split_function(expression)[1],
             lambda args: _parse_multi_a(name, args, prv_keys),
         )
+    return _parse_other_leaf(expression, name, prv_keys)
+
+
+def _parse_other_leaf(
+    expression: str, name: str, prv_keys: dict[str, str]
+) -> DescriptorTree:
+    """Return the tree of a ``pk()``, a raw function or a miniscript leaf."""
     if name == "musig":
         # allowed inside tr(), and as a key rather than as a leaf: a leaf
         # is a script, and what a musig() aggregates to is one key of one
@@ -2340,6 +2545,8 @@ def _parse_tree(
         # and ``pkh()`` allow tr() among their positions and fall through
         # to be read, ``pkh()`` as the BIP379 fragment of that name
         _assert_position(name, _P2TR, _PARSERS[name][0])
+    if name == "raw" or name in _RAW_TREE_FUNCTIONS:
+        return _read_split(_split_function(expression)[1], _RAW_TREE_PARSERS[name])
     if name != "pk":
         # a leaf that is no BIP386 leaf is a BIP379 miniscript, which is
         # the same order the wsh() half reads its two grammars in
@@ -2555,17 +2762,79 @@ def _parse_addr(
     return AddrDescriptor(address, network=ScriptPubKey.from_address(address).network)
 
 
+def _hex_bytes(text: str, fault: str) -> bytes:
+    """Return the bytes of a hex argument, refusing an empty one or odd one.
+
+    The fault is Bitcoin Core's where it names one, and never carries the
+    text: a descriptor may be handed a secret where a script is expected.
+    """
+    if not _HEX_BYTES.fullmatch(text):
+        raise BTClibValueError(fault)
+    return bytes.fromhex(text)
+
+
 def _parse_raw(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
-    hex_script = _one_argument(args, "raw")
-    try:
-        script = bytes_from_octets(hex_script)
-    # bytes.fromhex raises a plain ValueError, and every other way of
-    # writing a descriptor wrong raises a BTClibValueError
-    except ValueError as e:
-        raise BTClibValueError("raw() takes a hex script") from e
+    script = _hex_bytes(_one_argument(args, "raw"), "Raw script is not hex")
     return RawDescriptor(script, network=network)
+
+
+def _parse_rawpkh(
+    args: list[str], context: str, network: str, prv_keys: dict[str, str]
+) -> Descriptor:
+    key_hash = _hex_bytes(_one_argument(args, "rawpkh"), "Rawpkh hash is not hex")
+    if len(key_hash) != _KEY_HASH_SIZE:
+        raise BTClibValueError("160 bits digest expected")
+    return RawPkhDescriptor(key_hash, network=network)
+
+
+def _parse_bare_leaf(args: list[str]) -> RawLeaf:
+    """Return the leaf of a ``raw(HEX)`` inside a tree: version c0."""
+    script = _hex_bytes(_one_argument(args, "raw"), "Raw script is not hex")
+    return RawLeaf(script, bare=True)
+
+
+def _parse_rawnode(args: list[str]) -> RawNode:
+    """Return the node of a ``rawnode(HEX)``: 32 bytes."""
+    digest = _hex_bytes(_one_argument(args, "rawnode"), "Rawnode hash is not hex")
+    if len(digest) != _NODE_HASH_SIZE:
+        raise BTClibValueError("256 bits digest expected")
+    return RawNode(digest)
+
+
+def _parse_rawleaf(args: list[str]) -> RawLeaf:
+    """Return the leaf of a ``rawleaf(HEX)`` or ``rawleaf(HEX,VER)``.
+
+    The faults and their order are Bitcoin Core's, in PR 30243. The version
+    is one byte, and an odd one is refused: its low bit is the parity of
+    the output key in a control block.
+    """
+    script = _hex_bytes(args[0], "Leaf Script is not hex")
+    if len(args) == 1:
+        return RawLeaf(script)
+    text = args[1]
+    if text and not _HEX_BYTES.fullmatch(text):
+        raise BTClibValueError("Leaf Version is not hex")
+    if len(text) > _LEAF_VERSION_DIGITS:
+        raise BTClibValueError("Leaf Version is too large")
+    if not text:
+        raise BTClibValueError("Expected Leaf Version but not provided")
+    version = int(text, 16)
+    if version & 1:
+        raise BTClibValueError("Leaf Version is invalid")
+    if len(args) > _RAWLEAF_ARGUMENTS:
+        err_msg = f"rawleaf() takes a script and a leaf version, {len(args)} given"
+        raise BTClibValueError(err_msg)
+    return RawLeaf(script, version)
+
+
+# what a tree leaf or node of the raw family is read by
+_RAW_TREE_PARSERS: dict[str, Callable[[list[str]], RawLeaf | RawNode]] = {
+    "raw": _parse_bare_leaf,
+    "rawnode": _parse_rawnode,
+    "rawleaf": _parse_rawleaf,
+}
 
 
 # the functions whose one argument Core reads whole, a key or a script,
@@ -2591,7 +2860,10 @@ _PARSERS: dict[
     "tr": ((_TOP,), _parse_tr),
     "rawtr": ((_TOP,), _parse_rawtr),
     "addr": ((_TOP,), _parse_addr),
-    "raw": ((_TOP,), _parse_raw),
+    # inside tr() it is a leaf of a tree and `_parse_tree` reads it
+    "raw": ((_TOP, _P2SH, _P2WSH, _P2TR), _parse_raw),
+    # inside tr() it is read as the miniscript fragment, which refuses it
+    "rawpkh": ((_TOP, _P2SH, _P2WSH, _P2TR), _parse_rawpkh),
 }
 
 
@@ -2636,7 +2908,7 @@ def _parse_expression(
         # invalid vectors write it as sh(musig()) and wsh(musig()), and
         # what is wrong with both is the position rather than the word
         _assert_musig_allowed(musig_allowed=False)
-    if name in _TREE_FUNCTIONS:
+    if name in (*_TREE_FUNCTIONS, *_RAW_TREE_FUNCTIONS):
         # a tree leaf and no SCRIPT expression, so reaching this is the
         # position rule of BIP387 being broken: `_assert_position` says
         # which position it was, where "unknown function" would say the
@@ -3236,7 +3508,7 @@ _NULL_HASH = bytes(32)
 
 @dataclass
 class _TreeNode:
-    """A node of the tree `_taproot_leaves` rebuilds: Core's `TreeNode`."""
+    """A node of the tree `_taproot_tree` rebuilds: Core's `TreeNode`."""
 
     hash: bytes = _NULL_HASH
     sub: list[_TreeNode] = field(default_factory=list)
@@ -3298,63 +3570,59 @@ def _placed(
     return True
 
 
-def _walked(root: _TreeNode) -> list[tuple[int, bytes, int]] | None:
-    """Return each leaf's depth, script and version, depth first.
+def _inferred_leaf_or_raw(script: bytes, version: int, known: _Known) -> DescriptorTree:
+    """Return the tree a proven leaf is: what Core infers, else a ``rawleaf()``.
 
-    None where a branch is unknown, the tree being incomplete.
+    A leaf of another version is a ``rawleaf()`` whatever its script is, the
+    version being part of what the output key commits to. So is a leaf of
+    version c0 that infers to nothing else. A leaf with no script is the
+    node of its hash: ``rawleaf()`` with no HEX does not parse, and the
+    node commits to the same output key.
     """
-    leaves: list[tuple[int, bytes, int]] = []
-    stack = [root]
-    while stack:
-        node = stack[-1]
-        if not node.explored:
-            return None
-        if not node.inner:
-            leaves.append((len(stack) - 1, *cast("tuple[bytes, int]", node.leaf)))
-            node.done = True
-            stack.pop()
-            continue
-        left, right = node.sub
-        if (
-            left.done
-            and not right.done
-            and not right.explored
-            and right.hash != _NULL_HASH
-            and tagged_hash(b"TapBranch", right.hash + right.hash) == node.hash
-        ):
-            # two equal subtrees: their leaves have the same control blocks,
-            # so only the left one was rebuilt, and it is walked twice
-            left.done, right.done = False, True
-        elif left.done and right.done:
-            left.done = right.done = False
-            node.done = True
-            stack.pop()
-        else:
-            stack.append(right if left.done else left)
-    return leaves
+    if not script:
+        return RawNode(leaf_hash(version, script))
+    leaf = _inferred_leaf(script, known) if version == _TAPSCRIPT_LEAF_VERSION else None
+    return RawLeaf(script, version) if leaf is None else leaf
 
 
-def _taproot_leaves(
-    output_key: bytes,
-    internal_key: bytes,
+def _inferred_subtree(node: _TreeNode, known: _Known) -> tuple[DescriptorTree, bytes]:
+    """Return the tree under a rebuilt node, and its hash.
+
+    A node no proof went through is a ``rawnode()`` of its hash. A node
+    whose sibling hashes the same is its sibling again, the control blocks
+    of both being the same: only one was rebuilt.
+    """
+    if not node.explored:
+        return RawNode(node.hash), node.hash
+    if not node.inner:
+        script, version = cast("tuple[bytes, int]", node.leaf)
+        return _inferred_leaf_or_raw(script, version, known), leaf_hash(version, script)
+    left_node, right_node = node.sub
+    left, left_hash = _inferred_subtree(left_node, known)
+    right, right_hash = _inferred_subtree(right_node, known)
+    if not right_node.explored and right_hash == left_hash:
+        right = left
+    low, high = sorted((left_hash, right_hash))
+    return (left, right), tagged_hash(b"TapBranch", low + high)
+
+
+def _taproot_tree(
     merkle_root: bytes,
     leaf_scripts: Mapping[bytes, tuple[bytes, int]],
-) -> list[tuple[int, bytes, int]] | None:
-    """Return each leaf's depth, script and version: `InferTaprootTree`.
+    known: _Known,
+) -> DescriptorTree | None:
+    """Return the tree a merkle root and its proven leaves describe.
 
-    In the order Core finds them: the records are read by script and then
-    by control block, shortest first, which is the order of the map and
-    the sets Core holds them in, and the tree they rebuild is walked depth
-    first.
+    Core's `InferTaprootTree`, with a node it knows by its hash only kept
+    as a ``rawnode()`` and not given up on. None where there is no root,
+    which is no tree. The root alone where the records contradict each
+    other, which only a hash collision does.
+
+    The records are read by script and then by control block, shortest
+    first, which is the order of the map and the sets Core holds them in.
     """
-    try:
-        tweaked = output_pubkey_from_merkle_root(internal_key, merkle_root)[0]
-    except ValueError:
-        return None
-    if tweaked != output_key:
-        return None
     if not merkle_root:
-        return []
+        return None
     by_leaf: dict[tuple[bytes, int], list[bytes]] = {}
     for control, leaf in leaf_scripts.items():
         by_leaf.setdefault(leaf, []).append(control)
@@ -3364,13 +3632,14 @@ def _taproot_leaves(
             hashed = _proved_leaf(script, leaf_version, control, merkle_root)
             if hashed is not None:
                 proven.append(((script, leaf_version), control, hashed))
-    return _rebuilt(merkle_root, proven)
+    root = _rebuilt(merkle_root, proven) or _TreeNode(merkle_root)
+    return _inferred_subtree(root, known)[0]
 
 
 def _rebuilt(
     merkle_root: bytes, proven: list[tuple[tuple[bytes, int], bytes, bytes]]
-) -> list[tuple[int, bytes, int]] | None:
-    """Return the leaves of the tree proven leaves rebuild, None on a clash.
+) -> _TreeNode | None:
+    """Return the tree proven leaves rebuild, None on a clash.
 
     Each is a leaf, a control block proving it under `merkle_root`, and its
     leaf hash. Two proofs under one root clash only through a collision of
@@ -3380,47 +3649,35 @@ def _rebuilt(
     for leaf, control, hashed in proven:
         if not _placed(root, leaf, control, hashed):
             return None
-    return _walked(root)
+    return root
 
 
-def _tree_of(leaves: list[tuple[int, DescriptorLeaf]]) -> DescriptorTree:
-    """Return the tree a depth-first walk's leaves and depths describe."""
-    position = 0
-
-    def subtree(depth: int) -> DescriptorTree:
-        nonlocal position
-        if leaves[position][0] == depth:
-            position += 1
-            return leaves[position - 1][1]
-        return (subtree(depth + 1), subtree(depth + 1))
-
-    return subtree(0)
+def _commits_to(output_key: bytes, internal_key: bytes, merkle_root: bytes) -> bool:
+    """Return True where the key and the root tweak to the output key."""
+    try:
+        tweaked = output_pubkey_from_merkle_root(internal_key, merkle_root)[0]
+    except ValueError:
+        return False
+    return tweaked == output_key
 
 
 def _inferred_tr(
     output_key: bytes, known: _Known, network: str
 ) -> TrDescriptor | RawTrDescriptor | None:
-    """Return the ``tr()`` of a known tree, else the ``rawtr()`` of a point."""
+    """Return the ``tr()`` of an output key that commits to what is known.
+
+    The internal key and the merkle root the provider holds for it, with
+    the leaves that can be proved under the root and the nodes that cannot.
+    Else the ``rawtr()`` of a point.
+    """
     if output_key in known.trees:
         internal_key, merkle_root, leaf_scripts = known.trees[output_key]
-        found = _taproot_leaves(output_key, internal_key, merkle_root, leaf_scripts)
-        if found is not None:
-            leaves: list[tuple[int, DescriptorLeaf]] = []
-            for depth, script, leaf_version in found:
-                leaf = (
-                    _inferred_leaf(script, known)
-                    if leaf_version == _TAPSCRIPT_LEAF_VERSION
-                    else None
-                )
-                if leaf is None:
-                    break
-                leaves.append((depth, leaf))
-            else:
-                return TrDescriptor(
-                    _inferred_x_only(internal_key, known),
-                    _tree_of(leaves) if leaves else None,
-                    network=network,
-                )
+        if _commits_to(output_key, internal_key, merkle_root):
+            return TrDescriptor(
+                _inferred_x_only(internal_key, known),
+                _taproot_tree(merkle_root, leaf_scripts, known),
+                network=network,
+            )
     try:
         point_from_bip340pub_key_var(output_key)
     except ValueError:
@@ -3531,6 +3788,14 @@ def infer_descriptor(
     in the order Core rebuilds them. A script nothing else describes is an
     ``addr()`` where it has an address -- a ``rawtr()`` for a p2tr output
     whose key is a point -- and a ``raw()`` otherwise.
+
+    A p2tr output whose internal key and merkle root the provider knows is
+    a ``tr()`` of the tree it can rebuild, whatever is missing from it: a
+    leaf that infers to nothing else, or that has another leaf version, is
+    a ``rawleaf()``, and a branch without a known leaf is a ``rawnode()``.
+    Core's PR 30243 infers the root of a tree it cannot rebuild as one
+    ``rawnode()``, and drops the leaf version of a leaf it infers as
+    another descriptor.
     """
     script = bytes_from_octets(script)
     _assert_provider(provider)
@@ -3793,6 +4058,37 @@ _POLICY_TOP_LEVEL = (
 )
 
 
+def _raw_name_in(tree: DescriptorTree) -> str | None:
+    """Return the name of the first ``raw`` function in a tree, else None."""
+    if isinstance(tree, tuple):
+        return _raw_name_in(tree[0]) or _raw_name_in(tree[1])
+    if isinstance(tree, (RawLeaf, RawNode)):
+        return str(tree).partition("(")[0]
+    return None
+
+
+def _assert_policy_no_raw(descriptor: Descriptor) -> None:
+    """Refuse a ``raw()``, ``rawpkh()``, ``rawleaf()`` or ``rawnode()`` inside.
+
+    A wallet-policy template is a script with its keys left out, and these
+    are the functions that hold a script, a hash or a node where a key
+    would be.
+    """
+    name = None
+    wrapped = descriptor
+    while isinstance(wrapped, (ShDescriptor, WshDescriptor)):
+        wrapped = wrapped.inner
+    if wrapped is not descriptor and isinstance(wrapped, _SCRIPT_ONLY):
+        name = str(wrapped).partition("(")[0]
+    elif isinstance(wrapped, MiniscriptDescriptor) and _has_raw_key_hash(wrapped.node):
+        name = "rawpkh"
+    elif isinstance(descriptor, TrDescriptor) and descriptor.tree is not None:
+        name = _raw_name_in(descriptor.tree)
+    if name is not None:
+        err_msg = f"{name}() in a wallet policy: BIP388 has no template for it"
+        raise BTClibValueError(err_msg)
+
+
 def _assert_policy_top_level(descriptor: Descriptor) -> None:
     """Refuse a descriptor whose own function BIP388 does not list.
 
@@ -3800,14 +4096,18 @@ def _assert_policy_top_level(descriptor: Descriptor) -> None:
     BIP388 allows at the top level, the miniscript templates it also lists
     living inside ``wsh`` or ``tr`` only; ``multi``/``sortedmulti`` are
     SCRIPT functions too, inside ``sh`` or ``wsh`` only, so a top-level one
-    is refused. ``combo``, ``addr``, ``raw``, a bare ``pk`` and Core's own
-    ``rawtr`` extension are not BIP388's, and none of them is a policy an
-    external signer's registration flow reads.
-    One nesting is checked here: a ``pk()`` directly inside ``sh()``, a
-    miniscript where BIP388 allows ``wsh`` or ``tr`` only. `parse` refuses
-    every other nesting BIP388 forbids, reading ``pkh`` under ``tr`` as
-    BIP379's miniscript fragment.
+    is refused. ``combo``, ``addr``, ``raw``, ``rawpkh``, a bare ``pk`` and
+    Core's own ``rawtr`` extension are not BIP388's, and none of them is a
+    policy an external signer's registration flow reads.
+    Two nestings are checked here: a ``pk()`` directly inside ``sh()``, a
+    miniscript where BIP388 allows ``wsh`` or ``tr`` only; and the
+    functions that take a script or a node as bytes -- ``raw()`` and
+    ``rawpkh()`` inside ``sh()`` or ``wsh()``, ``raw()``, ``rawleaf()`` and
+    ``rawnode()`` inside ``tr()`` -- which BIP388 has no template for.
+    `parse` refuses every other nesting BIP388 forbids, reading ``pkh``
+    under ``tr`` as BIP379's miniscript fragment.
     """
+    _assert_policy_no_raw(descriptor)
     if isinstance(descriptor, ShDescriptor) and isinstance(
         descriptor.inner, PkDescriptor
     ):

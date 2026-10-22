@@ -121,6 +121,9 @@ __all__ = [
 P2WSH = "P2WSH"
 TAPSCRIPT = "tapscript"
 
+# what a rawpkh() in a tapscript is told: a choice, not a rule of Bitcoin
+_RAWPKH_REFUSED_IN_TR = "rawpkh() is refused in tr() pending the BIP"
+
 # what a p2wsh witness script may hold and still be relayed: Bitcoin
 # Core's MAX_STANDARD_P2WSH_SCRIPT_SIZE and MAX_STANDARD_P2WSH_STACK_ITEMS,
 # both policy and not consensus, which is why they are here and not in
@@ -193,13 +196,21 @@ _HASH_OP_CODES = {
     "ripemd160": "OP_RIPEMD160",
     "hash160": "OP_HASH160",
 }
-_DATA_SIZE = {"sha256": 32, "hash256": 32, "ripemd160": 20, "hash160": 20}
+_DATA_SIZE = {
+    "sha256": 32,
+    "hash256": 32,
+    "ripemd160": 20,
+    "hash160": 20,
+    # the hash160 of the key a raw_pk_h() holds in place of the key
+    "raw_pk_h": 20,
+}
 
 # how many subexpressions each fragment takes. thresh() is not here: it
 # takes one or more, which its threshold then bounds
 _ARITY = {
     **dict.fromkeys(
-        ("0", "1", "pk_k", "pk_h", "older", "after", "multi", "multi_a"), 0
+        ("0", "1", "pk_k", "pk_h", "raw_pk_h", "older", "after", "multi", "multi_a"),
+        0,
     ),
     **dict.fromkeys(_HASH_OP_CODES, 0),
     **dict.fromkeys(_WRAPPERS, 1),
@@ -281,6 +292,7 @@ _LEAF_PROPERTIES = {
     "1": "Bzufmxk",
     "pk_k": "Konudemsxk",
     "pk_h": "Knudemsxk",
+    "raw_pk_h": "Knudemsxk",
     "multi": "Bnudemsk",
     "multi_a": "Budemsk",
     **dict.fromkeys(_HASH_OP_CODES, "Bonudmk"),
@@ -558,7 +570,7 @@ def _leaf_script_size(node: Miniscript) -> int:
         size = 1
     elif fragment == "pk_k":
         size = 33 if node.context == TAPSCRIPT else 34
-    elif fragment == "pk_h":
+    elif fragment in {"pk_h", "raw_pk_h"}:
         # OP_DUP OP_HASH160 <20 bytes> OP_EQUALVERIFY
         size = 3 + 21
     elif fragment in {"older", "after"}:
@@ -708,6 +720,7 @@ _LEAF_OPS: dict[str, tuple[int, int | None, int | None]] = {
     "0": (0, None, 0),
     "pk_k": (0, 0, 0),
     "pk_h": (3, 0, 0),
+    "raw_pk_h": (3, 0, 0),
     "older": (1, 0, None),
     "after": (1, 0, None),
     **dict.fromkeys(_HASH_OP_CODES, (4, 0, None)),
@@ -795,6 +808,10 @@ _LEAF_STACK: dict[str, tuple[_Trace | None, _Trace | None]] = {
     "after": (_concat(_PUSH, _NOP), None),
     "pk_k": (_PUSH, _PUSH),
     "pk_h": (
+        _concat(_concat(_PUSH, _NOP), _concat(_PUSH, _EQUALVERIFY)),
+        _concat(_concat(_PUSH, _NOP), _concat(_PUSH, _EQUALVERIFY)),
+    ),
+    "raw_pk_h": (
         _concat(_concat(_PUSH, _NOP), _concat(_PUSH, _EQUALVERIFY)),
         _concat(_concat(_PUSH, _NOP), _concat(_PUSH, _EQUALVERIFY)),
     ),
@@ -942,7 +959,7 @@ def _leaf_witness(node: Miniscript) -> _Bounds:
         bounds = _Bounds(0, None)
     elif fragment == "pk_k":
         bounds = _Bounds(signature, 1)
-    elif fragment == "pk_h":
+    elif fragment in {"pk_h", "raw_pk_h"}:
         bounds = _Bounds(signature + pub_key, 1 + pub_key)
     elif fragment == "multi":
         # the dummy element OP_CHECKMULTISIG pops, plus a signature per
@@ -1592,6 +1609,8 @@ def _leaf_fragment_script(
     elif fragment == "pk_h":
         key_hash = hash160(_sec(node, node.keys[0], index, network, prv_keys))
         commands = ["OP_DUP", "OP_HASH160", key_hash, "OP_EQUALVERIFY"]
+    elif fragment == "raw_pk_h":
+        commands = ["OP_DUP", "OP_HASH160", node.data, "OP_EQUALVERIFY"]
     elif fragment == "older":
         commands = [*_pushed_number(node.threshold), "OP_CHECKSEQUENCEVERIFY"]
     elif fragment == "after":
@@ -1704,6 +1723,26 @@ def _is_wrapper(node: Miniscript) -> bool:
     )
 
 
+def _has_raw_key_hash(node: Miniscript) -> bool:
+    """Return True where a ``rawpkh()`` is among the fragments."""
+    stack = [node]
+    while stack:
+        node = stack.pop()
+        if node.fragment == "raw_pk_h":
+            return True
+        stack.extend(node.subs)
+    return False
+
+
+# how the fragment under a ``c:`` is written in the sugar of ``pk()``,
+# ``pkh()`` and ``rawpkh()``
+_KEY_CALLS: dict[str, Callable[[Miniscript], str]] = {
+    "pk_k": lambda node: f"pk({node.keys[0]})",
+    "pk_h": lambda node: f"pkh({node.keys[0]})",
+    "raw_pk_h": lambda node: f"rawpkh({node.data.hex()})",
+}
+
+
 def _sugared_text(node: Miniscript, subs: list[str], prefix: str) -> str | None:
     """Return the sugared spelling of a fragment, None where it has none.
 
@@ -1718,9 +1757,8 @@ def _sugared_text(node: Miniscript, subs: list[str], prefix: str) -> str | None:
     of it.
     """
     fragment = node.fragment
-    if fragment == "c:" and node.subs[0].fragment in {"pk_k", "pk_h"}:
-        name = "pk" if node.subs[0].fragment == "pk_k" else "pkh"
-        return f"{prefix}{name}({node.subs[0].keys[0]})"
+    if fragment == "c:" and node.subs[0].fragment in _KEY_CALLS:
+        return prefix + _KEY_CALLS[node.subs[0].fragment](node.subs[0])
     if fragment == "and_v" and node.subs[1].fragment == "1":
         return "t" + subs[0]
     if fragment == "or_i" and node.subs[0].fragment == "0":
@@ -1756,6 +1794,8 @@ def _plain_text(node: Miniscript, subs: list[str]) -> str:
         text = fragment
     elif fragment in {"pk_k", "pk_h"}:
         text = f"{fragment}({node.keys[0]})"
+    elif fragment == "raw_pk_h":
+        text = f"raw_pk_h({node.data.hex()})"
     elif fragment in {"older", "after"}:
         text = f"{fragment}({node.threshold})"
     elif fragment in _HASH_OP_CODES:
@@ -1813,10 +1853,20 @@ def _sanitized(properties: frozenset[str]) -> frozenset[str]:
 # key fragments and their sugared forms, and the combinators that take
 # subexpressions rather than data
 _KEY_FRAGMENTS = ("pk", "pkh", "pk_k", "pk_h")
+# the same two for a key known by its hash160 alone
+_RAW_KEY_FRAGMENTS = ("rawpkh", "raw_pk_h")
 _COMBINATORS = ("andor", "and_n", *_BINARY)
 # and every fragment whose arguments are not subexpressions, which is
 # what makes the name of one either a leaf or a word the language has not
-_LEAVES = (*_KEY_FRAGMENTS, *_HASH_OP_CODES, "older", "after", "multi", "multi_a")
+_LEAVES = (
+    *_KEY_FRAGMENTS,
+    *_RAW_KEY_FRAGMENTS,
+    *_HASH_OP_CODES,
+    "older",
+    "after",
+    "multi",
+    "multi_a",
+)
 
 # the states of `parse` and of `from_script`, both of which walk a stack
 # of them rather than recursing: an expression nests as deep as its script
@@ -2024,6 +2074,19 @@ def _read_key_fragment(
     return node if name.startswith("pk_") else Miniscript("c:", context, (node,))
 
 
+def _read_raw_key_hash(name: str, argument: str, context: str) -> Miniscript:
+    """Return the node of a ``rawpkh()``: ``pkh()`` with the hash160 alone.
+
+    Refused in a tapscript, as ``rawpkh()`` is refused in ``tr()`` pending
+    its BIP: this is the one check, and deleting it is the whole cut-back.
+    """
+    if context == TAPSCRIPT:
+        raise BTClibValueError(_RAWPKH_REFUSED_IN_TR)
+    digest = bytes_from_octets(argument, _DATA_SIZE["raw_pk_h"])
+    node = Miniscript("raw_pk_h", context, data=digest)
+    return node if name == "raw_pk_h" else Miniscript("c:", context, (node,))
+
+
 def _read_multi(
     name: str,
     argument: str,
@@ -2126,6 +2189,8 @@ def _read_leaf(
     """Return the node of a fragment whose arguments are not subexpressions."""
     if name in _KEY_FRAGMENTS:
         return _read_key_fragment(name, argument, context, prv_keys)
+    if name in _RAW_KEY_FRAGMENTS:
+        return _read_raw_key_hash(name, argument, context)
     if name in _HASH_OP_CODES:
         digest = bytes_from_octets(argument, _DATA_SIZE[name])
         return Miniscript(name, context, data=digest)
@@ -3144,6 +3209,19 @@ def _assumed_signature(node: Miniscript) -> _Input:
     return replace(_element(bytes(_signature_size(node.context))), has_sig=True)
 
 
+def _raw_key_input(node: Miniscript, *, estimate: bool) -> _Inputs:
+    """Return the stacks of a ``raw_pk_h()``, whose key is not known.
+
+    The key is on the stack beside the signature, so neither a satisfaction
+    nor a dissatisfaction can be made without it: there is none, and an
+    estimate assumes both, as it does every signature.
+    """
+    if not estimate:
+        return _Inputs(_NO_WITNESS, _NO_WITNESS)
+    key = _element(bytes(_pub_key_size(node.context)))
+    return _Inputs(_both(_assumed_signature(node), key), _both(_ZERO_PUSH, key))
+
+
 def _key_input(
     node: Miniscript,
     signatures: Mapping[bytes, bytes],
@@ -3162,6 +3240,8 @@ def _key_input(
     # the 33-byte form for the lookup, whatever the script writes: a
     # signer hands back a signature under either spelling of a taproot key,
     # which is what `_offered_signature` answers for
+    if node.fragment == "raw_pk_h":
+        return _raw_key_input(node, estimate=estimate)
     sec = node.keys[0].sec(index, network, prv_keys)
     offered = _offered_signature(signatures, sec, x_only=node.context == TAPSCRIPT)
     if offered is not None:
@@ -3249,7 +3329,7 @@ def _leaf_input(
         inputs = _Inputs(_NO_WITNESS, _NO_PUSHES)
     elif fragment == "1":
         inputs = _Inputs(_NO_PUSHES, _NO_WITNESS)
-    elif fragment in {"pk_k", "pk_h"}:
+    elif fragment in {"pk_k", "pk_h", "raw_pk_h"}:
         inputs = _key_input(
             node, signatures, index, network, prv_keys, estimate=estimate
         )

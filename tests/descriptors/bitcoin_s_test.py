@@ -90,8 +90,6 @@ REFUSED = [
         "combo(pkh(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
         "not a key expression",
     ),
-    ("sh(raw(deadbeef))", "raw\\(\\) is not allowed inside sh"),
-    ("wsh(raw(deadbeef))", "raw\\(\\) is not allowed inside wsh"),
     (
         "sh(addr(3PUNyaW7M55oKWJ3kDukwk9bsKvryra15j))",
         "addr\\(\\) is not allowed inside sh",
