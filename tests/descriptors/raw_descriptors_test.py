@@ -4,7 +4,9 @@
 
 """Tests for ``rawnode()``, ``rawleaf()``, ``rawpkh()`` and nested ``raw()``.
 
-No BIP specifies them, and Bitcoin Core v31.1 reads none of them. The
+No BIP specifies ``rawnode()``, ``rawleaf()`` or ``rawpkh()``. BIP385
+refuses a nested ``raw()``, and the draft BIP of bitcoin/bips#1721 allows
+it. Bitcoin Core v31.1 reads none of them. The
 vectors come from two closed proposals, read at the pins of
 `tests/_data/README.md`:
 

@@ -44,11 +44,14 @@ The grammar read is BIP380 to BIP390:
   ``multi_a()`` and ``sortedmulti_a()`` (BIP386, BIP387)
 - ``rawtr``, which no BIP specifies: Bitcoin Core's `doc/descriptors.md`
   is what defines it, and the key it takes is the output key itself
-- ``rawnode``, ``rawleaf``, ``rawpkh``, and ``raw`` inside ``sh()``,
-  ``wsh()`` and a ``tr()`` tree, which no BIP specifies either: they let a
+- ``rawnode``, ``rawleaf`` and ``rawpkh``, which no BIP specifies either,
+  and ``raw`` inside ``sh()``, ``wsh()`` and a ``tr()`` tree: they let a
   descriptor say what it knows of an output it knows in part. Bitcoin
-  Core's bitcoin/bitcoin#30243 specifies the first two, and the draft BIP
-  of bitcoin/bips#1721 the nested ``raw``
+  Core's bitcoin/bitcoin#30243 specifies the first two. BIP385 says
+  ``raw(HEX)`` can only be a top level descriptor and lists
+  ``sh(raw(deadbeef))`` and ``wsh(raw(deadbeef))`` as invalid; the draft
+  BIP of bitcoin/bips#1721 allows the nested ``raw``, and this module
+  follows the draft
 - key expressions: hex public keys (compressed, uncompressed and, inside
   ``tr()`` and ``rawtr()``, x-only), WIF private keys, xpub/xprv with a
   derivation path, key origin, ``/*`` and ``/*h`` wildcards, both ``h``
@@ -4423,10 +4426,12 @@ def wallet_policy(
     written more than once with a chain digit that is not disjoint from
     an earlier use -- each with the fragment that was wrong. So is a
     descriptor whose own function is not one of BIP388's SCRIPT
-    expressions -- ``combo()``, ``addr()``, ``raw()``, ``rawtr()`` and a
-    bare ``pk()`` among them; so is a top-level ``multi()`` or
-    ``sortedmulti()``, or a ``pk()`` directly inside ``sh()``. Not
-    checked: that every key is pairwise distinct from every other.
+    expressions -- ``combo()``, ``addr()``, ``raw()``, ``rawpkh()``,
+    ``rawtr()`` and a bare ``pk()`` among them; so is a top-level
+    ``multi()`` or ``sortedmulti()``, or a ``pk()`` directly inside
+    ``sh()``; so is a ``raw()``, ``rawpkh()``, ``rawleaf()`` or ``rawnode()``
+    nested in ``sh()``, ``wsh()`` or ``tr()``. Not checked: that every key
+    is pairwise distinct from every other.
     """
     assert_type(descriptor, Descriptor, "descriptor")
     _assert_policy_top_level(descriptor)
@@ -4547,7 +4552,8 @@ def wallet_policy_descriptor(
 
     A template whose own function is not one of BIP388's SCRIPT expressions,
     or is a top-level ``multi()`` or ``sortedmulti()``, or is a ``pk()``
-    directly inside ``sh()``, is refused as `wallet_policy` refuses it.
+    directly inside ``sh()``, or holds a ``raw()``, ``rawpkh()``,
+    ``rawleaf()`` or ``rawnode()``, is refused as `wallet_policy` refuses it.
 
     No `prv_keys`: every wildcard a wallet-policy template writes is
     unhardened, which is the whole of BIP388's "the seed alone is no

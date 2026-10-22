@@ -883,8 +883,8 @@ asserting that a taptree of exactly 128 nesting levels parses.
 The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, except
 the case of `raw()` inside `sh()`, which that pull request adds and this
 tree accepts by the draft BIP of bitcoin/bips#1721, as
-`raw_descriptors_test.py`'s docstring says. That parse is
-`test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains nothing from it.
+`raw_descriptors_test.py`'s docstring says. The parse of the deepest taptree
+is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains nothing from it.
 
 ### Not vendored as a file: the raw node and raw leaf vectors of a closed pull request
 
@@ -1680,10 +1680,12 @@ invalid vectors. The draft BIP of bitcoin/bips#1721 makes `raw()` valid
 there, and this tree follows it, so the test holds them as `ACCEPTED_HERE`:
 accepted, with the script, where bitcoin-s refuses.
 
-An accepted descriptor's script is bitcoin-s's. Its checksum, and its
-addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
-`getdescriptorinfo` and `deriveaddresses`, run with no chain on mainnet. Where
-bitcoin-s gives a checksum, Core's is the same.
+The script of a case in `ACCEPTED` is bitcoin-s's; that of a case in
+`ACCEPTED_HERE` is the hash160 or sha256 of `deadbeef`, computed here. The
+checksum of an accepted descriptor, and its addresses where bitcoin-s gives no
+script, are Bitcoin Core 31.1.0's `getdescriptorinfo` and `deriveaddresses`,
+run with no chain on mainnet. Where bitcoin-s gives a checksum, Core's is the
+same.
 Core's `getdescriptorinfo` refuses every case the test expects refused.
 
 The test's strings are the pinned files' strings. From the repository root,
