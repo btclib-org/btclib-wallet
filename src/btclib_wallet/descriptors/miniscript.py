@@ -221,6 +221,8 @@ _ARITY = {
 # a number, as the fragments that take one accept it: digits, leading
 # zeros included, and nothing else
 _NUMBER = re.compile(r"[0-9]+")
+# whole bytes of hex, as Bitcoin Core's `IsHex` reads them
+_HEX_BYTES = re.compile(r"(?:[0-9a-fA-F]{2})+")
 
 # Bitcoin Core's `IsHex`: an even, non-zero count of hex characters, and
 # nothing else. `bytes.fromhex` skips whitespace, so a hash holding a space
@@ -1251,11 +1253,19 @@ class Miniscript:
         `KeyExpression.sec`. A key it cannot derive is compared by its
         expression, origin and hardening symbol included, and never matches
         a key that can be derived: Bitcoin Core does the same since
-        bitcoin/bitcoin@7b15e2cb44.
+        bitcoin/bitcoin@7b15e2cb44. A ``rawpkh()`` is a key by its hash160,
+        which Core has no fragment for: a hash repeated, or the hash of
+        another key of the expression, counts as the key repeated.
         """
         _assert_prv_keys(prv_keys)
         keys = [_key_identity(key, prv_keys) for key in self.key_expressions]
-        return len(set(keys)) != len(keys)
+        if len(set(keys)) != len(keys):
+            return True
+        # a ``rawpkh()`` names a key by its hash: the same hash twice, or
+        # the hash of a key the expression names, is that key twice
+        hashes = _raw_key_hashes(self)
+        known = {hash160(key) for key in keys if isinstance(key, bytes)}
+        return len(set(hashes)) != len(hashes) or not known.isdisjoint(hashes)
 
     @property
     def max_ops(self) -> int | None:
@@ -1735,15 +1745,21 @@ def _is_wrapper(node: Miniscript) -> bool:
     )
 
 
-def _has_raw_key_hash(node: Miniscript) -> bool:
-    """Return True where a ``rawpkh()`` is among the fragments."""
+def _raw_key_hashes(node: Miniscript) -> list[bytes]:
+    """Return the hash of every ``rawpkh()`` among the fragments."""
+    hashes: list[bytes] = []
     stack = [node]
     while stack:
         node = stack.pop()
         if node.fragment == "raw_pk_h":
-            return True
+            hashes.append(node.data)
         stack.extend(node.subs)
-    return False
+    return hashes
+
+
+def _has_raw_key_hash(node: Miniscript) -> bool:
+    """Return True where a ``rawpkh()`` is among the fragments."""
+    return bool(_raw_key_hashes(node))
 
 
 # how the fragment under a ``c:`` is written in the sugar of ``pk()``,
@@ -1865,8 +1881,9 @@ def _sanitized(properties: frozenset[str]) -> frozenset[str]:
 # key fragments and their sugared forms, and the combinators that take
 # subexpressions rather than data
 _KEY_FRAGMENTS = ("pk", "pkh", "pk_k", "pk_h")
-# the same two for a key known by its hash160 alone
-_RAW_KEY_FRAGMENTS = ("rawpkh", "raw_pk_h")
+# the same for a key known by its hash160 alone. The fragment under it,
+# ``raw_pk_h``, is read only through this sugar: no specification names it
+_RAW_KEY_FRAGMENTS = ("rawpkh",)
 _COMBINATORS = ("andor", "and_n", *_BINARY)
 # and every fragment whose arguments are not subexpressions, which is
 # what makes the name of one either a leaf or a word the language has not
@@ -2086,17 +2103,24 @@ def _read_key_fragment(
     return node if name.startswith("pk_") else Miniscript("c:", context, (node,))
 
 
-def _read_raw_key_hash(name: str, argument: str, context: str) -> Miniscript:
+def _read_raw_key_hash(argument: str, context: str) -> Miniscript:
     """Return the node of a ``rawpkh()``: ``pkh()`` with the hash160 alone.
 
+    The argument is read as the descriptor ``rawpkh()`` reads it, whole
+    bytes of hex and nothing else, and refused with its messages.
+
     Refused in a tapscript, as ``rawpkh()`` is refused in ``tr()`` pending
-    its BIP: this is the one check, and deleting it is the whole cut-back.
+    its BIP. This is the one check `parse` applies, and deleting it is the
+    whole cut-back; a node built by hand is not held to it.
     """
     if context == TAPSCRIPT:
         raise BTClibValueError(_RAWPKH_REFUSED_IN_TR)
-    digest = bytes_from_octets(argument, _DATA_SIZE["raw_pk_h"])
-    node = Miniscript("raw_pk_h", context, data=digest)
-    return node if name == "raw_pk_h" else Miniscript("c:", context, (node,))
+    if not _HEX_BYTES.fullmatch(argument):
+        raise BTClibValueError("Rawpkh hash is not hex")
+    if len(argument) != 2 * _DATA_SIZE["raw_pk_h"]:
+        raise BTClibValueError("160 bits digest expected")
+    node = Miniscript("raw_pk_h", context, data=bytes.fromhex(argument))
+    return Miniscript("c:", context, (node,))
 
 
 def _read_multi(
@@ -2219,7 +2243,7 @@ def _read_leaf(
     if name in _KEY_FRAGMENTS:
         return _read_key_fragment(name, argument, context, prv_keys)
     if name in _RAW_KEY_FRAGMENTS:
-        return _read_raw_key_hash(name, argument, context)
+        return _read_raw_key_hash(argument, context)
     if name in _HASH_OP_CODES:
         if not _HEX.fullmatch(argument):
             raise BTClibValueError(f"invalid {name}() hash: hex expected")
