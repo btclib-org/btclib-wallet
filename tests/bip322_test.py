@@ -4,14 +4,11 @@
 
 """Tests for the `btclib_wallet.bip322` module.
 
-The vectors are BIP322's own two files, vendored whole under
-`tests/_data/`; `tests/_data/README.md` pins the revision of each. They
-are what the BIP publishes and what its reference implementation was
-checked against, so what they cover is what this module is held to: the
-three transaction hashes, every variant in both directions, and the
-error cases -- a wrong message, a wrong signer, a wrong address, a
-malformed encoding -- which a verifier that answered "valid" too readily
-would pass all of the first group and none of the second.
+The BIP's own vectors and the BIP322 vectors of btcd, from which the
+BIP's generated vectors come, are vendored whole under `tests/_data/`;
+`tests/_data/README.md` pins each revision.
+They cover the transaction hashes, signature variants and refusals,
+including the distinction between invalid and inconclusive signatures.
 """
 
 from __future__ import annotations
@@ -50,6 +47,7 @@ from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import secp256k1
 from btclib_ecc.ecc import dsa, ssa
+from btclib_ecc.exceptions import BTClibEccRuntimeError
 from btclib_ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
@@ -65,6 +63,104 @@ from tests import (
 
 BASIC = load("_data", "basic-test-vectors.json", encoding="utf-8")
 GENERATED = load("_data", "generated-test-vectors.json", encoding="utf-8")
+BTCD = {
+    name: load("_data", "btcd", name, encoding="utf-8")
+    for name in (
+        "basic-test-vectors.json",
+        "generated-test-vectors.json",
+        "generated-negative-test-vectors.json",
+    )
+}
+_BTCD_XFAIL = {
+    (
+        "basic-test-vectors.json",
+        "error",
+        18,
+    ): "BIP322 forbids CODESEPARATOR in P2WSH; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "basic-test-vectors.json",
+        "error",
+        19,
+    ): "BIP322 forbids CODESEPARATOR in tapscript; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        5,
+    ): "BIP322 forbids CODESEPARATOR in P2WSH; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        6,
+    ): "BIP322 forbids CODESEPARATOR in tapscript; btclib's CONST_SCRIPTCODE is legacy-only",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        11,
+    ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        12,
+    ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
+    (
+        "generated-negative-test-vectors.json",
+        "error",
+        24,
+    ): "a PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE differing from the message is not yet checked (issue #493)",
+}
+
+
+def _btcd_params() -> list[Any]:
+    """Return every pinned btcd vector with its expected validation state."""
+    return [
+        pytest.param(
+            group,
+            case,
+            marks=(
+                pytest.mark.xfail(
+                    reason=_BTCD_XFAIL[name, group, i],
+                    strict=True,
+                    raises=AssertionError,
+                )
+                if (name, group, i) in _BTCD_XFAIL
+                else ()
+            ),
+            id=vector_id(i, name, group, case.get("description", case.get("type"))),
+        )
+        for name, groups in BTCD.items()
+        for group, cases in groups.items()
+        for i, case in enumerate(cases)
+    ]
+
+
+@pytest.mark.parametrize("group, case", _btcd_params())
+def test_btcd_vector(group: str, case: dict[str, Any]) -> None:
+    """Compare all three BIP322 outcomes with btcd's reference corpus.
+
+    The files are from btcsuite/btcd PR 2521; tests/_data/README.md pins
+    their bytes and revision. A malformed signature remains invalid,
+    while a well-formed proof using an upgradeable rule is inconclusive.
+    """
+    msg, addr = case["message"].encode(), case["address"]
+    if group == "tx_hashes":
+        spend = bip322.to_spend(msg, ScriptPubKey.from_address(addr).script)
+        assert bip322.message_hash(msg).hex() == case["message_hash"]
+        assert spend.id.hex() == case["to_spend_tx_hash"]
+        assert bip322.to_sign(spend).id.hex() == case["to_sign_tx_hash"]
+        return
+
+    signatures = case.get("bip322_signatures", [case.get("signature")])
+    for signature in signatures:
+        try:
+            bip322.assert_as_valid(msg, addr, signature)
+        except InconclusiveError:
+            result = "inconclusive"
+        except (ValueError, BTClibRuntimeError, BTClibEccRuntimeError):
+            result = "invalid"
+        else:
+            result = "valid"
+        assert result == case.get("expected_result", "valid")
+
 
 # the two private keys of the round-trip tests below, and the second is
 # there to be the wrong one: a signature that verifies for the key that
@@ -688,8 +784,10 @@ def test_a_version_that_is_not_0_or_2_is_inconclusive() -> None:
     False for both, an inconclusive signature not being a valid one.
     """
     msg, addr = b"version", _address(WIF, "p2wpkh")
-    signed = bip322.sign(msg, b58.prv_key_data_from_wif(WIF), addr)
-    _, tx = _to_sign_of(msg, addr, witness=signed.payload, version=1)
+    spend, tx = _to_sign_of(msg, addr, version=1)
+    key = b58.prv_key_data_from_wif(WIF)
+    signature = dsa.sign_(from_tx(spend.vout, tx, 0, ALL), key.q).serialize() + b"\x01"
+    tx.vin[0].script_witness = Witness([signature, key.pub.sec])
 
     with pytest.raises(InconclusiveError, match="BIP322 allows 0 and 2"):
         bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
@@ -713,6 +811,113 @@ def test_an_unknown_witness_version_is_inconclusive() -> None:
     with pytest.raises(InconclusiveError, match="upgradeable rule"):
         bip322.assert_as_valid(msg, addr, sig)
     assert not bip322.verify(msg, addr, sig)
+
+
+@pytest.mark.parametrize("version", [1, 3])
+def test_a_failing_script_is_invalid_even_with_an_upgradeable_version(
+    version: int,
+) -> None:
+    """Required rules take precedence over an unknown transaction version."""
+    msg, addr = b"required before upgradeable", _address(WIF, "p2wpkh")
+    signed = bip322.sign(
+        msg, b58.prv_key_data_from_wif(OTHER_WIF), _address(OTHER_WIF, "p2wpkh")
+    )
+    _, tx = _to_sign_of(msg, addr, witness=signed.payload, version=version)
+    with pytest.raises(ValueError) as caught:
+        bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+    assert not isinstance(caught.value, InconclusiveError)
+
+
+@pytest.mark.parametrize(
+    "script_pub_key, script_sig, is_witness",
+    [
+        (ScriptPubKey.p2pkh(WIF_PUB).script, b"", False),
+        (b"\x51", b"", False),
+        (b"\x00\x14" + b"\x11" * 20, b"", True),
+        (b"\x00\x20" + b"\x11" * 32, b"", True),
+        (b"\x51\x20" + b"\x11" * 32, b"", True),
+        (b"\x52\x02\x11\x22", b"", True),
+        *[
+            (
+                serialize(["OP_HASH160", hash160(program), "OP_EQUAL"]),
+                serialize([program]),
+                True,
+            )
+            for program in (
+                b"\x00\x14" + b"\x11" * 20,
+                b"\x00\x20" + b"\x11" * 32,
+                b"\x52\x02\x11\x22",
+            )
+        ],
+        (serialize(["OP_HASH160", hash160(b"\x51"), "OP_EQUAL"]), b"\x01\x51", False),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"",
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x4c\x16\x00\x14" + b"\x11" * 20,
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x16\x00\x14" + b"\x22" * 20,
+            False,
+        ),
+        (
+            serialize(["OP_HASH160", hash160(b"\x00\x14" + b"\x11" * 20), "OP_EQUAL"]),
+            b"\x17\x00\x14" + b"\x11" * 20,
+            False,
+        ),
+    ],
+)
+def test_proof_of_funds_requires_funding_transactions_for_legacy_inputs(
+    script_pub_key: bytes, script_sig: bytes, is_witness: bool
+) -> None:
+    """Witness inputs alone may omit their funding transaction."""
+    spend = bip322.to_spend(b"pof input types", ScriptPubKey.p2pkh(WIF_PUB).script)
+    funding = Tx(
+        2,
+        0,
+        [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)],
+        [TxOut(1000, script_pub_key)],
+    )
+    psbt = Psbt.from_tx(
+        bip322.to_sign(spend, extra_inputs=[TxIn(OutPoint(funding.id, 0))])
+    )
+    # The virtual first input may use a Witness UTXO for a legacy challenge.
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[1].witness_utxo = funding.vout[0]
+    psbt.inputs[1].final_script_sig = script_sig
+    if is_witness:
+        assert bip322._psbt_prevouts(psbt) == [spend.vout[0], funding.vout[0]]
+    else:
+        with pytest.raises(BTClibValueError, match="input 1: missing non-witness utxo"):
+            bip322._psbt_prevouts(psbt)
+    psbt.inputs[1].non_witness_utxo = funding
+    assert bip322._psbt_prevouts(psbt) == [spend.vout[0], funding.vout[0]]
+
+
+def test_a_later_funding_transaction_does_not_justify_an_earlier_legacy_input() -> None:
+    """The Non-Witness UTXO reuse exception applies only to preceding inputs."""
+    spend = bip322.to_spend(b"pof order", ScriptPubKey.p2wpkh(WIF_PUB).script)
+    funding = Tx(
+        2,
+        0,
+        [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)],
+        [TxOut(1000, ScriptPubKey.p2pkh(WIF_PUB).script)] * 2,
+    )
+    psbt = Psbt.from_tx(
+        bip322.to_sign(
+            spend, extra_inputs=[TxIn(OutPoint(funding.id, i)) for i in range(2)]
+        )
+    )
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[1].witness_utxo = funding.vout[0]
+    psbt.inputs[2].non_witness_utxo = funding
+    with pytest.raises(BTClibValueError, match="input 1: missing non-witness utxo"):
+        bip322._psbt_prevouts(psbt)
 
 
 def test_proof_of_funds_reuses_an_earlier_non_witness_utxo() -> None:

@@ -9,6 +9,9 @@ tests/_data/bip85_test_vectors.json -text
 tests/_data/bolt11_test_vectors.json -text
 tests/_data/descriptor_checksums.json -text
 tests/_data/generated-test-vectors.json -text
+tests/_data/btcd/basic-test-vectors.json -text
+tests/_data/btcd/generated-test-vectors.json -text
+tests/_data/btcd/generated-negative-test-vectors.json -text
 tests/_data/miniscript_fixed_tests.json -text
 tests/_data/send_and_receive_test_vectors.json -text
 tests/_data/trezor-addresses.json -text
