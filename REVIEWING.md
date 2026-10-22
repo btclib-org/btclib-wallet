@@ -79,7 +79,7 @@ directions:
    child, the author answers it twice and resolves it once.
 1. **The tree at that sha**, checked out and gated. `gh pr checkout <N>`,
    and whatever this repository's `CONTRIBUTING.md` says builds its
-   environment; its *Worktrees* section says how to create and remove one.
+   environment; `CONTRIBUTING.md` has the worktree procedure.
 
 Read the whole diff before writing the first comment. A comment on line
 5 that line 60 answers costs the author a reply and the reviewer their

@@ -759,3 +759,11 @@ hook each leave it unstaged.
 Read the diff before committing it: a new entry is a finding somebody has
 to have looked at, which is the whole point of a baseline over an
 exclusion.
+
+If two branches change `.secrets.baseline`, take `main`'s version rather
+than choosing one side: either choice drops the other branch's entries,
+and the hook does not restore them. Run the commands above, restore
+`main`'s `generated_at` value, and stage the file. Check that the diff
+contains only this branch's entries. Review the conflict resolution
+again as described in [REVIEWING.md](./REVIEWING.md)'s *Re-review*
+section.
