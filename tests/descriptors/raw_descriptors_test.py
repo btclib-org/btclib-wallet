@@ -206,6 +206,8 @@ HASH160_KEY = "9a1c78a507689f6f54b847ad1cef1e614ee23f1e"
 # a second compressed key, the key of X2, and its hash160
 KEY_B = "02" + X2
 HASH160_B = "06afd46bcdfd22ef94ac122aa11f241244a37ecc"
+# the hash160 of the x-only key X2, which is what a tapscript pkh() hashes
+HASH160_X2 = "9b652a14674a506079f574d20ca7daef6f9a66bb"
 # and_v(v:pkh(KEY),pkh(KEY_B)) in a p2wsh, from its witness script
 # 76a914{h}88ad76a914{h'}88ac written out by hand
 WSH_TWO_KEYS = "0020e1525eec19af925e8ee3aea49233bd905e9c64d0752535302b28601b7226ad01"
@@ -320,10 +322,19 @@ OWN_VECTORS = [
         "00200fb27c6d76bdf4f1a27353b0cf1cbc10b10d72e35ff07dc702890967a7fee3d1",
         f"wsh(or_d(pkh({KEY}),pkh({KEY_B})))",
     ),
+    # a tapscript leaf 76a914{hash160 of X2}88ac, hashed with the tapleaf
+    # and tapbranch tags by hand
+    (
+        f"tr({XONLY},rawpkh({HASH160_X2}))",
+        "512017ef067f0c1dd65fb4e6c9d1f3846a83da2e68c506753fd6be2970b8dae7c47e",
+        f"tr({XONLY},pkh({X2}))",
+    ),
+    (
+        f"tr({XONLY},{{pk({X1}),rawpkh({HASH160_X2})}})",
+        "5120ee85bf6d9c5fbd55f3e08198056b0f6e4e1df98478f63deca50b043eda5f57d8",
+        f"tr({XONLY},{{pk({X1}),pkh({X2})}})",
+    ),
 ]
-
-
-RAWPKH_IN_TR = r"^rawpkh\(\) is refused in tr\(\) pending the BIP$"
 
 
 def _script(descriptor: str) -> str:
@@ -503,18 +514,6 @@ def test_an_empty_or_ill_formed_argument_is_refused(
                 (
                     f"wsh(rawleaf({LEAF}))",
                     r"^rawleaf\(\) is not allowed inside wsh\(\)$",
-                ),
-                (
-                    f"tr({XONLY},rawpkh({HASH160_KEY}))",
-                    RAWPKH_IN_TR,
-                ),
-                (
-                    f"tr({XONLY},{{pk({X1}),rawpkh({HASH160_KEY})}})",
-                    RAWPKH_IN_TR,
-                ),
-                (
-                    f"tr({XONLY},and_v(v:pk({X1}),rawpkh({HASH160_KEY})))",
-                    RAWPKH_IN_TR,
                 ),
                 (
                     f"wsh(and_v(v:pkh({KEY}),raw_pk_h({HASH160_B})))",
@@ -740,11 +739,30 @@ def test_a_repeated_raw_key_hash_is_a_repeated_key() -> None:
     parse(f"wsh(and_v(v:rawpkh({HASH160_KEY}),rawpkh({HASH160_B})))")
 
 
-def test_a_hand_built_raw_key_hash_is_not_held_to_the_tr_refusal() -> None:
-    """The refusal is the one check `parse` applies."""
-    node = Miniscript("raw_pk_h", TAPSCRIPT, data=bytes(20))
-    assert node.context == TAPSCRIPT
-    assert node.script_size == len(bytes.fromhex(f"76a914{'00' * 20}88"))
+def test_rawpkh_in_a_tapscript_hashes_the_x_only_key() -> None:
+    """A c0 leaf, as ``pkh(KEY)`` is, with the hash of the 32-byte key."""
+    known = _tr(f"tr({XONLY},pkh({X2}))")
+    raw = _tr(f"tr({XONLY},rawpkh({HASH160_X2}))")
+    assert raw.script_pub_key() == known.script_pub_key()
+    assert raw.tree == miniscript_parse(f"rawpkh({HASH160_X2})", TAPSCRIPT)
+    assert hash160(bytes.fromhex(X2)).hex() == HASH160_X2
+    assert str(parse(str(raw))) == str(raw)
+    # the internal key alone: the hash names no key
+    assert len(raw.key_expressions) == 1
+
+
+def test_a_repeated_raw_key_hash_in_a_tapscript_is_a_repeated_key() -> None:
+    """The hash of a named key is compared as the x-only key it hashes."""
+    known = r"is not sane: it repeats a public key$"
+    for text in (
+        f"and_v(v:pkh({X2}),rawpkh({HASH160_X2}))",
+        f"and_v(v:rawpkh({HASH160_X2}),pkh({X2}))",
+        f"and_v(v:rawpkh({HASH160_X2}),rawpkh({HASH160_X2}))",
+    ):
+        with pytest.raises(BTClibValueError, match=known):
+            parse(f"tr({XONLY},{text})")
+    # the hash of the SEC key is the key of a p2wsh script and no one's here
+    parse(f"tr({XONLY},and_v(v:pkh({X2}),rawpkh({HASH160_B})))")
 
 
 def test_raw_inside_sh_and_wsh_is_a_script_and_no_key() -> None:
@@ -912,6 +930,8 @@ def test_the_updater_fills_the_input_of_a_tree_with_a_hidden_node() -> None:
         f"tr({XONLY},rawleaf(51,c2))",
         f"tr({XONLY},rawnode({NODE}))",
         f"tr({XONLY},{{pk({X1}),rawnode({NODE})}})",
+        f"tr({XONLY},rawpkh({HASH160_X2}))",
+        f"tr({XONLY},{{pk({X1}),and_v(v:pkh({X2}),rawpkh({HASH160_B}))}})",
     ],
 )
 def test_a_wallet_policy_refuses_each_raw_function(descriptor: str) -> None:
@@ -942,6 +962,10 @@ def test_a_wallet_policy_refuses_each_raw_function(descriptor: str) -> None:
         (
             f"tr({XONLY},{{pk({X1}),rawnode({NODE})}})",
             r"^rawnode\(\) in a wallet policy: BIP388 has no template for it$",
+        ),
+        (
+            f"tr({XONLY},rawpkh({HASH160_X2}))",
+            r"^rawpkh\(\) in a wallet policy: BIP388 has no template for it$",
         ),
         (f"raw({PK_SCRIPT})", "is not a BIP388 SCRIPT expression"),
         (f"rawpkh({HASH160_KEY})", "is not a BIP388 SCRIPT expression"),
