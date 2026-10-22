@@ -590,9 +590,9 @@ def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
     Each run reports its own hash types, and only a run that reached the
     end of every script reports them all -- so the second run has a list
     of its own rather than adding to what the first got as far as. The
-    rule is checked on either path because a required rule broken is
-    *invalid* whatever the upgradeable ones say, which is the order
-    BIP322 puts the two sets in.
+    hash-type rule and the OP_CODESEPARATOR ban are checked on either
+    path because a required rule broken is *invalid* whatever the
+    upgradeable ones say, which is the order BIP322 puts the two sets in.
     """
     hash_types: list[int] = []
     try:
