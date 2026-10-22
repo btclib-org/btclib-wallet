@@ -101,7 +101,7 @@ jobs:
       # scalar, the pattern having no space in it, which keeps yamllint's
       # width rule off the line
       prose-pattern: |-
-        ^(AUTHORS|CHANGELOG|CLAUDE|CONTRIBUTING|RELEASE_NOTES|RELEASING|REPOSITORY|REVIEWING|SECURITY)\.md$|^\.github/[^/]*\.md$|^\.github/mutation/[^/]*\.toml$|^\.secrets\..*baseline$
+        ^(AUTHORS|CHANGELOG|AGENTS|CONTRIBUTING|RELEASE_NOTES|RELEASING|REPOSITORY|REVIEWING|SECURITY)\.md$|^\.github/[^/]*\.md$|^\.github/mutation/[^/]*\.toml$|^\.secrets\..*baseline$
 
   coverage:
     name: Measure coverage, gated at 100%
