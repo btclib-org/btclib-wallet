@@ -47,7 +47,8 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   *Where this package reaches past btclib-ecc's own dispatch* below says;
   the sum this package builds for BIP352 and the EC-multiply factor BIP38
   builds are Python integer arithmetic, variable in time with the
-  operands, whichever install is in use.
+  operands, whichever install is in use, and so is a found silent payment
+  output's private tweak where the scan runs in Python.
 - **A published distribution is what this tree built.** SECURITY.md's
   *Supported versions* states how that is verified.
 
@@ -138,7 +139,7 @@ time ends* and *A backend is trusted, and not every backend alike*:
 
 - side channels on the Python arithmetic btclib runs, and on the
   Python integer arithmetic this package computes itself for BIP352's
-  input-key sum and BIP38's EC-multiply factor
+  input-key sum and found-output tweak and BIP38's EC-multiply factor
 - memory disclosure: secret material in a Python object is not zeroized,
   and `bip32._cached_base58_decode` keeps a decoded extended key
   reachable from its own cache past whatever reference the caller
