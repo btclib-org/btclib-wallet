@@ -2774,8 +2774,10 @@ def _parse_addr(
 def _hex_bytes(text: str, fault: str) -> bytes:
     """Return the bytes of a hex argument, refusing an empty one or odd one.
 
-    The fault is Bitcoin Core's where it names one, and never carries the
-    text: a descriptor may be handed a secret where a script is expected.
+    The fault is Bitcoin Core's for ``raw()``, ``rawnode()`` and
+    ``rawleaf()``, and worded alike for ``rawpkh()``, which Core does not
+    read. It never carries the text: a descriptor may be handed a secret
+    where a script is expected.
     """
     if not _HEX_BYTES.fullmatch(text):
         raise BTClibValueError(fault)

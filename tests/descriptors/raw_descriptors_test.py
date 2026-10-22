@@ -481,8 +481,8 @@ def test_an_empty_or_ill_formed_argument_is_refused(
 ) -> None:
     """Refuse an empty or ill-formed HEX in every function.
 
-    Where the size is the fault, the message is the digest's and names
-    the function only for ``rawpkh()``, whose message is Core's.
+    Where the size is the fault, the message is the digest's, naming no
+    function.
     """
     with pytest.raises(BTClibValueError, match=message):
         parse(descriptor)
