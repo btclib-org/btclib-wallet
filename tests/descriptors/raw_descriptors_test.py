@@ -54,7 +54,11 @@ from btclib_wallet.descriptors import (
     parse,
     wallet_policy,
 )
-from btclib_wallet.descriptors.miniscript import Miniscript, _has_raw_key_hash
+from btclib_wallet.descriptors.miniscript import (
+    TAPSCRIPT,
+    Miniscript,
+    _has_raw_key_hash,
+)
 from btclib_wallet.descriptors.miniscript import parse as miniscript_parse
 from tests import vector_id
 from tests.descriptors.descriptors_test import psbt_paying, psbt_spending
@@ -477,8 +481,8 @@ def test_an_empty_or_ill_formed_argument_is_refused(
 ) -> None:
     """Refuse an empty or ill-formed HEX in every function.
 
-    Where the size is the fault, the message is the digest's, naming no
-    function.
+    Where the size is the fault, the message is the digest's and names
+    the function only for ``rawpkh()``, whose message is Core's.
     """
     with pytest.raises(BTClibValueError, match=message):
         parse(descriptor)
@@ -512,7 +516,14 @@ def test_an_empty_or_ill_formed_argument_is_refused(
                     f"tr({XONLY},and_v(v:pk({X1}),rawpkh({HASH160_KEY})))",
                     RAWPKH_IN_TR,
                 ),
-                (f"tr({XONLY},raw_pk_h({HASH160_KEY}))", RAWPKH_IN_TR),
+                (
+                    f"wsh(and_v(v:pkh({KEY}),raw_pk_h({HASH160_B})))",
+                    r"unknown miniscript fragment",
+                ),
+                (
+                    f"wsh(and_v(v:pkh({KEY}),c:raw_pk_h({HASH160_B})))",
+                    r"unknown miniscript fragment",
+                ),
                 (
                     "sh(sh(raw(00)))",
                     r"^sh\(\) is not allowed inside sh\(\)$",
@@ -644,7 +655,11 @@ def test_rawpkh_in_a_miniscript_is_pkh_for_a_known_hash() -> None:
 
 
 def test_rawpkh_alone_in_a_miniscript_has_the_type_of_pkh() -> None:
-    """``c:raw_pk_h`` is what ``pkh()`` is, and the bare fragment a K."""
+    """``c:raw_pk_h`` is what ``pkh()`` is, and the bare fragment a K.
+
+    The bare fragment is no text `parse` reads. It prints as the fragment
+    it is, and under a ``c:`` or any wrapper as ``rawpkh(HEX)``.
+    """
     known = miniscript_parse(f"pkh({KEY})")
     wrapped = miniscript_parse(f"rawpkh({HASH160_KEY})")
     assert str(wrapped) == f"rawpkh({HASH160_KEY})"
@@ -655,7 +670,9 @@ def test_rawpkh_alone_in_a_miniscript_has_the_type_of_pkh() -> None:
     assert str(bare) == f"raw_pk_h({HASH160_KEY})"
     assert "K" in bare.properties
     assert bare.properties == Miniscript("pk_h", keys=known.subs[0].keys).properties
-    assert miniscript_parse(f"c:{bare}") == wrapped
+    assert str(Miniscript("c:", subs=(bare,))) == f"rawpkh({HASH160_KEY})"
+    text = f"and_v(v:rawpkh({HASH160_KEY}),pkh({KEY}))"
+    assert str(miniscript_parse(text)) == text
 
 
 def test_the_dissatisfaction_of_a_rawpkh_is_estimated_as_pkh_is() -> None:
@@ -688,11 +705,46 @@ def test_infer_reads_no_rawpkh_in_a_miniscript() -> None:
     assert inferred == add_checksum(f"addr({parsed.address()})")
 
 
-def test_a_rawpkh_in_a_miniscript_is_hex_of_twenty_bytes() -> None:
-    """Refuse a hash of another size, and text that is not hex."""
-    for argument in ("", "zz", HASH160_B[:-2], HASH160_B + "00"):
-        with pytest.raises(BTClibValueError):
-            miniscript_parse(f"and_v(v:pkh({KEY}),rawpkh({argument}))")
+@pytest.mark.parametrize(
+    "argument, message",
+    [
+        ("", r"^Rawpkh hash is not hex$"),
+        ("zz", r"^Rawpkh hash is not hex$"),
+        (HASH160_B[:-1], r"^Rawpkh hash is not hex$"),
+        (f"{HASH160_B[:20]} {HASH160_B[20:]}", r"^Rawpkh hash is not hex$"),
+        (f"{HASH160_B} ", r"^Rawpkh hash is not hex$"),
+        (HASH160_B[:-2], r"^160 bits digest expected$"),
+        (HASH160_B + "00", r"^160 bits digest expected$"),
+    ],
+)
+def test_a_rawpkh_in_a_miniscript_is_read_as_rawpkh_is_elsewhere(
+    argument: str, message: str
+) -> None:
+    """Refuse the argument with the messages the descriptor gives."""
+    with pytest.raises(BTClibValueError, match=message):
+        parse(f"wsh(and_v(v:pkh({KEY}),rawpkh({argument})))")
+    with pytest.raises(BTClibValueError, match=message):
+        parse(f"rawpkh({argument})")
+
+
+def test_a_repeated_raw_key_hash_is_a_repeated_key() -> None:
+    """Refuse the same hash twice, and the hash of a key named as well."""
+    known = r"is not sane: it repeats a public key$"
+    for text in (
+        f"and_v(v:rawpkh({HASH160_B}),rawpkh({HASH160_B}))",
+        f"and_v(v:pkh({KEY_B}),rawpkh({HASH160_B}))",
+        f"and_v(v:rawpkh({HASH160_B}),pkh({KEY_B}))",
+    ):
+        with pytest.raises(BTClibValueError, match=known):
+            parse(f"wsh({text})")
+    parse(f"wsh(and_v(v:rawpkh({HASH160_KEY}),rawpkh({HASH160_B})))")
+
+
+def test_a_hand_built_raw_key_hash_is_not_held_to_the_tr_refusal() -> None:
+    """The refusal is the one check `parse` applies."""
+    node = Miniscript("raw_pk_h", TAPSCRIPT, data=bytes(20))
+    assert node.context == TAPSCRIPT
+    assert node.script_size == len(bytes.fromhex(f"76a914{'00' * 20}88"))
 
 
 def test_raw_inside_sh_and_wsh_is_a_script_and_no_key() -> None:
