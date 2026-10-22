@@ -1957,7 +1957,8 @@ class RawPkhDescriptor(Descriptor):
     ``pkh(KEY)`` with the hash of the key and not the key, for an output
     whose key the descriptor does not know. Bitcoin Core does not read it.
     Inside a miniscript the same text is the fragment ``pkh(KEY)`` is, with
-    the hash for the key; inside ``tr()`` it is refused pending the BIP.
+    the hash for the key. Inside ``tr()`` it is a c0 leaf, and the hash is
+    that of the 32-byte x-only key, as it is in the ``pkh()`` leaf.
     """
 
     key_hash: bytes
@@ -2864,7 +2865,7 @@ _PARSERS: dict[
     "addr": ((_TOP,), _parse_addr),
     # inside tr() it is a leaf of a tree and `_parse_tree` reads it
     "raw": ((_TOP, _P2SH, _P2WSH, _P2TR), _parse_raw),
-    # inside tr() it is read as the miniscript fragment, which refuses it
+    # inside tr() it is read as the miniscript fragment, as pkh() is
     "rawpkh": ((_TOP, _P2SH, _P2WSH, _P2TR), _parse_rawpkh),
 }
 
@@ -4066,6 +4067,8 @@ def _raw_name_in(tree: DescriptorTree) -> str | None:
         return _raw_name_in(tree[0]) or _raw_name_in(tree[1])
     if isinstance(tree, (RawLeaf, RawNode)):
         return str(tree).partition("(")[0]
+    if isinstance(tree, Miniscript) and _has_raw_key_hash(tree):
+        return "rawpkh"
     return None
 
 

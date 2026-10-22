@@ -121,9 +121,6 @@ __all__ = [
 P2WSH = "P2WSH"
 TAPSCRIPT = "tapscript"
 
-# what a rawpkh() in a tapscript is told: a choice, not a rule of Bitcoin
-_RAWPKH_REFUSED_IN_TR = "rawpkh() is refused in tr() pending the BIP"
-
 # what a p2wsh witness script may hold and still be relayed: Bitcoin
 # Core's MAX_STANDARD_P2WSH_SCRIPT_SIZE and MAX_STANDARD_P2WSH_STACK_ITEMS,
 # both policy and not consensus, which is why they are here and not in
@@ -1252,7 +1249,9 @@ class Miniscript:
         # a ``rawpkh()`` names a key by its hash: the same hash twice, or
         # the hash of a key the expression names, is that key twice
         hashes = _raw_key_hashes(self)
-        known = {hash160(key) for key in keys if isinstance(key, bytes)}
+        # the hash is of the key as the script writes it, x-only in a tapscript
+        start = 1 if self.context == TAPSCRIPT else 0
+        known = {hash160(key[start:]) for key in keys if isinstance(key, bytes)}
         return len(set(hashes)) != len(hashes) or not known.isdisjoint(hashes)
 
     @property
@@ -2097,12 +2096,10 @@ def _read_raw_key_hash(argument: str, context: str) -> Miniscript:
     The argument is read as the descriptor ``rawpkh()`` reads it, whole
     bytes of hex and nothing else, and refused with its messages.
 
-    Refused in a tapscript, as ``rawpkh()`` is refused in ``tr()`` pending
-    its BIP. This is the one check `parse` applies, and deleting it is the
-    whole cut-back; a node built by hand is not held to it.
+    The 20 bytes are the hash160 of the public key the context writes: of
+    the 33-byte SEC key in a p2wsh script, and of the 32-byte x-only key in
+    a tapscript, as `_leaf_fragment_script` hashes them for a ``pkh()``.
     """
-    if context == TAPSCRIPT:
-        raise BTClibValueError(_RAWPKH_REFUSED_IN_TR)
     if not _HEX_BYTES.fullmatch(argument):
         raise BTClibValueError("Rawpkh hash is not hex")
     if len(argument) != 2 * _DATA_SIZE["raw_pk_h"]:

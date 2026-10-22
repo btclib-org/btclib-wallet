@@ -471,6 +471,26 @@ def _hash(leaf: list, version: int = 0xC0) -> str:  # type: ignore[type-arg]
     return tree_helper([(version, leaf)])[1].hex()
 
 
+def test_a_pkh_leaf_of_an_unknown_key_is_a_rawleaf_and_a_known_one_a_pkh() -> None:
+    """A ``rawpkh()`` leaf is read back as the key the provider has."""
+    leaf: list = [  # type: ignore[type-arg]
+        "OP_DUP",
+        "OP_HASH160",
+        hash160(bytes.fromhex(X34)),
+        "OP_EQUALVERIFY",
+        "OP_CHECKSIG",
+    ]
+    script, provider = _tr([(0xC0, leaf)])
+    hashed = hash160(bytes.fromhex(X34)).hex()
+    assert infer_descriptor(script, provider, "regtest") == add_checksum(
+        f"tr({X1},rawleaf(76a914{hashed}88ac,c0))"
+    )
+    known = replace(provider, keys={**provider.keys, bytes.fromhex("02" + X34): None})
+    assert infer_descriptor(script, known, "regtest") == add_checksum(
+        f"tr({X1},pkh(02{X34}))"
+    )
+
+
 def test_a_leaf_that_infers_to_nothing_else_is_a_rawleaf() -> None:
     """A tree of a ``pk()`` and an ``OP_1`` keeps its key and its ``pk()``."""
     assert _inferred([[(0xC0, PK_X1)], [(0xC0, ["OP_1"])]]) == add_checksum(
