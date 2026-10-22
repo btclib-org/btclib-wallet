@@ -2,8 +2,7 @@
 
 Follow [CONTRIBUTING.md](./CONTRIBUTING.md) for issues, pull requests,
 local gates, and worktree commands. Use [REVIEWING.md](./REVIEWING.md)
-for reviews, the [btclib-org/.github repository standard]
-(https://github.com/btclib-org/.github/blob/main/README.md), and
+for reviews, the [btclib-org/.github repository standard][org-standard], and
 [REPOSITORY.md](./REPOSITORY.md) before changing workflows or settings.
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
@@ -19,3 +18,5 @@ or ambiguous problems. Increase capability if progress stalls.
 Read [ARCHITECTURE.md](./ARCHITECTURE.md) before changing
 `src/btclib_wallet/`; it describes the module boundaries and process
 interfaces.
+
+[org-standard]: https://github.com/btclib-org/.github/blob/main/README.md
