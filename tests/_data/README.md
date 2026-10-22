@@ -846,9 +846,57 @@ The revision this refresh crosses is bitcoin/bitcoin#35819, *test: add
 coverage for untested descriptor parse error paths*: new lines, almost
 all new `CheckUnparsable` cases, and one new `Check(...)`-shaped case
 asserting that a taptree of exactly 128 nesting levels parses.
-The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, and
-that parse is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains
-nothing from it.
+The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, except
+the case of `raw()` inside `sh()`, which that pull request adds and this
+tree accepts by the draft BIP of bitcoin/bips#1721, as
+`raw_descriptors_test.py`'s docstring says. The parse of the deepest taptree
+is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains nothing from it.
+
+### Not vendored as a file: the raw node and raw leaf vectors of a closed pull request
+
+```text
+repo    bitcoin/bitcoin
+path    src/test/descriptor_tests.cpp
+ref     9c4854fa276672ffbd5b82579c0088a2e56b25d0
+commit  c9d15420226b6338e4b18f9acf337187203d7b09  2025-08-01
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, every case the pull request adds.
+bitcoin/bitcoin#30243 implements `rawnode()` and `rawleaf()`, and was
+closed unmerged until a BIP exists. It is no branch of the repository, so
+`ref` is its head: a commit, from which the API walks back to the last one
+touching the path.
+
+`tests/descriptors/raw_descriptors_test.py` holds its `Check` cases as
+`CORE_CHECKS`, in both spellings with the scripts, and its
+`CheckUnparsable` cases as `CORE_UNPARSABLE`. Core reads the error of the
+public string alone, so the private one is only held to be refused. The
+messages are Core's, except those of a function in a position it is not
+allowed in: `parse` words each of them as "NAME() is not allowed inside
+CONTEXT". Not here: the functional test of the pull request, which needs a
+node and a wallet.
+
+### Not vendored as a file: the draft BIP for raw() inside other descriptors
+
+```text
+repo    bitcoin/bips
+path    bip-raw-as-subscript.md
+ref     3197eb9b27fd0c5aacd833b791399777053cc18b
+commit  3197eb9b27fd0c5aacd833b791399777053cc18b  2024-12-27
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**. bitcoin/bips#1721 is a draft BIP, closed, that
+specifies `raw()` inside `sh()`, `wsh()` and a `tr()` tree. It is no
+branch either, and `ref` is its head.
+
+`BIP_VECTORS` in `tests/descriptors/raw_descriptors_test.py` holds its
+valid vectors, and `BIP_INVALID` its invalid ones, with the space after a
+comma left out: Core refuses a function name that starts with a space.
+Its other examples are a to-do list in the draft.
 
 ## bitcoin-core/HWI
 
@@ -1451,10 +1499,17 @@ Only the cases bitcoin-s runs count: its commented-out ones are left out,
 among them the public-key cases of `KeyExpressionTest.scala` that derive
 hardened steps.
 
-An accepted descriptor's script is bitcoin-s's. Its checksum, and its
-addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
-`getdescriptorinfo` and `deriveaddresses`, run with no chain on mainnet. Where
-bitcoin-s gives a checksum, Core's is the same.
+The cases `sh(raw(deadbeef))` and `wsh(raw(deadbeef))` are BIP385's
+invalid vectors. The draft BIP of bitcoin/bips#1721 makes `raw()` valid
+there, and this tree follows it, so the test holds them as `ACCEPTED_HERE`:
+accepted, with the script, where bitcoin-s refuses.
+
+The script of a case in `ACCEPTED` is bitcoin-s's; that of a case in
+`ACCEPTED_HERE` is the hash160 or sha256 of `deadbeef`, computed here. The
+checksum of an accepted descriptor, and its addresses where bitcoin-s gives no
+script, are Bitcoin Core 31.1.0's `getdescriptorinfo` and `deriveaddresses`,
+run with no chain on mainnet. Where bitcoin-s gives a checksum, Core's is the
+same.
 Core's `getdescriptorinfo` refuses every case the test expects refused.
 
 The test's strings are the pinned files' strings. From the repository root,
@@ -1481,7 +1536,7 @@ from pathlib import Path
 from tests.descriptors import bitcoin_s_test as t
 
 text = "".join(f.read_text() for f in Path(sys.argv[1]).glob("*.scala"))
-cases = [d for d, *_ in t.ACCEPTED + t.REFUSED] + [t.RANGED]
+cases = [d for d, *_ in t.ACCEPTED + t.ACCEPTED_HERE + t.REFUSED] + [t.RANGED]
 cases += [d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED]
 for d, _ in t.CHECKSUM_REFUSED:
     cases += [d[4 : d.index(")")], d.partition(")")[2].lstrip("#")]
@@ -1519,7 +1574,7 @@ def selected(s):
     )
 
 
-held = {d for d, *_ in t.ACCEPTED + t.REFUSED} | {t.RANGED}
+held = {d for d, *_ in t.ACCEPTED + t.ACCEPTED_HERE + t.REFUSED} | {t.RANGED}
 held |= {d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED}
 missing = []
 for path in Path(sys.argv[1]).glob("*.scala"):

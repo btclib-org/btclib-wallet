@@ -13,6 +13,9 @@ as the argument of ``pkh()``.
 
 No case is left out as unsupported: ``combo()``, ``addr()`` and ``raw()``
 are all supported.
+
+Two cases are accepted here where bitcoin-s refuses them: ``raw()`` inside
+``sh()`` and ``wsh()``, which the draft BIP of bitcoin/bips#1721 allows.
 """
 
 import pytest
@@ -56,6 +59,22 @@ ACCEPTED = [
     ),
 ]
 
+# each: the descriptor, the script it gives, and why this tree accepts what
+# bitcoin-s refuses. They are BIP385's own invalid vectors, and the draft BIP
+# of bitcoin/bips#1721 makes ``raw()`` valid inside ``sh()`` and ``wsh()``
+ACCEPTED_HERE = [
+    (
+        "sh(raw(deadbeef))",
+        "a914f04df4c4b30d2b7ac6e1ed2445aeb12a9cb4d2ec87",
+        "bitcoin/bips#1721 allows raw() inside sh()",
+    ),
+    (
+        "wsh(raw(deadbeef))",
+        "00205f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953",
+        "bitcoin/bips#1721 allows raw() inside wsh()",
+    ),
+]
+
 # each: the descriptor, what the refusal says
 REFUSED = [
     (
@@ -90,8 +109,6 @@ REFUSED = [
         "combo(pkh(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))",
         "not a key expression",
     ),
-    ("sh(raw(deadbeef))", "raw\\(\\) is not allowed inside sh"),
-    ("wsh(raw(deadbeef))", "raw\\(\\) is not allowed inside wsh"),
     (
         "sh(addr(3PUNyaW7M55oKWJ3kDukwk9bsKvryra15j))",
         "addr\\(\\) is not allowed inside sh",
@@ -277,6 +294,21 @@ def test_refused(descriptor: str, message: str) -> None:
     """Refuse the descriptors bitcoin-s refuses."""
     with pytest.raises(VALUE_ERRORS, match=message):
         parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "descriptor, script, reason",
+    [
+        pytest.param(*case, id=vector_id(index, case[0]))
+        for index, case in enumerate(ACCEPTED_HERE)
+    ],
+)
+def test_accepted_here_where_bitcoin_s_refuses(
+    descriptor: str, script: str, reason: str
+) -> None:
+    """Accept what bitcoin-s refuses, by the draft BIP named in the reason."""
+    assert reason
+    assert parse(descriptor).script_pub_key().script.hex() == script
 
 
 def test_ranged_descriptor() -> None:
