@@ -47,7 +47,8 @@ The pieces, bottom-up:
   `output_keys` does.
 - `label_tweak`, `labeled_address_from_keys` and `label_lookup` are the
   optional third piece: one published address per purpose, all sharing
-  one scan key, at the cost of a subtraction per output while scanning.
+  one scan key, at the cost of an addition per label or a subtraction
+  per output while scanning.
 
 **What is not here** is the transaction-level policy, which is a wallet's:
 BIP352 says a transaction is worth scanning when it has a taproot output,
@@ -104,6 +105,18 @@ try:
     from btclib_secp256k1 import silentpayments as libsecp256k1_silentpayments
 except ImportError:  # pragma: no cover -- only an install without them
     libsecp256k1_silentpayments = None  # type: ignore[assignment]
+
+# Where the bindings serve, `scan_transaction_outputs` scans in Python for
+# a wallet of at most this many labels, or of at most one label per
+# _OUTPUTS_PER_LABEL outputs of the transaction, and through the bindings
+# otherwise. The rule keeps the scan it picks within twice the other's time in
+# the cases measured: 2 to 100 outputs, 1 to 20 labels, none or all ours.
+# No label count alone does that: Python takes more than twice the
+# bindings' time from 4 labels at 10 outputs, and stays within it up to
+# 10 labels at 100 outputs. The script and its table are on issue
+# btclib-org/btclib-wallet#474, the tree having no place for benchmarks.
+_PYTHON_SCAN_LABELS = 3
+_OUTPUTS_PER_LABEL = 10
 
 __all__ = [
     "K_MAX",
@@ -372,11 +385,11 @@ def label_lookup(b_scan: Integer, m_values: Iterable[int]) -> dict[bytes, bytes]
     """Precompute the {label point: label tweak} map a scan reads.
 
     Once per wallet, not once per transaction, which is the point of it:
-    scanning subtracts the candidate output from P_k and asks whether the
-    difference is a label, so a wallet with M labels pays M
-    multiplications here instead of M point additions per output for
-    ever. Include 0 among the values unless the wallet is certain it
-    never paid itself.
+    scanning adds a label to P_k, or subtracts P_k from an output, and
+    asks whether the result is a label or an output, so a wallet with M
+    labels pays M multiplications once, here, rather than at every scan.
+    Include 0 among the values unless the wallet is certain it never paid
+    itself.
 
     The tweak is 32 bytes, big-endian -- `silentpayments.scan_outputs`'s
     own spelling of a label cache, `Mapping[bytes, bytes]`, which refuses
@@ -802,28 +815,29 @@ class SilentPaymentOutput:
     prv_key_tweak: int = field(repr=False)
 
 
-def _labelled(
-    output: bytes, P_k: Point, labels: Mapping[bytes, bytes]
-) -> tuple[Point, int] | None:
-    """Return (P_k + label, label tweak) if the difference is a label.
+def _labelled(output: bytes, P_k: Point, labels: Mapping[bytes, bytes]) -> int | None:
+    """Return the label tweak if the output minus P_k is a label.
+
+    This is BIP352's own test, by subtraction: one lift and two additions
+    per output, whatever the number of labels. `_label_added` is the
+    other way round, which costs nothing per output.
 
     Both parities of the output are tried, which is not belt and braces:
     a taproot output is x-only, so the y the subtraction needs is
     unknown, and half of the time the even one is the wrong guess.
 
-    This is the inner loop of a scan -- once per output that did not
-    match directly, and again at every k -- so the additions are
-    `sum_var`'s rather than the Python arithmetic under it, the latter
-    being the dearer of the two over a hundred outputs. The negation of
-    P_k is the same point for both parities and is taken once.
+    The additions are `sum_var`'s rather than the Python arithmetic under
+    it, the latter being the dearer of the two over a hundred outputs.
+    The negation of P_k is the same point for both parities and is taken
+    once.
     """
     try:
         candidate = point_from_bip340pub_key_var(output, secp256k1)
     except (TypeError, ValueError):
         # 32 bytes that are no x coordinate: an unspendable output rather
         # than one of ours, and the subtraction below has nothing to
-        # subtract. The direct comparison above needed no lift, which is
-        # why this is reached rather than raised at the top of the scan
+        # subtract. The direct comparison needed no lift, which is why
+        # this is reached rather than raised at the top of the scan
         return None
 
     minus_P_k = secp256k1.negate(P_k)
@@ -833,8 +847,175 @@ def _labelled(
         # P_k up to parity, which the x-only comparison already caught
         tweak = labels.get(bytes_from_point(label_point, secp256k1))
         if tweak is not None:
-            return sum_var([P_k, label_point], secp256k1), scalar_from_prv_key(tweak)
+            return scalar_from_prv_key(tweak)
     return None
+
+
+def _label_added(
+    P_k: Point,
+    label_points: Sequence[tuple[Point, bytes]],
+    positions: Mapping[bytes, int],
+) -> tuple[int, bytes, int] | None:
+    """Return the earliest output P_k plus a label makes, with its tweak.
+
+    BIP352's footnote on the change label: add each label to P_k and look
+    the x-only key up among the outputs, instead of subtracting P_k from
+    each output. The x-only key of P_k + L is the output's exactly when
+    the output is P_k + L or its negation, the two parities that
+    `_labelled` tries one after the other. One addition and one lookup
+    per label, whatever the number of outputs.
+
+    The answer is (position, output, label tweak) of the output earliest
+    in the transaction, whichever label made it: `_scan` compares it with
+    the direct match.
+    """
+    best: tuple[int, bytes, bytes] | None = None
+    for label_point, tweak in label_points:
+        P_km = sum_var([P_k, label_point], secp256k1)
+        if P_km[1] == 0:
+            # P_k is the negative of the label: infinity, the point that
+            # has no x-only key and that no output is
+            continue
+        x_only = _x_only(P_km)
+        position = positions.get(x_only)
+        if position is not None and (best is None or position < best[0]):
+            best = position, x_only, tweak
+    if best is None:
+        return None
+    return best[0], best[1], scalar_from_prv_key(best[2])
+
+
+def _assert_outputs(outputs_to_check: object) -> None:
+    """Refuse an `outputs_to_check` that is not a sequence of outputs.
+
+    Every Octets is itself a Sequence, so passing one instead of a list
+    of outputs would zip through its bytes and check each as its own
+    output (issue btclib-org/btclib#1405).
+    """
+    if is_octets(outputs_to_check) or not isinstance(outputs_to_check, Sequence):
+        raise BTClibTypeError(
+            f"invalid outputs_to_check type: {type(outputs_to_check).__name__}"
+        )
+
+
+def _outputs_with_a_point(outputs_to_check: Sequence[Octets]) -> list[bytes]:
+    """Return the outputs whose 32 bytes are the x coordinate of a point.
+
+    The Python scan walks past an output that is no point, and the
+    bindings refuse the whole scan: a scan they refused is retried
+    without such outputs, so that the answer does not depend on the scan
+    chosen.
+    """
+    points = []
+    for output in outputs_to_check:
+        octets = bytes_from_octets(output, secp256k1.p_size)
+        try:
+            point_from_bip340pub_key_var(octets, secp256k1)
+        except (TypeError, ValueError):
+            continue
+        points.append(octets)
+    return points
+
+
+def _lifted_labels(
+    label_map: Mapping[bytes, bytes],
+) -> list[tuple[Point, bytes]]:
+    """Return the labels that are points, each with its tweak.
+
+    A key that is no point matches no output, as it does when the outputs
+    are subtracted from: it is left out rather than raised on.
+    """
+    lifted = []
+    for label, tweak in label_map.items():
+        try:
+            lifted.append((point_from_octets_var(label, secp256k1), tweak))
+        except (TypeError, ValueError):
+            continue
+    return lifted
+
+
+def _earliest_match(
+    P_k: Point,
+    x_only_P_k: bytes,
+    remaining: Mapping[bytes, int],
+    label_points: Sequence[tuple[Point, bytes]],
+    label_map: Mapping[bytes, bytes],
+) -> tuple[int, bytes, int | None] | None:
+    """Return (position, output, label tweak or None) of the output P_k takes.
+
+    The earliest output in the transaction that matches P_k directly or
+    through a label, None if there is none. `label_points` is the label
+    map lifted where it is added, empty where it is subtracted or empty.
+    """
+    # a wallet that published no labelled address has nothing for either
+    # label test to find. BIP352 asks for the change label m = 0 whatever
+    # else was used, so the map is normally not empty: what this spares
+    # is the caller who passed none
+    if label_points:
+        match = _label_added(P_k, label_points, remaining)
+        direct = remaining.get(x_only_P_k)
+        if direct is not None and (match is None or direct < match[0]):
+            return direct, x_only_P_k, None
+        return match
+    if label_map:
+        for output, position in remaining.items():
+            if output == x_only_P_k:
+                return position, output, None
+            label = _labelled(output, P_k, label_map)
+            if label is not None:
+                return position, output, label
+        return None
+    direct = remaining.get(x_only_P_k)
+    return None if direct is None else (direct, x_only_P_k, None)
+
+
+def _scan(
+    secret: Point,
+    B_spend: PubKey,
+    outputs_to_check: Sequence[Octets],
+    labels: Mapping[bytes, bytes] | None,
+) -> list[SilentPaymentOutput]:
+    """Return the outputs of one transaction, from its shared secret.
+
+    The outputs are kept as the keys of a dict, to their position in the
+    transaction: a lookup finds an output, with no label or with labels
+    added, and a duplicated output is its first. Only the subtraction
+    walks the outputs not yet found. At most as many outputs are found as
+    there are outputs, which is why k stops there.
+
+    At each k the output taken is the earliest in the transaction that
+    matches P_k, directly or through a label, as BIP352 and libsecp256k1
+    walk the outputs. A label is looked for by addition when the wallet
+    has no more labels than the transaction has outputs, and by
+    subtraction otherwise. An addition is one point sum and a subtraction
+    a lift and two (`_label_added` and `_labelled` are the two), and the
+    number of additions grows with the labels and that of subtractions
+    with the outputs.
+    """
+    label_map = {} if labels is None else labels
+    chain = TweakChain(point_from_pub_key(B_spend), secp256k1)
+    remaining: dict[bytes, int] = {}
+    for position, output in enumerate(outputs_to_check):
+        remaining.setdefault(bytes_from_octets(output, secp256k1.p_size), position)
+    # lifted once, and only for the scan that adds them
+    label_points = (
+        _lifted_labels(label_map) if 0 < len(label_map) <= len(remaining) else []
+    )
+
+    found = []
+    for k in range(min(len(remaining), K_MAX)):
+        t_k = _output_tweak(secret, k)
+        P_k = chain.point(t_k)
+        x_only_P_k = _x_only(P_k)
+        # (position, output, label tweak or None) of the output taken
+        match = _earliest_match(P_k, x_only_P_k, remaining, label_points, label_map)
+        if match is None:
+            break
+        _, output, label = match
+        del remaining[output]
+        tweak = t_k if label is None else (t_k + label) % secp256k1.n
+        found.append(SilentPaymentOutput(output, tweak))
+    return found
 
 
 def scan_outputs(
@@ -848,14 +1029,13 @@ def scan_outputs(
 
     `tweak` is the tweak data of `tweak_data`, input_hash*A_sum -- the
     light client's entry point, BIP352's Appendix A: a server hands a
-    light client exactly this and nothing else about the transaction,
-    which is why this stays the Python arithmetic below whatever the
-    bindings serve. `scan_transaction_outputs` is the counterpart for a
-    caller holding the transaction itself. `outputs_to_check` are the
-    x-only keys of every taproot output of the transaction, spent ones
-    included -- a wallet recovering its history is looking for outputs it
-    has already spent. `labels` is `label_lookup`'s map, and BIP352 asks
-    for the change label m = 0 in it whatever else the wallet used.
+    light client exactly this and nothing else about the transaction.
+    `scan_transaction_outputs` is the counterpart for a caller holding
+    the transaction itself. `outputs_to_check` are the x-only keys of
+    every taproot output of the transaction, spent ones included -- a
+    wallet recovering its history is looking for outputs it has already
+    spent. `labels` is `label_lookup`'s map, and BIP352 asks for the
+    change label m = 0 in it whatever else the wallet used.
 
     The scan walks k upwards and stops at the first k that matches
     nothing, which is what makes it one multiplication per transaction
@@ -865,52 +1045,8 @@ def scan_outputs(
     say -- still has to advance k, or every later output of the same
     sender is missed.
     """
-    # every Octets is itself a Sequence, so passing one instead of a list
-    # of outputs would zip through its bytes and check each as its own
-    # output (issue btclib-org/btclib#1405)
-    if is_octets(outputs_to_check) or not isinstance(outputs_to_check, Sequence):
-        raise BTClibTypeError(
-            f"invalid outputs_to_check type: {type(outputs_to_check).__name__}"
-        )
-    secret = shared_secret(b_scan, tweak)
-    # every k tweaks the one spend key, and `tweak_add_var` would cross
-    # the boundary with it at each of them: the chain crosses with it once
-    label_map = {} if labels is None else labels
-    chain = TweakChain(point_from_pub_key(B_spend), secp256k1)
-    remaining = [
-        bytes_from_octets(output, secp256k1.p_size) for output in outputs_to_check
-    ]
-
-    found = []
-    for k in range(K_MAX):
-        t_k = _output_tweak(secret, k)
-        P_k = chain.point(t_k)
-        x_only_P_k = _x_only(P_k)
-        match = None
-        for output in remaining:
-            if x_only_P_k == output:
-                match = output, SilentPaymentOutput(x_only_P_k, t_k)
-                break
-            # a wallet that published no labelled address has nothing for
-            # the subtraction below to find, and `_labelled` is a lift
-            # and two additions per output before it can say so, which
-            # over a hundred outputs is most of what the scan spends.
-            # BIP352 asks for the change label m = 0 whatever else was
-            # used, so the map is
-            # normally not empty -- what this spares is the caller who
-            # passed none, and the answer is `_labelled`'s own for an
-            # empty map, which is None every time
-            labelled = _labelled(output, P_k, label_map) if label_map else None
-            if labelled is not None:
-                P_km, label = labelled
-                tweak_sum = (t_k + label) % secp256k1.n
-                match = output, SilentPaymentOutput(_x_only(P_km), tweak_sum)
-                break
-        if match is None:
-            break
-        remaining.remove(match[0])
-        found.append(match[1])
-    return found
+    _assert_outputs(outputs_to_check)
+    return _scan(shared_secret(b_scan, tweak), B_spend, outputs_to_check, labels)
 
 
 def _delegated_scan_outputs(
@@ -936,8 +1072,8 @@ def _delegated_scan_outputs(
     map, 33-byte label to 32-byte tweak, which is the bindings' own
     spelling and not this tree's legacy one. The label element of each
     returned triple is discarded -- the tweak the bindings answer already
-    has it folded in, the same combined scalar `_labelled` returns on the
-    Python arm.
+    has it folded in, the same combined scalar `_scan` computes on the
+    Python arm, t_k plus the label tweak.
     """
     outpoint_smallest36 = min(outpoint.serialize() for outpoint in outpoints)
     taproot_pubkeys_bytes = []
@@ -994,49 +1130,60 @@ def scan_transaction_outputs(
     `outpoints` is the transaction's, eligible or not: what the input
     hash binds to is the transaction, precisely as `output_keys` reads it.
 
-    Where the bindings serve secp256k1, this reaches
+    Where the bindings serve secp256k1 and the wallet has more than
+    `_PYTHON_SCAN_LABELS` labels and more than one per
+    `_OUTPUTS_PER_LABEL` outputs of the transaction, this reaches
     `silentpayments.scan_outputs` with a `prevouts_summary` computed once
-    from `pub_keys` and `outpoints` -- the shape a wallet scanning a block
-    needs, and the one issue btclib-org/btclib#910's own measurement found 6.4x
-    faster than the Python loop at a hundred outputs once a label is in play,
-    which BIP352 asks every wallet to check (m = 0, the change label). Without a
-    label the two arms are close, the Python one ahead at a hundred outputs, but
-    that case is not what decided this: see the issue's own comments for the
-    numbers.
+    from `pub_keys` and `outpoints`. Otherwise it is the
+    Python scan, in which the scan key meets only `shared_secret`'s
+    multiplication: the input hash is multiplied into A_sum first, as
+    `tweak_data` does, rather than into the scan key, which would be a
+    product of two integers in Python and no longer a scalar handed to
+    the curve code.
 
-    `pub_key_sum` and `input_hash` run unconditionally, before either arm
-    is chosen, for the same reason `output_keys` computes `a` and `h`
-    either way: a zero-sum refusal or an empty outpoint sequence gets the
-    specific message those two functions already give it, rather than the
-    bindings' coarser one.
+    No outputs to check is refused, and an output that is no point is
+    walked past, whichever scan runs.
 
-    `labels` is `label_lookup`'s map -- 33-byte label to 32-byte tweak,
-    the bindings' own spelling -- and reaches the delegated arm
-    unconverted; the Python arm, `scan_outputs`, reads the same bytes
-    through `scalar_from_prv_key`.
+    `pub_key_sum` and `input_hash` run before either is chosen, so that a
+    zero-sum refusal or an empty outpoint sequence gets the specific
+    message those two functions give, rather than the bindings' coarser
+    one.
+
+    `labels` is `label_lookup`'s map -- 33-byte label to 32-byte tweak.
     """
-    # `scan_outputs`'s own guard, checked again here rather than relying
-    # on the delegation below: the bindings arm never reaches that
-    # function, so `outputs_to_check` is this function's own to refuse
-    # (issue btclib-org/btclib#1405)
-    if is_octets(outputs_to_check) or not isinstance(outputs_to_check, Sequence):
-        raise BTClibTypeError(
-            f"invalid outputs_to_check type: {type(outputs_to_check).__name__}"
-        )
+    _assert_outputs(outputs_to_check)
+    # whichever scan runs, as the bindings did
+    if not outputs_to_check:
+        raise BTClibValueError("no outputs to check")
     A_sum = pub_key_sum([pub_key for pub_key, _script_pub_key in pub_keys])
     h = input_hash(outpoints, A_sum)
-
-    if is_libsecp256k1_serving():
-        return _delegated_scan_outputs(
-            b_scan, outpoints, pub_keys, B_spend, outputs_to_check, labels
-        )
+    if (
+        is_libsecp256k1_serving()
+        and len(labels or ()) > _PYTHON_SCAN_LABELS
+        and len(labels or ()) * _OUTPUTS_PER_LABEL > len(outputs_to_check)
+    ):
+        try:
+            return _delegated_scan_outputs(
+                b_scan, outpoints, pub_keys, B_spend, outputs_to_check, labels
+            )
+        except BTClibValueError:
+            # the bindings refuse the scan for an output that is no point
+            # and the Python scan walks past it: retried without those,
+            # which costs a lift per output only here
+            points = _outputs_with_a_point(outputs_to_check)
+            if len(points) == len(outputs_to_check):
+                raise
+            if not points:
+                return []
+            return _delegated_scan_outputs(
+                b_scan, outpoints, pub_keys, B_spend, points, labels
+            )
 
     # `tweak_data` would recompute `input_hash`, redoing the outpoint sort
     # and the tagged hash over the same data: `h` is already this
-    # transaction's, same as `output_keys` reuses its own `h` rather than
-    # letting a helper derive it again
+    # transaction's
     tweak = mult(h, A_sum)
-    return scan_outputs(b_scan, B_spend, tweak, outputs_to_check, labels)
+    return _scan(shared_secret(b_scan, tweak), B_spend, outputs_to_check, labels)
 
 
 def prv_key_from_tweak(b_spend: Integer, prv_key_tweak: int) -> int:

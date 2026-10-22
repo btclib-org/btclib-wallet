@@ -145,7 +145,14 @@ used to teach and to prototype as much as to build.
     BIP38's EC-multiply factor are computed that way before the result
     reaches a btclib call. BIP32's private derivation is the exception
     that delegates: with the bindings serving, the child key is
-    `secp256k1_ec_seckey_tweak_add`'s.
+    `secp256k1_ec_seckey_tweak_add`'s. The silent payment scan computes
+    a found output's private tweak, (t_k + label) mod n, on Python
+    integers, which are neither constant-time nor wiped, wherever it
+    runs in Python: `scan_outputs` always, and `scan_transaction_outputs`
+    unless the bindings serve and the wallet has more than three labels
+    and more than one per ten outputs. That sum moves to
+    btclib-ecc's dispatched `prv_key_tweak_add` once the wallet depends
+    on a btclib-ecc release that has it.
 - **Secret material lives in Python objects**, which are immutable and
     not zeroized: an extended private key, a mnemonic or a seed stays in
     the process memory until garbage collection, and may have been

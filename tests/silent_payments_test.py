@@ -511,17 +511,189 @@ def test_the_input_hash_needs_an_outpoint() -> None:
         silent_payments.input_hash([], mult(_B_SCAN_PRV))
 
 
-def test_a_scan_walks_past_an_output_that_is_no_point() -> None:
+@pytest.mark.parametrize("m_values", [[0], [0, 1]], ids=["addition", "subtraction"])
+def test_a_scan_walks_past_an_output_that_is_no_point(m_values: list[int]) -> None:
     """A taproot output key is 32 bytes nobody checked.
 
-    So the label subtraction has nothing to subtract, and the output is
+    With one label and one output the scan adds the label and never lifts
+    the output. With more labels than outputs it subtracts, so the output
+    has to be lifted and there is nothing to subtract: the output is
     skipped rather than raised on -- which the direct comparison in front
     of it never needed to notice, comparing x coordinates and not points.
     """
     tweak = silent_payments.tweak_data([OutPoint(bytes(32), 0)], mult(_B_SCAN_PRV))
-    labels = silent_payments.label_lookup(_B_SCAN_PRV, [0])
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, m_values)
     found = silent_payments.scan_outputs(
         _B_SCAN_PRV, mult(_B_SPEND_PRV), tweak, [_NOT_AN_X], labels
+    )
+    assert found == []
+
+
+def _paid_with_labels(m_values: list[int]) -> tuple[list[OutPoint], list[bytes]]:
+    """Pay this wallet's labelled addresses from one input, in order."""
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    outpoints = [OutPoint("00" * 31 + "01", 7)]
+    addresses = [_address(m) for m in m_values]
+    return outpoints, silent_payments.output_keys(
+        [(a, script_pub_key)], outpoints, addresses
+    )
+
+
+def _scan_paid(
+    outpoints: list[OutPoint], outputs: list[bytes], labels: dict[bytes, bytes]
+) -> list[silent_payments.SilentPaymentOutput]:
+    """Scan the transaction of `_paid_with_labels` for the test wallet.
+
+    Through `scan_outputs`, which is the Python scan whatever the labels.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    tweak = silent_payments.tweak_data(outpoints, mult(a))
+    return silent_payments.scan_outputs(
+        _B_SCAN_PRV, mult(_B_SPEND_PRV), tweak, outputs, labels
+    )
+
+
+def test_labels_are_found_by_addition_and_by_subtraction() -> None:
+    """The two ways of checking a label find the same outputs, spendable.
+
+    Four labels over eight outputs are added to P_k; twenty labels over
+    the same eight are subtracted from the outputs. The outputs are
+    given in the order the sender made them and in the reverse one.
+    The output key is x-only, and a label found from it is P_k plus the
+    label for one parity of that key and minus it for the other, so the
+    outputs found must have both: the assertion on the parities says the
+    outputs chosen here do.
+    """
+    m_values = [0, 3, 1, 3, 2, 0, 1, 2]
+    outpoints, keys = _paid_with_labels(m_values)
+    assert len(set(keys)) == len(m_values)
+
+    for labelled in (list(range(4)), list(range(20))):
+        labels = silent_payments.label_lookup(_B_SCAN_PRV, labelled)
+        for outputs in (keys, keys[::-1]):
+            found = _scan_paid(outpoints, outputs, labels)
+            assert [output.pub_key for output in found] == keys
+            parities = set()
+            for output in found:
+                d = silent_payments.prv_key_from_tweak(
+                    _B_SPEND_PRV, output.prv_key_tweak
+                )
+                parities.add(mult(d)[1] % 2)
+                sig = ssa.sign_(_MSG, d, _AUX)
+                assert ssa.verify_(_MSG, output.pub_key, sig)
+            assert parities == {0, 1}
+
+
+@needs_bindings
+def test_the_two_scans_agree_on_labelled_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bindings and the Python scan find the same outputs and tweaks.
+
+    The vectors have few labels; here the wallet holds one, four or
+    twenty, and the outputs are ours, partly ours or not at all.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    pub_keys = [(mult(a), script_pub_key)]
+    outpoints, keys = _paid_with_labels([0, 3, 1, 3, 2, 0, 1, 2])
+    strangers = [bytes_from_point(mult(i + 2))[1:] for i in range(3)]
+    for outputs in (keys, keys[::-1], strangers + keys[:3], strangers):
+        for labelled in ([0], [0, 1, 2, 3], list(range(20))):
+            labels = silent_payments.label_lookup(_B_SCAN_PRV, labelled)
+            args = (_B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), outputs)
+            delegated = silent_payments._delegated_scan_outputs(*args, labels)
+            with monkeypatch.context() as arm:
+                arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+                python = silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV,
+                    mult(_B_SPEND_PRV),
+                    outpoints,
+                    pub_keys,
+                    outputs,
+                    labels,
+                )
+            assert delegated == python
+
+
+def _malformed_label_cases() -> list[
+    tuple[list[OutPoint], list[bytes], dict[bytes, bytes], int]
+]:
+    """Return (outpoints, outputs, labels, outputs found) with a bad label.
+
+    A label key that is no point is first in the map. One output is ours,
+    by label 0, and the map holds label 0 or not. The bad label alone is
+    added over one output and over two. With label 0 it is subtracted
+    over one output, there being more labels than outputs, and added over
+    two.
+    """
+    outpoints, keys = _paid_with_labels([0])
+    stranger = bytes_from_point(mult(2))[1:]
+    bad = {b"\x02" + _NOT_AN_X: bytes(32)}
+    good = silent_payments.label_lookup(_B_SCAN_PRV, [0])
+    return [
+        (outpoints, outputs, labels, found)
+        for outputs in (keys, [stranger, *keys])
+        for labels, found in ((bad, 0), ({**bad, **good}, 1))
+    ]
+
+
+def test_a_label_that_is_no_point_matches_nothing() -> None:
+    """It is left out of the scan, in both directions, as it never matches."""
+    for outpoints, outputs, labels, found in _malformed_label_cases():
+        assert len(_scan_paid(outpoints, outputs, labels)) == found
+
+
+@needs_bindings
+def test_the_bindings_skip_a_label_that_is_no_point_too() -> None:
+    """The same cases as `test_a_label_that_is_no_point_matches_nothing`."""
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    for outpoints, outputs, labels, found in _malformed_label_cases():
+        scanned = silent_payments._delegated_scan_outputs(
+            _B_SCAN_PRV,
+            outpoints,
+            [(mult(a), script_pub_key)],
+            mult(_B_SPEND_PRV),
+            outputs,
+            labels,
+        )
+        assert len(scanned) == found
+
+
+def test_a_scan_stops_at_an_output_whose_label_it_does_not_hold() -> None:
+    """The first k that matches nothing ends the walk, label or not.
+
+    The third output carries label 5, which the wallet does not hold in
+    either of the two ways of checking, so only the first two are found
+    though the fourth would be.
+    """
+    outpoints, keys = _paid_with_labels([0, 1, 5, 0])
+    for labelled in ([0, 1], list(range(5))):
+        labels = silent_payments.label_lookup(_B_SCAN_PRV, labelled)
+        found = _scan_paid(outpoints, keys, labels)
+        assert [output.pub_key for output in found] == keys[:2]
+
+
+def test_a_label_that_cancels_p_k_is_no_output() -> None:
+    """P_k plus the label is infinity, which has no x-only key to match.
+
+    The spend key is chosen so that P_0 is the negative of label 0's
+    point: a wallet whose keys are so related to its labels can only be
+    built on purpose, and the scan has to walk past it and not raise.
+    """
+    outpoints = [OutPoint("00" * 31 + "01", 7)]
+    tweak = silent_payments.tweak_data(outpoints, mult(3))
+    secret = silent_payments.shared_secret(_B_SCAN_PRV, tweak)
+    t_0 = silent_payments._output_tweak(secret, 0)
+    label = silent_payments.label_tweak(_B_SCAN_PRV, 0)
+    b_spend = secp256k1.n - (t_0 + label) % secp256k1.n
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, [0])
+    other = bytes_from_point(mult(5))[1:]
+
+    found = silent_payments.scan_outputs(
+        _B_SCAN_PRV, mult(b_spend), tweak, [other], labels
     )
     assert found == []
 
@@ -774,15 +946,13 @@ def test_scan_transaction_outputs_matches_across_arms(
 ) -> None:
     """The delegated and the Python arm of the full-node scan agree.
 
-    `scan_transaction_outputs`'s own dispatch is
-    `is_libsecp256k1_serving()`, exactly `output_keys`'s, so a vector is
-    run twice with the predicate patched between the two --
-    `test_output_keys_matches_across_arms`'s own shape, now available
-    because `scan_transaction_outputs` gives the recipient's side a
-    dispatch to flip. `test_receiving_vectors` already checks the light
-    client's `scan_outputs` against the vector file directly; this asks
-    whether the full-node entry point's two arms agree with each other
-    and with that same file.
+    The delegated arm is called itself, and the Python one through
+    `scan_transaction_outputs` with `is_libsecp256k1_serving()` patched,
+    `test_output_keys_matches_across_arms`'s own shape.
+    `test_receiving_vectors` already checks the light client's
+    `scan_outputs` against the vector file directly; this asks whether
+    the full-node entry point's two arms agree with each other and with
+    that same file.
     """
     given, expected = test["given"], test["expected"]
     b_scan = given["key_material"]["scan_priv_key"]
@@ -805,6 +975,12 @@ def test_scan_transaction_outputs_matches_across_arms(
             if not delegated:
                 arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
             try:
+                if delegated:
+                    # the arm itself: which of the two the dispatch picks
+                    # depends on the labels, and is tested apart
+                    return silent_payments._delegated_scan_outputs(
+                        b_scan, outpoints, pub_keys, B_spend, given["outputs"], labels
+                    )
                 return silent_payments.scan_transaction_outputs(
                     b_scan, B_spend, outpoints, pub_keys, given["outputs"], labels
                 )
@@ -842,6 +1018,9 @@ def test_scan_transaction_outputs_accepts_no_labels_on_the_real_bindings(
 ) -> None:
     """`labels=None` reaches `silentpayments.scan_outputs` unconverted.
 
+    The arm is called itself: no labels is a wallet the dispatch scans
+    in Python.
+
     Every other real-bindings call in this file always builds a
     `label_lookup(...)` map first -- `test_receiving_vectors` and
     `test_scan_transaction_outputs_matches_across_arms` both do --  and
@@ -869,8 +1048,8 @@ def test_scan_transaction_outputs_accepts_no_labels_on_the_real_bindings(
     outpoints = _outpoints(given["vin"])
 
     try:
-        delegated_found = silent_payments.scan_transaction_outputs(
-            b_scan, B_spend, outpoints, pub_keys, given["outputs"], labels=None
+        delegated_found = silent_payments._delegated_scan_outputs(
+            b_scan, outpoints, pub_keys, B_spend, given["outputs"], labels=None
         )
     except BTClibValueError:
         # the input public keys sum to infinity: BIP352 skips the
@@ -910,10 +1089,217 @@ def test_scan_transaction_outputs_wraps_a_delegated_refusal(
     script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, range(4))
     with pytest.raises(BTClibValueError, match="silent payment scan failed"):
         silent_payments.scan_transaction_outputs(
-            _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, [_NOT_AN_X]
+            _B_SCAN_PRV,
+            mult(_B_SPEND_PRV),
+            outpoints,
+            pub_keys,
+            [bytes_from_point(mult(2))[1:]],
+            labels,
         )
+
+
+@needs_bindings
+@pytest.mark.parametrize(
+    "n_labels,n_outputs,delegated",
+    [
+        (0, 1, False),
+        (3, 1, False),
+        (3, 100, False),
+        (4, 1, True),
+        (4, 39, True),
+        (4, 40, False),
+        (5, 49, True),
+        (5, 50, False),
+        (20, 100, True),
+        (20, 200, False),
+    ],
+)
+def test_the_scan_is_delegated_above_the_label_rule(
+    n_labels: int,
+    n_outputs: int,
+    delegated: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dispatch rule sends the scan to the bindings or keeps it.
+
+    Both sides of each edge of the dispatch rule. The outputs are arbitrary x
+    coordinates, none of them ours, so the delegated arm is replaced by
+    a spy.
+    """
+    calls = []
+
+    def _spy(*args: object) -> list[silent_payments.SilentPaymentOutput]:
+        calls.append(args)
+        return []
+
+    monkeypatch.setattr(silent_payments, "_delegated_scan_outputs", _spy)
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, range(n_labels))
+    outputs = [bytes_from_point(mult(i + 2))[1:] for i in range(n_outputs)]
+    found = silent_payments.scan_transaction_outputs(
+        _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, outputs, labels
+    )
+    assert found == []
+    assert bool(calls) is delegated
+
+
+def test_without_the_bindings_the_python_scan_always_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Many labels, few outputs: the rule would delegate, nothing serves.
+
+    The delegated arm is replaced by None, which raises if it is called.
+    """
+    monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+    monkeypatch.setattr(silent_payments, "_delegated_scan_outputs", None)
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, range(20))
+    assert (
+        silent_payments.scan_transaction_outputs(
+            _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, [_NOT_AN_X], labels
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("n_labels", [0, 2, 5, 20])
+def test_the_scan_answers_alike_whatever_the_labels(
+    n_labels: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No outputs is refused, and an output that is no point is walked past.
+
+    The rule picks the scan by the number of labels, and the answer must
+    not depend on it: the bindings refuse both, the Python scan neither,
+    and `scan_transaction_outputs` makes them one.
+    """
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, range(n_labels))
+    for serving in (True, False):
+        with monkeypatch.context() as arm:
+            if not serving:
+                arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+            with pytest.raises(BTClibValueError, match="no outputs"):
+                silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, [], labels
+                )
+            assert (
+                silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV,
+                    mult(_B_SPEND_PRV),
+                    outpoints,
+                    pub_keys,
+                    [_NOT_AN_X],
+                    labels,
+                )
+                == []
+            )
+            # and the outputs that are points are still scanned
+            tweak = silent_payments.tweak_data(outpoints, mult(_B_SCAN_PRV))
+            secret = silent_payments.shared_secret(_B_SCAN_PRV, tweak)
+            ours = silent_payments.output_key(secret, mult(_B_SPEND_PRV), 0)
+            found = silent_payments.scan_transaction_outputs(
+                _B_SCAN_PRV,
+                mult(_B_SPEND_PRV),
+                outpoints,
+                pub_keys,
+                [_NOT_AN_X, ours],
+                labels,
+            )
+            assert [output.pub_key for output in found] == [ours]
+
+
+def _earliest_cases() -> tuple[
+    list[
+        tuple[
+            list[bytes],
+            list[silent_payments.SilentPaymentOutput],
+            list[list[int]],
+        ]
+    ],
+    tuple[list[OutPoint], list[tuple[tuple[int, int], str]], tuple[int, int]],
+    tuple[int, int],
+]:
+    """Return a transaction where P_0 matches directly and by labels 1 and 2.
+
+    The outputs in four orders with what a scan must find in each and the
+    label lists to scan them with, and what a scan takes: the outpoints,
+    the input keys, the tweak data and B_spend.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    outpoints = [OutPoint("00" * 31 + "01", 7)]
+    tweak = silent_payments.tweak_data(outpoints, mult(a))
+    secret = silent_payments.shared_secret(_B_SCAN_PRV, tweak)
+    B_spend = mult(_B_SPEND_PRV)
+    labelled = silent_payments.output_key(
+        secret, silent_payments.keys_from_address(_address(1))[1], 0
+    )
+    direct = silent_payments.output_key(secret, B_spend, 0)
+    t_0 = silent_payments._output_tweak(secret, 0)
+    label = silent_payments.label_tweak(_B_SCAN_PRV, 1)
+    by_label = silent_payments.SilentPaymentOutput(
+        labelled, (t_0 + label) % secp256k1.n
+    )
+    by_direct = silent_payments.SilentPaymentOutput(direct, t_0)
+    labelled_2 = silent_payments.output_key(
+        secret, silent_payments.keys_from_address(_address(2))[1], 0
+    )
+    by_label_2 = silent_payments.SilentPaymentOutput(
+        labelled_2, (t_0 + silent_payments.label_tweak(_B_SCAN_PRV, 2)) % secp256k1.n
+    )
+    direct_labels = [[0, 1], [1, 0], list(range(5))]
+    # both match through a label: the earlier output, not the first label
+    # of the map, and the map in both orders
+    both_labels = [[1, 2], [2, 1], list(range(5))]
+    cases = [
+        ([labelled, direct], [by_label], direct_labels),
+        ([direct, labelled], [by_direct], direct_labels),
+        ([labelled_2, labelled], [by_label_2], both_labels),
+        ([labelled, labelled_2], [by_label], both_labels),
+    ]
+    return cases, (outpoints, [(mult(a), script_pub_key)], tweak), B_spend
+
+
+def test_the_earliest_output_wins_whether_direct_or_by_label() -> None:
+    """At one k, an earlier output by label beats a later direct match.
+
+    BIP352 and libsecp256k1 walk the outputs in order and take the first
+    that matches P_k, directly or through a label. The transaction has
+    P_0 plus label 1 first and P_0 itself second, and then the other way
+    round; then P_0 plus label 2 and P_0 plus label 1, in both orders. The
+    labels are given addition's way (as many as outputs) and
+    subtraction's (more).
+    """
+    cases, (_, _, tweak), B_spend = _earliest_cases()
+    for outputs, expected, label_lists in cases:
+        for m_values in label_lists:
+            labels = silent_payments.label_lookup(_B_SCAN_PRV, m_values)
+            found = silent_payments.scan_outputs(
+                _B_SCAN_PRV, B_spend, tweak, outputs, labels
+            )
+            assert found == expected
+
+
+@needs_bindings
+def test_the_bindings_take_the_earliest_output_too() -> None:
+    """The same transaction as `test_the_earliest_output_wins...`."""
+    cases, (outpoints, pub_keys, _tweak), B_spend = _earliest_cases()
+    for outputs, expected, label_lists in cases:
+        for m_values in label_lists:
+            labels = silent_payments.label_lookup(_B_SCAN_PRV, m_values)
+            found = silent_payments._delegated_scan_outputs(
+                _B_SCAN_PRV, outpoints, pub_keys, B_spend, outputs, labels
+            )
+            assert found == expected
 
 
 def test_one_output_is_not_a_list_of_them() -> None:
@@ -921,9 +1307,7 @@ def test_one_output_is_not_a_list_of_them() -> None:
 
     A caller passing the one output it has, rather than a list holding
     it, would otherwise zip through its bytes and check each as its own
-    output (issue btclib-org/btclib#1405). The bindings arm never reaches
-    `scan_outputs`, so `scan_transaction_outputs` guards its own
-    `outputs_to_check` rather than inheriting the check through delegation.
+    output (issue btclib-org/btclib#1405). Both scan entry points refuse it.
     """
     script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
@@ -940,6 +1324,10 @@ def test_one_output_is_not_a_list_of_them() -> None:
     with pytest.raises(BTClibTypeError, match="invalid outputs_to_check type"):
         silent_payments.scan_transaction_outputs(
             _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, cast("Any", None)
+        )
+    with pytest.raises(BTClibTypeError, match="invalid outputs_to_check type"):
+        silent_payments.scan_outputs(
+            _B_SCAN_PRV, mult(_B_SPEND_PRV), mult(3), cast("Any", _NOT_AN_X)
         )
 
 
