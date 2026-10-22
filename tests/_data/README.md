@@ -679,12 +679,8 @@ plus the `\n` the `end-of-file-fixer` hook added, so our blob is
 
 The BIP322 corpus of btcsuite/btcd#2521
 is run by `tests/bip322_test.py`, including its expected invalid and
-inconclusive outcomes. Cases needing BIP322-specific interpreter rules
-remain strict expected failures under issue #493. So does the case
-"proof-of-funds generic signed message does not match" of
-`generated-negative-test-vectors.json`: a proof of funds whose
-`PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE` differs from the message is not yet
-refused, and issue #493 tracks the check.
+inconclusive outcomes. Legacy P2SH cases needing BIP322's MINIMALIF
+interpreter rule remain strict expected failures under issue #493.
 
 ### `tests/_data/btcd/basic-test-vectors.json`
 

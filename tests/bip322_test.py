@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 from btclib import b58
+from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
 from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
@@ -43,7 +44,8 @@ from btclib.script.sig_hash import (
     segwit_v0,
 )
 from btclib.script.sig_hash import taproot as taproot_sig_hash
-from btclib.script.taproot import output_prvkey, output_pubkey
+from btclib.script.taproot import input_script_sig, output_prvkey, output_pubkey
+from btclib.script.taproot import serialize as serialize_tapscript
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_ecc.curves import secp256k1
@@ -61,6 +63,7 @@ from tests import (
     padding_bits_set,
     vector_id,
 )
+from tests.secret_free import assert_secret_free
 
 BASIC = load("_data", "basic-test-vectors.json", encoding="utf-8")
 GENERATED = load("_data", "generated-test-vectors.json", encoding="utf-8")
@@ -74,26 +77,6 @@ BTCD = {
 }
 _BTCD_XFAIL = {
     (
-        "basic-test-vectors.json",
-        "error",
-        18,
-    ): "BIP322 forbids CODESEPARATOR in P2WSH; btclib's CONST_SCRIPTCODE is legacy-only",
-    (
-        "basic-test-vectors.json",
-        "error",
-        19,
-    ): "BIP322 forbids CODESEPARATOR in tapscript; btclib's CONST_SCRIPTCODE is legacy-only",
-    (
-        "generated-negative-test-vectors.json",
-        "error",
-        5,
-    ): "BIP322 forbids CODESEPARATOR in P2WSH; btclib's CONST_SCRIPTCODE is legacy-only",
-    (
-        "generated-negative-test-vectors.json",
-        "error",
-        6,
-    ): "BIP322 forbids CODESEPARATOR in tapscript; btclib's CONST_SCRIPTCODE is legacy-only",
-    (
         "generated-negative-test-vectors.json",
         "error",
         11,
@@ -103,11 +86,6 @@ _BTCD_XFAIL = {
         "error",
         12,
     ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
-    (
-        "generated-negative-test-vectors.json",
-        "error",
-        24,
-    ): "a PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE differing from the message is not yet checked (issue #493)",
 }
 
 
@@ -313,6 +291,152 @@ def test_proof_of_funds_vector(case: dict[str, Any]) -> None:
     """
     for signature in case["bip322_signatures"]:
         bip322.assert_as_valid(case["message"].encode(), case["address"], signature)
+
+
+@pytest.mark.parametrize("version", [0, 2])
+@pytest.mark.parametrize("wire", [False, True])
+@pytest.mark.parametrize("field", ["matching", "missing", "empty", "different"])
+def test_proof_of_funds_message_binding(version: int, wire: bool, field: str) -> None:
+    """A present PSBT message must agree; omission stays accepted."""
+    case = GENERATED["proof_of_funds"][0]
+    msg = case["message"].encode()
+    psbt = bip322.Sig.b64decode(case["bip322_signatures"][0]).payload
+    assert isinstance(psbt, Psbt)
+    if version == 2:
+        psbt = psbt.to_v2()
+    other = b"KQZF7M3GJBRW92YT"
+    psbt.signed_message = {
+        "matching": msg,
+        "missing": None,
+        "empty": b"",
+        "different": other,
+    }[field]
+    built = bip322.Sig(psbt)
+    signature = built.b64encode() if wire else built
+    # A hex spelling is the same message as the bytes stored in the field.
+    external = msg.hex() if version == 2 else msg
+    if field in ("matching", "missing"):
+        bip322.assert_as_valid(external, case["address"], signature)
+        assert bip322.verify(external, case["address"], signature)
+    else:
+        with pytest.raises(BTClibValueError, match="generic signed message") as caught:
+            bip322.assert_as_valid(external, case["address"], signature)
+        assert_secret_free(caught.value, [msg, other])
+        assert not bip322.verify(external, case["address"], signature)
+
+
+@pytest.mark.parametrize("msg", [b"", "öäüéàè 测试文本 😄".encode()])
+def test_empty_and_utf8_proof_messages_are_bound_as_bytes(msg: bytes) -> None:
+    """Empty and UTF-8 messages agree with their exact PSBT bytes."""
+    script = serialize(["OP_1"])
+    addr = p2wsh(script)
+    spend = bip322.to_spend(msg, ScriptPubKey.from_address(addr).script)
+    psbt = Psbt.from_tx(bip322.to_sign(spend))
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[0].final_script_witness = Witness([script])
+    psbt.signed_message = msg
+    bip322.assert_as_valid(bytearray(msg), addr, bip322.Sig(psbt))
+    psbt.signed_message = b"ZQC7JB9XF6P2M4RN"
+    with pytest.raises(BTClibValueError, match="generic signed message"):
+        bip322.assert_as_valid(memoryview(msg), addr, bip322.Sig(psbt))
+
+
+@pytest.mark.parametrize("script_type", ["p2wsh", "p2sh-p2wsh", "p2tr"])
+@pytest.mark.parametrize("form", ["executed", "unexecuted", "upgradeable", "pushed"])
+def test_codesep_is_forbidden_in_revealed_witness_scripts(
+    script_type: str, form: str
+) -> None:
+    """Required policy covers opcodes even in skipped script branches."""
+    forms: dict[str, ScriptList] = {
+        "executed": ["OP_CODESEPARATOR", "OP_1"],
+        "unexecuted": ["OP_0", "OP_IF", "OP_CODESEPARATOR", "OP_ENDIF", "OP_1"],
+        "upgradeable": ["OP_CODESEPARATOR", "OP_NOP4", "OP_1"],
+        "pushed": [b"\xab", "OP_DROP", "OP_1"],
+    }
+    commands = forms[form]
+    script = serialize(commands)
+    if script_type == "p2tr":
+        tree: TaprootScriptTree = [(0xC0, commands)]
+        _, control = input_script_sig(WIF_PUB, tree, 0)
+        addr = p2tr(output_pubkey(WIF_PUB, tree)[0])
+        witness = Witness([script, control, b"\x50\xab annex"])
+        script_sig = b""
+    else:
+        program = ScriptPubKey.from_address(p2wsh(script)).script
+        addr = (
+            address(serialize(["OP_HASH160", hash160(program), "OP_EQUAL"]))
+            if script_type == "p2sh-p2wsh"
+            else p2wsh(script)
+        )
+        witness = Witness([script])
+        script_sig = serialize([program]) if script_type == "p2sh-p2wsh" else b""
+    _, tx = _to_sign_of(
+        b"required witness policy",
+        addr,
+        witness=witness,
+        script_sig=script_sig,
+        version=3 if form == "upgradeable" else 0,
+    )
+    signature = bip322.Sig(tx)
+    if form == "pushed":
+        bip322.assert_as_valid(b"required witness policy", addr, signature)
+    else:
+        with pytest.raises(BTClibValueError, match="CODESEPARATOR"):
+            bip322.assert_as_valid(b"required witness policy", addr, signature)
+
+
+@pytest.mark.parametrize("leaf_version", [0xC0, 0xC2])
+def test_codesep_with_op_success_and_future_leaf_versions(leaf_version: int) -> None:
+    """Known leaf policy precedes OP_SUCCESS; future leaves stay opaque."""
+    commands: ScriptList = ["OP_SUCCESS80", b"\xab"]
+    tree: TaprootScriptTree = [(leaf_version, commands)]
+    _, control = input_script_sig(WIF_PUB, tree, 0)
+    addr = p2tr(output_pubkey(WIF_PUB, tree)[0])
+    signature = bip322.Sig(Witness([serialize_tapscript(commands), control]))
+    if leaf_version == 0xC0:
+        with pytest.raises(BTClibValueError, match="CODESEPARATOR"):
+            bip322.assert_as_valid(b"policy precedence", addr, signature)
+    else:
+        with pytest.raises(InconclusiveError):
+            bip322.assert_as_valid(b"policy precedence", addr, signature)
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_codesep_bytes_in_unknown_witness_programs_stay_opaque(wrapped: bool) -> None:
+    """Wrapped v1 is not taproot; native v2 is also an upgradeable program."""
+    program = (b"\x51\x20" if wrapped else b"\x52\x20") + b"\x11" * 32
+    script = (
+        serialize(["OP_HASH160", hash160(program), "OP_EQUAL"]) if wrapped else program
+    )
+    addr = address(script)
+    _, tx = _to_sign_of(
+        b"opaque future program",
+        addr,
+        script_sig=serialize([program]) if wrapped else b"",
+        witness=Witness([b"\xab"]),
+    )
+    with pytest.raises(InconclusiveError):
+        bip322.assert_as_valid(b"opaque future program", addr, bip322.Sig(tx))
+
+
+def test_proof_of_funds_applies_codesep_policy_to_additional_inputs() -> None:
+    """A clean challenge does not exempt the other scripts in the proof."""
+    msg = b"additional witness policy"
+    challenge_script = serialize(["OP_1"])
+    extra_script = serialize(["OP_CODESEPARATOR", "OP_1"])
+    addr = p2wsh(challenge_script)
+    spend = bip322.to_spend(msg, ScriptPubKey.from_address(addr).script)
+    psbt = Psbt.from_tx(
+        bip322.to_sign(spend, extra_inputs=[TxIn(OutPoint(b"\x01" * 32, 0))])
+    )
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[0].final_script_witness = Witness([challenge_script])
+    psbt.inputs[1].witness_utxo = TxOut(
+        1000, ScriptPubKey.from_address(p2wsh(extra_script))
+    )
+    psbt.inputs[1].final_script_witness = Witness([extra_script])
+    with pytest.raises(BTClibValueError, match="CODESEPARATOR"):
+        bip322.assert_as_valid(msg, addr, bip322.Sig(psbt).b64encode())
 
 
 @pytest.mark.parametrize("case", _cases("error"), ids=_ids("error"))

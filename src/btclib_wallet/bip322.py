@@ -69,11 +69,12 @@ consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
 CLEANSTACK, MINIMALIF and CONST_SCRIPTCODE for the required ones, and the
 ``DISCOURAGE_`` family for the upgradeable ones -- the backticks because a
 name ending in an underscore is a link reference to docutils, which
-sphinx runs with `-W`. Two of those flags fall short of the BIP: the
+sphinx runs with `-W`. MINIMALIF falls short of the BIP: the
 engine applies MINIMALIF to witness v0 scripts, and tapscript has its own
-consensus rule, so a legacy P2SH script is not held to it, and it refuses
-OP_CODESEPARATOR only in legacy scripts, so P2WSH and tapscript are not
-held to that. Issue #493 tracks both. Two rules of the list are not
+consensus rule, so a legacy P2SH script is not held to it. Issue #493
+tracks that gap. CONST_SCRIPTCODE refuses OP_CODESEPARATOR only in legacy
+scripts; the revealed P2WSH and tapscript programs are decoded through
+btclib and checked for that opcode here. Two rules of the list are not
 flags. The block's limit on sigop cost is checked by counting `to_spend`
 and `to_sign` together with `sig_op_cost`. The other is "all signatures
 MUST use SIGHASH_ALL", which no set of flags can express:
@@ -113,8 +114,15 @@ from btclib.exceptions import (
 )
 from btclib.hashes import hash160
 from btclib.key import PrvKeyData, PubKeyData
-from btclib.script import serialize
-from btclib.script.engine import ALL_FLAGS, ScriptFlag, sig_op_cost, verify_transaction
+from btclib.script import parse, serialize
+from btclib.script.engine import (
+    ALL_FLAGS,
+    ScriptFlag,
+    sig_op_cost,
+    taproot_get_annex,
+    taproot_unwrap_script,
+    verify_transaction,
+)
 from btclib.script.script_pub_key import ScriptPubKey, is_segwit, type_and_payload
 from btclib.script.sig_hash import ALL, DEFAULT, from_tx
 from btclib.script.sig_hash import taproot as taproot_sig_hash
@@ -529,6 +537,46 @@ def _assert_sig_op_cost(spend: Tx, prevouts: list[TxOut], tx: Tx) -> None:
         raise BTClibValueError(err_msg)
 
 
+def _revealed_witness_script(prev_out: TxOut, tx_in: TxIn) -> bytes | None:
+    """Return a known witness script after the engine has validated its spend.
+
+    P2SH can wrap P2WSH, but a wrapped witness v1 program is not taproot.
+    Key-path witnesses, annexes and future leaf versions are not scripts
+    to be decoded under today's rules.
+    """
+    script = prev_out.script_pub_key.script
+    script_type = type_and_payload(script)[0]
+    if script_type == "p2sh":
+        if not _is_witness_spend(script, tx_in.script_sig):
+            return None
+        script = tx_in.script_sig[1:]
+        script_type = type_and_payload(script)[0]
+        if script_type != "p2wsh":
+            return None
+    if script_type == "p2wsh":
+        return tx_in.script_witness.stack[-1]
+    if script_type == "p2tr":
+        _, stack = taproot_get_annex(tx_in.script_witness)
+        if len(stack) >= 2:
+            tapscript, _, leaf_version = taproot_unwrap_script(script, stack)
+            if leaf_version == 0xC0:
+                return tapscript
+    return None
+
+
+def _assert_no_code_separator(prevouts: list[TxOut], tx: Tx) -> None:
+    """Apply BIP322's opcode ban where CONST_SCRIPTCODE does not reach.
+
+    The whole revealed script is inspected, including unexecuted
+    branches. Script decoding belongs to btclib, so pushed bytes with
+    the same value as an opcode remain data.
+    """
+    for prev_out, tx_in in zip(prevouts, tx.vin, strict=True):
+        script = _revealed_witness_script(prev_out, tx_in)
+        if script is not None and "OP_CODESEPARATOR" in parse(script):
+            raise BTClibValueError("BIP322 forbids OP_CODESEPARATOR")
+
+
 def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
     """Run the engine, telling an invalid signature from an inconclusive one.
 
@@ -555,8 +603,10 @@ def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
         required_only: list[int] = []
         verify_transaction(prevouts, tx, REQUIRED_RULES, hash_types=required_only)
         _assert_hash_types(required_only)
+        _assert_no_code_separator(prevouts, tx)
         raise InconclusiveError(f"upgradeable rule: {e}") from e
     _assert_hash_types(hash_types)
+    _assert_no_code_separator(prevouts, tx)
 
 
 def assert_as_valid(
@@ -576,6 +626,9 @@ def assert_as_valid(
 
     Raises `InconclusiveError` for a signature that is not invalid and
     cannot be judged valid; see the module docstring for that state.
+
+    A proof-of-funds PSBT may omit its generic signed message field.
+    Where present, its bytes must agree with `msg`.
     """
     # which of the two verifications runs, a BMS signature over the message
     # or BIP322's own, so it is a kind and `verify` inherits the check
@@ -612,6 +665,11 @@ def assert_as_valid(
         # virtual spend has no fee policy
         tx = extract_tx(payload, verify_scripts=False, max_fee_rate=None)
         prevouts += _psbt_prevouts(payload)[1:]
+        if (
+            payload.signed_message is not None
+            and payload.signed_message != bytes_from_octets(msg)
+        ):
+            raise BTClibValueError("PSBT generic signed message does not match")
 
     _assert_shape(tx, spend, prevouts)
     _assert_sig_op_cost(spend, prevouts, tx)
