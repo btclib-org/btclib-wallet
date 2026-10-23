@@ -77,7 +77,6 @@ NODE = textwrap.dedent(
         with log.open("a") as f:
             f.write("Unable to bind any endpoint for RPC server\\n")
         sys.exit(1)
-    sock.listen()
     if "port" in args:
         p2p = socket.socket()
         try:
@@ -92,6 +91,7 @@ NODE = textwrap.dedent(
                 )
             sys.exit(1)
         p2p.listen()
+    sock.listen()
     time.sleep(60)
     """
 )
