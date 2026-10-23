@@ -4,7 +4,7 @@
 # 3.12 is the interpreter both locks are compiled for (--python-version in
 # the header of requirements-hwi.in and requirements-speculos.in) and the
 # one integration-hwi.yml installs them with (HWI_PYTHON). Nothing keeps
-# the three in step.
+# them in step.
 #
 # uv reads this file too, for a command run in this directory, so a
 # whole-line comment only, for the reason the root .python-version gives.
