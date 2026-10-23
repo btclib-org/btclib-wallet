@@ -4,6 +4,13 @@ btclib_wallet.fetch package
 Submodules
 ----------
 
+btclib_wallet.fetch.balance module
+----------------------------------
+
+.. automodule:: btclib_wallet.fetch.balance
+   :members:
+   :show-inheritance:
+
 btclib_wallet.fetch.bitcoin_core integration module
 ---------------------------------------------------
 

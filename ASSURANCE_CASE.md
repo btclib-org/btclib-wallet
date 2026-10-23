@@ -148,16 +148,17 @@ time ends* and *A backend is trusted, and not every backend alike*:
 - the resistance to side channels of whatever cipher a caller passes
   `btclib_wallet.bip38`, which takes AES-256 as two callables
 - the privacy of a lookup against `EsploraFetcher`, `BitcoinCoreRestFetcher`
-  or `ElectrumFetcher`: each learns every txid and outpoint asked of it;
+  or `ElectrumFetcher`: each learns every txid and outpoint asked of it, and
+  `EsploraFetcher` every address `get_balance` asks;
   and against `CompactFilterFetcher`'s peer, whose view SECURITY.md's
   *A backend is trusted, and not every backend alike* states
 - the operating system, the interpreter, or the HWI binary or hardware
   device this package's caller names
 
-Nor is the network transport a caller's own `Fetcher`, `Broadcaster` or
-`FeeEstimator` substitute opens: `tests/fetch/` exercises the ones this
-package ships, and a caller's own implementation is the caller's to
-secure.
+Nor is the network transport a caller's own `Fetcher`, `Broadcaster`,
+`FeeEstimator` or `BalanceReader` substitute opens: `tests/fetch/`
+exercises the ones this package ships, and a caller's own implementation is
+the caller's to secure.
 
 ## Trust boundaries
 

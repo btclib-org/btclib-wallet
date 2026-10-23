@@ -179,6 +179,7 @@ used to teach and to prototype as much as to build.
     it is the header at the height asked for. A height rests on the
     backend's word except from `CompactFilterFetcher`, and so does the
     tip hash except from `ElectrumFetcher` and `CompactFilterFetcher`.
+    An address's balance rests on the backend's word too.
     The work each network's limit stands for, in bits, is:
 
     ```shell
@@ -230,9 +231,9 @@ used to teach and to prototype as much as to build.
     decides which blocks are downloaded, up to the `max_blocks` of the call,
     and sees which they are; it is given no script. Use a peer you trust, or
     run several fetchers and compare.
-- **An explorer learns every txid and outpoint you look up**, which is a
-    good deal of what a wallet is. A public deployment is named as a
-    constant and never as a default, so nothing here contacts anyone
+- **An explorer learns every txid, outpoint and address you look up**,
+    which is a good deal of what a wallet is. A public deployment is named
+    as a constant and never as a default, so nothing here contacts anyone
     until a caller writes the endpoint down. `Broadcaster.broadcast`
     checks that the backend named the txid this code computed, and
     nothing checks that the transaction went on to propagate.

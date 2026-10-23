@@ -157,6 +157,7 @@ CHILD_MODULES = {
     "btclib_wallet.fetch": {
         "groups": [],
         "unpublished": [
+            "balance",
             "bitcoin_core",
             "bitcoin_core_rest",
             "broadcaster",
