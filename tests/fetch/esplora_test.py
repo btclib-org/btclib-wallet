@@ -832,12 +832,14 @@ def test_get_balance_reads_a_zero_balance() -> None:
 
 
 def test_get_balance_checks_the_address_on_the_fetchers_network() -> None:
-    """A testnet fetcher asks for a testnet address and refuses a mainnet one."""
+    """A testnet fetcher takes a testnet address and refuses a mainnet one."""
     transport = Recorded((200, address_body(address=TESTNET_ADDRESS)))
     esplora = EsploraFetcher(
         BASE, network="testnet", transport=transport, verify_network=False
     )
-    assert esplora.get_balance(TESTNET_ADDRESS) == Balance(confirmed=70, unconfirmed=-15)
+    assert esplora.get_balance(TESTNET_ADDRESS) == Balance(
+        confirmed=70, unconfirmed=-15
+    )
     assert transport.requests[0].full_url == f"{BASE}/address/{TESTNET_ADDRESS}"
     with pytest.raises(BTClibValueError, match="^not an address of testnet$"):
         esplora.get_balance(GENESIS_ADDRESS)
