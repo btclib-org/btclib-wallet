@@ -503,7 +503,12 @@ def test_a_number_with_leading_zeros_is_read_and_printed_without(
 
 @pytest.mark.parametrize(
     "fragment, digest",
-    [("sha256", SHA256), ("hash256", SHA256), ("ripemd160", HASH160), ("hash160", HASH160)],
+    [
+        ("sha256", SHA256),
+        ("hash256", SHA256),
+        ("ripemd160", HASH160),
+        ("hash160", HASH160),
+    ],
 )
 def test_a_hash_fragment_refuses_whitespace_in_its_hex(
     fragment: str, digest: str
