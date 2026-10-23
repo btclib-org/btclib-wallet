@@ -24,12 +24,18 @@ _SCRIPT = Path(__file__).parents[1] / ".github" / "scripts" / "compare_descripto
 
 
 @pytest.fixture
-def script() -> ModuleType:
-    """Return the script, imported by path."""
+def script(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Return the script, imported by path.
+
+    Its dataclasses resolve their string annotations through
+    `sys.modules[cls.__module__]` before Python 3.15, so the module is named
+    there before it runs, and removed after the test.
+    """
     spec = importlib.util.spec_from_file_location("compare_descriptors", _SCRIPT)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "compare_descriptors", module)
     spec.loader.exec_module(module)
     return module
 
