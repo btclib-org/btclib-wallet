@@ -12,10 +12,11 @@ other scripts under it are tested. Neither `bitcoind` nor `cargo` is needed:
 from __future__ import annotations
 
 import importlib.util
-import stat
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -35,7 +36,7 @@ def script() -> ModuleType:
 
 def test_disagreements_flags_a_refusal_by_rust_alone(script: ModuleType) -> None:
     """Core and `parse` accept what rust-miniscript refuses."""
-    accepted = script.Verdict(True)
+    accepted = script.Verdict(True, scripts=("0014aa",))
     refused = script.Verdict(False)
 
     assert script.disagreements(accepted, accepted, refused) == ["acceptance"]
@@ -111,16 +112,18 @@ def test_disagreements_flags_a_different_address(script: ModuleType) -> None:
     ]
 
 
-def _stub(directory: Path) -> Path:
+@pytest.fixture
+def stub(script: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Return a program that answers like the Rust one, and stops at `crash`.
 
     It reads one hex-encoded input per line and answers each with a row of
     the tab-separated form `index status script address note`, the index
     counted from its own first line. At `crash` it exits with 3 and no row.
+    The script runs the program as a command, which Windows cannot do with a
+    Python file, so the interpreter is put in front of it.
     """
-    path = directory / "stub"
+    path = tmp_path / "stub.py"
     path.write_text(
-        f"#!{sys.executable}\n"
         "import sys\n"
         "for index, line in enumerate(sys.stdin):\n"
         "    text = bytes.fromhex(line.strip()).decode()\n"
@@ -129,13 +132,35 @@ def _stub(directory: Path) -> Path:
         "    print(f'{index}\\taccepted\\t{text.encode().hex()}\\t-\\t-', flush=True)\n",
         encoding="utf-8",
     )
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    real_run = subprocess.run
+
+    def run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return real_run([sys.executable, *args], **kwargs)
+
+    monkeypatch.setattr(script.subprocess, "run", run)
     return path
 
 
-def test_read_with_rust_answers_every_input(script: ModuleType, tmp_path: Path) -> None:
+def test_first_path_keeps_the_first_of_a_multipath_answer(script: ModuleType) -> None:
+    """A multipath answer is a list per path, of which the first is kept."""
+    assert script._first_path([["a"], ["b"]]) == ("a",)  # noqa: SLF001
+    assert script._first_path(["a"]) == ("a",)  # noqa: SLF001
+
+
+def test_disagreements_compares_the_first_of_several_addresses(
+    script: ModuleType,
+) -> None:
+    """Core and `parse` give every address of a combo(), rust-miniscript one."""
+    core = script.Verdict(True, addresses=("bc1qa", "bc1qb"))
+    ours = script.Verdict(True, scripts=("0014aa",), addresses=("bc1qa", "bc1qb"))
+    rust = script.Verdict(True, scripts=("0014aa",), addresses=("bc1qa",))
+
+    assert script.disagreements(core, ours, rust) == []
+
+
+def test_read_with_rust_answers_every_input(script: ModuleType, stub: Path) -> None:
     """A run that answers every input needs no restart."""
-    verdicts = script.read_with_rust(_stub(tmp_path), ["a", "b"])
+    verdicts = script.read_with_rust(stub, ["a", "b"])
 
     assert [verdict.accepted for verdict in verdicts] == [True, True]
     assert [verdict.scripts for verdict in verdicts] == [
@@ -145,10 +170,10 @@ def test_read_with_rust_answers_every_input(script: ModuleType, tmp_path: Path) 
 
 
 def test_read_with_rust_restarts_after_a_crash(
-    script: ModuleType, tmp_path: Path
+    script: ModuleType, stub: Path
 ) -> None:
     """The input a run stopped on is a refusal, and the rest are asked again."""
-    verdicts = script.read_with_rust(_stub(tmp_path), ["a", "crash", "b", "c"])
+    verdicts = script.read_with_rust(stub, ["a", "crash", "b", "c"])
 
     assert [verdict.accepted for verdict in verdicts] == [True, False, True, True]
     assert verdicts[1].note == "rust-miniscript stopped with 3"
@@ -157,9 +182,9 @@ def test_read_with_rust_restarts_after_a_crash(
 
 
 def test_read_with_rust_survives_a_crash_on_the_first_input(
-    script: ModuleType, tmp_path: Path
+    script: ModuleType, stub: Path
 ) -> None:
     """A run that stops before any answer still moves past its input."""
-    verdicts = script.read_with_rust(_stub(tmp_path), ["crash", "a"])
+    verdicts = script.read_with_rust(stub, ["crash", "a"])
 
     assert [verdict.accepted for verdict in verdicts] == [False, True]
