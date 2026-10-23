@@ -85,7 +85,7 @@ def certificates(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     loaded: list[str] = []
 
     def create_default_context(*, cafile: str) -> ssl.SSLContext:
-        loaded.append(Path(cafile).read_text())
+        loaded.append(Path(cafile).read_text(encoding="utf-8"))
         return ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
     monkeypatch.setattr(ssl, "create_default_context", create_default_context)
