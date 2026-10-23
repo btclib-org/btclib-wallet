@@ -120,10 +120,9 @@ _MAX_HEIGHT_BODY = 64
 _MAX_HASH_BODY = 128
 _MAX_HEADER_BODY = 256
 _MAX_TX_BODY = DEFAULT_MAX_BODY_SIZE
-# `/fee-estimates` answers json rather than plain text, a body that is
-# more than a single small value: an object of up to the documented set
-# of confirmation targets below, each a small decimal, formatted with the
-# json punctuation around them. Generous over that and still nowhere near
+# `/fee-estimates` answers a json object: up to the documented set of
+# confirmation targets below, each a small decimal, with the json
+# punctuation around them. Generous over that and still nowhere near
 # DEFAULT_MAX_BODY_SIZE
 _MAX_FEE_ESTIMATES_BODY = 4096
 # `/address/<address>` answers json too: the address, and two objects of
