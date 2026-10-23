@@ -131,7 +131,7 @@ def test_a_florestad_on_a_taken_port_is_started_again_on_another(
 def test_the_certificate_of_a_failed_try_is_not_loaded(
     stack_start: Any, certificates: list[str]
 ) -> None:
-    """The failed try wrote a certificate; the last one loaded is the second's."""
+    """A failed try left a certificate; the one loaded last is the second's."""
     peer, stack = start_on_free_ports(stack_start)
     try:
         assert certificates[-1] == str(stack.electrum.inner.port)
