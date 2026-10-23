@@ -36,8 +36,8 @@ So a truth's `True` has to be its conservative value, and a flag whose
 The two tests below are that line, one each:
 
 - a kind refuses `"no"`, `0`, `1` and (where the annotation does not
-  declare it) `None`, with a `BTClibTypeError` -- or btclib_ecc's
-  `BTClibEccTypeError`, where the flag is handed on to that package
+  declare it) `None`, with a `BTClibTypeError` -- or ecc's
+  `EccTypeError`, where the flag is handed on to that package
   (issue btclib-org/btclib#2282)
 - a truth **accepts** them, on a fixture the flag's `True` accepts: a
   truth that starts refusing fails here, and the entry has to move rather
@@ -77,7 +77,7 @@ from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
-from btclib_ecc.curves import bytes_from_point, bytes_from_prv_key_int, mult
+from ecc.curves import bytes_from_point, bytes_from_prv_key_int, mult
 
 from btclib_wallet import bip38, bip322, core_import, slip132
 from btclib_wallet.bip32.bip32 import (

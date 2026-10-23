@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 import bip39_slip39.electrum
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name
-from btclib_ecc.curves.curve import mult, secp256k1
-from btclib_ecc.curves.sec_point import bytes_from_point, scalar_from_prv_key
+from ecc.curves.curve import mult, secp256k1
+from ecc.curves.sec_point import bytes_from_point, scalar_from_prv_key
 
 from btclib_wallet.bip32 import derive, rootxprv_from_seed
 from btclib_wallet.bip32.der_path import _HARDENED_OFFSET

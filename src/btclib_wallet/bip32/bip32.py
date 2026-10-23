@@ -53,7 +53,7 @@ from btclib.utils import (
     int_from_json_number,
     is_integer,
 )
-from btclib_ecc.curves import (
+from ecc.curves import (
     Curve,
     bytes_from_point,
     bytes_from_prv_key_int,

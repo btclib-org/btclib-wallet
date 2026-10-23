@@ -40,10 +40,10 @@ from btclib.hashes import hash160
 from btclib.key import PubKeyData
 from btclib.script import ScriptPubKey, Witness, serialize, taproot
 from btclib.script.script_pub_key import is_p2wpkh
-from btclib.script.taproot import output_pubkey_from_merkle_root
+from btclib.script.taproot import output_pubkey_from_merkle_root_var
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import bytes_from_point, mult, secp256k1
-from btclib_ecc.ecc import dleq
+from ecc.curves import bytes_from_point, mult, secp256k1
+from ecc.ecc import dleq
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.bip32 import (
@@ -104,7 +104,7 @@ def _decoded(encoded: str) -> Psbt:
         if is_p2wpkh(utxo.script_pub_key.script) and len(keys) == 1:
             script = ScriptPubKey.p2wpkh(PubKeyData(keys[0]))
         elif psbt_in.taproot_internal_key == sp.NUMS_H:
-            output_key, _ = output_pubkey_from_merkle_root(
+            output_key, _ = output_pubkey_from_merkle_root_var(
                 sp.NUMS_H, psbt_in.taproot_merkle_root
             )
             script = ScriptPubKey(serialize(["OP_1", output_key]))
@@ -1117,7 +1117,7 @@ def test_a_nums_internal_key_counts_only_proven() -> None:
     """
     leaf = serialize([_SEC[1:], "OP_CHECKSIG"])
     merkle_root = taproot.leaf_hash(0xC0, leaf)
-    output_key, parity = output_pubkey_from_merkle_root(sp.NUMS_H, merkle_root)
+    output_key, parity = output_pubkey_from_merkle_root_var(sp.NUMS_H, merkle_root)
     control = bytes([0xC0 | parity]) + sp.NUMS_H
     spent = TxOut(100_000, ScriptPubKey(serialize(["OP_1", output_key])))
 

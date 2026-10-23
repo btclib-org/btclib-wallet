@@ -71,7 +71,7 @@ from btclib.script.script_pub_key import (
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, is_integer
-from btclib_ecc.curves import point_from_pub_key
+from ecc.curves import point_from_pub_key
 
 __all__ = [
     "CET_SEQUENCE",

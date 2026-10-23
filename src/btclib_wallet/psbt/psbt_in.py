@@ -27,8 +27,8 @@ from btclib.utils import (
     bytesio_from_binarydata,
     fields_from_json_object,
 )
-from btclib_ecc.curves import sec_point
-from btclib_ecc.ecc import dsa
+from ecc.curves import sec_point
+from ecc.ecc import dsa
 
 from btclib_wallet.bip32.key_origin import (
     BIP32KeyOrigin,
@@ -205,7 +205,7 @@ def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
     """Raise an exception if the dataclass element is not valid.
 
     Each `except` names `ValueError` rather than `BTClibValueError`: a
-    parse may be `btclib_ecc.exceptions.BTClibEccValueError`, a
+    parse may be `ecc.exceptions.EccValueError`, a
     `ValueError` and no `BTClibValueError`, and what it refuses leaves
     here as this package's refusal naming the field.
     """

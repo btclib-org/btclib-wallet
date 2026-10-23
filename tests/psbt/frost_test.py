@@ -5,7 +5,7 @@
 """Tests for the `btclib_wallet.psbt.frost` module.
 
 The key material is BIP445's own 2-of-3 group, read out of the vectors
-vendored under `tests/ecc/_data/bip445/`, the file btclib-ecc's own
+vendored under `tests/ecc/_data/bip445/`, the file ecc's own
 `tests/ecc/frost_test.py` signs with. What is built here instead is the
 transaction -- BIP445 publishes no psbt, having nothing to say about one
 -- so every spend below pays the group and is spent by it, and what says
@@ -24,14 +24,14 @@ from btclib.script import ScriptPubKey, serialize, taproot, type_and_payload
 from btclib.script.engine import verify_transaction
 from btclib.script.taproot import input_script_sig, tree_helper
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import bytes_from_point, mult, secp256k1
-from btclib_ecc.ecc import frost, ssa
+from ecc.curves import bytes_from_point, mult, secp256k1
+from ecc.ecc import frost, ssa
 
 from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, join
 
 # the two modules are one name apart and both are in play: the roles
 # under test are the psbt ones, and the key material and the session
-# they are built over are `btclib_ecc.ecc.frost`'s
+# they are built over are `ecc.ecc.frost`'s
 from btclib_wallet.psbt import frost as psbt_frost
 from btclib_wallet.psbt.psbt import prevouts, taproot_sig_hash
 from tests import load
@@ -218,7 +218,7 @@ def test_a_whole_session_is_run_over_the_psbt() -> None:
 
     The secret nonces stay in this function, which is the point of
     `nonce_gen` returning them, and each is spent exactly once:
-    `btclib_ecc.ecc.frost.sign` zeroes the bytearray it consumes.
+    `ecc.ecc.frost.sign` zeroes the bytearray it consumes.
     """
     psbt = internal_key_psbt()
     spent = prevouts(psbt)
@@ -391,7 +391,7 @@ def test_the_records_are_proprietary_keys_and_survive_the_encoding() -> None:
         *(proprietary_key(PARTIAL_SIG, record_key_data(i)) for i in SIGNERS),
     }
     # `t`, `n`, and a pair per public share, each integer at the width
-    # `btclib_ecc.ecc.frost` serializes an identifier in
+    # `ecc.ecc.frost` serializes an identifier in
     assert unknown[
         proprietary_key(THRESHOLD_INFO, record_key_data(WRITER))
     ] == b"".join(
@@ -979,7 +979,7 @@ def test_assert_valid_records_reads_what_the_codec_cannot() -> None:
     So the shape a signer will read these records at is checked here or
     nowhere, and every record refused below is one the codec itself
     accepts, round-trips and hands on. The last two refusals are
-    `btclib_ecc.ecc.frost`'s own: key material is held to the reconstruction
+    `ecc.ecc.frost`'s own: key material is held to the reconstruction
     that module makes, which is what a psbt carrying it is for.
     """
     psbt = internal_key_psbt()

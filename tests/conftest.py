@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import pytest
-from btclib_ecc.curves import is_libsecp256k1_serving, set_libsecp256k1_serving
+from ecc.curves import is_libsecp256k1_serving, set_libsecp256k1_serving
 from hypothesis import settings
 
 # whether the bindings can be imported at all, asked of the import system
@@ -36,10 +36,16 @@ from hypothesis import settings
 INSTALLED = importlib.util.find_spec("btclib_secp256k1") is not None
 
 # what starts a process with the libsecp256k1 dispatch off, set to a
-# non-empty value. A btclib whose curves are its own reads the first; one
-# re-exporting btclib_ecc's curves (btclib-org/btclib#2282) serves
-# btclib_ecc's dispatch, which reads the second. Neither reads the other
-NO_LIBSECP256K1 = ("BTCLIB_NO_LIBSECP256K1", "BTCLIB_ECC_NO_LIBSECP256K1")
+# non-empty value. The curves are ecc's, so the dispatch is ecc's, and
+# only `ECC_NO_LIBSECP256K1` turns it off: btclib reads no variable of its
+# own. `BTCLIB_NO_LIBSECP256K1` and `BTCLIB_ECC_NO_LIBSECP256K1` are read
+# by neither package; they are listed so that setting one is refused and
+# not silently ignored. The name that is read comes first
+NO_LIBSECP256K1 = (
+    "ECC_NO_LIBSECP256K1",
+    "BTCLIB_NO_LIBSECP256K1",
+    "BTCLIB_ECC_NO_LIBSECP256K1",
+)
 
 # The deadline is a per-example time limit, measured on a run whose cost
 # the interpreter and the runner decide: pypy meets these tests with a
@@ -272,12 +278,12 @@ def switch_went_unread(environ: Mapping[str, str], serving: bool) -> list[str]:
     """Return the variables of `NO_LIBSECP256K1` set where the bindings serve.
 
     Setting one is asking for a run on the Python arithmetic, and the
-    installed btclib reads at most one of them: a run it did not reach
+    installed ecc reads one name: a run it did not reach
     exits 0 on the bindings' arm and reports the Python arm as unreached,
     which `tests/py_arm_authority_test.py`'s measurement would record as
     an entry. What decides is the dispatch's own answer rather than which
-    name this btclib reads, so a variable neither package reads any more
-    is caught by the same comparison.
+    name ecc reads, so a variable neither package reads is caught by the
+    same comparison.
     """
     if not serving:
         return []
@@ -305,9 +311,9 @@ def pytest_configure(config: pytest.Config) -> None:
     if unread:
         raise pytest.UsageError(
             f"set: {', '.join(unread)}; and libsecp256k1 is still serving,"
-            " the installed btclib reading none of them, so this run would"
+            " the installed ecc reading none of them, so this run would"
             " measure the bindings rather than the Python arithmetic. Set"
-            f" every one of {', '.join(NO_LIBSECP256K1)}."
+            f" {NO_LIBSECP256K1[0]}."
         )
     if configuration_went_unread(
         coverage_configuration(config),

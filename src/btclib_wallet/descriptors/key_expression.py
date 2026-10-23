@@ -40,9 +40,9 @@ from btclib.base58 import decode as base58_decode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS, network_from_name, xpubversions_from_network
 from btclib.utils import assert_type, bytes_from_octets, is_integer
-from btclib_ecc.curves import point_from_pub_key, secp256k1
-from btclib_ecc.curves.sec_point import bytes_from_point
-from btclib_ecc.ecc.musig2 import key_agg, key_sort
+from ecc.curves import point_from_pub_key, secp256k1
+from ecc.curves.sec_point import bytes_from_point
+from ecc.ecc.musig2 import key_agg_var, key_sort
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
@@ -370,7 +370,8 @@ class KeyExpression:
             ("aggregate", self, index, network),
             prv_keys,
             lambda: bytes_from_point(
-                key_agg(self.participant_keys(index, network, prv_keys)).Q, secp256k1
+                key_agg_var(self.participant_keys(index, network, prv_keys)).Q,
+                secp256k1,
             ),
         )
 
@@ -1078,7 +1079,7 @@ def _musig_participants(
     # inner message names neither the function nor the position. Bitcoin
     # Core prefixes its own the same way, "musig(): ...". ValueError: a
     # participant that is no point is refused by
-    # btclib_ecc.exceptions.BTClibEccValueError, which is no
+    # ecc.exceptions.EccValueError, which is no
     # BTClibValueError
     except ValueError as e:
         raise BTClibValueError(f"musig(): {e}") from e

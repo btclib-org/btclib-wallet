@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib_ecc.curves import mult, secp256k1
-from btclib_ecc.hashes import tagged_hash
+from ecc.curves import mult, secp256k1
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.dlc import oracle
 from tests.exception_family_test import VALUE_ERRORS

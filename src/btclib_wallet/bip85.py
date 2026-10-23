@@ -58,7 +58,7 @@ from btclib.bech32 import BECH32_1_CONST, encode
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name, network_from_xkeyversion
 from btclib.utils import assert_type, bytes_from_octets
-from btclib_ecc.curves import scalar_from_prv_key
+from ecc.curves import scalar_from_prv_key
 
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,

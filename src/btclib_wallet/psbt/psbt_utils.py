@@ -29,7 +29,7 @@ from btclib.utils import (
     list_from_json_array,
     read_exactly,
 )
-from btclib_ecc.curves import sec_point
+from ecc.curves import sec_point
 
 from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
@@ -617,7 +617,7 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str, where: str = "") -> N
         err_msg += f"instead of {MUSIG2_PUB_KEY_SIZE}{suffix}"
         raise BTClibValueError(err_msg)
     # ValueError: the parse may be
-    # btclib_ecc.exceptions.BTClibEccValueError, no BTClibValueError.
+    # ecc.exceptions.EccValueError, no BTClibValueError.
     # The refusal is raised after the block, so it chains no cause: the
     # parse's own text gives the first byte, which `pub_key_shape` withholds
     # outside the pairs SEC defines
@@ -674,7 +674,7 @@ def assert_valid_sp_scan_key_map(
     claims to be could not have been computed against it.
 
     What is *not* checked here is that the value is the share it claims to
-    be. That is BIP374's answer, `btclib_ecc.ecc.dleq.verify_proof` over
+    be. That is BIP374's answer, `ecc.ecc.dleq.verify_proof` over
     the input keys, and asking it here would make a codec verify a proof.
     """
     for i, (scan_key, value) in enumerate(map_.items()):
