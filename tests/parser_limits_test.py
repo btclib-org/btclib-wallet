@@ -12,7 +12,6 @@ it analyses one whose arguments pass the size limit.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from typing import Any
 
@@ -230,33 +229,33 @@ def test_nested_thresh_is_refused_by_the_running_total_in_tapscript(
     assert calls == ["_thresh_ops", "_thresh_stack"]
 
 
-def _best_time(parse: Callable[[], Any], runs: int = 3) -> float:
-    """Return the shortest of `runs` timings of `parse`."""
-    best = float("inf")
-    for _ in range(runs):
-        start = time.perf_counter()
-        parse()
-        best = min(best, time.perf_counter() - start)
-    return best
+def test_a_wide_and_nested_thresh_is_refused_quickly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refuse a `thresh()` of 60 of 60 of 60 before analysing every copy.
 
-
-def test_a_wide_and_nested_thresh_is_refused_quickly() -> None:
-    """Refuse a `thresh()` of 60 of 60 of 60 in under 12 times a reference.
-
-    The reference is the parse of one of its 60 arguments, timed in the same
-    process, so the bound follows the speed of the machine. Refusing once
-    the running total passes the limit takes about 3 times the reference.
-    Analysing every inner `thresh()` first takes about 70 times it.
+    The bound reads no clock: it counts the quadratic `thresh()` analyses
+    instead of timing them, so a loaded machine cannot turn the test red
+    with no change to the parser. The reference is the parse of one of its
+    60 arguments, counted in the same process, so the bound follows the
+    work, not the speed of the machine. Refusing once the running total
+    of script size passes the limit takes about 2.5 times the reference;
+    analysing every inner `thresh()` first takes about 60 times it. The
+    12 the bound allows is the same multiple the timed test this replaces
+    allowed, which load could push past 12 on an otherwise clean parse.
     """
+    calls = _count_the_quadratic_step(monkeypatch)
     inner = _nested_thresh(60, _thresh(60, _XONLY))
     text = _nested_thresh(60, inner)
 
-    def refuse() -> None:
-        with pytest.raises(BTClibValueError, match="too large for tapscript"):
-            miniscript.parse(text, miniscript.TAPSCRIPT)
+    miniscript.parse(inner, miniscript.TAPSCRIPT)  # one copy alone is within the limit
+    reference = len(calls)
+    assert reference > 0
+    calls.clear()
 
-    reference = _best_time(lambda: miniscript.parse(inner, miniscript.TAPSCRIPT))
-    assert _best_time(refuse) < 12 * reference
+    with pytest.raises(BTClibValueError, match="too large for tapscript"):
+        miniscript.parse(text, miniscript.TAPSCRIPT)
+    assert len(calls) < 12 * reference
 
 
 def test_a_node_over_the_limit_whose_arguments_are_not_is_refused() -> None:
