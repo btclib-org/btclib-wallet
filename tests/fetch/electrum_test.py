@@ -684,7 +684,9 @@ def test_get_block_headers_may_answer_fewer_than_asked() -> None:
         ),
         pytest.param({"count": 1}, "not a hex string", id="no-hex"),
         pytest.param({"count": 1, "hex": "zz" * 80}, "non-hexadecimal", id="not-hex"),
-        pytest.param({"count": 1, "hex": "0" * 159}, "even number of", id="odd-length"),
+        pytest.param(
+            {"count": 1, "hex": "0" * 159}, "invalid hex string", id="odd-length"
+        ),
         pytest.param({"count": 1, "hex": 5}, "not a hex string", id="hex-not-a-string"),
         pytest.param(
             chunk_answer(REGTEST_CHUNK[0], count=2), "are not 2 headers", id="too-short"
