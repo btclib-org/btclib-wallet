@@ -8,10 +8,10 @@
 # typos moves by a hand edit of its additional_dependencies, and pyroma by
 # the uv ecosystem below, uv.lock being where its version is pinned.
 #
-# The cargo lock of .github/interop/miniscript-compare is left out too, on
-# purpose: its rev is the fixed revision of rust-miniscript that the
-# descriptor comparison reads, and a bump changes what the comparison
-# measures.
+# The cargo lock of .github/interop/miniscript-compare is left out of version
+# updates too, on purpose: its rev is the fixed revision of rust-miniscript
+# that the descriptor comparison reads, and a bump changes what the
+# comparison measures.
 #
 # every pull request here runs the whole merge gate, so each ecosystem
 # groups its updates into a single pull request rather than paying for
