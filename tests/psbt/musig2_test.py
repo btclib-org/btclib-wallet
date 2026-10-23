@@ -129,6 +129,28 @@ def test_aggregating_bip373s_partial_signatures_spends_the_output(
     verify_transaction(spent, tx)
 
 
+# BIP373's participants-only vector each of btcd's psbts was made from,
+# by the description btcd's program gave and BIP373's own
+_BIP373_DESCRIPTION = {
+    "case 1a: output key is aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where the output key is a MuSig2 Aggregate"
+        " Pubkey, with participant pubkeys only"
+    ),
+    "case 2a: internal key is aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where the internal key is a MuSig2 Aggregate"
+        " Pubkey, with participant pubkeys only"
+    ),
+    "case 3a: key in script is aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where a key in a script is a MuSig2 Aggregate"
+        " Pubkey, with participant pubkeys only"
+    ),
+    "case 4a: internal key derived from aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where the internal key is derived from a"
+        " MuSig2 Aggregate Pubkey, with participant pubkeys only"
+    ),
+}
+
+
 def btcd_vectors() -> list[Any]:
     """Select the four psbts btcd signed: BIP373's participants-only ones.
 
@@ -159,15 +181,18 @@ def test_btcds_musig2_sessions_are_read_verified_and_spent(
     psbt = Psbt.b64decode(encoded)
     assert psbt.b64encode() == encoded
 
-    # what btcd signed is BIP373's own psbt, and it added nothing else
+    # what btcd signed is BIP373's own psbt, the one its description names,
+    # and it added nothing else
     unsigned = deepcopy(psbt)
     unsigned.inputs[0].musig2_pub_nonces = {}
     unsigned.inputs[0].musig2_partial_sigs = {}
-    assert unsigned.b64encode() in {
-        vector["encoded psbt"]
+    bip373 = {
+        vector["description"]: vector["encoded psbt"]
         for vector in load("psbt", "_data", "bip373_test_vectors.json")["valid psbts"]
-        if "participant pubkeys only" in vector["description"]
     }
+    assert (
+        unsigned.b64encode() == bip373[_BIP373_DESCRIPTION[test_vector["description"]]]
+    )
 
     aggregate_pub_key, leaf_hash = session_of(psbt)
     participants = psbt.inputs[0].musig2_participant_pub_keys[aggregate_pub_key]

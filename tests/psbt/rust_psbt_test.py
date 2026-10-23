@@ -60,15 +60,6 @@ TASKS = frozenset(
     }
 )
 
-# a case upstream's file gets wrong, by description, with what is wrong:
-# rust-psbt's runner reads `supplementary.psbts` alone, so a psbt it
-# keeps under `expected` is one it never reads. xfail_strict turns the
-# marker red the day a refresh brings the fix
-_UPSTREAM_DEFECTS = {
-    "Valid: one P2TR key only input with internal key, its derivation path,"
-    " and signature": "its base64 field holds the hex, not base64",
-}
-
 # BIP375's own invalid psbts. rust-psbt's file asks a parser to refuse
 # every one of them; btclib-wallet's codec refuses those with a field of
 # the wrong shape, and `btclib_wallet.psbt.silent_payments` the rest,
@@ -95,11 +86,6 @@ def cases(task: str) -> list[Any]:
         pytest.param(
             case,
             id=vector_id(index, fname, case["description"]),
-            marks=(
-                [pytest.mark.xfail(reason=_UPSTREAM_DEFECTS[case["description"]])]
-                if case["description"] in _UPSTREAM_DEFECTS
-                else []
-            ),
         )
         for fname, index, case in _all_cases()
         if case["supplementary"]["task"] == task

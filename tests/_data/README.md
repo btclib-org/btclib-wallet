@@ -1278,12 +1278,10 @@ walk-through as cases.
 
 Where it reads the files otherwise than rust-psbt's runner:
 
-- The runner reads `supplementary.psbts` alone, and the cases of
-  `bip371.json` and the valid ones of `bip174.json` keep their psbt under
-  `expected`, so it parses none of them. The test reads both places.
-- The `base64` of "Valid: one P2TR key only input with internal key, its
-  derivation path, and signature" in `bip371.json` holds the hex. The
-  test marks that case `xfail`.
+- The cases of `bip371.json` and the valid ones of `bip174.json` keep
+  their psbt under `expected` as well as under `supplementary.psbts`.
+  rust-psbt's runner parses both since 51b0ea82 (rust-psbt#346), and the
+  test reads both places.
 - `bip375.json` asks a parser to refuse each of BIP375's invalid psbts.
   btclib-wallet's codec refuses those with a field of the wrong shape and
   its silent payment roles the rest, so the test asks a psbt the codec
@@ -1325,8 +1323,8 @@ Verdict: **identical**.
 ```text
 repo    rust-bitcoin/rust-psbt
 path    tests/data/bip371.json
-commit  afdbecc49977a5d80c02ad012500529783e8915b  2026-07-13
-blob    7893be501a294f70f13755f0f1692b733db2fde6
+commit  c2e9ad3b8b607a7a734d9606eb507464f8412585  2026-10-22
+blob    3c3d15dcb2e865c61e9860d8807557041fdfc0d4
 pulled  2026-10-22
 behind  0 revisions; that commit is the tip of the path
 ```
