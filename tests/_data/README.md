@@ -1278,11 +1278,7 @@ walk-through as cases.
 
 Where it reads the files otherwise than rust-psbt's runner:
 
-- The cases of `bip371.json` and the valid ones of `bip174.json` keep
-  their psbt under `expected` as well as under `supplementary.psbts`.
-  rust-psbt's runner parses both, as its fix of the one hex-in-base64
-  case of `bip371.json` made it, and the test reads both places.
-- `bip375.json` asks a parser to refuse each of BIP375's invalid psbts.
+- `bip375.json` asks a parser to refuse BIP375's invalid psbts.
   btclib-wallet's codec refuses those with a field of the wrong shape and
   its silent payment roles the rest, so the test asks a psbt the codec
   reads to be one of BIP375's own invalid ones, which

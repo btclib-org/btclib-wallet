@@ -61,7 +61,7 @@ TASKS = frozenset(
 )
 
 # BIP375's own invalid psbts. rust-psbt's file asks a parser to refuse
-# every one of them; btclib-wallet's codec refuses those with a field of
+# BIP375's invalid psbts; btclib-wallet's codec refuses those with a field of
 # the wrong shape, and `btclib_wallet.psbt.silent_payments` the rest,
 # which `silent_payments_test.py` holds each of them to
 _BIP375_INVALID = {
