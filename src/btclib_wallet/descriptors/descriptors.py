@@ -347,9 +347,10 @@ def strip_checksum(descriptor: str) -> str:
     # INPUT_CHARSET, which is an error in a descriptor with no checksum
     expected = checksum(body)
     if separator and given_checksum != expected:
-        # what follows the '#' is not echoed: where the '#' is a stray one
-        # inside the descriptor, that is the rest of the descriptor
-        raise BTClibValueError(f"invalid descriptor checksum: {expected} expected")
+        # neither checksum is echoed. What follows the '#' is the rest of
+        # the descriptor where the '#' is a stray one, and the right
+        # checksum confirms a guess at a key mistyped in the descriptor
+        raise BTClibValueError("invalid descriptor checksum")
     return body
 
 
@@ -2247,12 +2248,20 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     timelocks, repeats a key, or has a spend past a resource limit -- and
     the leaf is where it is said, a tree being several scripts of which
     this one is unspendable or unsafe.
+
+    On a ``_CoreFallbackError`` Core says "'<leaf>' is not a valid
+    descriptor function". The message here leaves the leaf out, since it
+    can hold a private key.
     """
     if expression.startswith("multi_a("):
         _read_unclosed_multisig_keys(expression, miniscript.TAPSCRIPT, prv_keys)
     _assert_no_closing_brace(expression)
     with _steps_compared():
-        node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
+        try:
+            node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
+        except miniscript._CoreFallbackError as error:
+            err_msg = "tr() leaf is not a valid descriptor function"
+            raise BTClibValueError(err_msg) from error
         _assert_sane(node, prv_keys)
     return node
 
@@ -2443,7 +2452,7 @@ def _parse_wsh(
 ) -> Descriptor:
     try:
         inner = _parse_inner(args[0], _P2WSH, network, prv_keys)
-    except miniscript._InvalidTimelockError as error:
+    except miniscript._CoreFallbackError as error:
         raise BTClibValueError("A function is needed within P2WSH") from error
     return WshDescriptor(inner, network=network)
 

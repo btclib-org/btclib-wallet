@@ -55,8 +55,9 @@ from btclib_wallet.bip85 import (
     wif_from_root_key,
     xprv_from_root_key,
 )
-from tests import assert_secret_free, load, vector_id
+from tests import load, vector_id
 from tests.exception_family_test import VALUE_ERRORS
+from tests.secret_free import assert_secret_free
 
 _VECTORS = load("_data", "bip85_test_vectors.json")
 _ROOT = _VECTORS["master_bip32_root_key"]

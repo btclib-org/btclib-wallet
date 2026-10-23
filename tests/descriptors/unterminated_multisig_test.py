@@ -20,6 +20,8 @@ from btclib_wallet.descriptors import Descriptor, multipath_descriptors, parse
 _KEY = PrvKeyData(1).pub.sec.hex()
 _X_ONLY = _KEY[2:]
 _STRUCTURAL = "not a descriptor expression: expected name(arguments)"
+_P2WSH_FAULT = "A function is needed within P2WSH"
+_TR_LEAF_FAULT = r"tr\(\) leaf is not a valid descriptor function"
 
 
 @pytest.mark.parametrize("read", [parse, multipath_descriptors])
@@ -76,22 +78,22 @@ def test_a_multisig_key_is_read_before_its_trailing_structure(
         (f"wsh(multi(1,){_KEY},{_KEY}))", r"empty key in multi\(\)"),
         (
             f"wsh(and_v(v:pk({_KEY}),multi_a(1,[dead]{_KEY}){_KEY},{_KEY})))",
-            r"unbalanced brackets in multi_a\(\)",
+            _P2WSH_FAULT,
         ),
         (
             (
                 f"tr({_X_ONLY},and_v(v:pk({_X_ONLY}),"
                 f"multi(1,[dead]{_X_ONLY}){_X_ONLY},{_X_ONLY})))"
             ),
-            r"unbalanced brackets in multi\(\)",
+            _TR_LEAF_FAULT,
         ),
         (
             f"wsh(and_v(v:pk({_KEY}),multi_a(1,[dead]]{_KEY},{_KEY})",
-            r"unbalanced brackets in multi_a\(\)",
+            _P2WSH_FAULT,
         ),
         (
             f"tr({_X_ONLY},and_v(v:pk({_X_ONLY}),multi(1,[dead]]{_X_ONLY},{_X_ONLY})",
-            r"unbalanced brackets in multi\(\)",
+            _TR_LEAF_FAULT,
         ),
     ],
 )
