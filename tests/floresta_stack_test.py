@@ -77,16 +77,16 @@ def held_port() -> Iterator[int]:
 
 
 @pytest.fixture
-def stack_start(
-    tmp_path: Path, held_port: int, monkeypatch: pytest.MonkeyPatch
-) -> Any:
+def stack_start(tmp_path: Path, held_port: int, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Return a start of the stack whose first electrum port is held."""
     real = stack_module._free_port
     # utreexod's two ports, then the electrum port
     ports = iter([real(), real(), held_port])
     monkeypatch.setattr(stack_module, "_free_port", lambda: next(ports, None) or real())
     monkeypatch.setattr(
-        ssl, "create_default_context", lambda **_: ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl,
+        "create_default_context",
+        lambda **_: ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
     )
     monkeypatch.setattr(FlorestaStack, "wait_synced", lambda self: None)
     dirs = (tmp_path / "utreexo-data", tmp_path / "floresta-data")
@@ -95,7 +95,7 @@ def stack_start(
     utreexod = _program(tmp_path, "utreexod", UTREEXOD)
     florestad = _program(tmp_path, "florestad", FLORESTAD)
     miner = SimpleNamespace()
-    return lambda: _start_floresta(florestad, utreexod, dirs, 1, miner, "addr")  # type: ignore[arg-type]
+    return lambda: _start_floresta(florestad, utreexod, dirs, 1, miner, "addr")
 
 
 def test_a_florestad_on_a_taken_port_is_started_again_on_another(
