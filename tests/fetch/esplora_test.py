@@ -20,6 +20,7 @@ from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 
+from btclib_wallet.fetch.balance import Balance
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
 from tests import chained_text
@@ -822,6 +823,24 @@ def test_get_balance_reports_a_negative_mempool_change() -> None:
     """A mempool spend of a confirmed output is a negative `unconfirmed`."""
     balance = fetcher((200, address_body(mempool=(5, 20)))).get_balance(GENESIS_ADDRESS)
     assert (balance.confirmed, balance.unconfirmed) == (70, -15)
+
+
+def test_get_balance_reads_a_zero_balance() -> None:
+    """Funded equal to spent is a balance of zero, and no refusal."""
+    body = address_body(chain=(30, 30), mempool=(0, 0))
+    assert fetcher((200, body)).get_balance(GENESIS_ADDRESS) == Balance(0, 0)
+
+
+def test_get_balance_checks_the_address_on_the_fetchers_network() -> None:
+    """A testnet fetcher asks for a testnet address and refuses a mainnet one."""
+    transport = Recorded((200, address_body(address=TESTNET_ADDRESS)))
+    esplora = EsploraFetcher(
+        BASE, network="testnet", transport=transport, verify_network=False
+    )
+    assert esplora.get_balance(TESTNET_ADDRESS) == Balance(confirmed=70, unconfirmed=-15)
+    assert transport.requests[0].full_url == f"{BASE}/address/{TESTNET_ADDRESS}"
+    with pytest.raises(BTClibValueError, match="^not an address of testnet$"):
+        esplora.get_balance(GENESIS_ADDRESS)
 
 
 def test_get_balance_sends_the_canonical_spelling() -> None:
