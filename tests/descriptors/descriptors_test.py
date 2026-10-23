@@ -5242,7 +5242,7 @@ def test_a_refusal_echoes_no_private_key(descriptor: str, message: str) -> None:
 
 @pytest.mark.parametrize("key", [XPRV_ROOT, WIF], ids=["xprv", "wif"])
 def test_a_wrong_checksum_is_refused_without_the_right_one(key: str) -> None:
-    """The right checksum of a descriptor holding a key confirms a guess at it."""
+    """The right checksum of a descriptor with a key confirms a guess at it."""
     body = f"wpkh({key})"
     right = checksum(body)
     wrong = right[:-1] + ("q" if right[-1] != "q" else "p")
