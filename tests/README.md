@@ -136,8 +136,9 @@ against BIP174 or BIP370 before filing a bug; the workflow files no issue.
 repository holds to `parse`, to Bitcoin Core's `getdescriptorinfo` and
 `deriveaddresses`, and to rust-miniscript, and prints each input on which
 they differ. It is run by hand: no workflow runs it. Its docstring names
-the inputs, and a local run needs `cargo` and a `bitcoind` binary,
-and, for Core's fuzz corpus, a checkout of bitcoin-core/qa-assets:
+the inputs, and a local run needs `cargo`, a `bitcoind` of Bitcoin Core
+v31.1 (the result depends on the release), and, for Core's fuzz corpus, a
+checkout of bitcoin-core/qa-assets:
 
 ```shell
 cargo build --release --locked --target-dir /path/to/build \
