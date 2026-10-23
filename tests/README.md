@@ -147,6 +147,31 @@ The report retains each generated input and each parser's answer,
 including version-support refusals. A disagreement is evidence to read
 against BIP174 or BIP370 before filing a bug; the workflow files no issue.
 
+## Comparing descriptors with Core and rust-miniscript
+
+`.github/scripts/compare_descriptors.py` hands the descriptors this
+repository holds to `parse`, to Bitcoin Core's `getdescriptorinfo` and
+`deriveaddresses`, and to rust-miniscript, and prints each input on which
+they differ. It is run by hand: no workflow runs it. Its docstring names
+the inputs, and a local run needs `cargo`, a `bitcoind` of Bitcoin Core
+v31.1 (the result depends on the release), and, for Core's fuzz corpus, a
+checkout of bitcoin-core/qa-assets:
+
+```shell
+cargo build --release --locked --target-dir /path/to/build \
+    --manifest-path .github/interop/miniscript-compare/Cargo.toml
+uv run --locked --no-default-groups --group test \
+    python .github/scripts/compare_descriptors.py \
+    --bitcoind /path/to/bitcoind \
+    --miniscript-compare /path/to/build/release/miniscript-compare \
+    --qa-assets /path/to/qa-assets
+```
+
+A disagreement is evidence to read against the BIP and the other
+implementation's source before filing a bug.
+`tests/descriptors/corpus_comparison_test.py` pins some of the kinds of input
+on which they differ.
+
 ## Fuzzing, and replaying a crash it finds
 
 `tests/fuzz_test.py` is Hypothesis over every parser of the public

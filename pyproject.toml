@@ -239,6 +239,7 @@ source-exclude = [
     # decision. tests/source_exclude_test.py checks that every test its
     # reader finds reaching .github or fuzz/ is named here
     "/tests/check_vendored_vectors_test.py",
+    "/tests/compare_descriptors_test.py",
     "/tests/fuzz_corpus_test.py",
     "/tests/interpreters_test.py",
     "/tests/normalize_sdist_test.py",
@@ -596,6 +597,8 @@ ignore = [
 # and the device wait, whose whole output is one line for the log of the
 # job that started an emulator
 ".github/scripts/wait_for_hwi_device.py" = ["T201"]
+# and the descriptor comparison, whose output is the disagreements it found
+".github/scripts/compare_descriptors.py" = ["T201"]
 # the D rules are not here: a public test function states what it
 # verifies under the same docstring gate as the library
 "tests/**" = [
