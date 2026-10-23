@@ -305,11 +305,13 @@ _SYNC_TIMEOUT = 60.0
 _BIND_ATTEMPTS = 5
 
 # what the server's log says of a port that is taken: Rust's `AddrInUse`,
-# the operating system's own words, and the panic message of the monitoring
-# server, which electrs raises without the cause (src/metrics.rs)
+# the operating system's own words, Go's spelling of them (`utreexod`), and
+# the panic message of the monitoring server, which electrs raises without
+# the cause (src/metrics.rs)
 _PORT_TAKEN_MARKERS = (
     "AddrInUse",
     "Address already in use",
+    "address already in use",
     "failed to start monitoring HTTP server",
 )
 
@@ -723,29 +725,32 @@ def _wait_for_log(path: Path, text: str, process: subprocess.Popen[bytes]) -> No
 _FLORESTA_SYNC_TIMEOUT = 120.0
 
 
-@contextmanager
-def running_floresta_stack(
-    bitcoind: str,
+def _start_floresta(
     florestad: str,
     utreexod: str,
-    tmp_path_factory: pytest.TempPathFactory,
-) -> Iterator[FlorestaStack]:
-    """Yield a node with 101 blocks and a `florestad` that has followed them."""
-    datadir = tmp_path_factory.mktemp("floresta-node")
-    utreexo_dir = tmp_path_factory.mktemp("floresta-utreexod")
-    floresta_dir = tmp_path_factory.mktemp("floresta-data")
-    p2p_port = _free_port()
+    dirs: tuple[Path, Path],
+    p2p_port: int,
+    miner: BitcoinCoreRpcClient,
+    address: str,
+) -> tuple[subprocess.Popen[bytes], FlorestaStack]:
+    """Return `utreexod` and a `florestad` that has followed the node.
+
+    `p2p_port` is the node's. The ports of the two programs are picked on
+    every call, so that a call is a fresh try for `start_on_free_ports`.
+    `dirs` are their data directories. Both are stopped again where they do
+    not get there, so that the next try does not leave them behind. A
+    program that exited with its port taken in its log raises `PortTaken`.
+    """
+    utreexo_dir, floresta_dir = dirs
     utreexo_p2p, utreexo_rpc = _free_port(), _free_port()
     electrum_port, tls_port = _free_port(), _free_port()
-    node_process, client, _ = start_on_free_ports(
-        lambda: _start_node([bitcoind], datadir, p2p_port)
-    )
-    processes = [node_process]
+    # a try that failed left its certificate behind, and the wait for the
+    # file must not see it
+    cert = floresta_dir / "regtest" / "tls" / "cert.pem"
+    cert.unlink(missing_ok=True)
+    logs = [utreexo_dir / "utreexod.log", floresta_dir / "florestad.log"]
+    processes: list[subprocess.Popen[bytes]] = []
     try:
-        client.call("createwallet", ["miner"])
-        miner = client.for_wallet("miner")
-        address = str(miner.call("getnewaddress"))
-        miner.call("generatetoaddress", [101, address])
         processes.append(
             _start(
                 [
@@ -762,7 +767,7 @@ def running_floresta_stack(
                     "--notls",
                     "--nobanning",
                 ],
-                utreexo_dir / "utreexod.log",
+                logs[0],
             )
         )
         server = _start(
@@ -778,12 +783,11 @@ def running_floresta_stack(
                 "--generate-cert",
                 f"--rpc-address=127.0.0.1:{_free_port()}",
             ],
-            floresta_dir / "florestad.log",
+            logs[1],
         )
         processes.append(server)
         # florestad writes the certificate it generates under its data
         # directory, and signs it for `localhost`
-        cert = floresta_dir / "regtest" / "tls" / "cert.pem"
         _wait_for_file(cert, server)
         context = ssl.create_default_context(cafile=str(cert))
         stack = FlorestaStack(
@@ -792,14 +796,63 @@ def running_floresta_stack(
             JsonRpc2Transport(PlainLineTransport("127.0.0.1", electrum_port)),
             JsonRpc2Transport(TlsLineTransport("localhost", tls_port, context=context)),
             server,
-            floresta_dir / "florestad.log",
-            utreexo_dir / "utreexod.log",
+            logs[1],
+            logs[0],
         )
         stack.wait_synced()
         # a block that arrives while Floresta is still ending its initial
         # sync is never requested, so nothing is mined before it says it
         # is running
-        _wait_for_log(floresta_dir / "florestad.log", "starting running node", server)
+        _wait_for_log(logs[1], "starting running node", server)
+    except BaseException as failure:
+        taken = isinstance(failure, pytest.fail.Exception) and any(
+            process.poll() is not None
+            and port_was_taken(log.read_text(encoding="utf-8", errors="replace"))
+            for process, log in zip(processes, logs, strict=False)
+        )
+        for process in reversed(processes):
+            _stop(process)
+        if taken:
+            raise PortTaken from None
+        raise
+    return processes[0], stack
+
+
+@contextmanager
+def running_floresta_stack(
+    bitcoind: str,
+    florestad: str,
+    utreexod: str,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[FlorestaStack]:
+    """Yield a node with 101 blocks and a `florestad` that has followed them."""
+    datadir = tmp_path_factory.mktemp("floresta-node")
+    utreexo_dir = tmp_path_factory.mktemp("floresta-utreexod")
+    floresta_dir = tmp_path_factory.mktemp("floresta-data")
+
+    def start_node() -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
+        p2p_port = _free_port()
+        process, client, _ = _start_node([bitcoind], datadir, p2p_port)
+        return process, client, p2p_port
+
+    node_process, client, p2p_port = start_on_free_ports(start_node)
+    processes = [node_process]
+    try:
+        client.call("createwallet", ["miner"])
+        miner = client.for_wallet("miner")
+        address = str(miner.call("getnewaddress"))
+        miner.call("generatetoaddress", [101, address])
+        peer, stack = start_on_free_ports(
+            lambda: _start_floresta(
+                florestad,
+                utreexod,
+                (utreexo_dir, floresta_dir),
+                p2p_port,
+                miner,
+                address,
+            )
+        )
+        processes += [peer, stack.server]
         yield stack
     finally:
         for process in reversed(processes):

@@ -220,6 +220,7 @@ def test_start_on_free_ports_gives_up_after_its_attempts() -> None:
         ("cannot bind: Os { code: 98, kind: AddrInUse }", True),
         ("error: Address already in use (os error 48)", True),
         ("panicked: failed to start monitoring HTTP server at 127.0.0.1:1", True),
+        ("listen tcp 127.0.0.1:1: bind: address already in use", True),
         ("panic: something else", False),
     ],
 )
