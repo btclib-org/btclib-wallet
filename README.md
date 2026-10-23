@@ -162,6 +162,11 @@ vulnerability.
 
 ## Contributing
 
+Development is LLM-based: humans are welcome, as long as they are
+comfortable with agentic development ;-). A contribution must have been
+read and understood by the person who submits it.
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#working-with-an-llm) has the rules.
+
 [CONTRIBUTING.md](./CONTRIBUTING.md) has the commands each CI job runs,
 verbatim. `uv sync` creates the environment; uv is the only tool that has
 to be installed. [REVIEWING.md](./REVIEWING.md) is what a pull request is
