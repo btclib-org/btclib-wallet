@@ -234,15 +234,11 @@ def test_a_wide_and_nested_thresh_is_refused_quickly(
 ) -> None:
     """Refuse a `thresh()` of 60 of 60 of 60 before analysing every copy.
 
-    The bound reads no clock: it counts the quadratic `thresh()` analyses
-    instead of timing them, so a loaded machine cannot turn the test red
-    with no change to the parser. The reference is the parse of one of its
-    60 arguments, counted in the same process, so the bound follows the
-    work, not the speed of the machine. Refusing once the running total
-    of script size passes the limit takes about 2.5 times the reference;
-    analysing every inner `thresh()` first takes about 60 times it. The
-    12 the bound allows is the same multiple the timed test this replaces
-    allowed, which load could push past 12 on an otherwise clean parse.
+    The bound counts the quadratic `thresh()` analyses rather than timing
+    them, so load cannot change it. The reference is the parse of one of
+    its 60 arguments. Refusing once the running total of script size
+    passes the limit takes about 2.5 times the reference; analysing every
+    inner `thresh()` first takes about 60 times it, and 12 lies between.
     """
     calls = _count_the_quadratic_step(monkeypatch)
     inner = _nested_thresh(60, _thresh(60, _XONLY))
