@@ -154,17 +154,27 @@ whose).
 
 CI is read once, and this is where: on the head that lands. `main` does
 not ask that head to be up to date with it, and [section 11][s-branch]
-says why. So a branch is rebased only where it conflicts with `main`, or
-where its checks ran on a `main` that has since been repaired, because
-re-running its checks would test the same merge commit. A rebase that
-moved nothing but the base leaves the ack standing; one that resolved a
-conflict does not, that resolution being a change no reviewer has seen.
+says why. So a branch is rebased only where it conflicts with `main`. A
+rebase that moved nothing but the base leaves the ack standing; one that
+resolved a conflict does not, that resolution being a change no reviewer
+has seen.
 
-When `main`'s CI is red after a merge, its repair lands before any other
-pull request, and no `--auto` below stays armed until then: what lands
-meanwhile is merged onto a tree known to be broken, and `main`'s next run
-cannot tell a new failure from the one already there. An armed pull
-request whose checks ran before the break merges on them all the same.
+When `main`'s CI is red after a merge, its repair takes priority over
+every other pull request, because until it lands `main`'s runs cannot
+tell a new failure from the one already there. A pull request armed with
+`--auto` (below) stays armed, and others keep landing meanwhile. Holding
+every landing for a repair costs more than the break it guards against,
+so the risk of landing on a red `main` is accepted
+(btclib-org/.github#1777).
+
+A pull request whose required check is red only because `main` was red
+is closed and reopened once the repair lands (`gh pr close <n>`, then
+`gh pr reopen <n>`). GitHub then runs its checks on a fresh merge with
+the repaired `main`, where a re-run would test the old merge commit. No
+push is made, so its approvals and its ack of record stand. `--auto`,
+where closing dropped it, is armed again once the checks are green. The
+reopen also runs the review bot again, and changes that review requests
+are answered like any other review's.
 
 Then squash, [the only method the rule accepts][s11].
 
@@ -291,6 +301,12 @@ is btclib's, not this package's: a finding that reproduces with `btclib`
 alone is an issue for
 [its tracker](https://github.com/btclib-org/btclib/issues) rather than
 this one.
+
+A change in `btclib` reaches this tree through `uv.lock` only. A test
+that fails after `uv lock --upgrade-package btclib` and not before is a
+break in `btclib`'s surface, and
+[its `RELEASE_NOTES.md`](https://github.com/btclib-org/btclib/blob/main/RELEASE_NOTES.md)
+is asked before this code is.
 
 ### The one constraint
 
@@ -760,10 +776,10 @@ Read the diff before committing it: a new entry is a finding somebody has
 to have looked at, which is the whole point of a baseline over an
 exclusion.
 
-If two branches change `.secrets.baseline`, take `main`'s version rather
-than choosing one side: either choice drops the other branch's entries,
-and the hook does not restore them. Run the commands above, restore
-`main`'s `generated_at` value, and stage the file. Check that the diff
-contains only this branch's entries. Review the conflict resolution
-again as described in [REVIEWING.md](./REVIEWING.md)'s *Re-review*
-section.
+Two branches that each change `.secrets.baseline` conflict on its
+`generated_at`. Taking either side whole drops the other side's entries,
+and the hook does not add them back. Take `main`'s side, run the commands
+above, put `main`'s `generated_at` back, and stage the file. The baseline
+should then differ from `main`'s by this branch's entries alone. The
+resolution is still a conflict resolved, so
+[REVIEWING.md](./REVIEWING.md)'s *Re-review* applies.

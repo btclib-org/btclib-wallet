@@ -2,8 +2,9 @@
 
 Follow [CONTRIBUTING.md](./CONTRIBUTING.md) for issues, pull requests,
 local gates, and worktree commands. Use [REVIEWING.md](./REVIEWING.md)
-for reviews, the [btclib-org/.github repository standard][org-standard], and
-[REPOSITORY.md](./REPOSITORY.md) before changing workflows or settings.
+for reviews, the [organization's standard][org-standard] for the rules
+both cite, and [REPOSITORY.md](./REPOSITORY.md) before changing workflows
+or settings.
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
 Keep the primary checkout clean and on `main`; use a separate worktree
