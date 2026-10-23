@@ -5248,7 +5248,7 @@ def test_a_wrong_checksum_is_refused_without_the_right_one(key: str) -> None:
     wrong = right[:-1] + ("q" if right[-1] != "q" else "p")
     with pytest.raises(BTClibValueError, match="^invalid descriptor checksum$") as e:
         parse(f"{body}#{wrong}")
-    assert_secret_free(e.value, [right, key])
+    assert_secret_free(e.value, [right, wrong, key])
 
 
 @pytest.mark.parametrize(
