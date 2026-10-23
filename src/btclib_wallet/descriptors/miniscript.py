@@ -230,7 +230,7 @@ def _assert_valid_context(context: str) -> None:
 
 
 def _multisig_context_fault(fragment: str) -> str:
-    """Return the fault of a ``multi()`` or ``multi_a()`` outside its context."""
+    """Return the fault of a multisig outside its context."""
     if fragment == "multi":
         return "multi() is not allowed in a tapscript"
     return "multi_a() is only allowed in a tapscript"
@@ -2196,6 +2196,18 @@ def _read_fragment(
         return end + 1
     if name not in _LEAVES:
         raise BTClibValueError("unknown miniscript fragment")
+    return _read_leaf_fragment(name, expression, pos, built, context, prv_keys)
+
+
+def _read_leaf_fragment(
+    name: str,
+    expression: str,
+    pos: int,
+    built: _Built,
+    context: str,
+    prv_keys: dict[str, str],
+) -> int:
+    """Read a fragment with no subexpression, and build it."""
     own = "multi_a" if context == TAPSCRIPT else "multi"
     if name in {"multi", "multi_a"} and name != own:
         # Core refuses a multisig outside its own context before any key
