@@ -614,7 +614,8 @@ class JsonRpc2Transport:
     error, and `btclib.electrum` does not write the member. The Electrum
     spec does not require it either (spesmilo/electrum-protocol,
     `docs/protocol-basics.rst`), so the fetcher reaches Floresta only
-    through this wrapper.
+    through this wrapper. It stays until Floresta accepts requests
+    without the member (getfloresta/Floresta#1387).
     """
 
     def __init__(self, inner: LineTransport) -> None:
