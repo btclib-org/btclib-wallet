@@ -94,7 +94,7 @@ def stack_start(tmp_path: Path, held_port: int, monkeypatch: pytest.MonkeyPatch)
         directory.mkdir()
     utreexod = _program(tmp_path, "utreexod", UTREEXOD)
     florestad = _program(tmp_path, "florestad", FLORESTAD)
-    miner = SimpleNamespace()
+    miner: Any = SimpleNamespace()
     return lambda: _start_floresta(florestad, utreexod, dirs, 1, miner, "addr")
 
 
@@ -104,7 +104,7 @@ def test_a_florestad_on_a_taken_port_is_started_again_on_another(
     """The first electrum port is taken; the second try holds a fresh one."""
     peer, stack = start_on_free_ports(stack_start)
     try:
-        assert stack.electrum.inner.port != held_port  # type: ignore[attr-defined]
+        assert stack.electrum.inner.port != held_port
         assert stack.server.poll() is None
         assert peer.poll() is None
     finally:
