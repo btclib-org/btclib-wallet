@@ -110,6 +110,7 @@ from btclib_wallet.psbt.psbt import (
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from tests import load, replace_unchecked, vector_id
 from tests.exception_family_test import VALUE_ERRORS
+from tests.secret_free import assert_secret_free
 
 DOC_DESCRIPTORS = [
     descriptor_data["desc"]
@@ -5126,7 +5127,7 @@ UNECHOED = [
         TWO_HASHES,
         f"^more than one '#' in the descriptor at position {len(TWO_HASHES) - 9}$",
     ),
-    (f"wpkh(#{WIF})", r"^invalid descriptor checksum: \w{8} expected$"),
+    (f"wpkh(#{WIF})", "^invalid descriptor checksum$"),
     (f"wpkh({WIF}))", "^unbalanced brackets$"),
     (f"sh(multi(1,({WIF}))", "^not a key expression$"),
     (f"wpkh({WIF}", r"^not a descriptor expression: expected name\(arguments\)$"),
@@ -5237,6 +5238,17 @@ def test_a_refusal_echoes_no_private_key(descriptor: str, message: str) -> None:
     with pytest.raises(BTClibValueError, match=message) as excinfo:
         parse(descriptor)
     _assert_unechoed(excinfo.value)
+
+
+@pytest.mark.parametrize("key", [XPRV_ROOT, WIF], ids=["xprv", "wif"])
+def test_a_wrong_checksum_is_refused_without_the_right_one(key: str) -> None:
+    """The right checksum of a descriptor with a key confirms a guess at it."""
+    body = f"wpkh({key})"
+    right = checksum(body)
+    wrong = right[:-1] + ("q" if right[-1] != "q" else "p")
+    with pytest.raises(BTClibValueError, match="^invalid descriptor checksum$") as e:
+        parse(f"{body}#{wrong}")
+    assert_secret_free(e.value, [right, wrong, key])
 
 
 @pytest.mark.parametrize(

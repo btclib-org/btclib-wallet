@@ -347,9 +347,10 @@ def strip_checksum(descriptor: str) -> str:
     # INPUT_CHARSET, which is an error in a descriptor with no checksum
     expected = checksum(body)
     if separator and given_checksum != expected:
-        # what follows the '#' is not echoed: where the '#' is a stray one
-        # inside the descriptor, that is the rest of the descriptor
-        raise BTClibValueError(f"invalid descriptor checksum: {expected} expected")
+        # neither checksum is echoed. What follows the '#' is the rest of
+        # the descriptor where the '#' is a stray one, and the right
+        # checksum confirms a guess at a key mistyped in the descriptor
+        raise BTClibValueError("invalid descriptor checksum")
     return body
 
 
