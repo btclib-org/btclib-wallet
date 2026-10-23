@@ -18,7 +18,9 @@ holds the first half: a module exporting a name it does not define fails
 it unless `REEXPORTED` records the name, and no entry there is btclib's;
 `tests/imports_test.py` adds that every import of a unit that moved here
 names this package rather than btclib's copy. The second half is
-btclib's own: its `pyproject.toml` does not depend on this package. The
+btclib's own: its `pyproject.toml` does not depend on this package, and
+`test_btclib_imports_nothing_of_btclib_wallet` in `tests/imports_test.py`
+holds it here. The
 edge is btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
 `src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on it
 and on [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc),
@@ -208,7 +210,9 @@ wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 an external signer answers to, the transactions and signatures of a
 discreet log contract, and the clients that reach a node, an
 explorer, an Electrum server or a p2p peer for what the chain currently holds.
-`tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
+`tests/imports_test.py` mirrors the edges above, and holds the layering
+inside the package: `bip32/`, `_fee` and `silent_payments` import nothing
+else of it, and `psbt/` imports only those three. `tests/fuzz_test.py`
 holds every parser named here to one contract: it fails the way the
 library says it fails, whatever it is handed, never with a bare
 `IndexError` or `OverflowError` a caller's `except BTClibValueError` does
