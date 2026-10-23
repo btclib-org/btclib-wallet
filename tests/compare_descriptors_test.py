@@ -143,8 +143,8 @@ def stub(script: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 def test_first_path_keeps_the_first_of_a_multipath_answer(script: ModuleType) -> None:
     """A multipath answer is a list per path, of which the first is kept."""
-    assert script._first_path([["a"], ["b"]]) == ("a",)  # noqa: SLF001
-    assert script._first_path(["a"]) == ("a",)  # noqa: SLF001
+    assert script._first_path([["a"], ["b"]]) == ("a",)
+    assert script._first_path(["a"]) == ("a",)
 
 
 def test_disagreements_compares_the_first_of_several_addresses(
@@ -169,9 +169,7 @@ def test_read_with_rust_answers_every_input(script: ModuleType, stub: Path) -> N
     ]
 
 
-def test_read_with_rust_restarts_after_a_crash(
-    script: ModuleType, stub: Path
-) -> None:
+def test_read_with_rust_restarts_after_a_crash(script: ModuleType, stub: Path) -> None:
     """The input a run stopped on is a refusal, and the rest are asked again."""
     verdicts = script.read_with_rust(stub, ["a", "crash", "b", "c"])
 
