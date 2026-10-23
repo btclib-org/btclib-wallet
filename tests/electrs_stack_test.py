@@ -60,8 +60,9 @@ SERVER = textwrap.dedent(
 )
 
 
-# the stand-in for `bitcoind`: it binds the `-rpcport` port, and otherwise
-# writes to `regtest/debug.log`, under `-datadir`, what `bitcoind` writes
+# the stand-in for `bitcoind`: it binds the `-rpcport` port and, given one,
+# the `-port` port, and otherwise writes to `regtest/debug.log`, under
+# `-datadir`, what `bitcoind` writes
 NODE = textwrap.dedent(
     """
     import socket, sys, time
@@ -77,6 +78,20 @@ NODE = textwrap.dedent(
             f.write("Unable to bind any endpoint for RPC server\\n")
         sys.exit(1)
     sock.listen()
+    if "port" in args:
+        p2p = socket.socket()
+        try:
+            p2p.bind(("127.0.0.1", int(args["port"])))
+        except OSError:
+            log = Path(args["datadir"]) / "regtest" / "debug.log"
+            log.parent.mkdir(exist_ok=True)
+            with log.open("a") as f:
+                f.write(
+                    "[error] Unable to bind to 127.0.0.1:%s on this computer. "
+                    "Bitcoin Core is probably already running.\\n" % args["port"]
+                )
+            sys.exit(1)
+        p2p.listen()
     time.sleep(60)
     """
 )
@@ -305,6 +320,35 @@ def test_a_taken_rpc_port_on_the_last_attempt_is_raised(
     with pytest.raises(PortTaken, match="Unable to bind any endpoint"):
         start_on_free_ports(
             lambda: _start_node(node_script, tmp_path, None), attempts=1
+        )
+
+
+def test_a_node_on_a_taken_p2p_port_is_started_again_on_another(
+    tmp_path: Path, node_script: list[str], held_port: int
+) -> None:
+    """The first p2p port is taken; the second try holds a fresh one."""
+    ports = iter([held_port])
+
+    def start() -> tuple[Any, Any, int]:
+        p2p_port = next(ports, None) or stack_module._free_port()
+        process, client, _ = _start_node(node_script, tmp_path, p2p_port)
+        return process, client, p2p_port
+
+    process, _, p2p_port = start_on_free_ports(start)
+    try:
+        assert p2p_port != held_port
+        assert process.poll() is None
+    finally:
+        _stop(process)
+
+
+def test_a_taken_p2p_port_on_the_last_attempt_is_raised(
+    tmp_path: Path, node_script: list[str], held_port: int
+) -> None:
+    """With one attempt, the taken p2p port is raised as `PortTaken`."""
+    with pytest.raises(PortTaken, match="Unable to bind to"):
+        start_on_free_ports(
+            lambda: _start_node(node_script, tmp_path, held_port), attempts=1
         )
 
 

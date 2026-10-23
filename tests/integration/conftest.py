@@ -168,7 +168,7 @@ def _wait_for(
                 if debug_log.exists()
                 else ""
             )
-            if _NODE_PORT_TAKEN in log:
+            if any(marker in log for marker in _NODE_PORT_TAKEN):
                 raise PortTaken(log)
             pytest.fail(f"bitcoind exited with {process.returncode}")
         try:
@@ -316,9 +316,14 @@ _PORT_TAKEN_MARKERS = (
 )
 
 
-# what bitcoind writes to its `debug.log` when it cannot bind its rpc port
-# (src/httpserver.cpp); `-printtoconsole=0` leaves its stdout empty
-_NODE_PORT_TAKEN = "Unable to bind any endpoint for RPC server"
+# what bitcoind writes to its `debug.log` when it cannot bind a port: its
+# rpc port (src/httpserver.cpp) or its p2p port ("Unable to bind to
+# <address> on this computer"); `-printtoconsole=0` leaves its stdout
+# empty
+_NODE_PORT_TAKEN = (
+    "Unable to bind any endpoint for RPC server",
+    "Unable to bind to ",
+)
 
 
 class PortTaken(Exception):  # noqa: N818
@@ -727,8 +732,8 @@ _FLORESTA_SYNC_TIMEOUT = 120.0
 
 
 def _start_floresta(
-    florestad: str,
-    utreexod: str,
+    florestad: Sequence[str],
+    utreexod: Sequence[str],
     dirs: tuple[Path, Path],
     p2p_port: int,
     miner: BitcoinCoreRpcClient,
@@ -736,11 +741,13 @@ def _start_floresta(
 ) -> tuple[subprocess.Popen[bytes], FlorestaStack]:
     """Return `utreexod` and a `florestad` that has followed the node.
 
-    `p2p_port` is the node's. The ports of the two programs are picked on
-    every call, so that a call is a fresh try for `start_on_free_ports`.
-    `dirs` are their data directories. Both are stopped again where they do
-    not get there, so that the next try does not leave them behind. A
-    program that exited with its port taken in its log raises `PortTaken`.
+    `florestad` and `utreexod` are the commands that run the programs, as
+    `electrs` is to `_start_server`. `p2p_port` is the node's. The ports
+    of the two programs are picked on every call, so that a call is a fresh
+    try for `start_on_free_ports`. `dirs` are their data directories. Both
+    are stopped again where they do not get there, so that the next try
+    does not leave them behind. A program that exited with its port taken
+    in its log raises `PortTaken`.
     """
     utreexo_dir, floresta_dir = dirs
     utreexo_p2p, utreexo_rpc = _free_port(), _free_port()
@@ -755,7 +762,7 @@ def _start_floresta(
         processes.append(
             _start(
                 [
-                    utreexod,
+                    *utreexod,
                     "--regtest",
                     f"--datadir={utreexo_dir}",
                     "--rpcuser=u",
@@ -773,7 +780,7 @@ def _start_floresta(
         )
         server = _start(
             [
-                florestad,
+                *florestad,
                 "--network=regtest",
                 f"--data-dir={floresta_dir}",
                 f"--connect=127.0.0.1:{utreexo_p2p}",
@@ -845,8 +852,8 @@ def running_floresta_stack(
         miner.call("generatetoaddress", [101, address])
         peer, stack = start_on_free_ports(
             lambda: _start_floresta(
-                florestad,
-                utreexod,
+                [florestad],
+                [utreexod],
                 (utreexo_dir, floresta_dir),
                 p2p_port,
                 miner,
