@@ -132,9 +132,16 @@ class EndlessPeer(ScriptedPeer):
 
 
 def test_every_network_has_the_presync_parameters_of_bitcoin_core() -> None:
-    """The table has a row for each network the fetcher can be built for."""
+    """The table has a row for each network, with the values of Core."""
     assert set(_PRESYNC_PARAMS) == set(NETWORKS)
-    assert _PRESYNC_PARAMS["mainnet"] == (641, 15218)
+    # `HeadersSyncParams` of Bitcoin Core v31.1, `src/kernel/chainparams.cpp`
+    assert _PRESYNC_PARAMS == {
+        "mainnet": (641, 15218),
+        "testnet": (673, 14460),
+        "testnet4": (606, 16092),
+        "signet": (620, 15724),
+        "regtest": (275, 7017),
+    }
 
 
 # the endless peer
