@@ -26,7 +26,7 @@ from btclib_wallet.psbt.psbt_utils import (
     serialize_hd_key_paths,
     serialize_taproot_bip32,
 )
-from tests import assert_secret_free
+from tests.secret_free import assert_secret_free
 
 
 def test_invalid_serialize_hd_key_paths() -> None:
