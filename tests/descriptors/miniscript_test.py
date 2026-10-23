@@ -501,6 +501,24 @@ def test_a_number_with_leading_zeros_is_read_and_printed_without(
     assert parse(zeroed) == parse(canonical)
 
 
+@pytest.mark.parametrize(
+    "fragment, digest",
+    [("sha256", SHA256), ("hash256", SHA256), ("ripemd160", HASH160), ("hash160", HASH160)],
+)
+def test_a_hash_fragment_refuses_whitespace_in_its_hex(
+    fragment: str, digest: str
+) -> None:
+    """Refuse the hash Bitcoin Core's `IsHex` refuses, which fromhex would read.
+
+    `bytes.fromhex` skips whitespace, so a hash holding a space would be
+    read without it and printed back that way, changing the checksum of
+    the descriptor it is in; Core reads the argument with `IsHex`, which
+    refuses any non-hex character
+    """
+    with pytest.raises(BTClibValueError, match="hex expected"):
+        parse(f"and_v(v:pk({KEY}),{fragment}({digest[:10]} {digest[10:]}))")
+
+
 def test_an_expression_too_large_for_its_context_is_refused() -> None:
     """Refuse the expression whose script no p2wsh witness may carry."""
     with pytest.raises(BTClibValueError, match="too large for P2WSH"):
