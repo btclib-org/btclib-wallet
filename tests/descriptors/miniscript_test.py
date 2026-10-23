@@ -1515,7 +1515,7 @@ def test_a_tr_miniscript_leaf_is_held_to_the_same_sanity() -> None:
     with pytest.raises(BTClibValueError, match="without signature exist"):
         parse_descriptor(f"tr({KEYS[0]},{{pk({KEYS[1]}),older(36)}})")
     # multi() belongs to P2WSH: inside tr() the fragment is multi_a()
-    with pytest.raises(BTClibValueError, match="not allowed in a tapscript"):
+    with pytest.raises(BTClibValueError, match="leaf is not a valid descriptor"):
         parse_descriptor(f"tr({KEYS[0]},and_v(v:multi(1,{KEYS[1]}),older(36)))")
     with pytest.raises(BTClibValueError, match="ill-typed"):
         parse_descriptor(f"tr({KEYS[0]},and_v(1,1))")

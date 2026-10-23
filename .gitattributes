@@ -46,3 +46,9 @@ tests/dlc/_data/test_vectors/enum_and_numerical_with_diff_3_of_5_test.json -text
 tests/dlc/_data/test_vectors/three_of_five_oracle_numerical_with_diff_test.json -text
 tests/psbt/_data/psbt_fuzz1.hex -text
 tests/psbt/_data/psbt_fuzz2.hex -text
+tests/psbt/_data/rust-psbt/bip174.json -text
+tests/psbt/_data/rust-psbt/bip370.json -text
+tests/psbt/_data/rust-psbt/bip371.json -text
+tests/psbt/_data/rust-psbt/bip375.json -text
+tests/psbt/_data/rust-psbt/fuzz.json -text
+tests/psbt/_data/btcd/signed_psbts.json -text

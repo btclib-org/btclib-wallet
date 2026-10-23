@@ -27,8 +27,8 @@ from btclib_wallet.psbt.psbt_in import (
     ValidSigHashType,
 )
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR
-from tests import assert_secret_free
 from tests.conftest import JsonGolden
+from tests.secret_free import assert_secret_free
 
 
 def test_psbt_out() -> None:
