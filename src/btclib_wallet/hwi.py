@@ -144,12 +144,13 @@ from dataclasses import dataclass
 from typing import IO, Any
 
 from btclib.alias import Octets
-from btclib.exceptions import BTClibValueError, SignerError, SignerNotFoundError
+from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
+from btclib_wallet.exceptions import SignerError, SignerNotFoundError
 from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,

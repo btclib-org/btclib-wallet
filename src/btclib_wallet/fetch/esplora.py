@@ -59,13 +59,14 @@ from urllib.parse import urlsplit
 
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, HttpError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,

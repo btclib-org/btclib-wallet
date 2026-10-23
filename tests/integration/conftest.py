@@ -42,11 +42,11 @@ from typing import Any, TypeVar
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError
-from btclib import electrum
 from btclib.amount import sats_from_btc
 from btclib.block.block_header import BlockHeader
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet import electrum
 from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher

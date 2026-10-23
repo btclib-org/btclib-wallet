@@ -33,8 +33,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from btclib.exceptions import SignerError
 
+from btclib_wallet.exceptions import SignerError
 from btclib_wallet.hwi import HwiDevice
 
 _SCRIPT = Path(__file__).parents[1] / ".github" / "scripts" / "wait_for_hwi_device.py"

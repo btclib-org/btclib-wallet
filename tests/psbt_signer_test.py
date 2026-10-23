@@ -20,7 +20,7 @@ from copy import deepcopy
 import pytest
 from btclib.alias import Octets
 from btclib.ecc import bms
-from btclib.exceptions import BTClibTypeError, BTClibValueError, SignerError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
@@ -46,6 +46,7 @@ from btclib_wallet.descriptors import (
     wallet_policy,
     wallet_policy_address,
 )
+from btclib_wallet.exceptions import SignerError
 from btclib_wallet.hwi import HwiDevice
 from btclib_wallet.psbt import silent_payments
 from btclib_wallet.psbt.psbt import Psbt, sign
