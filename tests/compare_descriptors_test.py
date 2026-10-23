@@ -90,7 +90,7 @@ def test_disagreements_is_empty_where_all_accept_alike(script: ModuleType) -> No
 
 
 def test_disagreements_flags_a_different_script(script: ModuleType) -> None:
-    """All three accept, and `parse` and rust-miniscript derive other scripts."""
+    """All three accept, and `parse` and rust-miniscript derive two scripts."""
     core = script.Verdict(True)
     ours = script.Verdict(True, scripts=("0014aa",))
     rust = script.Verdict(True, scripts=("0014bb",))

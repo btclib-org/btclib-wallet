@@ -236,6 +236,7 @@ source-exclude = [
     # decision. tests/source_exclude_test.py checks that every test its
     # reader finds reaching .github or fuzz/ is named here
     "/tests/check_vendored_vectors_test.py",
+    "/tests/compare_descriptors_test.py",
     "/tests/fuzz_corpus_test.py",
     "/tests/interpreters_test.py",
     "/tests/normalize_sdist_test.py",
