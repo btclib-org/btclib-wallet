@@ -60,8 +60,9 @@ SERVER = textwrap.dedent(
 )
 
 
-# the stand-in for `bitcoind`: it binds the `-rpcport` port, and otherwise
-# writes to `regtest/debug.log`, under `-datadir`, what `bitcoind` writes
+# the stand-in for `bitcoind`: it binds the `-rpcport` port and, given one,
+# the `-port` port, and otherwise writes to `regtest/debug.log`, under
+# `-datadir`, what `bitcoind` writes
 NODE = textwrap.dedent(
     """
     import socket, sys, time
@@ -76,6 +77,20 @@ NODE = textwrap.dedent(
         with log.open("a") as f:
             f.write("Unable to bind any endpoint for RPC server\\n")
         sys.exit(1)
+    if "port" in args:
+        p2p = socket.socket()
+        try:
+            p2p.bind(("127.0.0.1", int(args["port"])))
+        except OSError:
+            log = Path(args["datadir"]) / "regtest" / "debug.log"
+            log.parent.mkdir(exist_ok=True)
+            with log.open("a") as f:
+                f.write(
+                    "[error] Unable to bind to 127.0.0.1:%s on this computer. "
+                    "Bitcoin Core is probably already running.\\n" % args["port"]
+                )
+            sys.exit(1)
+        p2p.listen()
     sock.listen()
     time.sleep(60)
     """
@@ -220,6 +235,7 @@ def test_start_on_free_ports_gives_up_after_its_attempts() -> None:
         ("cannot bind: Os { code: 98, kind: AddrInUse }", True),
         ("error: Address already in use (os error 48)", True),
         ("panicked: failed to start monitoring HTTP server at 127.0.0.1:1", True),
+        ("listen tcp 127.0.0.1:1: bind: address already in use", True),
         ("panic: something else", False),
     ],
 )
@@ -283,7 +299,9 @@ def test_a_node_on_a_taken_port_is_started_again_on_another(
 ) -> None:
     """The first rpc port is taken; the second try holds a fresh one."""
     _first_port_is(monkeypatch, held_port)
-    process, _, port = start_on_free_ports(lambda: _start_node(node_script, tmp_path))
+    process, _, port = start_on_free_ports(
+        lambda: _start_node(node_script, tmp_path, None)
+    )
     try:
         assert port != held_port
         assert process.poll() is None
@@ -300,7 +318,38 @@ def test_a_taken_rpc_port_on_the_last_attempt_is_raised(
     """With one attempt, the taken port is raised as `PortTaken`."""
     _first_port_is(monkeypatch, held_port)
     with pytest.raises(PortTaken, match="Unable to bind any endpoint"):
-        start_on_free_ports(lambda: _start_node(node_script, tmp_path), attempts=1)
+        start_on_free_ports(
+            lambda: _start_node(node_script, tmp_path, None), attempts=1
+        )
+
+
+def test_a_node_on_a_taken_p2p_port_is_started_again_on_another(
+    tmp_path: Path, node_script: list[str], held_port: int
+) -> None:
+    """The first p2p port is taken; the second try holds a fresh one."""
+    ports = iter([held_port])
+
+    def start() -> tuple[Any, Any, int]:
+        p2p_port = next(ports, None) or stack_module._free_port()
+        process, client, _ = _start_node(node_script, tmp_path, p2p_port)
+        return process, client, p2p_port
+
+    process, _, p2p_port = start_on_free_ports(start)
+    try:
+        assert p2p_port != held_port
+        assert process.poll() is None
+    finally:
+        _stop(process)
+
+
+def test_a_taken_p2p_port_on_the_last_attempt_is_raised(
+    tmp_path: Path, node_script: list[str], held_port: int
+) -> None:
+    """With one attempt, the taken p2p port is raised as `PortTaken`."""
+    with pytest.raises(PortTaken, match="Unable to bind to"):
+        start_on_free_ports(
+            lambda: _start_node(node_script, tmp_path, held_port), attempts=1
+        )
 
 
 def test_a_node_that_exits_for_another_reason_fails_the_run(
@@ -309,7 +358,7 @@ def test_a_node_that_exits_for_another_reason_fails_the_run(
     """An exit that does not name a taken port is not retried."""
     monkeypatch.setattr(stack_module, "BitcoinCoreRpcClient", _ListeningClient)
     with pytest.raises(pytest.fail.Exception, match="bitcoind exited with 0"):
-        _start_node([sys.executable, "-c", "pass"], tmp_path)
+        _start_node([sys.executable, "-c", "pass"], tmp_path, None)
 
 
 def test_a_complaint_of_an_earlier_try_is_not_read_as_the_next_ones(
@@ -321,6 +370,6 @@ def test_a_complaint_of_an_earlier_try_is_not_read_as_the_next_ones(
     """A try that exits quietly after one on a taken port is no `PortTaken`."""
     _first_port_is(monkeypatch, held_port)
     with pytest.raises(PortTaken):
-        _start_node(node_script, tmp_path)
+        _start_node(node_script, tmp_path, None)
     with pytest.raises(pytest.fail.Exception, match="bitcoind exited with 0"):
-        _start_node([sys.executable, "-c", "pass"], tmp_path)
+        _start_node([sys.executable, "-c", "pass"], tmp_path, None)

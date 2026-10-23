@@ -607,6 +607,34 @@ a required check: it builds a third party's server. Its `pull_request`
 trigger runs it on a pull request touching a path its `paths:` lists, and
 `gh workflow run integration-electrs.yml --ref <branch>` runs it by hand.
 
+`integration-floresta.yml` — `ElectrumFetcher` against `florestad`, on its
+plain port and its TLS port. Floresta checks blocks with utreexo proofs,
+which `bitcoind` does not serve, so `utreexod` sits between them: the pinned
+`bitcoind` mines, `utreexod` syncs from it and `florestad`'s only peer is
+`utreexod`. `utreexod` is the release tarball, checked against the sha256 in
+the release's manifest. The release publishes no signature for that
+manifest, so the pin is as good as the release page it was read from.
+`florestad` publishes no checksummed binary for the pinned commit, so the
+job builds it, with `libboost-dev` and `cmake` installed. `BTCLIB_FLORESTAD`
+and `BTCLIB_UTREEXOD` name the two programs:
+
+```shell
+cargo install --locked --bin florestad \
+    --git https://github.com/getfloresta/Floresta \
+    --rev <commit> --root /path/to/floresta-install florestad
+BTCLIB_INTEGRATION=1 BTCLIB_BITCOIND=/path/to/bitcoind \
+    BTCLIB_FLORESTAD=/path/to/floresta-install/bin/florestad \
+    BTCLIB_UTREEXOD=/path/to/utreexod \
+    uv run --locked --no-default-groups --group test \
+    pytest tests/integration/floresta_test.py --junitxml=integration.xml
+```
+
+A step after it fails the job if one of these tests skipped. The job is not
+a required check: it builds and downloads third parties' programs. Its
+`pull_request` trigger runs it on a pull request touching a path its
+`paths:` lists, and `gh workflow run integration-floresta.yml --ref <branch>`
+runs it by hand.
+
 `integration-hwi.yml` — the HWI tests against a Trezor emulator and
 against a Ledger one under Speculos, each beside the same node. The
 workflow's own header says what each job installs and pins; the Trezor
@@ -674,6 +702,7 @@ reliance `REVIEWING.md` provides for.
 | `deps-oldest` | weekly | the floor interpreter, dependencies at their floors |
 | `integration-hwi` | weekly, push to main | two emulators |
 | `integration-electrs` | pull request on its paths, push to main | — |
+| `integration-floresta` | pull request on its paths, push to main | — |
 | `scorecard` | weekly, push to main | — |
 | `verified-signatures` | push to main | — |
 | `links` | weekly | — |

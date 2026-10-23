@@ -19,9 +19,13 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   pinned Trezor emulator and a pinned Ledger under Speculos
   (`.github/workflows/integration-hwi.yml`) and
   `tests/integration/regtest_test.py` against a disposable regtest
-  `bitcoind` (`.github/workflows/integration-bitcoind.yml`), and the
+  `bitcoind` (`.github/workflows/integration-bitcoind.yml`), the
   Electrum and Esplora fetchers against a live `electrs`, a reorg
-  included (`.github/workflows/integration-electrs.yml`).
+  included (`.github/workflows/integration-electrs.yml`), and the Electrum
+  fetcher against a live `florestad`, TLS included
+  (`.github/workflows/integration-floresta.yml`). The fetcher reaches
+  `florestad` only through a transport that adds `"jsonrpc": "2.0"`, which
+  Floresta requires and the Electrum spec does not.
   `tests/_data/README.md` pins every vendored vector to the upstream
   commit it was copied from and says whether the two still match.
   `.github/workflows/vendored-vectors.yml` runs weekly: it hashes each

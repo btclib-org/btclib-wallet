@@ -1,0 +1,175 @@
+---
+name: integration-floresta
+
+# Asks a live server what the fetcher's recorded answers cannot: whether a
+# field was renamed or an error changed shape.
+# `tests/integration/floresta_test.py` runs ElectrumFetcher against
+# Floresta's Electrum server, on its plain port and on its TLS port, with
+# a regtest bitcoind mining.
+#
+# Floresta checks blocks with utreexo proofs, which bitcoind does not
+# serve, so the stack is three programs: bitcoind mines, utreexod syncs
+# from it, and florestad's only peer is utreexod.
+#
+# Not a required check, and not in REPOSITORY.md's table: two of the
+# programs are third parties' to break. The bitcoind half of
+# `tests/integration/` is integration-bitcoind.yml's, and electrs's is
+# integration-electrs.yml's.
+#
+# The trigger is a pull request touching a path `paths:` lists, the push
+# to main, and the dispatch. There is no schedule: the calendar of section
+# 10 of btclib-org/.github gives a workflow its day, and this one has none.
+#
+# Pinned like integration-bitcoind.yml's node:
+#
+# - bitcoind is the same release and the same sha256, installed by
+#   btclib-org/.github's script;
+# - utreexod's release is downloaded, and its sha256 is the one in the
+#   release's manifest-20260623-01.txt. The release publishes no signature
+#   for that manifest, so the pin is as good as the release page it was
+#   read from;
+# - florestad publishes no checksummed binary for the commit pinned
+#   below, so it is built from it. A commit id names its whole tree, and
+#   `--locked` takes every dependency from Cargo.lock, whose crates.io
+#   checksums cargo verifies. The build is cached on the commit, and a run
+#   restores what main or its own branch saved.
+#
+# `tests/integration/conftest.py` reads `BTCLIB_FLORESTAD` and
+# `BTCLIB_UTREEXOD` for the binaries, and the step after the tests fails
+# the job if one of them skipped.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+    paths:
+      - .github/workflows/integration-floresta.yml
+      - tests/conftest.py
+      - tests/integration/conftest.py
+      - uv.lock
+      - pyproject.toml
+      - .python-version
+      - tests/integration/floresta_*.py
+      - src/btclib_wallet/fetch/**
+
+# least privilege for the GITHUB_TOKEN: nothing here writes
+permissions:
+  contents: read
+
+env:
+  # the release integration-bitcoind.yml pins, and the sha256 of its linux
+  # tarball as the guix builders attested it in bitcoin-core/guix.sigs
+  BITCOIND_VERSION: "31.1"
+  BITCOIND_SHA256: >-
+    b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+  # utreexod v0.6.0, and the sha256 of its linux-amd64 tarball from
+  # manifest-20260623-01.txt. Raising it is a commit
+  UTREEXOD_TARBALL: utreexod-linux-amd64-20260623-01.tar.gz
+  UTREEXOD_SHA256: >-
+    815a66bf8ff53aaa9cdd1d6ed39bf6a305ff644a784f56fe88dc3d599e292383
+  # florestad v0.9.1. Raising it is a commit
+  FLORESTA_COMMIT: bc2db8d07e72651f9981ce589c5688f4d575dc7a
+
+# named literally rather than through github.workflow, as everywhere else
+concurrency:
+  group: integration-floresta-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  floresta:
+    name: Electrum against florestad
+    # a draft pull request spends no runner, and neither does a closed one:
+    # that event is taken only to cancel the run it supersedes
+    if: ${{ !github.event.pull_request.draft && github.event.action != 'closed' }}
+    runs-on: ubuntu-latest
+    # the tests are short. The bound is the cold build of florestad
+    # and its bitcoinkernel, and a hung job holding a runner
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out btclib-org/.github's scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: btclib-org/.github
+          ref: main
+          path: standard
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - name: Install bitcoind
+        id: bitcoind
+        run: |
+          daemon=$(uv run --no-project --python 3.15 \
+            standard/.github/scripts/install_bitcoind.py \
+            "$BITCOIND_VERSION" "$BITCOIND_SHA256")
+          echo "path=$daemon" >> "$GITHUB_OUTPUT"
+          "$daemon" -version | head -n 1
+      - name: Install utreexod
+        id: utreexod
+        run: |
+          mkdir utreexod-install
+          curl --proto '=https' --fail --silent --show-error --location \
+            --output "$UTREEXOD_TARBALL" \
+            "https://github.com/utreexo/utreexod/releases/download/v0.6.0/$UTREEXOD_TARBALL"
+          echo "$UTREEXOD_SHA256  $UTREEXOD_TARBALL" | sha256sum --check --strict
+          tar -xzf "$UTREEXOD_TARBALL" -C utreexod-install
+          daemon=$(find "$PWD/utreexod-install" -name utreexod -type f)
+          echo "path=$daemon" >> "$GITHUB_OUTPUT"
+      # what answered, in the log of the run that used it
+      - name: Show the utreexod version
+        env:
+          UTREEXOD: ${{ steps.utreexod.outputs.path }}
+        run: |
+          "$UTREEXOD" --version
+      - name: Restore the florestad build
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: floresta-install
+          key: florestad-${{ env.FLORESTA_COMMIT }}-${{ runner.os }}-${{ runner.arch }}
+      # libbitcoinkernel, a dependency, is built with cmake against boost
+      - name: Build florestad
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libboost-dev cmake
+          cargo install --locked --bin florestad \
+            --git https://github.com/getfloresta/Floresta \
+            --rev "$FLORESTA_COMMIT" --root floresta-install florestad
+      # what answered, in the log of the run that used it
+      - name: Show the florestad version
+        run: |
+          floresta-install/bin/florestad --version
+      - name: Run the integration tests
+        env:
+          BTCLIB_BITCOIND: ${{ steps.bitcoind.outputs.path }}
+          BTCLIB_UTREEXOD: ${{ steps.utreexod.outputs.path }}
+        run: |
+          export BTCLIB_INTEGRATION=1
+          export BTCLIB_FLORESTAD="$PWD/floresta-install/bin/florestad"
+          uv run --locked --no-default-groups --group test \
+            pytest tests/integration/floresta_test.py \
+            --junitxml=integration.xml
+      # pytest exits 0 for a test that skipped itself, and a job whose
+      # fixture stopped finding the server would stay green asking it
+      # nothing. No prefix is exempt here: every skip fails
+      - name: Fail if the server tests did not run
+        run: |
+          uv run --no-project --python 3.15 \
+            standard/.github/scripts/check_node_ran.py integration.xml
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-floresta-report
+          path: integration.xml
+          if-no-files-found: error
+          retention-days: 90

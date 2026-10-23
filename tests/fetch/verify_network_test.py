@@ -114,8 +114,9 @@ _QUESTIONS: dict[str, Callable[[Fetcher], object]] = {
 # tested rather than a second time here:
 # `test_broadcast_verifies_the_network_before_sending_anything` in
 # `bitcoin_core_test.py` and in `esplora_test.py`,
-# `test_get_tx_merkle_and_verify_tx_are_refused_on_another_chain_too` in
-# `electrum_test.py`, and
+# `test_get_tx_merkle_and_verify_tx_are_refused_on_another_chain_too` and
+# `test_get_block_headers_verifies_the_network_first` in `electrum_test.py`,
+# and
 # `test_estimate_fee_verifies_the_network_before_asking_anything` in all
 # three of `bitcoin_core_test.py`, `electrum_test.py` and `esplora_test.py`,
 # `test_get_balance_verifies_the_network_before_asking_the_balance` in
@@ -128,6 +129,7 @@ _ELSEWHERE = {
     ("BitcoinCoreFetcher", "broadcast"),
     ("BitcoinCoreFetcher", "estimate_fee"),
     ("ElectrumFetcher", "estimate_fee"),
+    ("ElectrumFetcher", "get_block_headers"),
     ("ElectrumFetcher", "get_tx_merkle"),
     ("EsploraFetcher", "broadcast"),
     ("EsploraFetcher", "estimate_fee"),

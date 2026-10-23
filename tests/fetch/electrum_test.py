@@ -621,3 +621,141 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
         endpoint.estimate_fee(6)
     assert transport_of(endpoint).methods == ["blockchain.block.header"]
+
+
+# the first three headers of a regtest chain, as florestad v0.9.1 answered
+# `blockchain.block.headers` for heights 0 to 2. The first is
+# `REGTEST_GENESIS_HEADER_RAW`; the others were mined on 2026-10-11 and each
+# names the hash of the one before
+REGTEST_CHUNK = [
+    REGTEST_GENESIS_HEADER_RAW,
+    (
+        "0000002006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f"
+        "72ef40acea137e103fb1f9f9d5d4799ea26f49f3dcf7fff7119dc570e6a6051fc095cb6a"
+        "ffff7f2006000000"
+    ),
+    (
+        "000000208287fd1aed52cd95f6dc4d2da7e80dd27a45c9a3d25269444a68e4f6658d855b"
+        "298a3db6d2895e5d9ab3d4c4efd484caba472b31db89d70ed03bb7a3dac2e4dfc195cb6a"
+        "ffff7f2000000000"
+    ),
+]
+
+
+def chunk_answer(*headers: str, count: int | None = None) -> dict[str, object]:
+    """Return the `result` of `blockchain.block.headers` holding `headers`."""
+    return {
+        "count": len(headers) if count is None else count,
+        "hex": "".join(headers),
+        "max": 2016,
+    }
+
+
+def test_get_block_headers_asks_block_headers_and_chains_what_it_gets() -> None:
+    """`blockchain.block.headers`, start and count, each header checked."""
+    endpoint = fetcher(chunk_answer(*REGTEST_CHUNK), network="regtest")
+    headers = endpoint.get_block_headers(0, 3)
+    assert [header.serialize().hex() for header in headers] == REGTEST_CHUNK
+    assert headers[0].hash == NETWORKS["regtest"].genesis_block
+    assert headers[1].previous_block_hash == headers[0].hash
+    assert headers[2].previous_block_hash == headers[1].hash
+    request = json.loads(transport_of(endpoint).requests[0])
+    assert request["method"] == "blockchain.block.headers"
+    assert request["params"] == [0, 3]
+
+
+def test_get_block_headers_may_answer_fewer_than_asked() -> None:
+    """A server's maximum or its tip can cut a chunk short, to nothing too."""
+    short = fetcher(chunk_answer(*REGTEST_CHUNK[:2]), network="regtest")
+    assert len(short.get_block_headers(0, 5)) == 2
+    none = fetcher(chunk_answer(), network="regtest")
+    assert none.get_block_headers(7, 5) == []
+
+
+@pytest.mark.parametrize(
+    "result, match",
+    [
+        pytest.param([], "not an object", id="not-an-object"),
+        pytest.param({"hex": ""}, "invalid count", id="no-count"),
+        pytest.param({"count": True, "hex": ""}, "invalid count", id="bool-count"),
+        pytest.param({"count": -1, "hex": ""}, "invalid count", id="negative-count"),
+        pytest.param(
+            chunk_answer(*REGTEST_CHUNK, count=3), "invalid count", id="more-than-asked"
+        ),
+        pytest.param({"count": 1}, "not a hex string", id="no-hex"),
+        pytest.param({"count": 1, "hex": "zz" * 80}, "non-hexadecimal", id="not-hex"),
+        pytest.param(
+            {"count": 1, "hex": "0" * 159}, "invalid hex string", id="odd-length"
+        ),
+        pytest.param({"count": 1, "hex": 5}, "not a hex string", id="hex-not-a-string"),
+        pytest.param(
+            chunk_answer(REGTEST_CHUNK[0], count=2), "are not 2 headers", id="too-short"
+        ),
+        pytest.param(
+            chunk_answer(REGTEST_CHUNK[0] + "00", count=1),
+            "are not 1 headers",
+            id="too-long",
+        ),
+    ],
+)
+def test_get_block_headers_refuses_a_chunk_that_is_not_one(
+    result: object, match: str
+) -> None:
+    """Every field of the answer is the server's word, and checked."""
+    endpoint = fetcher(result, network="regtest")
+    with pytest.raises(FetchError, match=match):
+        endpoint.get_block_headers(0, 2)
+
+
+def test_get_block_headers_refuses_a_header_that_does_not_follow() -> None:
+    """A chunk is a chain: the third header does not name the first."""
+    endpoint = fetcher(
+        chunk_answer(REGTEST_CHUNK[0], REGTEST_CHUNK[2]), network="regtest"
+    )
+    with pytest.raises(FetchError, match="header 1 does not follow header 0"):
+        endpoint.get_block_headers(0, 2)
+
+
+def test_get_block_headers_holds_each_header_to_the_networks_limit() -> None:
+    """Regtest's headers are above mainnet's proof-of-work limit."""
+    endpoint = fetcher(chunk_answer(*REGTEST_CHUNK[1:]), network="mainnet")
+    with pytest.raises(FetchError, match="above the limit"):
+        endpoint.get_block_headers(1, 2)
+
+
+def test_get_block_headers_raises_the_servers_error() -> None:
+    """A range above the tip is an error object, as florestad answers it."""
+    endpoint = fetcher(RpcErrorAnswer("Internal JSON-RPC error.", -32000))
+    with pytest.raises(FetchError, match="Internal JSON-RPC error"):
+        endpoint.get_block_headers(1000, 2)
+
+
+@pytest.mark.parametrize(
+    "start, count, error, match",
+    [
+        (-1, 1, BTClibValueError, "invalid height"),
+        ("0", 1, BTClibTypeError, "invalid height type"),
+        (0, 0, BTClibValueError, "invalid count: 0"),
+        (0, -5, BTClibValueError, "invalid count: -5"),
+        (0, 1.5, BTClibTypeError, "invalid count type"),
+        (0, True, BTClibTypeError, "invalid count type"),
+    ],
+)
+def test_get_block_headers_refuses_a_bad_request_before_making_it(
+    start: object, count: object, error: type[Exception], match: str
+) -> None:
+    """The same guard `get_block_header` has, and one for the count."""
+    endpoint = fetcher()
+    with pytest.raises(error, match=match):
+        endpoint.get_block_headers(start, count)  # type: ignore[arg-type]
+    assert transport_of(endpoint).requests == []
+
+
+def test_get_block_headers_verifies_the_network_first() -> None:
+    """The same guard every other question goes through first."""
+    endpoint = ElectrumFetcher(
+        "mainnet", transport=LineRecorded(TESTNET_GENESIS_HEADER), verify_network=True
+    )
+    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+        endpoint.get_block_headers(0, 1)
+    assert transport_of(endpoint).methods == ["blockchain.block.header"]
