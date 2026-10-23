@@ -2248,9 +2248,9 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     the leaf is where it is said, a tree being several scripts of which
     this one is unspendable or unsafe.
 
-    Where Core's miniscript parser stops without naming a key, Core says
-    "'<leaf>' is not a valid descriptor function". The leaf is left out
-    here, since it can hold a private key.
+    On a ``_CoreFallbackError`` Core says "'<leaf>' is not a valid
+    descriptor function". The message here leaves the leaf out, since it
+    can hold a private key.
     """
     if expression.startswith("multi_a("):
         _read_unclosed_multisig_keys(expression, miniscript.TAPSCRIPT, prv_keys)
