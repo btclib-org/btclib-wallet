@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from btclib.exceptions import BTClibTypeError, InvalidPrvKeyError, NotAPrvKeyError
-from btclib_ecc.curves import secp256k1
+from ecc.curves import secp256k1
 
 from btclib_wallet import minikey
 

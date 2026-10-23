@@ -11,8 +11,8 @@ from typing import cast
 import pytest
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
-from btclib_ecc.curves import secp256k1
-from btclib_ecc.curves.sec_point import bytes_from_point
+from ecc.curves import secp256k1
+from ecc.curves.sec_point import bytes_from_point
 
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,

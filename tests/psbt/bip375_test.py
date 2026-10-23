@@ -30,7 +30,7 @@ input eligibility and output script derivation are the Signer's and the
 Transaction Extractor's roles, which BIP375 adds and this change does
 not: they need each input's public key, which for an unsigned input comes
 from PSBT_IN_BIP32_DERIVATION rather than from the input itself.
-`btclib_ecc.ecc.dleq.verify_proof` and
+`ecc.ecc.dleq.verify_proof` and
 `btclib_wallet.silent_payments.output_keys` are the two pieces such a
 role would be built from, and both are here.
 """

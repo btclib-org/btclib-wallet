@@ -27,7 +27,7 @@ rules, asked one position at a time with the others left valid:
   A verification is not the question that value answers, so it is
   refused rather than read as a forged signature.
 
-A case marked `ecc=True` hands its arguments on to btclib_ecc, and the
+A case marked `ecc=True` hands its arguments on to ecc, and the
 first and the third rule then accept the classes of
 `tests/exception_family_test.py`'s families (btclib-org/btclib#2282).
 
@@ -48,8 +48,8 @@ from btclib.key import PrvKeyData, PubKeyData
 from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import Tx, TxIn
-from btclib_ecc.curves import mult
-from btclib_ecc.ecc import ecdsa_adaptor
+from ecc.curves import mult
+from ecc.ecc import ecdsa_adaptor
 
 from btclib_wallet import bip322, dlc
 from btclib_wallet.dlc import oracle
@@ -141,7 +141,7 @@ class _Case:
     # makes the question unanswerable -- a raise is the answer (issue
     # btclib-org/btclib#2170). Empty for every case this issue leaves alone
     structurally_invalid_values: dict[int, Any] = field(default_factory=dict)
-    # whether the function hands its arguments to btclib_ecc, whose own
+    # whether the function hands its arguments to ecc, whose own
     # error classes then leave it
     ecc: bool = False
 

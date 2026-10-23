@@ -21,7 +21,7 @@ from unicodedata import normalize
 
 import pytest
 from btclib.exceptions import BTClibValueError
-from btclib_ecc.curves import mult
+from ecc.curves import mult
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

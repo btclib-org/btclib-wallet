@@ -38,7 +38,7 @@ from tests import module_names
 
 
 def _is_ours(name: str) -> bool:
-    """Answer whether a dotted name is this package's, btclib's or btclib_ecc's.
+    """Answer whether a dotted name is this package's, btclib's or ecc's.
 
     `btclib_secp256k1`, the bindings, is none of the three: reimporting a
     cffi extension module is another matter entirely, so the boundary is
@@ -46,12 +46,12 @@ def _is_ours(name: str) -> bool:
     """
     return any(
         name == root or name.startswith(f"{root}.")
-        for root in ("btclib", "btclib_ecc", "btclib_wallet")
+        for root in ("btclib", "ecc", "btclib_wallet")
     )
 
 
 def loaded_modules() -> list[str]:
-    """Return the modules of this package, of btclib and of btclib_ecc."""
+    """Return the modules of this package, of btclib and of ecc."""
     return [name for name in sys.modules if _is_ours(name)]
 
 

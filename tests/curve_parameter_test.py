@@ -36,7 +36,7 @@ from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib_ecc.curves import CURVES, CurveGroup, secp256k1
+from ecc.curves import CURVES, CurveGroup, secp256k1
 
 from btclib_wallet.bip32.bip32 import (
     BIP32KeyData,

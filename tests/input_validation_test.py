@@ -20,10 +20,10 @@ drives the two separately:
 btclib's own `input_validation_test.py` walks btclib, and this one walks
 this package with the same vocabulary.
 
-A function of this package that hands its argument on to btclib_ecc
+A function of this package that hands its argument on to ecc
 -- a key to `scalar_from_prv_key` or `point_from_pub_key` most often --
 lets that package's refusal through, and its classes are
-`BTClibEccTypeError` and `BTClibEccException` (issue
+`EccTypeError` and `EccException` (issue
 btclib-org/btclib#2282): each rule accepts the class of either package,
 `tests/exception_family_test.py` holding the pair, and nothing else.
 A function handing a mnemonic on to bip39_slip39 lets that package's
