@@ -16,8 +16,9 @@ name. The units were cut out of `btclib`, which still publishes them at
 its old paths, so a `btclib.bip32` left behind would import, run and pass
 against a copy nobody maintains here.
 
-And `bip32` and `psbt` import only the units below them, so that each can
-be split into a distribution of its own by moving files.
+And `bip32` and `psbt` import only the units below them, and so do the
+units `psbt` uses, so that each can be split into a distribution of its
+own by moving files.
 """
 
 from __future__ import annotations
@@ -184,8 +185,10 @@ def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
 # `silent_payments` is the top-level module; `psbt.silent_payments` belongs
 # to `psbt`.
 _ALLOWED_UNITS = {
+    "_fee": frozenset(),
     "bip32": frozenset(),
     "psbt": frozenset({"_fee", "bip32", "silent_payments"}),
+    "silent_payments": frozenset(),
 }
 
 
@@ -323,7 +326,7 @@ def test_the_layer_scan_admits_the_allowed_imports(
 
 
 def test_bip32_and_psbt_import_only_the_units_below_them() -> None:
-    """Keep `bip32` and `psbt` to the units `_ALLOWED_UNITS` lists.
+    """Keep `bip32`, `psbt` and what `psbt` uses to `_ALLOWED_UNITS`.
 
     So each can move to a distribution of its own.
     """

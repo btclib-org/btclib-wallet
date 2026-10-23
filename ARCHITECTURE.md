@@ -210,7 +210,9 @@ wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 an external signer answers to, the transactions and signatures of a
 discreet log contract, and the clients that reach a node, an
 explorer, an Electrum server or a p2p peer for what the chain currently holds.
-`tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
+`tests/imports_test.py` mirrors the edges above, and holds the layering
+inside the package: `bip32/`, `_fee` and `silent_payments` import nothing
+else of it, and `psbt/` imports only those three. `tests/fuzz_test.py`
 holds every parser named here to one contract: it fails the way the
 library says it fails, whatever it is handed, never with a bare
 `IndexError` or `OverflowError` a caller's `except BTClibValueError` does
