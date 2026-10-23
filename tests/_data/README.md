@@ -44,6 +44,8 @@ file whose name they could take, or because the upstream name is taken:
 - the files under `tests/fetch/_data/` are response bodies, and a
   response has no name at all. Each takes the rpc method or the endpoint
   path that produces it.
+- `tests/psbt/_data/btcd/signed_psbts.json` is what a program printed,
+  and no upstream publishes it.
 
 The prefix of a psbt `*_test_vectors.json` file names the authority the
 cases answer to -- `bip174_`, `bip370_`, `bip371_`, `bip373_`, `bip375_`,
@@ -227,12 +229,16 @@ behind  0 revisions; that commit is the tip of the path
 Verdict: **transcribed**, complete for the cases. The BIP's Test Vectors
 section is 34 `* Case:` entries — 20 invalid, 10 valid, 4 signer check
 failures — and all 34 are here, each with the base64 the prose gives and
-cross-checked against the hex the prose gives beside it. What is not
-vendored, deliberately, is the role walk-through: the creator, updater,
+cross-checked against the hex the prose gives beside it. This file does
+not carry the role walk-through: the creator, updater,
 signer, combiner, finalizer and extractor psbts of the worked example,
 which are prose steps rather than cases. Five of them are the raw
 material of `btclib_test_vectors.json` below, which is a different claim:
 not that they are cases, but that a case can be built out of one.
+
+rust-psbt's `bip174.json` carries the walk-through as cases, and
+`tests/psbt/rust_psbt_test.py` runs each role over them: its entry is
+under *Other projects*.
 
 Re-checked against the tip on 2026-09-29: the 34 `* Case:` entries are
 byte for byte what they were at the previous pin. BIP174 1.4.3 and 1.4.4
@@ -1254,6 +1260,148 @@ Verdict: **identical but for a trailing newline**. The second psbt of
 the pair above, with the same license; its seed is
 `fuzz/corpus/fuzz_psbt/rust_bitcoin_psbt_fuzz2.bin`.
 
+### rust-psbt's vectors: files under `tests/psbt/_data/rust-psbt/`
+
+The JSON files of rust-psbt's `tests/data/`, the vectors of the
+`psbt-v2` crate of rust-bitcoin, vendored under upstream's own names.
+Those names say which BIP a file answers to and not whose cases they
+are, so the directory says it. License: Creative Commons Zero, as
+rust-psbt's `LICENSE` and its `Cargo.toml` say.
+
+Each case names a task, and rust-psbt's runner, `tests/vectors/mod.rs`,
+says what the task asks: parse or refuse a psbt, one of BIP174's roles,
+or BIP370's lock time. `tests/psbt/rust_psbt_test.py` asks btclib-wallet
+the same question for every case, and fails on a task it has no test
+for. It is the second opinion on BIP174, BIP370, BIP371 and BIP375 our
+own transcriptions above cannot give, and it carries BIP174's role
+walk-through as cases.
+
+Where it reads the files otherwise than rust-psbt's runner:
+
+- `bip375.json` asks a parser to refuse BIP375's invalid psbts.
+  btclib-wallet's codec refuses those with a field of the wrong shape and
+  its silent payment roles the rest, so the test asks a psbt the codec
+  reads to be one of BIP375's own invalid ones, which
+  `tests/psbt/silent_payments_test.py` holds to its refusal.
+
+A Signer case asks for RFC6979 signatures without low-R grinding, which
+is how BIP174's example was signed: the test signs that way, and only
+with the keys the case lists.
+
+### `tests/psbt/_data/rust-psbt/bip174.json`
+
+```text
+repo    rust-bitcoin/rust-psbt
+path    tests/data/bip174.json
+commit  9a2cf0d9ec315fbb67bc25f32ae707fd6d34b6cc  2026-10-08
+blob    3b2cb5e8a1e74e9f6b92fb2f44d61f3c1c0d4fc8
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical**.
+
+### `tests/psbt/_data/rust-psbt/bip370.json`
+
+```text
+repo    rust-bitcoin/rust-psbt
+path    tests/data/bip370.json
+commit  dcb86c91c5754d3db1b23982bb94237077b8417c  2026-09-22
+blob    49ad61ec9830b24c5ffc617dfa2954b93d312310
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical**.
+
+### `tests/psbt/_data/rust-psbt/bip371.json`
+
+```text
+repo    rust-bitcoin/rust-psbt
+path    tests/data/bip371.json
+commit  c2e9ad3b8b607a7a734d9606eb507464f8412585  2026-10-22
+blob    3c3d15dcb2e865c61e9860d8807557041fdfc0d4
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical**.
+
+### `tests/psbt/_data/rust-psbt/bip375.json`
+
+```text
+repo    rust-bitcoin/rust-psbt
+path    tests/data/bip375.json
+commit  caa994f9d6bb43b926ae97cd6466f10e70193e5d  2026-09-22
+blob    1e487710708bd94e5f93df605cf15f94eac82c75
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical**.
+
+### `tests/psbt/_data/rust-psbt/fuzz.json`
+
+```text
+repo    rust-bitcoin/rust-psbt
+path    tests/data/fuzz.json
+commit  ebd55b3b7ed2ea4e16eec6c5e11870939e04ecea  2026-10-21
+blob    cd0ec113237416fe995d41ce323203a26f284e72
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **identical**. rust-psbt's own cases rather than a BIP's: a
+PSBTv2 output with an empty `PSBT_OUT_SCRIPT`, a strict Signer that
+refuses an input other than taproot without the transaction it spends
+and signs it with one, and a key origin too short to read.
+
+### `tests/psbt/_data/btcd/signed_psbts.json`
+
+```text
+repo    guggero/btcd
+path    psbt
+ref     bip-musig2-psbt
+commit  e1f6af43fc669e8bbc1b490dda230ed3e02c1019  2026-09-29
+ours    2d7001b4fa3508a2a609f75cb0e86cb27e22f41c
+pulled  2026-10-22
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **recorded**. BIP373's psbts that carry participant public
+keys only, each signed by a MuSig2 session btcd ran: the code of
+btcsuite/btcd#2198, still open, whose head is the commit above and whose
+branch is the `ref`. Nothing upstream publishes these psbts; the pin is
+the code that made them, and the `path` is its package.
+
+`tests/psbt/_data/btcd/sign_bip373.go` is the program, and is ours. Every
+step it takes is btcd's: `MuSig2SigningInfos` says what each participant
+signs, btcd's `musig2` package makes the nonces and the partial
+signatures, and its `Updater` writes them into the psbt. It reads the
+BIP373 vectors of that pull request, `psbt/testdata/bip-373-test-vectors.json`,
+and signs with the private keys BIP373 publishes. The nonces are random,
+so each run gives other signatures. The run, from this repository's
+root, with Go 1.27.3:
+
+```shell
+btcd=$(mktemp -d)
+git clone https://github.com/guggero/btcd "$btcd"
+git -C "$btcd" checkout e1f6af43fc669e8bbc1b490dda230ed3e02c1019
+mkdir -p "$btcd"/psbt/cmd/sign_bip373
+cp tests/psbt/_data/btcd/sign_bip373.go "$btcd"/psbt/cmd/sign_bip373/
+env -C "$btcd"/psbt go run ./cmd/sign_bip373 \
+    testdata/bip-373-test-vectors.json \
+    > tests/psbt/_data/btcd/signed_psbts.json
+```
+
+`tests/psbt/musig2_test.py` reads each back to the same bytes, checks
+that btcd added nonces and partial signatures to BIP373's own psbt and
+nothing else, verifies every partial signature, aggregates them, and has
+btclib's script engine accept the finalized spend.
+
+License: ISC. `tests/psbt/_data/btcd/LICENSE` is btcd's `LICENSE` at the
+commit above, blob `5eed08580dbd2d31013813aefe936db3a3994997`.
+
 ### `tests/mnemonic/_data/bip39_test_vectors.json`
 
 ```text
@@ -1875,13 +2023,14 @@ lists *are* the fact the number summarized, and the tree answers
 whenever the number is wanted:
 
 ```shell
-git ls-files 'tests/_data/*' 'tests/*/_data/*' | grep -cv 'README.md'
+git ls-files 'tests/_data/*' 'tests/*/_data/*' | grep -cvE '(README\.md|LICENSE|\.go)$'
 ```
 
 Against a pinned upstream blob:
 
 - identical byte for byte: `bip39_test_vectors.json`,
-  `send_and_receive_test_vectors.json` and `bip375_test_vectors.json`.
+  `send_and_receive_test_vectors.json`, `bip375_test_vectors.json` and
+  the rust-psbt files under `tests/psbt/_data/rust-psbt/`.
 - identical but for a trailing newline: `vectors.json`,
   `sign_verify_vectors.json`, `psbt_fuzz1.hex`, `psbt_fuzz2.hex`, the BIP322
   vector files and the dlcspecs files under `tests/dlc/_data/`.
@@ -1897,6 +2046,8 @@ Not checked byte for byte against one:
   `bip371_test_vectors.json`, `bip373_test_vectors.json`,
   `bip85_test_vectors.json`, `miniscript_fixed_tests.json`,
   `bolt11_test_vectors.json`, `bolt9.py`, `bitcoin_s_oracle_vectors.json`.
+- recorded from btcd's MuSig2 code, pinned to the commit that ran:
+  `signed_psbts.json`.
 - chain data, identified by block hash: the blocks under
   `tests/block/_data/`.
 - response bodies under `tests/fetch/_data/`, whose envelopes are
