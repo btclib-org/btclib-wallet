@@ -881,7 +881,7 @@ def test_get_balance_refuses_an_answer_for_another_address() -> None:
 @pytest.mark.parametrize(
     "body, message",
     [
-        (b"not json", "Expecting value"),
+        (b"not json", "line 1 column"),
         (b"[1, 2]", "not an object"),
         (address_body(chain=(True, 0)), "chain_stats: invalid sums"),
         (address_body(mempool=(5, 1.5)), "mempool_stats: invalid sums"),
