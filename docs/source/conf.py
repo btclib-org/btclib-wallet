@@ -69,9 +69,9 @@ extensions = [
 # nobody. Without the extension it is an unknown directive, which -W turns
 # into a failed build -- the open questions belong in the issue tracker
 
-# the standard library, and the two siblings this package depends on,
-# whose types its signatures name. `latest` for both, being the build of
-# each sibling's main: a name a sibling removed is the break a build here
+# the standard library, and the siblings this package depends on, whose
+# types its signatures name. `latest` for each, being the build of that
+# sibling's main: a name a sibling removed is the break a build here
 # should report
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", (None, "_inventories/python.inv")),
