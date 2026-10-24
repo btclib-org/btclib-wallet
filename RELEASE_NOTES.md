@@ -9,6 +9,70 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.24
+
+- **btclib-wallet requires `bip39-slip39` and raises its exceptions**
+  (issue btclib-org/bip39-slip39#106). It no longer installs
+  `btclib-mnemonics`, which `bip39-slip39` replaces. The mnemonic functions
+  raise `Bip39Slip39ValueError` and `Bip39Slip39TypeError`, both
+  `Bip39Slip39Exception`, where they raised the `BTClibMnemonics*` ones, and
+  `BTClibMnemonicsException` is now `Bip39Slip39Exception`. Act on it if you
+  catch any of them: catch the new names. Act on it if you import
+  `btclib_mnemonics` and relied on this package to install it: install and
+  import `bip39_slip39`.
+- **`extract_tx` refuses a fee above `max_fee_rate`**
+  ([ISS 459](https://github.com/btclib-org/btclib-wallet/issues/459)). The
+  default is `DEFAULT_MAX_FEE_RATE`, Core's `-maxfeerate` of 0.10 BTC per
+  kvB, priced on the final virtual size. A missing utxo now raises even with
+  `verify_scripts=False`, because the check needs every input's amount. Act on
+  it if you extract a psbt with a higher fee: pass a higher `max_fee_rate`,
+  or `None` to skip the check.
+- **`PsbtOut.script_pub_key` is `None` where the output has no script**
+  ([PR 483](https://github.com/btclib-org/btclib-wallet/pull/483)). It is
+  `b""` where `PSBT_OUT_SCRIPT` is present and empty, which a v2 psbt now
+  keeps through serialization. Its JSON form is `null` for an absent
+  script. The constructor's default is `None`, where it was `b""`. Act on
+  it if you read the field or its JSON, or clear a v2 script: handle
+  `None`, and assign `None` to clear one.
+- **BIP322 `assert_as_valid` refuses more**
+  ([ISS 502](https://github.com/btclib-org/btclib-wallet/issues/502),
+  [ISS 493](https://github.com/btclib-org/btclib-wallet/issues/493)). It
+  refuses a proof whose sigop cost, with `to_spend`'s, is over
+  `MAX_BLOCK_SIGOPS_COST`; `OP_CODESEPARATOR` in a P2WSH script or a
+  tapscript leaf; a psbt whose signed message is not the one verified; and
+  an additional legacy input with no Non-Witness UTXO. Act on it if you
+  verify such proofs: they were accepted, and Core or BIP322 refuses them.
+- **`CompactFilterFetcher` downloads a chain that lacks the minimum work
+  twice** ([ISS 354](https://github.com/btclib-org/btclib-wallet/issues/354)),
+  as Core's headers presync does, so memory is bounded before its work is
+  known. A first synchronization from the genesis block downloads the
+  headers twice. `SECURITY.md` says what it checks.
+- **`strip_checksum` quotes no checksum**
+  ([ISS 478](https://github.com/btclib-org/btclib-wallet/issues/478)). A
+  wrong checksum is "invalid descriptor checksum". Act on it if you match
+  `: <checksum> expected`: match the new message, and call `add_checksum` for
+  the right checksum.
+- **Some descriptor refusals change their message** (ISS
+  [437](https://github.com/btclib-org/btclib-wallet/issues/437),
+  [438](https://github.com/btclib-org/btclib-wallet/issues/438),
+  [475](https://github.com/btclib-org/btclib-wallet/issues/475),
+  [476](https://github.com/btclib-org/btclib-wallet/issues/476)). `parse`
+  reads the keys of a multisig before the structure around it, and names
+  Core's fault for a refused `older()` or `after()` number, for a `multi()`
+  in tapscript and for a `multi_a()` in P2WSH. The same inputs are refused;
+  only the messages change. Act on it if you match the text of a refusal:
+  match the new one.
+- **A taproot input without `PSBT_IN_SIGHASH_TYPE` accepts `SIGHASH_ALL`**
+  ([ISS 461](https://github.com/btclib-org/btclib-wallet/issues/461)), and
+  `finalize` builds the witness of a `multi_a` leaf
+  ([ISS 462](https://github.com/btclib-org/btclib-wallet/issues/462)).
+- **New:** `EsploraFetcher.get_balance`, with `Balance` and `BalanceReader`
+  ([ISS 458](https://github.com/btclib-org/btclib-wallet/issues/458)),
+  and `ElectrumFetcher.get_block_headers`
+  ([ISS 330](https://github.com/btclib-org/btclib-wallet/issues/330)).
+
+`CHANGELOG.md`'s own `v2026.10.24` section has the rest.
+
 ## v2026.10.18
 
 - **`parse` and `multipath_descriptors` refuse a key with a space before or

@@ -24,6 +24,123 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.24
+
+### `btclib-wallet` depends on `bip39-slip39`
+
+It requires `bip39-slip39>=2026.10.24` and raises `Bip39Slip39ValueError` and
+`Bip39Slip39TypeError`, both `Bip39Slip39Exception`, for the `BTClibMnemonics*`
+ones (issue btclib-org/bip39-slip39#106).
+
+### `extract_tx` refuses a fee above `max_fee_rate`
+
+Core's `-maxfeerate` by default, priced on the final virtual size
+(closes #459).
+
+### BIP322 refuses a proof over the block sigop-cost limit
+
+`assert_as_valid` adds the sigop cost of `to_spend` to that of `to_sign`
+(closes #502).
+
+### BIP322 enforces more of its required rules
+
+It checks them before the upgradeable transaction versions, and requires
+Non-Witness UTXO data for an additional legacy input (issue #493).
+
+### BIP322 refuses `OP_CODESEPARATOR` and a foreign signed message
+
+In a P2WSH script and a tapscript leaf, and in a psbt whose signed message
+is not the one verified; the btcd corpus is pinned (issue #493).
+
+### An absent PSBT v2 output script is `None`
+
+`PsbtOut.script_pub_key` is `None` where `PSBT_OUT_SCRIPT` is absent and
+`b""` where it is present and empty, which a v2 psbt keeps through
+serialization. Its JSON form is `null` for absence.
+
+### `CompactFilterFetcher` bounds a header sync before its work reaches the minimum
+
+It downloads such a chain twice, as Core's headers presync does, and checks
+a header as `ContextualCheckBlockHeader` does, less its version
+(closes #354).
+
+### `strip_checksum` quotes no checksum
+
+A wrong checksum is "invalid descriptor checksum" (closes #478).
+
+### A taproot input without `PSBT_IN_SIGHASH_TYPE` accepts `SIGHASH_ALL`
+
+Beside `SIGHASH_DEFAULT` (closes #461).
+
+### A `multi_a` tapscript leaf is finalized
+
+With the quorum Core's `finalizepsbt` picks (closes #462).
+
+### `parse` reads multisig keys before the structure around them
+
+And names Core's fault for a refused `older()` or `after()` number, for a
+`multi()` in tapscript and for a `multi_a()` in P2WSH (closes #437,
+closes #438, closes #475, closes #476).
+
+### `EsploraFetcher.get_balance` reads an address's balance
+
+`Balance` and the `BalanceReader` protocol are published by `fetch`
+(issue #458).
+
+### `ElectrumFetcher.get_block_headers` reads a chunk of headers
+
+Each is checked as `get_block_header` checks one, and chained to the one
+before it. Tested against florestad (closes #330).
+
+### `parse` is compared with Core and rust-miniscript
+
+Over the descriptor corpus (closes #486).
+
+### rust-psbt's vectors and btcd's MuSig2 PSBTs are replayed
+
+(closes #485, closes #498).
+
+### Generated PSBTs are compared with Core and bitcoin-s
+
+In the weekly psbt-interop job (closes #333).
+
+### A test fails where the layering is broken
+
+Where `bip32` or `psbt` import upward, or `btclib` imports `btclib_wallet`
+(closes #484).
+
+### The refusal tests call the shared `assert_secret_free`
+
+(closes #396).
+
+### The wide and nested `thresh` bound counts analyses, not seconds
+
+(closes #499).
+
+### Known test failures stay out of the `os-*` sweeps
+
+(closes #526, closes #546).
+
+### Dependabot's Python reads of `.github/integration-hwi` are pinned
+
+(closes #490).
+
+### The publish jobs use `pypa/gh-action-pypi-publish` v1.14.3
+
+`[tool.uv] required-version` is `>=0.13.4`, past the emSign root incident
+(issue btclib-org/.github#1844).
+
+### `uv.lock` takes fixes for its advisories
+
+virtualenv 21.14.12 and 21.14.13, setuptools, filelock and GitPython 3.2.1
+(issues btclib-org/.github#1824, btclib-org/.github#1849,
+btclib-org/.github#1835).
+
+### `AGENTS.md` holds the instructions for agents
+
+(issue btclib-org/.github#1808). `dependabot.yml` names the `uv.lock`
+exception (issue btclib-org/.github#1818).
+
 ## v2026.10.18
 
 ### `CompactFilterFetcher` finds a wallet's blocks over p2p
