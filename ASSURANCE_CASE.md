@@ -82,7 +82,7 @@ EOF
 ```
 
 Beside this package's imports of its own modules, its dependencies
-`btclib`, `btclib_ecc`, `btclib_mnemonics`, `bitcoin_core_rpc` and
+`btclib`, `btclib_ecc`, `bip39_slip39`, `bitcoin_core_rpc` and
 `typing_extensions`, and btclib's `btclib_secp256k1`, what it lists is
 the standard library: `subprocess` is `hwi.py`'s alone, `ssl` is
 `fetch.transport`'s, `socket` is `fetch.transport`'s and
@@ -207,7 +207,7 @@ check, as `dlc.oracle`'s module docstring says;
 
 **Mnemonics and passwords.** A sentence or a password only the user holds
 crosses in through `mnemonic/` and `bip38.py`. A sentence is read by
-`btclib_mnemonics`, against the word lists that package ships, before
+`bip39_slip39`, against the word lists that package ships, before
 `mnemonic/` derives a key from its seed.
 
 **The signing boundary.** `psbt_signer.PsbtSigner` is where a signer's

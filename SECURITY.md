@@ -31,7 +31,7 @@ schemes, the codecs, scripts and transactions — and on
 [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), which
 is the client the Bitcoin Core backends of `btclib_wallet.fetch` talk
 through, and on
-[btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics), which
+[bip39-slip39](https://github.com/btclib-org/bip39-slip39), which
 holds the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed.
 secp256k1 arithmetic is delegated further down, through btclib,
 to [btclib-secp256k1](https://github.com/btclib-org/btclib-secp256k1) and

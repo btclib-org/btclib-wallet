@@ -3,7 +3,7 @@
 This file is about `tests/**/_data/`, plus the shipped data this package
 holds that nothing else pins: `src/btclib_wallet/bolt9.py`, BOLT9's feature
 table transcribed into python mappings. The mnemonic word lists are
-btclib_mnemonics', and pinned there.
+bip39_slip39's, and pinned there.
 
 The files of `tests/**/_generated_files/` are the opposite kind of thing
 and have no entry here: they are this package's own output, `to_dict()`
@@ -1430,7 +1430,7 @@ the whole of a refresh -- and why nothing of btclib's is inside it.
 
 `tests/mnemonic/bip39_test.py` asserts the root extended private key of
 each vector, through `bip39.mxprv_from_mnemonic`; the entropy, sentence
-and seed columns are btclib_mnemonics' to assert.
+and seed columns are bip39_slip39's to assert.
 
 Two `pulled` dates because the `english` array was here on its own for
 as long as english was the only BIP39 language btclib read; that array
@@ -1466,7 +1466,7 @@ The passphrase is one string in NFC and another in NFKD, and the
 sentences are published composed against word-lists published
 decomposed, so these are the vectors that fail when normalisation is
 skipped anywhere. `tests/mnemonic/bip39_test.py` asserts their
-`bip32_xprv`, the rest being btclib_mnemonics' to assert.
+`bip32_xprv`, the rest being bip39_slip39's to assert.
 
 ### `tests/mnemonic/_data/vectors.json`
 
@@ -1487,7 +1487,7 @@ master secret, BIP32 root extended private key -- of which 15 are valid
 and 30 have an empty master secret, meaning combining those mnemonics
 must fail. `tests/mnemonic/slip39_test.py` asserts the root extended
 private key of each valid one, through `slip39.mxprv_from_mnemonics`;
-the recovery itself, the invalid vectors included, is btclib_mnemonics'
+the recovery itself, the invalid vectors included, is bip39_slip39's
 to assert.
 
 The reference implementation rather than the SLIP: SLIP-0039's own "Test
@@ -1921,7 +1921,7 @@ copied from a project. Treat them as ours: nothing upstream will ever
 refresh them.
 
 They are not the only Electrum vectors, and that is what makes the
-paragraph above bearable: btclib_mnemonics carries spesmilo/electrum's
+paragraph above bearable: bip39_slip39 carries spesmilo/electrum's
 own seed vectors, and `tests/mnemonic/electrum_test.py` the pre-2.0
 master public keys below, inline. Not vendored as files here: each
 block is small enough to read, and a
@@ -1939,7 +1939,7 @@ itself, and each of these is a value published by spesmilo/electrum:
 - the hex seed and `master_public_key` of the pre-2.0 wallet file in
   `tests/test_storage_upgrade.py`.
 
-The word-list they run over is btclib_mnemonics', and pinned there.
+The word-list they run over is bip39_slip39's, and pinned there.
 
 Pulled 2018-06-11; the pre-2.0 values 2026-08-02.
 

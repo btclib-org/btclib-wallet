@@ -4,7 +4,7 @@
 
 """The master keys of an Electrum mnemonic.
 
-The sentence, its version and its seed are `btclib_mnemonics.electrum`'s.
+The sentence, its version and its seed are `bip39_slip39.electrum`'s.
 What is here is what Electrum derives from them: the BIP32 master key a
 versioned mnemonic names, and the master public key of a pre-2.0 one.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import btclib_mnemonics.electrum
+import bip39_slip39.electrum
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name
 from btclib_ecc.curves.curve import mult, secp256k1
@@ -23,9 +23,9 @@ from btclib_wallet.bip32 import derive, rootxprv_from_seed
 from btclib_wallet.bip32.der_path import _HARDENED_OFFSET
 
 # under TYPE_CHECKING, so that the alias annotates the signatures below
-# without this module binding a name of btclib_mnemonics'
+# without this module binding a name of bip39_slip39's
 if TYPE_CHECKING:
-    from btclib_mnemonics.mnemonic import Mnemonic
+    from bip39_slip39.mnemonic import Mnemonic
 
 __all__ = [
     "mxprv_from_mnemonic",
@@ -40,11 +40,11 @@ def mxprv_from_mnemonic(
 
     The derivation path is "m" for a "standard" mnemonic and "m/0h"
     for a "segwit" one. The version is
-    `btclib_mnemonics.electrum.version_from_mnemonic`'s and the seed
-    `btclib_mnemonics.electrum.seed_from_mnemonic`'s, None being the empty
-    passphrase; a refusal of either leaves as `btclib_mnemonics`' own class.
+    `bip39_slip39.electrum.version_from_mnemonic`'s and the seed
+    `bip39_slip39.electrum.seed_from_mnemonic`'s, None being the empty
+    passphrase; a refusal of either leaves as `bip39_slip39`'s own class.
     """
-    version, _ = btclib_mnemonics.electrum.version_from_mnemonic(mnemonic)
+    version, _ = bip39_slip39.electrum.version_from_mnemonic(mnemonic)
     if version not in {"standard", "segwit"}:
         err_msg = f"unmanaged electrum mnemonic version: {version}"
         if version == "old":
@@ -55,7 +55,7 @@ def mxprv_from_mnemonic(
         raise BTClibValueError(err_msg)
 
     passphrase = "" if passphrase is None else passphrase
-    seed = btclib_mnemonics.electrum.seed_from_mnemonic(mnemonic, passphrase)
+    seed = bip39_slip39.electrum.seed_from_mnemonic(mnemonic, passphrase)
     if version == "standard":
         xversion = network_from_name(network).bip32_prv
         return rootxprv_from_seed(seed, xversion)
@@ -74,10 +74,10 @@ def old_master_pub_key_from_mnemonic(
     of x and then y. That string is what a pre-2.0 wallet file holds
     under "master_public_key", which is what makes it the value a vector
     can be taken from. The stretched key is
-    `btclib_mnemonics.electrum.old_master_prv_key_from_mnemonic`'s, which
+    `bip39_slip39.electrum.old_master_prv_key_from_mnemonic`'s, which
     refuses a passphrase: the pre-2.0 scheme has none.
     """
-    prv_key = btclib_mnemonics.electrum.old_master_prv_key_from_mnemonic(
+    prv_key = bip39_slip39.electrum.old_master_prv_key_from_mnemonic(
         mnemonic, passphrase
     )
     # scalar_from_prv_key and not mult alone: mult reduces the scalar mod n

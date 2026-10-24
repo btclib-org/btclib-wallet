@@ -315,7 +315,7 @@ is asked before this code is.
 names imports it from `btclib`. `tests/imports_test.py` is what reads the
 import graph. A name of `bitcoin_core_rpc` that `btclib_wallet.fetch`
 publishes is a re-export, and `tests/all_test.py`'s `REEXPORTED` records
-each such name. A name of `btclib_mnemonics` is reached through that
+each such name. A name of `bip39_slip39` is reached through that
 package and neither bound nor re-exported by a module here, which
 `tests/all_test.py` holds too: a caller reaches the mnemonic schemes by
 that package's name.
@@ -362,9 +362,9 @@ libraries, which is `bip322`'s `_INVALID`.
 `tests/exception_family_test.py` holds the classes of both libraries for
 each kind, and a bare built-in is in none of them.
 
-**A refusal of btclib_mnemonics' own leaves as that package's class.** A
+**A refusal of bip39_slip39's own leaves as that package's class.** A
 mnemonic this package hands on is checked there, and
-`BTClibMnemonicsTypeError` and `BTClibMnemonicsValueError` are a
+`Bip39Slip39TypeError` and `Bip39Slip39ValueError` are a
 `TypeError` and a `ValueError` and no `BTClibException`, so `except
 ValueError` is what catches a refusal of either library.
 `tests/exception_family_test.py` holds them in the same families.
