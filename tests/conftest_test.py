@@ -848,12 +848,12 @@ def test_a_run_started_from_tests_says_it_is_ungated(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", NO_LIBSECP256K1)
 def test_a_switch_the_dispatch_did_not_obey_is_named(name: str) -> None:
-    """The variable set with the bindings serving is what is refused."""
+    """A variable set with the bindings serving is what is refused."""
     assert switch_went_unread({name: "1"}, serving=True) == [name]
 
 
 def test_a_switch_the_dispatch_obeyed_is_not_refused() -> None:
-    """The variable set and the dispatch off is the measurement's own run."""
+    """Every variable set and the dispatch off is the measurement's run."""
     both = dict.fromkeys(NO_LIBSECP256K1, "1")
     assert switch_went_unread(both, serving=False) == []
 

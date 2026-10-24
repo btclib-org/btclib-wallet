@@ -30,12 +30,10 @@ row 6: dependencies point one way, down that table, so nothing in
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
-Since btclib-org/btclib#2404 this package also depends on `ecc`
-directly — row 2 of that table, released under that name rather than its
-working name `ellipticcurves` — because every package now declares every
-distribution whose names it imports rather than relying on btclib's
-re-export of them; `pyproject.toml`'s comment beside the dependency names
-what this package imports from it.
+This package also depends on `ecc` directly — row 2 of that table —
+because every package declares every distribution whose names it imports
+rather than relying on btclib's re-export of them; `pyproject.toml`'s
+comment beside the dependency names what this package imports from it.
 
 It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports
