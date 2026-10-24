@@ -213,7 +213,8 @@ REQUIRED_RULES = (
 # same rule for tapscript -- an OP_SUCCESS, an unknown public key type
 # and an unknown leaf version are each successful *because* nothing
 # checks them -- and are here for the reason the BIP gives for the other
-# two, rather than because it lists them
+# two, rather than because it lists them. `_assert_upgradeable` also
+# treats BIP341's reserved annex as inconclusive after the required rules
 UPGRADEABLE_RULES = (
     ScriptFlag.DISCOURAGE_UPGRADABLE_NOPS
     | ScriptFlag.DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM
@@ -489,11 +490,23 @@ def _assert_shape(tx: Tx, spend: Tx, prevouts: list[TxOut]) -> None:
     _assert_op_return_output(tx)
 
 
-def _assert_upgradeable(tx: Tx) -> None:
-    """Refuse, as inconclusive, a version no BIP322 signature may have."""
+def _assert_upgradeable(tx: Tx, prevouts: list[TxOut]) -> None:
+    """Refuse an unknown transaction version or reserved taproot annex.
+
+    The annex extends BIP322's list for the same reason as the taproot
+    flags in `UPGRADEABLE_RULES`: BIP341 reserves it for future extensions.
+    Required rules have already been checked for every input.
+    """
     if tx.version not in _VERSIONS:
         err_msg = f"to_sign version {tx.version}: BIP322 allows 0 and 2"
         raise InconclusiveError(err_msg)
+    for prevout, tx_in in zip(prevouts, tx.vin, strict=True):
+        if type_and_payload(prevout.script_pub_key.script)[0] == "p2tr":
+            annex, _ = taproot_get_annex(tx_in.script_witness)
+            if annex:
+                raise InconclusiveError(
+                    "taproot annex is reserved for future extensions"
+                )
 
 
 def _assert_hash_types(hash_types: list[int]) -> None:
@@ -674,7 +687,7 @@ def assert_as_valid(
     _assert_shape(tx, spend, prevouts)
     _assert_sig_op_cost(spend, prevouts, tx)
     _assert_scripts(prevouts, tx)
-    _assert_upgradeable(tx)
+    _assert_upgradeable(tx, prevouts)
 
 
 def _assert_structurally_valid_(addr: String, sig: Sig | String) -> None:

@@ -89,6 +89,14 @@
       "error_substr": "invalid sighash flag"
     },
     {
+      "description": "P2WSH witness script uses a hybrid public key",
+      "message": "probe",
+      "address": "bc1qutheva47jrqe8fzzd9y38ktypmqwjjkfmr0r2nva4mtwwe62wc5qudqqu7",
+      "signature": "smpAkcwRAIgcZFs982r/FEYdHXG4R0WdiSuSC9XhdUSByvXJd/k2IECIFxSjdl2WYE8U1VxrMBwpEwamh51sQGaIBVjF1i0YhwhAUNBB6zUhOLwx/ZTCa0Xip9Vmr3gl5aXTFfnFMNfEQ38J8y+zDOJIbCn2f1kOAlxdjth6a3YiKQ3X44PBcwmKsZPnDes",
+      "expected_result": "invalid",
+      "error_substr": "ErrPubKeyType"
+    },
+    {
       "description": "legacy P2SH OP_IF uses non-minimal true",
       "message": "probe",
       "address": "33cqhRZ7BcuusfSsMQEMKNLjkTfp9vbo1r",
@@ -113,6 +121,22 @@
       "error_substr": "inconclusive"
     },
     {
+      "description": "consensus failure after reserved OP_NOP5 is invalid",
+      "message": "probe",
+      "address": "bc1qpcvx9dmjyl3s5jm0d4qzjhch8kmk6frnlzu7xxeyzguuq7jcxlaqhd3z09",
+      "signature": "smpAQK0AA==",
+      "expected_result": "invalid",
+      "error_substr": "ErrEvalFalse"
+    },
+    {
+      "description": "required rule violation after reserved OP_NOP5 is invalid",
+      "message": "probe",
+      "address": "bc1qr2jpxp0yrdxzwnhnwz9cn24j75xpyvvedmhs2lw2w55ghtveyc3spc99wn",
+      "signature": "smpAQS0TAEF",
+      "expected_result": "invalid",
+      "error_substr": "ErrMinimalData"
+    },
+    {
       "description": "full transaction version 1 is inconclusive",
       "message": "probe",
       "address": "bc1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsq2gp3gp",
@@ -127,6 +151,134 @@
       "signature": "fulAwAAAAABAYiyF4mvk6mAXUIeIzeEBXEQWFk4u5AmfoJBofQhE6iWAAAAAAAAAAAAAQAAAAAAAAAAAWoBAQAAAAAA",
       "expected_result": "invalid",
       "error_substr": "invalid signature"
+    },
+    {
+      "description": "P2WPKH signature R value has unnecessary padding",
+      "message": "probe",
+      "address": "bc1qrpg5pw65wp9fuu6szma202xmaezyn0wumxh02v",
+      "signature": "smpAkkwRgIiAADa2vBQCxkrsHln9vbsxdLA+At7l02tJV2C47lNGOziugIgbVmwliFaenRsVWXJbQGFhcb7MiTFVL/gsu9GeQL/tzwBIQOgQ02eR/PIYjVHfHsa5q5dNELUmxlDwrdSpo4qR+JHxw==",
+      "expected_result": "invalid",
+      "error_substr": "ErrSigTooMuchRPadding"
+    },
+    {
+      "description": "P2WSH CHECKLOCKTIMEVERIFY lock time is not satisfied",
+      "message": "probe",
+      "address": "bc1qlk3mptmqrtugwm8n6sx9gn0nzm4ahmqc7ag4vnrjjqaw7t04yerslf5srh",
+      "signature": "smpAQJRsQ==",
+      "expected_result": "invalid",
+      "error_substr": "ErrUnsatisfiedLockTime"
+    },
+    {
+      "description": "P2WSH CHECKSEQUENCEVERIFY relative lock time is not satisfied",
+      "message": "probe",
+      "address": "bc1qdquwz5sskeh3qglwhx6c6207f0agtw2a4283nd75kaydn909hrmqpjspl7",
+      "signature": "fulAgAAAAABARopyvRXEBylppc5jlsXtQoCICPOy5LrYHX/JrSAZYxrAAAAAAAAAAAAAQAAAAAAAAAAAWoBAlGyAAAAAA==",
+      "expected_result": "invalid",
+      "error_substr": "ErrUnsatisfiedLockTime"
+    },
+    {
+      "description": "P2WSH CHECKMULTISIG dummy element is not empty",
+      "message": "probe",
+      "address": "bc1qsw9fcvapjtxzmzkcs3wkqzx37mlej7um698yng72c7ftk9urfuuqplgydh",
+      "signature": "smpAwEBSDBFAiEAoKhlm5QTJ7cuaWhYJ8kPHEunWpjFLxVT+eItp7mMc8UCIEAcGHhlfLReXCofW+HAixoUeg4J138D+3OuYVL0XjHdASVRIQN3Suf4WKlBHl70JGtwxlqsVkmYC+XBeJG77BeJXaAIy1Gu",
+      "expected_result": "invalid",
+      "error_substr": "ErrSigNullDummy"
+    },
+    {
+      "description": "legacy P2SH redeem script evaluates to false",
+      "message": "probe",
+      "address": "38VoLqrzuYH8mFyWiyxKNuzVEbLvvM4ZuA",
+      "signature": "fulAAAAAAHjejVESVpUW09u640DLlWp+EuJQ0Iv0NxzBkuzqXb9igAAAAADAlGRAAAAAAEAAAAAAAAAAAFqAAAAAA==",
+      "expected_result": "invalid",
+      "error_substr": "ErrEvalFalse"
+    },
+    {
+      "description": "P2WPKH signature has a high S value",
+      "message": "probe",
+      "address": "bc1qm5gqhe7e46jhyy2ca00x66slmrlljwa33n9fts",
+      "signature": "smpAkgwRQIgSqwHtZMaEOV0TdN0WtuQ5CYyJWWq4QSpOvav5T44fxMCIQC1rEYpR+lu0X6XDkBc8jR1clIsREd+woGHt3eQ+cnodgEhA9ARFdVI51YbFcOPAE1zRjNofPRBliAJW8Ww9HBwr+ha",
+      "expected_result": "invalid",
+      "error_substr": "ErrSigHighS"
+    },
+    {
+      "description": "P2WSH failed signature check uses a non-empty signature",
+      "message": "probe",
+      "address": "bc1qmgy6t53rrl4a4vu844yekj60erlcnhgwnjfc3rqrw37v43x20lhs0ufp9d",
+      "signature": "smpAkgwRQIhAObE1R7BNdIjTqEREIWfl+rYDK2ZUPu1+hIRyTHM8fASAiB/xgUFdwQd5mv4AyqPhmpqgjP4vXMraQgN3lA9GfVpAAEkIQPyh3PC2XUoi8fR0gXDdIZRsHX7xmEOWM3e7d+PGUBaqKyR",
+      "expected_result": "invalid",
+      "error_substr": "ErrNullFail"
+    },
+    {
+      "description": "P2WSH witness script uses a non-minimal push",
+      "message": "probe",
+      "address": "bc1qh635wqfzkyj3tthtvk890e8mgmjy85n5rd8svndnylrkrx30hreqkxm922",
+      "signature": "smpAQNMAQU=",
+      "expected_result": "invalid",
+      "error_substr": "ErrMinimalData"
+    },
+    {
+      "description": "legacy P2SH redeem script leaves more than one stack element",
+      "message": "probe",
+      "address": "3KzmifAw2SBgFV4qhyV5esf4KZNsfjdDJx",
+      "signature": "fulAAAAAAGVCI/4FpQAP+eU+IFe4ZU7Wdv6VwG7sTb2rPBCcRna9wAAAAADAlFRAAAAAAEAAAAAAAAAAAFqAAAAAA==",
+      "expected_result": "invalid",
+      "error_substr": "ErrCleanStack"
+    },
+    {
+      "description": "P2WSH OP_IF uses non-minimal true",
+      "message": "probe",
+      "address": "bc1q834lc72egq09p6ufnkxg9q3g2nw7ueu8p4ye4fm3d6ns6chjfvjs6l5v8n",
+      "signature": "smpAgECBWNRZ1Fo",
+      "expected_result": "invalid",
+      "error_substr": "ErrMinimalIf"
+    },
+    {
+      "description": "OP_CODESEPARATOR in legacy P2SH redeem script",
+      "message": "probe",
+      "address": "31sb76PDdztLapMvbL9fyM4jqPUEMSvHUB",
+      "signature": "fulAAAAAAEKjFnjFQaI9UBF/pUzahIBDXt9YCiueMcdY5UEJBVLMgAAAAADAqtRAAAAAAEAAAAAAAAAAAFqAAAAAA==",
+      "expected_result": "invalid",
+      "error_substr": "ErrCodeSeparator"
+    },
+    {
+      "description": "P2SH-wrapped witness version 2 program is inconclusive",
+      "message": "probe",
+      "address": "3Ha9g92x73v4tA4rco35QpvaiczEs5jL9j",
+      "signature": "fulAAAAAAABATLqjr4O3M4hSo69Wi7ah70pzWxHg4SrK83NIQmGc6R5AAAAACMiUiABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAAAAAAABagEBUQAAAAA=",
+      "expected_result": "inconclusive",
+      "error_substr": "ErrDiscourageUpgradableWitnessProgram"
+    },
+    {
+      "description": "tapscript OP_SUCCESS80 is inconclusive",
+      "message": "probe",
+      "address": "bc1pamctrg7xrk2z8yqdft5wejvk9h0l7hlzwt5nz94rwmt7rvlxduvs7aavh5",
+      "signature": "smpAgFQIcFJn9+eiV5xnP1k5n8H044yJqp7Y2eJSebkmyQaYOgj5A==",
+      "expected_result": "inconclusive",
+      "error_substr": "ErrDiscourageOpSuccess"
+    },
+    {
+      "description": "unknown tapscript leaf version is inconclusive",
+      "message": "probe",
+      "address": "bc1pft4538u54dy0mpzwfl92jy5745a3tj99etmfuxeq893l7nhmrd0q3kw2ll",
+      "signature": "smpAgFRIcJJn9+eiV5xnP1k5n8H044yJqp7Y2eJSebkmyQaYOgj5A==",
+      "expected_result": "inconclusive",
+      "error_substr": "ErrDiscourageUpgradeableTaprootVersion"
+    },
+    {
+      "description": "unknown tapscript public key type is inconclusive",
+      "message": "probe",
+      "address": "bc1pk5e8ll0vxv7na0p48qvn7mgz0pup4w8wref9nmu7uh86uk8nrnxqfujgvd",
+      "signature": "smpA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIyEC15JNT31D6pZaRlrjCV/0ETHllG88hfeeRK28+OJ+CA6sIcBJn9+eiV5xnP1k5n8H044yJqp7Y2eJSebkmyQaYOgj5A==",
+      "expected_result": "inconclusive",
+      "error_substr": "ErrDiscourageUpgradeablePubKeyType"
+    },
+    {
+      "description": "taproot annex is inconclusive",
+      "message": "probe",
+      "address": "bc1phzpl9cd0q0zxln5722s3y4ack6828sqtjs07cky9u2dteenal32qae06qp",
+      "signature": "smpAwFRIcBJn9+eiV5xnP1k5n8H044yJqp7Y2eJSebkmyQaYOgj5AFQ",
+      "expected_result": "inconclusive",
+      "error_substr": "taproot annex is reserved"
     },
     {
       "description": "proof-of-funds legacy input has only witness UTXO",
@@ -207,6 +359,22 @@
       "signature": "pofcHNidP8BAD0AAAAAAWYb1fFuDTtm8ZysRgBkdesyTwY3KY18Cy3BNkDnQv0NAAAAAAAAAAAAAQAAAAAAAAAAAVEAAAAAAQkFcHJvYmUAAQCAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP////8iACAKiEasJCYwdpxXcJwZ0viQaRuaJPDJYhCgWFCPIymYBAAAAAABAAAAAAAAAAAiACBK6BVy8G4biP1c7XoaAAlFQy6D4VUeb3Ie6cALjMMyYAAAAAABASsAAAAAAAAAACIAIEroFXLwbhuI/VztehoACUVDLoPhVR5vch7pwAuMwzJgAQgDAQFRAAA=",
       "expected_result": "invalid",
       "error_substr": "single OP_RETURN byte"
+    },
+    {
+      "description": "proof-of-funds exceeds signature operation cost limit",
+      "message": "probe",
+      "address": "bc1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsq2gp3gp",
+      "signature": "pofcHNidP8BAP0zAQAAAAAHZhvV8W4NO2bxnKxGAGR16zJPBjcpjXwLLcE2QOdC/Q0AAAAAAAAAAAD4KnP44RA3eN+RQkmh+fr6E3ZaFu3Yd+m78ib3masEygAAAAAAAAAAAPgqc/jhEDd435FCSaH5+voTdloW7dh36bvyJveZqwTKAQAAAAAAAAAA+Cpz+OEQN3jfkUJJofn6+hN2Whbt2Hfpu/Im95mrBMoCAAAAAAAAAAD4KnP44RA3eN+RQkmh+fr6E3ZaFu3Yd+m78ib3masEygMAAAAAAAAAAPgqc/jhEDd435FCSaH5+voTdloW7dh36bvyJveZqwTKBAAAAAAAAAAA+Cpz+OEQN3jfkUJJofn6+hN2Whbt2Hfpu/Im95mrBMoFAAAAAAAAAAABAAAAAAAAAAABagAAAAABCQVwcm9iZQABAIAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/////yIAIAqIRqwkJjB2nFdwnBnS+JBpG5ok8MliEKBYUI8jKZgEAAAAAAEAAAAAAAAAACIAIEroFXLwbhuI/VztehoACUVDLoPhVR5vch7pwAuMwzJgAAAAAAEBKwAAAAAAAAAAIgAgSugVcvBuG4j9XO16GgAJRUMug+FVHm9yHunAC4zDMmABCAMBAVEAAQDzAgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP////8A/////wYBAAAAAAAAABepFNPkKxXWC3odjm26GDOTW80XhnSshwEAAAAAAAAAF6kU0+QrFdYLeh2ObboYM5NbzReGdKyHAQAAAAAAAAAXqRTT5CsV1gt6HY5tuhgzk1vNF4Z0rIcBAAAAAAAAABepFNPkKxXWC3odjm26GDOTW80XhnSshwEAAAAAAAAAF6kU0+QrFdYLeh2ObboYM5NbzReGdKyHAQAAAAAAAAAXqRTT5CsV1gt6HY5tuhgzk1vNF4Z0rIcAAAAAAQfNTMsAY66urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq5oUQABB81MywBjrq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urmhRAAEHzUzLAGOurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6uaFEAAQfNTMsAY66urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq5oUQABB81MywBjrq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urmhRAAEHzUzLAGOurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6uaFEAAA==",
+      "expected_result": "invalid",
+      "error_substr": "signature operation cost"
+    },
+    {
+      "description": "proof-of-funds invalid input takes precedence over inconclusive input",
+      "message": "probe",
+      "address": "bc1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsq2gp3gp",
+      "signature": "pofcHNidP8BAI8AAAAAA2Yb1fFuDTtm8ZysRgBkdesyTwY3KY18Cy3BNkDnQv0NAAAAAAAAAAAARwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAFqAAAAAAEJBXByb2JlAAEAgAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/////IgAgCohGrCQmMHacV3CcGdL4kGkbmiTwyWIQoFhQjyMpmAQAAAAAAQAAAAAAAAAAIgAgSugVcvBuG4j9XO16GgAJRUMug+FVHm9yHunAC4zDMmAAAAAAAQErAAAAAAAAAAAiACBK6BVy8G4biP1c7XoaAAlFQy6D4VUeb3Ie6cALjMMyYAEIAwEBUQABASsBAAAAAAAAACIAIAMVKUfnT6KbYBKLXIbzCmp4OL+R2i1J1Fs7eB+eQKfuAQgEAQK0UQABASsBAAAAAAAAACIAIG40C5z/s3qYnKVE5rt4Cix4kB0/szc4doURowYXr6AdAQgDAQEAAAA=",
+      "expected_result": "invalid",
+      "error_substr": "ErrEvalFalse"
     },
     {
       "description": "proof-of-funds transaction version 3 is inconclusive",

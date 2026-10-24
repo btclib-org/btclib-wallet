@@ -79,12 +79,12 @@ _BTCD_XFAIL = {
     (
         "generated-negative-test-vectors.json",
         "error",
-        11,
+        12,
     ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
     (
         "generated-negative-test-vectors.json",
         "error",
-        12,
+        13,
     ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
 }
 
@@ -359,7 +359,7 @@ def test_codesep_is_forbidden_in_revealed_witness_scripts(
         tree: TaprootScriptTree = [(0xC0, commands)]
         _, control = input_script_sig(WIF_PUB, tree, 0)
         addr = p2tr(output_pubkey(WIF_PUB, tree)[0])
-        witness = Witness([script, control, b"\x50\xab annex"])
+        witness = Witness([script, control])
         script_sig = b""
     else:
         program = ScriptPubKey.from_address(p2wsh(script)).script
@@ -437,6 +437,127 @@ def test_proof_of_funds_applies_codesep_policy_to_additional_inputs() -> None:
     psbt.inputs[1].final_script_witness = Witness([extra_script])
     with pytest.raises(BTClibValueError, match="CODESEPARATOR"):
         bip322.assert_as_valid(msg, addr, bip322.Sig(psbt).b64encode())
+
+
+def _taproot_annex_proof(
+    msg: bytes, path: str, annex: bytes, hash_type: int
+) -> tuple[str, Tx, Tx]:
+    """Return a key-path or script-path proof committing to its annex."""
+    if path == "key":
+        addr = _address(WIF, "p2tr")
+        spend, tx = _to_sign_of(msg, addr)
+        digest = taproot_sig_hash(tx, 0, spend.vout, hash_type, 0, annex, b"")
+        q = b58.prv_key_data_from_wif(WIF).q
+        signature = ssa.sign_(digest, output_prvkey(q)).serialize()
+        if hash_type != DEFAULT:
+            signature += hash_type.to_bytes(1, "big")
+        witness = Witness([signature, annex])
+    else:
+        scripts: dict[str, ScriptList] = {
+            "script": ["OP_1"],
+            "codesep": ["OP_CODESEPARATOR", "OP_1"],
+            "false": ["OP_0"],
+        }
+        commands = scripts[path]
+        tree: TaprootScriptTree = [(0xC0, commands)]
+        _, control = input_script_sig(WIF_PUB, tree, 0)
+        addr = p2tr(output_pubkey(WIF_PUB, tree)[0])
+        witness = Witness([serialize(commands), control, annex])
+        spend, tx = _to_sign_of(msg, addr)
+    tx.vin[0].script_witness = witness
+    return addr, spend, tx
+
+
+@pytest.mark.parametrize("path", ["key", "script"])
+@pytest.mark.parametrize("annex", [b"\x50", b"\x50\xab annex"])
+@pytest.mark.parametrize("variant", ["simple", "full", "pof"])
+def test_a_valid_taproot_annex_is_inconclusive(
+    path: str, annex: bytes, variant: str
+) -> None:
+    """The reserved BIP341 extension is inconclusive in each proof variant."""
+    msg = b"reserved taproot extension"
+    addr, spend, tx = _taproot_annex_proof(msg, path, annex, DEFAULT)
+    if variant == "simple":
+        sig = bip322.Sig(tx.vin[0].script_witness)
+    elif variant == "full":
+        sig = bip322.Sig(tx)
+    else:
+        witness = tx.vin[0].script_witness
+        psbt = Psbt.from_tx(tx)
+        psbt.inputs[0].witness_utxo = spend.vout[0]
+        psbt.inputs[0].final_script_witness = witness
+        sig = bip322.Sig(psbt)
+    encoded = sig.b64encode()
+    for proof in (sig, encoded):
+        with pytest.raises(InconclusiveError, match="annex"):
+            bip322.assert_as_valid(msg, addr, proof)
+        assert not bip322.verify(msg, addr, proof)
+    assert sig.b64encode() == encoded
+
+
+@pytest.mark.parametrize(
+    "failure", ["annex-changed", "signature", "hash-type", "codesep", "false"]
+)
+def test_an_annex_does_not_hide_a_broken_required_rule(failure: str) -> None:
+    """The annex cannot turn a bad signature or required policy inconclusive."""
+    msg = b"required rules precede annex policy"
+    path = failure if failure in {"codesep", "false"} else "key"
+    hash_type = NONE if failure == "hash-type" else DEFAULT
+    addr, _, tx = _taproot_annex_proof(msg, path, b"\x50", hash_type)
+    if failure == "annex-changed":
+        signature = tx.vin[0].script_witness.stack[0]
+        tx.vin[0].script_witness = Witness([signature, b"\x50 changed"])
+    elif failure == "signature":
+        signature = tx.vin[0].script_witness.stack[0]
+        changed = bytes([signature[0] ^ 1]) + signature[1:]
+        tx.vin[0].script_witness = Witness([changed, b"\x50"])
+    sig = bip322.Sig(tx)
+    with pytest.raises(
+        (ValueError, BTClibRuntimeError, BTClibEccRuntimeError)
+    ) as error:
+        bip322.assert_as_valid(msg, addr, sig)
+    assert not isinstance(error.value, InconclusiveError)
+    assert not bip322.verify(msg, addr, sig)
+
+
+@pytest.mark.parametrize("annex_input", [0, 1])
+@pytest.mark.parametrize("invalid_later", [False, True])
+def test_annex_policy_checks_every_input_after_all_required_rules(
+    annex_input: int, invalid_later: bool
+) -> None:
+    """An additional annex is found; a later invalid input still wins."""
+    msg = b"annex in a proof of funds"
+    taproot_addr, _, taproot_tx = _taproot_annex_proof(msg, "script", b"\x50", DEFAULT)
+    taproot_output = TxOut(1000, ScriptPubKey.from_address(taproot_addr))
+    plain_script = serialize(["OP_1"])
+    plain_output = TxOut(1000, ScriptPubKey.p2wsh(plain_script))
+    outputs = [plain_output, plain_output]
+    outputs[annex_input] = taproot_output
+    addr = outputs[0].script_pub_key.address
+    spend = bip322.to_spend(msg, outputs[0].script_pub_key.script)
+    extra = [TxIn(OutPoint(bytes([i]) * 32, 0)) for i in (1, 2)]
+    psbt = Psbt.from_tx(bip322.to_sign(spend, extra_inputs=extra))
+    for i in range(2):
+        psbt.inputs[i].witness_utxo = spend.vout[0] if i == 0 else outputs[i]
+        psbt.inputs[i].final_script_witness = (
+            taproot_tx.vin[0].script_witness
+            if i == annex_input
+            else Witness([plain_script])
+        )
+    last_script = serialize(["OP_0"] if invalid_later else ["OP_1"])
+    psbt.inputs[2].witness_utxo = TxOut(1000, ScriptPubKey.p2wsh(last_script))
+    psbt.inputs[2].final_script_witness = Witness([last_script])
+    sig = bip322.Sig(psbt)
+    if invalid_later:
+        with pytest.raises(
+            (ValueError, BTClibRuntimeError, BTClibEccRuntimeError)
+        ) as error:
+            bip322.assert_as_valid(msg, addr, sig)
+        assert not isinstance(error.value, InconclusiveError)
+    else:
+        with pytest.raises(InconclusiveError, match="annex"):
+            bip322.assert_as_valid(msg, addr, sig)
+    assert not bip322.verify(msg, addr, sig)
 
 
 @pytest.mark.parametrize("case", _cases("error"), ids=_ids("error"))

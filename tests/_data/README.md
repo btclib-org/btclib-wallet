@@ -688,16 +688,21 @@ is run by `tests/bip322_test.py`, including its expected invalid and
 inconclusive outcomes. Legacy P2SH cases needing BIP322's MINIMALIF
 interpreter rule remain strict expected failures under issue #493.
 
+The files are read from corpus snapshot
+`503719c950953906a8fad9286b3b51aef5ff152b`. Their `commit` fields name
+the last revision touching each path, so the upstream-tip check compares
+path history rather than the snapshot's unrelated changes.
+
 ### `tests/_data/btcd/basic-test-vectors.json`
 
 ```text
 repo    guggero/btcd
 path    bip322/testdata/basic-test-vectors.json
 ref     bip-322
-commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
-blob    eae62fecb7dd9fea151112b73bf056c01e88f62f
-ours    253c778fdb15505f616fd0b57190b5d29cd2c62f
-pulled  2026-10-21
+commit  73c75a4e13f36b7042d4330d382d798d4d5ada70  2026-10-22
+blob    89d52dc10a5558ea749f18bf728f17f243120edd
+ours    343a4ccc94c8bd14422575ef1148c9470be05bd1
+pulled  2026-10-23
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -713,7 +718,7 @@ ref     bip-322
 commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
 blob    911c8a41ef5cb2ff0ab875b33a01273f1c351ae5
 ours    32f00f6a82d256c6e2e3283c1fada1ecca8f5ab1
-pulled  2026-10-21
+pulled  2026-10-23
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -725,9 +730,9 @@ Verdict: **identical but for the final newline**, as above.
 repo    guggero/btcd
 path    bip322/testdata/generated-negative-test-vectors.json
 ref     bip-322
-commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
-blob    0c74fc527deeb597563f92f44de99005abafe4e8
-pulled  2026-10-21
+commit  73c75a4e13f36b7042d4330d382d798d4d5ada70  2026-10-22
+blob    a2820ab275377bc3b45e8f124094bdd25e253a6c
+pulled  2026-10-23
 behind  0 revisions; that commit is the tip of the path
 ```
 
