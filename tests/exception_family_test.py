@@ -15,8 +15,8 @@ which is what the first test asserts.
 btclib_ecc's classes are imported from `btclib_ecc.exceptions`:
 `btclib.exceptions` binds them only up to btclib 2026.9.29.
 
-btclib_mnemonics' classes are in them too, for a mnemonic this package
-hands on to that package, imported from `btclib_mnemonics.exceptions`;
+bip39_slip39's classes are in them too, for a mnemonic this package
+hands on to that package, imported from `bip39_slip39.exceptions`;
 each is also a `TypeError` or a `ValueError`, and none a
 `BTClibException`.
 
@@ -27,6 +27,11 @@ rather than there because this module is what tests them.
 from __future__ import annotations
 
 import pytest
+from bip39_slip39.exceptions import (
+    Bip39Slip39Exception,
+    Bip39Slip39TypeError,
+    Bip39Slip39ValueError,
+)
 from btclib.exceptions import (
     BTClibException,
     BTClibRuntimeError,
@@ -39,11 +44,6 @@ from btclib_ecc.exceptions import (
     BTClibEccTypeError,
     BTClibEccValueError,
 )
-from btclib_mnemonics.exceptions import (
-    BTClibMnemonicsException,
-    BTClibMnemonicsTypeError,
-    BTClibMnemonicsValueError,
-)
 
 from btclib_wallet import bip322
 
@@ -52,13 +52,13 @@ ECC_PACKAGE = "btclib_ecc"
 VALUE_ERRORS = (
     BTClibValueError,
     BTClibEccValueError,
-    BTClibMnemonicsValueError,
+    Bip39Slip39ValueError,
 )
-TYPE_ERRORS = (BTClibTypeError, BTClibEccTypeError, BTClibMnemonicsTypeError)
-# btclib_mnemonics declares no runtime class
+TYPE_ERRORS = (BTClibTypeError, BTClibEccTypeError, Bip39Slip39TypeError)
+# bip39_slip39 declares no runtime class
 RUNTIME_ERRORS = (BTClibRuntimeError, BTClibEccRuntimeError)
 # the base of each family, for a test whose contract is the base
-EXCEPTIONS = (BTClibException, BTClibEccException, BTClibMnemonicsException)
+EXCEPTIONS = (BTClibException, BTClibEccException, Bip39Slip39Exception)
 
 
 @pytest.mark.parametrize(

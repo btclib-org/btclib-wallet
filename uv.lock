@@ -338,6 +338,15 @@ wheels = [
 ]
 
 [[package]]
+name = "bip39-slip39"
+version = "2026.10.24"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/48/099fbb7140a4be456c9f5b428243c2a5cf0ad22dc263a3d4c912b9bae7a5/bip39_slip39-2026.10.24.tar.gz", hash = "sha256:b3a265350a8524a1b2ed6a01a887c415d48d4a2af7393d7f39ad9e60e7c6c545", size = 826259, upload-time = "2026-10-24T09:48:18.054Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/b2/494dc8700b381ddc7e491223eeb0d706fb70b5ac3aa143383d0b04bc4225/bip39_slip39-2026.10.24-py3-none-any.whl", hash = "sha256:dc0cdb66ce64c9e62b0688bcc5cd27e629c14ba377fe1f2978d85862461a7074", size = 168536, upload-time = "2026-10-24T09:48:16.254Z" },
+]
+
+[[package]]
 name = "bitcoin-core-rpc"
 version = "2026.10.8"
 source = { registry = "https://pypi.org/simple" }
@@ -381,15 +390,6 @@ wheels = [
 [package.optional-dependencies]
 secp256k1 = [
     { name = "btclib-secp256k1" },
-]
-
-[[package]]
-name = "btclib-mnemonics"
-version = "2026.10.8"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9d/4c/86d3270ee53158f7b9a101c684485090bea691cc23326c7763f2da9e1113/btclib_mnemonics-2026.10.8.tar.gz", hash = "sha256:0491b2fd5d4565769da644926742bed3c56fbb72bfca38e295b95feeac66cade", size = 785980, upload-time = "2026-10-08T08:52:00.554Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/b7/9dccf0716c3695d7817b56b49fa533418855ee941e3ec194d87a4cbbe2b4/btclib_mnemonics-2026.10.8-py3-none-any.whl", hash = "sha256:7e86d624937f7b9b665ee03024a7316625dd9dd48c95a983fd0b6aa489ef500c", size = 157934, upload-time = "2026-10-08T08:51:59.101Z" },
 ]
 
 [[package]]
@@ -473,10 +473,10 @@ name = "btclib-wallet"
 version = "2026.11"
 source = { editable = "." }
 dependencies = [
+    { name = "bip39-slip39" },
     { name = "bitcoin-core-rpc" },
     { name = "btclib" },
     { name = "btclib-ecc" },
-    { name = "btclib-mnemonics" },
     { name = "typing-extensions" },
 ]
 
@@ -561,11 +561,11 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bip39-slip39", specifier = ">=2026.10.24" },
     { name = "bitcoin-core-rpc", specifier = ">=2026.9.3" },
     { name = "btclib", specifier = ">=2026.10.16" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", specifier = ">=2026.10.16" },
     { name = "btclib-ecc", specifier = ">=2026.10.16" },
-    { name = "btclib-mnemonics", specifier = ">=2026.9.29" },
     { name = "btclib-secp256k1", marker = "extra == 'secp256k1'", specifier = ">=0.8.0.10" },
     { name = "typing-extensions", specifier = ">=4.10" },
 ]

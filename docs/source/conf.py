@@ -103,7 +103,7 @@ intersphinx_cache_limit = 0
 #   `Octets` from btclib.alias, `musig2.` for btclib_ecc.ecc.musig2 -- which
 #   btclib's own build resolves by searching its own objects, where an
 #   inventory answers the full name alone. `Mnemonic`, which
-#   btclib_wallet.mnemonic imports from btclib_mnemonics.mnemonic under
+#   btclib_wallet.mnemonic imports from bip39_slip39.mnemonic under
 #   TYPE_CHECKING alone, reaches autodoc as that text.
 #   autodoc_type_aliases is the rejected alternative: mapping `Octets` to
 #   its full name renders a class reference to what btclib's inventory

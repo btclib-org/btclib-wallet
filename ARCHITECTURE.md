@@ -37,13 +37,13 @@ distribution whose names it imports rather than relying on btclib's
 re-export of them; `pyproject.toml`'s comment beside the dependency names
 what this package imports from it.
 
-It depends on `btclib-mnemonics` too, which holds the BIP39, SLIP39 and
+It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports
 nothing of btclib or of this package. What stays here is where a seed
 meets BIP32, which only a package seeing both sides can hold: the
 functions of `mnemonic/` below. A module here reaches a name of
-`btclib_mnemonics` through that package,
-`btclib_mnemonics.bip39.seed_from_mnemonic`, and neither binds nor
+`bip39_slip39` through that package,
+`bip39_slip39.bip39.seed_from_mnemonic`, and neither binds nor
 re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
@@ -75,7 +75,7 @@ submodule loads on first attribute access through the package's own
   and `bip32.key_origin` are its two notations — a `der_path` string and
   the fingerprint-plus-path pair a psbt or a descriptor carries.
 - `mnemonic/` builds the BIP32 master key of a BIP39, SLIP39 or
-  Electrum mnemonic from the seed `btclib_mnemonics` recovers from it,
+  Electrum mnemonic from the seed `bip39_slip39` recovers from it,
   and the master public key of a pre-2.0 Electrum one.
 - `bip85.py` derives another wallet's entropy — a BIP39 sentence among
   other formats — from one BIP32 root, so one backup stands behind
@@ -204,7 +204,7 @@ package imports them back.
 
 Every primitive — the curve, a signature, a script, a transaction's
 serialization — is btclib's or btclib_ecc's, and a mnemonic up to its seed is
-btclib_mnemonics'; this package reimplements none of it. What is here is
+bip39_slip39's; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 — the wallets that remember what they have handed out, the one contract

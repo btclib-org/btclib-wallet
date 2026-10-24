@@ -12,14 +12,14 @@ settle that. `electrum_test_vectors.json` is the exception: it has no
 upstream at all.
 """
 
-import btclib_mnemonics.electrum
+import bip39_slip39.electrum
 import pytest
+from bip39_slip39.exceptions import (
+    Bip39Slip39TypeError,
+    Bip39Slip39ValueError,
+)
 from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
-from btclib_mnemonics.exceptions import (
-    BTClibMnemonicsTypeError,
-    BTClibMnemonicsValueError,
-)
 
 from btclib_wallet import slip132
 from btclib_wallet.bip32 import bip32
@@ -42,7 +42,7 @@ def test_mxprv_from_mnemonic() -> None:
 def test_unmanaged_versions() -> None:
     """Only "standard" and "segwit" have a BIP32 master key to answer with.
 
-    A sentence that is no electrum one is `btclib_mnemonics`' refusal, a
+    A sentence that is no electrum one is `bip39_slip39`'s refusal, a
     `ValueError`; a version this function derives no key for is this
     package's own.
     """
@@ -51,12 +51,12 @@ def test_unmanaged_versions() -> None:
         ValueError, match="unknown electrum mnemonic version; "
     ) as excinfo:
         electrum.mxprv_from_mnemonic(unkn_ver)
-    assert isinstance(excinfo.value, BTClibMnemonicsValueError)
+    assert isinstance(excinfo.value, Bip39Slip39ValueError)
 
     # a twelve-word entropy, which is what "2fa" needs
     entropy = 0x110AAAA03974D093EDA670121023CD077
     for mnemonic_type in ("2fa", "2fa_segwit"):
-        mnemonic = btclib_mnemonics.electrum.mnemonic_from_entropy(
+        mnemonic = bip39_slip39.electrum.mnemonic_from_entropy(
             mnemonic_type, entropy, "en"
         )
         err_msg = f"^unmanaged electrum mnemonic version: {mnemonic_type}$"
@@ -148,7 +148,7 @@ def test_old_no_passphrase() -> None:
     """The pre-2.0 scheme has no passphrase, and says so.
 
     None and the empty string are "no passphrase"; any other is
-    `btclib_mnemonics`' refusal, a `ValueError`.
+    `bip39_slip39`'s refusal, a `ValueError`.
     """
     pub_key = electrum.old_master_pub_key_from_mnemonic(OLD_MNEMONIC, None)
     assert pub_key == OLD_MASTER_PUB_KEY
@@ -158,7 +158,7 @@ def test_old_no_passphrase() -> None:
         electrum.old_master_pub_key_from_mnemonic(
             OLD_MNEMONIC, "Did you ever hear the tragedy of Darth Plagueis"
         )
-    assert isinstance(excinfo.value, BTClibMnemonicsValueError)
+    assert isinstance(excinfo.value, Bip39Slip39ValueError)
 
 
 def test_p2wpkh_p2sh() -> None:
@@ -180,7 +180,7 @@ def test_p2wpkh_p2sh() -> None:
         mnemonics, versions, addresses, strict=True
     ):
         # this is an electrum mnemonic
-        assert btclib_mnemonics.electrum.version_from_mnemonic(mnemonic)[0] == version
+        assert bip39_slip39.electrum.version_from_mnemonic(mnemonic)[0] == version
         # of course, it is invalid as BIP39 mnemonic
         with pytest.raises(ValueError, match="invalid checksum: "):
             bip39.mxprv_from_mnemonic(mnemonic, "")
@@ -199,7 +199,7 @@ def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) ->
     """None and "" are the empty passphrase, and no other falsy value is.
 
     A value of another type is refused whether or not it is empty, and
-    the refusal is `btclib_mnemonics`' own class, a `TypeError`.
+    the refusal is `bip39_slip39`'s own class, a `TypeError`.
     """
     mnemonic = ELECTRUM_VECTORS[0].values[0]
     assert isinstance(mnemonic, str)
@@ -207,5 +207,5 @@ def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) ->
     assert electrum.mxprv_from_mnemonic(mnemonic, None) == xprv
     assert electrum.mxprv_from_mnemonic(mnemonic, "") == xprv
     err_msg = f"invalid passphrase type: {type(passphrase).__name__}"
-    with pytest.raises(BTClibMnemonicsTypeError, match=err_msg):
+    with pytest.raises(Bip39Slip39TypeError, match=err_msg):
         electrum.mxprv_from_mnemonic(mnemonic, passphrase)  # type: ignore[arg-type]

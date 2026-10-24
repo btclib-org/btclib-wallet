@@ -26,7 +26,7 @@ lets that package's refusal through, and its classes are
 `BTClibEccTypeError` and `BTClibEccException` (issue
 btclib-org/btclib#2282): each rule accepts the class of either package,
 `tests/exception_family_test.py` holding the pair, and nothing else.
-A function handing a mnemonic on to btclib_mnemonics lets that package's
+A function handing a mnemonic on to bip39_slip39 lets that package's
 refusal through in the same way, and the families hold its classes too.
 
 ## How it calls what it calls
@@ -82,10 +82,10 @@ _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
 # the libraries declaring the input types this package takes, the rest
 # being declared at module level in this package: btclib, `ECC_PACKAGE`
 # wherever it is installed, btclib binding its curve types from it (issue
-# btclib-org/btclib#2282), and btclib_mnemonics, which declares `Mnemonic`
+# btclib-org/btclib#2282), and bip39_slip39, which declares `Mnemonic`
 _LIBRARIES = [
     Path(spec.origin).parent
-    for name in ("btclib", ECC_PACKAGE, "btclib_mnemonics")
+    for name in ("btclib", ECC_PACKAGE, "bip39_slip39")
     if (spec := importlib.util.find_spec(name)) and spec.origin
 ]
 # where each of them declares its aliases
