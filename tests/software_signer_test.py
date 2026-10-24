@@ -20,7 +20,7 @@ import pytest
 from btclib.exceptions import BTClibValueError
 from btclib.script.engine import verify_transaction
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.ecc import ssa
+from ecc.ecc import ssa
 
 from btclib_wallet.bip32.bip32 import BIP32KeyData, derive, xpub_from_xprv
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin

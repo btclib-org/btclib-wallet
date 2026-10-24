@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""A FROST session carried through a psbt, over `btclib_ecc.ecc.frost`.
+"""A FROST session carried through a psbt, over `ecc.ecc.frost`.
 
 BIP445 specifies nonce generation, partial signing and aggregation, and
 says nothing about psbt transport; no psbt BIP assigns FROST type bytes.
@@ -107,7 +107,7 @@ is refused here instead of being derived to.
 
 **Where the secret nonce lives is the caller's business, and this module
 holds nothing.** `nonce_gen` hands back the `bytearray` that
-`btclib_ecc.ecc.frost.sign` consumes and `partial_sign` takes it back;
+`ecc.ecc.frost.sign` consumes and `partial_sign` takes it back;
 between the two rounds it is in the caller's hands and never in the
 psbt, which travels. `btclib_wallet.psbt.musig2`'s docstring gives the reason
 and it holds verbatim: a secnonce that signs twice hands out the secret
@@ -132,7 +132,7 @@ is where a threshold differs from MuSig2's *n*-of-*n*: `session_context`
 reads the identifiers out of the nonce records rather than out of the
 key material, and a nonce that arrives after a partial signature was
 made describes a different session -- exactly the state
-`btclib_ecc.ecc.frost.partial_sig_verify_` is for.
+`ecc.ecc.frost.partial_sig_verify_` is for.
 """
 
 from __future__ import annotations
@@ -145,16 +145,16 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
 from btclib.script import type_and_payload
 from btclib.utils import bytes_from_octets
-from btclib_ecc.ecc import frost, ssa
+from ecc.ecc import frost, ssa
 
-# the widths this module writes are the ones `btclib_ecc.ecc.frost` names:
+# the widths this module writes are the ones `ecc.ecc.frost` names:
 # an identifier is `ID_SIZE` bytes big-endian there (`_serialize_ids`),
 # a public share and a threshold public key are compressed points, and
 # `MAX_PARTICIPANTS` is the security bound that module states. Imported
 # rather than restated, as `ecc.frost` itself imports `curves.curve`'s
 # `_sum_var`: a second copy of a width is a second thing to keep true
-from btclib_ecc.ecc.frost import ID_SIZE, MAX_PARTICIPANTS, PK_SIZE
-from btclib_ecc.hashes import tagged_hash
+from ecc.ecc.frost import ID_SIZE, MAX_PARTICIPANTS, PK_SIZE
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -304,7 +304,7 @@ def _parse_threshold_info(value: bytes) -> tuple[int, int, dict[int, bytes]]:
     `n` is read before anything is built from it: a psbt is somebody
     else's input, and the four bytes the record spells `n` in reach past
     what any machine would allocate. The bound is the one
-    `btclib_ecc.ecc.frost` states, so key material this refuses is key
+    `ecc.ecc.frost` states, so key material this refuses is key
     material that module refuses too.
     """
     if len(value) < _COUNTS_SIZE or (len(value) - _COUNTS_SIZE) % _PAIR_SIZE:
@@ -507,7 +507,7 @@ def _session_parts(
     # A merkle root or a tapleaf hash that does not belong to this input
     # fails here, before a secret nonce is spent on a signature nobody
     # can use
-    tweak_ctx = frost.thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
+    tweak_ctx = frost.thresh_pubkey_and_tweak_var(thresh_pk, tweaks, is_xonly)
     expected = (
         single_leaf_key(leaf_script(psbt_in, leaf_hash)[0]) if leaf_hash else output_key
     )
@@ -528,13 +528,13 @@ def session_context(
     session, in identifier order, and the aggregate nonce is the sum of
     those nonces: a context built before the last nonce arrives is a
     different context, and the partial signatures made against the two
-    do not add up. `btclib_ecc.ecc.frost.partial_sig_verify_` is what catches
+    do not add up. `ecc.ecc.frost.partial_sig_verify_` is what catches
     that, and this is what it takes.
 
     A `SessionContext` is the whole of what a caller needs back, unlike
     `btclib_wallet.psbt.musig2`'s pair: nothing here aggregates a key list, so
     there is no second object to carry, and the tweaked key is
-    `btclib_ecc.ecc.frost.session_values`, memoized on the context.
+    `ecc.ecc.frost.session_values`, memoized on the context.
     """
     thresh_pk = bytes_from_octets(thresh_pk, PK_SIZE)
     leaf_hash = bytes_from_octets(leaf_hash)
@@ -553,7 +553,7 @@ def session_context(
         ids,
         [_pub_share(parts.info, i) for i in ids],
         thresh_pk,
-        frost.nonce_agg([pub_nonces[i] for i in ids]),
+        frost.nonce_agg_var([pub_nonces[i] for i in ids]),
         parts.tweaks,
         parts.is_xonly,
         parts.msg,
@@ -582,8 +582,8 @@ def nonce_gen(
     threshold public key of the session and the message -- because all
     of them are here, and a nonce derived from fewer of them is one a
     faulty random source can repeat across sessions. The identifier is the
-    caller's, as it is everywhere in `btclib_ecc.ecc.frost`.
-    `btclib_ecc.ecc.frost.sign` checks in round 2 that it is this secret
+    caller's, as it is everywhere in `ecc.ecc.frost`.
+    `ecc.ecc.frost.sign` checks in round 2 that it is this secret
     share's identifier, against the public share the session names for it.
     """
     thresh_pk = bytes_from_octets(thresh_pk, PK_SIZE)
@@ -617,7 +617,7 @@ def partial_sign(
     """Write the partial signature of round 2, and return it.
 
     The Signer role, second half. The secnonce is consumed by
-    `btclib_ecc.ecc.frost.sign`, which zeroes it: this function cannot be
+    `ecc.ecc.frost.sign`, which zeroes it: this function cannot be
     called twice with one nonce, and that is the point.
 
     The signature is verified before it is written, against the session
@@ -675,7 +675,7 @@ def partial_sig_verify(
 ) -> bool:
     """Verify one participant's partial signature, as the psbt holds it.
 
-    `btclib_ecc.ecc.frost.partial_sig_verify_` over the psbt the partial
+    `ecc.ecc.frost.partial_sig_verify_` over the psbt the partial
     signature arrived in: the nonce it is checked against is the one the
     same input carries for the same participant, so a signature made
     against another session answers False here rather than at
@@ -717,7 +717,7 @@ def partial_sigs_agg(
     Every signer of the session must have signed. That is not the group:
     a FROST session is the subset that published nonces, and the
     threshold is what says whether such a subset can sign at all --
-    `btclib_ecc.ecc.frost.session_values` refuses a session of fewer than
+    `ecc.ecc.frost.session_values` refuses a session of fewer than
     `t` signers, so what is missing here is a partial signature from a
     participant that joined this one.
 
@@ -739,7 +739,7 @@ def partial_sigs_agg(
         raise BTClibValueError(err_msg)
 
     sig = frost.partial_sig_agg([partial_sigs[my_id] for my_id in session.ids], session)
-    x_only_pub_key = frost.thresh_pubkey_and_tweak(
+    x_only_pub_key = frost.thresh_pubkey_and_tweak_var(
         thresh_pk, session.tweaks, session.is_xonly
     ).x_only_pub_key
     if not ssa.verify_(session.msg, x_only_pub_key, sig):

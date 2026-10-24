@@ -22,7 +22,7 @@ already admits bytes -- `str | bytes | bytearray | memoryview` -- so
 
 A crash on hostile bytes is a defect in one of the three decoders, never
 in this harness: `data` is unconstrained bytes handed straight to each
-entry point. `BTClibException` and `BTClibEccException` are what all
+entry point. `BTClibException` and `EccException` are what all
 three answer a truncated, non-canonical or wrong-length record with, so
 that family is caught below as the expected outcome. An `IndexError`, a
 `RecursionError` or an uncaught assertion is not, and propagates to
@@ -42,7 +42,7 @@ import sys
 
 import atheris
 from btclib.exceptions import BTClibException
-from btclib_ecc.exceptions import BTClibEccException
+from ecc.exceptions import EccException
 
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
@@ -60,16 +60,16 @@ ENTRY_POINTS = (
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as an extended key, its text spelling, and a key origin.
 
-    `BTClibException` and `BTClibEccException` are swallowed as each
+    `BTClibException` and `EccException` are swallowed as each
     entry point's own refusal of malformed input; any other exception
     propagates, which is how atheris tells a defect in one of the three
     from the domain of input each already rejects.
     """
-    with contextlib.suppress(BTClibException, BTClibEccException):
+    with contextlib.suppress(BTClibException, EccException):
         BIP32KeyData.parse(data)
-    with contextlib.suppress(BTClibException, BTClibEccException):
+    with contextlib.suppress(BTClibException, EccException):
         BIP32KeyData.b58decode(data)
-    with contextlib.suppress(BTClibException, BTClibEccException):
+    with contextlib.suppress(BTClibException, EccException):
         BIP32KeyOrigin.parse(data)
 
 

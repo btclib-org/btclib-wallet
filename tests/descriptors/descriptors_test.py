@@ -52,8 +52,8 @@ from btclib.script.script import serialize
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.ecc import dsa, ssa
-from btclib_ecc.hashes import tagged_hash
+from ecc.ecc import dsa, ssa
+from ecc.hashes import tagged_hash
 from hypothesis import given
 from hypothesis import strategies as st
 from typing_extensions import override
@@ -4400,7 +4400,7 @@ def test_the_output_updater_publishes_the_whole_taproot_tree() -> None:
 
     root = taproot_merkle_root_of(psbt_out.taproot_tree)
     assert root == descriptor.taproot_merkle_root()
-    output_key = taproot.output_pubkey_from_merkle_root(
+    output_key = taproot.output_pubkey_from_merkle_root_var(
         psbt_out.taproot_internal_key, root
     )[0]
     assert output_key == descriptor.script_pub_key().script[2:]

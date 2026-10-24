@@ -17,10 +17,10 @@ from btclib.hashes import hash160
 from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import mult
-from btclib_ecc.curves.sec_point import point_from_pub_key
-from btclib_ecc.ecc import ecdsa_adaptor
-from btclib_ecc.exceptions import BTClibEccException
+from ecc.curves import mult
+from ecc.curves.sec_point import point_from_pub_key
+from ecc.ecc import ecdsa_adaptor
+from ecc.exceptions import EccException
 
 from btclib_wallet import dlc
 from tests.dlc.dlc_vectors_test import _TX, _dlc
@@ -129,7 +129,7 @@ def test_a_refusal_does_not_print_a_secret() -> None:
             decryption_key=key,
         ),
     ):
-        with pytest.raises((BTClibException, BTClibEccException)) as excinfo:
+        with pytest.raises((BTClibException, EccException)) as excinfo:
             call()
         text = str(excinfo.value).lower()
         for secret in (key, refused):

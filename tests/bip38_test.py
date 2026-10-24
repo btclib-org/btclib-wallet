@@ -40,7 +40,7 @@ from btclib.exceptions import (
     NotAPrvKeyError,
 )
 from btclib.hashes import hash160
-from btclib_ecc.curves import bytes_from_point, mult, secp256k1
+from ecc.curves import bytes_from_point, mult, secp256k1
 
 from btclib_wallet import bip38
 from btclib_wallet.bip38 import BlockCipherF

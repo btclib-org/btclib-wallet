@@ -657,13 +657,13 @@ published keys. Matched against the pinned text on 2026-08-06.
 ### `tests/ecc/_data/bip445/sign_verify_vectors.json`
 
 The one BIP445 file this package reads: `tests/psbt/frost_test.py` takes
-its group of participants from it. btclib-ecc vendors the BIP445 files
+its group of participants from it. ecc vendors the BIP445 files
 whole, and its entry for them says why they sit in a subdirectory.
 
 The BIP is a draft, `bitcoin/bips#2070`, and the pinned commit is its
 version 0.12.1. The path lives on that pull request's own branch rather
 than on `bitcoin/bips`' default, so the pin carries the branch as its
-`ref`. btclib-ecc pins its copy to `siv2r/bip-frost-signing` instead, at
+`ref`. ecc pins its copy to `siv2r/bip-frost-signing` instead, at
 the same blob.
 
 ```text
@@ -1036,7 +1036,7 @@ Verdict: **identical but for a trailing newline**. Every case. The unsigned
 transactions are reproduced byte for byte. The signed ones are not, and their
 signatures are held to the script engine instead: a plain signature in them is
 not the deterministic one, with or without low-R grinding, and the adaptor
-signatures in their messages are in a layout `btclib_ecc.ecc.ecdsa_adaptor`
+signatures in their messages are in a layout `ecc.ecc.ecdsa_adaptor`
 does not parse.
 
 ### `tests/dlc/_data/test_vectors/`

@@ -848,16 +848,12 @@ def test_a_run_started_from_tests_says_it_is_ungated(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", NO_LIBSECP256K1)
 def test_a_switch_the_dispatch_did_not_obey_is_named(name: str) -> None:
-    """Either variable set with the bindings serving is what is refused."""
+    """A variable set with the bindings serving is what is refused."""
     assert switch_went_unread({name: "1"}, serving=True) == [name]
 
 
 def test_a_switch_the_dispatch_obeyed_is_not_refused() -> None:
-    """Both set and the dispatch off is the measurement's own run.
-
-    The installed btclib reads one of the two and ignores the other,
-    so an ignored variable beside an obeyed one is no finding.
-    """
+    """The variables all set and the dispatch off are the measurement's run."""
     both = dict.fromkeys(NO_LIBSECP256K1, "1")
     assert switch_went_unread(both, serving=False) == []
 
@@ -865,8 +861,8 @@ def test_a_switch_the_dispatch_obeyed_is_not_refused() -> None:
 def test_an_empty_switch_is_no_switch() -> None:
     """An empty value leaves the bindings serving, and asks for nothing.
 
-    That is how both packages read their variable, so a run carrying
-    one empty is an ordinary run with the bindings on.
+    That is how ecc reads its variable, so a run carrying
+    it empty is an ordinary run with the bindings on.
     """
     empty = dict.fromkeys(NO_LIBSECP256K1, "")
     assert switch_went_unread(empty, serving=True) == []
@@ -878,9 +874,8 @@ def test_the_hook_refuses_a_run_the_switch_did_not_reach(
 ) -> None:
     """`pytest_configure` raises ahead of the coverage decision.
 
-    The dispatch's answer is patched to serving, being what a btclib
-    that reads neither variable answers, which no one build reaches with
-    both of them set.
+    The dispatch's answer is patched to serving, being what an ecc
+    that does not read the variables answers.
     """
     for name in NO_LIBSECP256K1:
         monkeypatch.setenv(name, "1")
