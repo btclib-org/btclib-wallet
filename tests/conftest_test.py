@@ -853,7 +853,7 @@ def test_a_switch_the_dispatch_did_not_obey_is_named(name: str) -> None:
 
 
 def test_a_switch_the_dispatch_obeyed_is_not_refused() -> None:
-    """Every variable set and the dispatch off is the measurement's run."""
+    """The variables all set and the dispatch off are the measurement's run."""
     both = dict.fromkeys(NO_LIBSECP256K1, "1")
     assert switch_went_unread(both, serving=False) == []
 
@@ -875,7 +875,7 @@ def test_the_hook_refuses_a_run_the_switch_did_not_reach(
     """`pytest_configure` raises ahead of the coverage decision.
 
     The dispatch's answer is patched to serving, being what an ecc
-    that does not read the variable answers.
+    that does not read the variables answers.
     """
     for name in NO_LIBSECP256K1:
         monkeypatch.setenv(name, "1")
