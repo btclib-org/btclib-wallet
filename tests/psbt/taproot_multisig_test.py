@@ -15,7 +15,7 @@ from btclib.script.engine import verify_transaction
 from btclib.script.limits import MAX_STACK_SIZE
 from btclib.script.taproot import input_script_sig
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.ecc import ssa
+from ecc.ecc import ssa
 
 from btclib_wallet.psbt import Psbt, extract_tx, finalize, taproot_sig_hash
 from btclib_wallet.psbt.psbt_in import ValidSigHashType

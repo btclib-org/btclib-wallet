@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
-from btclib_ecc.ecc.musig2 import key_agg
+from ecc.ecc.musig2 import key_agg_var
 
 from btclib_wallet.bip32 import derive, xpub_from_xprv
 from btclib_wallet.bip32.bip32 import derive_, rootxprv_from_seed
@@ -101,9 +101,9 @@ def test_a_musig_is_aggregated_once(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def counting(*args: Any, **kwargs: Any) -> Any:
         aggregations.append(1)
-        return key_agg(*args, **kwargs)
+        return key_agg_var(*args, **kwargs)
 
-    monkeypatch.setattr(f"{key_expression.__name__}.key_agg", counting)
+    monkeypatch.setattr(f"{key_expression.__name__}.key_agg_var", counting)
     descriptor = _parsed(SHAPES["tr-musig"][0])
     descriptor.expand(3)
     assert len(aggregations) == 1

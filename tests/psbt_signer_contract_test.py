@@ -24,7 +24,7 @@ from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
-from btclib_ecc.ecc import dsa
+from ecc.ecc import dsa
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import derive, pub_keyinfo_from_xkey

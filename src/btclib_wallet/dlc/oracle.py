@@ -80,9 +80,9 @@ from btclib.utils import (
     is_integer,
     read_exactly,
 )
-from btclib_ecc.curves import mult, scalar_from_prv_key
-from btclib_ecc.ecc import dlc_oracle, ssa
-from btclib_ecc.hashes import tagged_hash
+from ecc.curves import mult, scalar_from_prv_key
+from ecc.ecc import dlc_oracle, ssa
+from ecc.hashes import tagged_hash
 
 __all__ = [
     "PLAIN_SHA256",

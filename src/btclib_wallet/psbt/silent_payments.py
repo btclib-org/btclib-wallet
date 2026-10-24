@@ -93,8 +93,11 @@ from btclib.script.script_pub_key import (
     is_p2wpkh,
 )
 from btclib.script.sig_hash import ALL
-from btclib.script.taproot import check_output_pubkey, output_pubkey_from_merkle_root
-from btclib_ecc.curves import (
+from btclib.script.taproot import (
+    check_output_pubkey,
+    output_pubkey_from_merkle_root_var,
+)
+from ecc.curves import (
     bytes_from_point,
     mult,
     point_from_octets_var,
@@ -102,8 +105,8 @@ from btclib_ecc.curves import (
     scalar_from_prv_key,
     secp256k1,
 )
-from btclib_ecc.ecc import dleq
-from btclib_ecc.ecc.ssa import point_from_bip340pub_key_var
+from ecc.ecc import dleq
+from ecc.ecc.ssa import point_from_bip340pub_key_var
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.psbt.psbt import (
@@ -298,7 +301,7 @@ def _is_proven_nums(psbt_in: PsbtIn, output_key: bytes) -> bool:
     and its key is the output key, which is bound to it by construction.
     """
     if psbt_in.taproot_internal_key == sp.NUMS_H:
-        tweaked, _ = output_pubkey_from_merkle_root(
+        tweaked, _ = output_pubkey_from_merkle_root_var(
             sp.NUMS_H, psbt_in.taproot_merkle_root
         )
         if tweaked == output_key:

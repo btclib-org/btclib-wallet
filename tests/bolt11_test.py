@@ -23,8 +23,8 @@ from btclib.b32 import power_of_2_base_conversion
 from btclib.bech32 import encode as bech32_encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
-from btclib_ecc.curves import secp256k1
-from btclib_ecc.ecc.dsa import Sig, sign_recoverable_
+from ecc.curves import secp256k1
+from ecc.ecc.dsa import Sig, sign_recoverable_
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
 from tests import load, vector_id

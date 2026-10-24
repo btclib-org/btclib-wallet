@@ -30,12 +30,10 @@ row 6: dependencies point one way, down that table, so nothing in
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
-Since btclib-org/btclib#2404 this package also depends on `btclib-ecc`
-directly — row 2 of that table, released under that name rather than its
-working name `ellipticcurves` — because every package now declares every
-distribution whose names it imports rather than relying on btclib's
-re-export of them; `pyproject.toml`'s comment beside the dependency names
-what this package imports from it.
+This package also depends on `ecc` directly — row 2 of that table —
+because every package declares every distribution whose names it imports
+rather than relying on btclib's re-export of them; `pyproject.toml`'s
+comment beside the dependency names what this package imports from it.
 
 It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports
@@ -53,11 +51,11 @@ from a seed to a signed, broadcast transaction, and every module with a
 counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol stays btclib's and opens nothing.
 
-What this package signs, it signs through `btclib_ecc.ecc`, so the
+What this package signs, it signs through `ecc.ecc`, so the
 dispatch to the libsecp256k1 bindings
-(`btclib_ecc.curves.curve._libsecp256k1_serves`) and where constant time
-ends are btclib-ecc's, stated in its
-[SECURITY](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
+(`ecc.curves.curve._libsecp256k1_serves`) and where constant time
+ends are ecc's, stated in its
+[SECURITY](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 under *Limitations, not vulnerabilities*.
 `src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
 are the two modules that reach past that dispatch and call the
@@ -203,7 +201,7 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's or btclib_ecc's, and a mnemonic up to its seed is
+serialization — is btclib's or ecc's, and a mnemonic up to its seed is
 bip39_slip39's; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs

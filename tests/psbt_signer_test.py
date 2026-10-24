@@ -24,8 +24,8 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError, SignerError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import bytes_from_point, mult
-from btclib_ecc.ecc import dsa
+from ecc.curves import bytes_from_point, mult
+from ecc.ecc import dsa
 from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData, fingerprint

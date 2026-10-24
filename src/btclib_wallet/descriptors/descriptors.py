@@ -165,14 +165,14 @@ from btclib.script.taproot import (
     MAX_TREE_DEPTH,
     input_script_sig,
     leaf_hash,
-    output_pubkey_from_merkle_root,
+    output_pubkey_from_merkle_root_var,
     tree_helper,
 )
 from btclib.script.witness import Witness
 from btclib.tx.tx_in import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_integer, is_octets
-from btclib_ecc.ecc.ssa import point_from_bip340pub_key_var
-from btclib_ecc.hashes import tagged_hash
+from ecc.ecc.ssa import point_from_bip340pub_key_var
+from ecc.hashes import tagged_hash
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
@@ -3357,7 +3357,7 @@ def _taproot_leaves(
     first.
     """
     try:
-        tweaked = output_pubkey_from_merkle_root(internal_key, merkle_root)[0]
+        tweaked = output_pubkey_from_merkle_root_var(internal_key, merkle_root)[0]
     except ValueError:
         return None
     if tweaked != output_key:

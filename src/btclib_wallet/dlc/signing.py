@@ -7,7 +7,7 @@
 https://github.com/discreetlogcontracts/dlcspecs/blob/master/ECDSA-adaptor.md
 
 Each party gives the other an adaptor signature of every CET, encrypted
-under the outcome's signature point (`btclib_ecc.ecc.ecdsa_adaptor`), so
+under the outcome's signature point (`ecc.ecc.ecdsa_adaptor`), so
 whoever holds the oracle's attestation decrypts it into an ordinary
 signature. The refund transaction is signed outright. All of them spend
 the funding output with SIGHASH_ALL.
@@ -26,7 +26,7 @@ produced.
 **Adaptor signatures encrypt a secret the oracle knows.** The scheme
 leaks a Diffie-Hellman key per signature, so it is for a signature point
 of an oracle's attestation and for nothing else: see
-`btclib_ecc.ecc.ecdsa_adaptor`. A refusal never prints a key or a scalar.
+`ecc.ecc.ecdsa_adaptor`. A refusal never prints a key or a scalar.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn
 from btclib.utils import assert_type, is_octets
-from btclib_ecc.ecc import dsa, ecdsa_adaptor
+from ecc.ecc import dsa, ecdsa_adaptor
 
 from btclib_wallet.dlc.transactions import (
     Dlc,
@@ -140,7 +140,7 @@ def verify_adaptor(
     terms do not agree on answers False: it is a wrong value, not a
     malformed argument.
     """
-    # btclib_ecc reads a key as a PubKey, and a point is one: this refuses
+    # ecc reads a key as a PubKey, and a point is one: this refuses
     # what the declaration, Octets, leaves out
     if not is_octets(pub_key):
         raise BTClibTypeError(f"invalid public key type: {type(pub_key).__name__}")
