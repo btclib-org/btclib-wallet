@@ -200,6 +200,24 @@ def test_every_operation_gets_what_is_left_of_one_deadline(
     assert timeouts == [2.5, 2.0, 1.5, 1.0, 0.5]
 
 
+def test_no_operation_is_given_more_than_the_timeout(
+    tcp: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two equal reads of the clock leave no more time than the timeout.
+
+    At this reading `(t + 3) - t` is a little over 3 in floating point.
+    """
+    now = 4094.001074717207
+    assert (now + 3.0) - now > 3.0
+    monkeypatch.setattr(transport_module, "monotonic", lambda: now)
+    context = fake_context(b'{"id": 1}\n')
+    TlsLineTransport(HOST, PORT, context=context)(REQUEST, 3.0)
+    [(_, _, sock)] = tcp
+    timeouts = sock.timeouts + context.tls.timeouts
+    assert timeouts
+    assert all(0 < timeout <= 3.0 for timeout in timeouts)
+
+
 def test_a_line_arriving_in_pieces_is_joined(tcp: list[Any]) -> None:
     """A line is what ends at the newline, not what one read returns."""
     context = fake_context(b'{"id": 1, ', b'"result": ', b"true}\n")

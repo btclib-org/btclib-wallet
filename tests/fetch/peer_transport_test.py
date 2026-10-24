@@ -229,6 +229,26 @@ def test_a_message_is_read_whole_however_it_arrives(
     assert all(0 < timeout <= 5 for timeout in fake.timeouts)
 
 
+def test_a_timeout_is_never_longer_than_the_one_the_call_took(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two equal reads of the clock leave no more time than the call took.
+
+    At this reading `(t + 5) - t` is a little over 5 in floating point,
+    which two reads of a coarse clock can produce.
+    """
+    now = 8191.610680565681
+    assert (now + 5) - now > 5
+    fake = FakeSocket([WIRE])
+    connect_to(monkeypatch, fake)
+    set_clock(monkeypatch, lambda: now)
+    transport = peer()
+    transport.send(MESSAGE, 5)
+    assert transport.receive(5) == MESSAGE
+    assert fake.timeouts
+    assert all(0 < timeout <= 5 for timeout in fake.timeouts)
+
+
 def test_a_receive_without_a_connection_is_a_fetch_error() -> None:
     """Nothing is read before something is sent."""
     with pytest.raises(FetchError, match="not connected"):
