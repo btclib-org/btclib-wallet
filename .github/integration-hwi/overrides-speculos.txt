@@ -1,2 +1,2 @@
-pillow>=12
+pillow>=13
 flask==3.1.3
