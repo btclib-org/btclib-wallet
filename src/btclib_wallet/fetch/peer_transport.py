@@ -153,7 +153,7 @@ class TcpPeerTransport:
                 sock = self._socket = create_connection(
                     (self._host, self._port), timeout=timeout
                 )
-            sock.settimeout(_time_left(deadline, where))
+            sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(message.serialize())
         except OSError as e:
             self.close()
@@ -171,12 +171,12 @@ class TcpPeerTransport:
             raise FetchError(f"{where}: not connected")
         deadline = monotonic() + timeout
         try:
-            header = _read(sock, _HEADER_SIZE, deadline, where)
+            header = _read(sock, _HEADER_SIZE, deadline, timeout, where)
             try:
                 # refuses a length over the bound before any payload is read
                 return Message.parse(header)
             except IncompleteMessageError as e:
-                rest = _read(sock, e.missing, deadline, where)
+                rest = _read(sock, e.missing, deadline, timeout, where)
             return Message.parse(header + rest)
         except OSError as e:
             self.close()
@@ -189,11 +189,13 @@ class TcpPeerTransport:
             raise
 
 
-def _read(sock: socket, size: int, deadline: float, where: str) -> bytes:
+def _read(
+    sock: socket, size: int, deadline: float, timeout: float, where: str
+) -> bytes:
     """Return exactly `size` octets, or raise before `deadline`."""
     buffer = bytearray()
     while len(buffer) < size:
-        sock.settimeout(_time_left(deadline, where))
+        sock.settimeout(_time_left(deadline, timeout, where))
         chunk = sock.recv(min(_READ_CHUNK, size - len(buffer)))
         if not chunk:
             raise FetchError(f"{where}: connection closed before a whole message")

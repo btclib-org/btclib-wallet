@@ -137,20 +137,27 @@ def valid_timeout(timeout: float) -> float:
     return timeout
 
 
-def _time_left(deadline: float, where: str) -> float:
+def _time_left(deadline: float, timeout: float, where: str) -> float:
     """Return the seconds left before `deadline`, refusing none or fewer.
 
     What each socket operation is given as its own timeout, so that the
     operations together cannot outlast the one deadline the call took.
+    Never more than `timeout`, the one the call took: where two reads of
+    the clock are equal, `(t + timeout) - t` can round to a little above
+    it.
     """
     remaining = deadline - monotonic()
     if remaining <= 0:
         raise FetchError(f"{where}: timeout expired before an answer arrived")
-    return remaining
+    return min(remaining, timeout)
 
 
 def _read_line(
-    connection: ssl.SSLSocket, max_line_size: int, where: str, deadline: float
+    connection: ssl.SSLSocket,
+    max_line_size: int,
+    where: str,
+    deadline: float,
+    timeout: float,
 ) -> bytes:
     """Return the first line the connection delivers, without its newline.
 
@@ -163,7 +170,7 @@ def _read_line(
     """
     buffer = bytearray()
     while True:
-        connection.settimeout(_time_left(deadline, where))
+        connection.settimeout(_time_left(deadline, timeout, where))
         chunk = connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer)))
         if not chunk:
             raise FetchError(f"{where}: connection closed before a whole line")
@@ -305,13 +312,15 @@ class TlsLineTransport:
         deadline = monotonic() + timeout
         try:
             with create_connection((self._host, self._port), timeout=timeout) as sock:
-                sock.settimeout(_time_left(deadline, where))
+                sock.settimeout(_time_left(deadline, timeout, where))
                 with self._context.wrap_socket(
                     sock, server_hostname=self._host
                 ) as connection:
-                    connection.settimeout(_time_left(deadline, where))
+                    connection.settimeout(_time_left(deadline, timeout, where))
                     connection.sendall(request)
-                    return _read_line(connection, self._max_line_size, where, deadline)
+                    return _read_line(
+                        connection, self._max_line_size, where, deadline, timeout
+                    )
         except OSError as e:
             # `ssl.SSLError`, `socket.gaierror` and `TimeoutError` all derive
             # from it, which makes it every way the exchange did not happen

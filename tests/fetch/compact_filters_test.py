@@ -1064,3 +1064,32 @@ def test_each_block_has_a_deadline_of_its_own(
     setattr(peer, "receive", slow)  # noqa: B010
     assert list(fetcher.scan_blocks([WALLET])) == PAID
     assert now[0] == 8.0
+
+
+def test_a_peer_is_never_given_more_than_the_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two equal reads of the clock leave no more time than the timeout.
+
+    At this reading `(t + 5) - t` is a little over 5 in floating point.
+    """
+    now = 8191.610680565681
+    assert (now + 5) - now > 5
+    monkeypatch.setattr(compact_filters, "monotonic", lambda: now)
+    fetcher, peer = build(timeout=5)
+    timeouts: list[float] = []
+    receive, send = peer.receive, peer.send
+
+    def receiving(timeout: float) -> Message:
+        timeouts.append(timeout)
+        return receive(timeout)
+
+    def sending(message: Message, timeout: float) -> None:
+        timeouts.append(timeout)
+        send(message, timeout)
+
+    setattr(peer, "receive", receiving)  # noqa: B010
+    setattr(peer, "send", sending)  # noqa: B010
+    fetcher.get_block_count()
+    assert timeouts
+    assert all(0 < timeout <= 5 for timeout in timeouts)
