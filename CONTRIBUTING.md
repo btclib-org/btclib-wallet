@@ -438,7 +438,7 @@ hook green — a name ending in an underscore is a reference to a link
 target, and the fix is double backticks around it. `-n` turns an
 unresolved cross-reference into a warning for `-W` to fail on, and
 `conf.py`'s `intersphinx_mapping` is what resolves a reference into the
-standard library, btclib or bitcoin-core-rpc.
+standard library, btclib, ecc or bitcoin-core-rpc.
 
 **Check exit codes, not filtered output.** `pre-commit run ... | grep -v
 Passed` hides a failure, and `grep` finding nothing exits 1, which is not
