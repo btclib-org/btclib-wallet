@@ -645,6 +645,28 @@ def test_a_label_that_is_no_point_matches_nothing() -> None:
         assert len(_scan_paid(outpoints, outputs, labels)) == found
 
 
+def test_a_label_keyed_in_another_form_matches_nothing() -> None:
+    """Only the compressed key matches, whichever way labels are checked.
+
+    Label 0, which pays the one output, is keyed by its 65-byte form or
+    by its hex string. With label 1 beside it there are more labels than
+    outputs, and they are subtracted; alone, or over two outputs, they
+    are added. The compressed key finds the output in every case.
+    """
+    outpoints, keys = _paid_with_labels([0])
+    stranger = bytes_from_point(mult(2))[1:]
+    ((key, tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [0]).items()
+    point = mult(silent_payments.label_tweak(_B_SCAN_PRV, 0))
+    assert bytes_from_point(point) == key
+    uncompressed = bytes_from_point(point, compressed=False)
+    other = silent_payments.label_lookup(_B_SCAN_PRV, [1])
+    for outputs in (keys, [stranger, *keys]):
+        for extra in ({}, other):
+            for form, found in ((key, 1), (uncompressed, 0), (key.hex(), 0)):
+                labels = cast("dict[bytes, bytes]", {form: tweak, **extra})
+                assert len(_scan_paid(outpoints, outputs, labels)) == found
+
+
 @needs_bindings
 def test_the_bindings_skip_a_label_that_is_no_point_too() -> None:
     """The same cases as `test_a_label_that_is_no_point_matches_nothing`."""

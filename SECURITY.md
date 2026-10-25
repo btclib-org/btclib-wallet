@@ -149,8 +149,8 @@ used to teach and to prototype as much as to build.
     a found output's private tweak, (t_k + label) mod n, on Python
     integers, which are neither constant-time nor wiped, wherever it
     runs in Python: `scan_outputs` always, and `scan_transaction_outputs`
-    unless the bindings serve and the wallet has more than three labels
-    and more than one per ten outputs. That sum moves to
+    wherever the dispatch rule its docstring states keeps the scan in
+    Python. That sum moves to
     btclib-ecc's dispatched `prv_key_tweak_add` once the wallet depends
     on a btclib-ecc release that has it.
 - **Secret material lives in Python objects**, which are immutable and

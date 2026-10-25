@@ -106,15 +106,11 @@ try:
 except ImportError:  # pragma: no cover -- only an install without them
     libsecp256k1_silentpayments = None  # type: ignore[assignment]
 
-# Where the bindings serve, `scan_transaction_outputs` scans in Python for
-# a wallet of at most this many labels, or of at most one label per
-# _OUTPUTS_PER_LABEL outputs of the transaction, and through the bindings
-# otherwise. The rule keeps the scan it picks within twice the other's time in
-# the cases measured: 2 to 100 outputs, 1 to 20 labels, none or all ours.
-# No label count alone does that: Python takes more than twice the
-# bindings' time from 4 labels at 10 outputs, and stays within it up to
-# 10 labels at 100 outputs. The script and its table are on issue
-# btclib-org/btclib-wallet#474, the tree having no place for benchmarks.
+# The dispatch rule of `scan_transaction_outputs`, which its docstring
+# states. The rule keeps the scan it picks within twice the other's time,
+# which no label count alone does. The script that measures it and its
+# table are on issue btclib-org/btclib-wallet#474, the tree having no
+# place for benchmarks.
 _PYTHON_SCAN_LABELS = 3
 _OUTPUTS_PER_LABEL = 10
 
@@ -920,17 +916,22 @@ def _outputs_with_a_point(outputs_to_check: Sequence[Octets]) -> list[bytes]:
 def _lifted_labels(
     label_map: Mapping[bytes, bytes],
 ) -> list[tuple[Point, bytes]]:
-    """Return the labels that are points, each with its tweak.
+    """Return the labels the subtraction can match, as points with their tweaks.
 
-    A key that is no point matches no output, as it does when the outputs
-    are subtracted from: it is left out rather than raised on.
+    `_labelled` looks a label up by its compressed key, so a key is kept
+    only where it is that key. `point_from_octets_var` also takes the
+    65-byte and the hex forms, which the subtraction never matches. A key
+    that is no point matches nothing either way. Both are left out rather
+    than raised on.
     """
     lifted = []
     for label, tweak in label_map.items():
         try:
-            lifted.append((point_from_octets_var(label, secp256k1), tweak))
+            point = point_from_octets_var(label, secp256k1)
         except (TypeError, ValueError):
             continue
+        if bytes_from_point(point, secp256k1) == label:
+            lifted.append((point, tweak))
     return lifted
 
 
