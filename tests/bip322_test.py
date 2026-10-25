@@ -512,9 +512,7 @@ def test_an_annex_does_not_hide_a_broken_required_rule(failure: str) -> None:
         changed = bytes([signature[0] ^ 1]) + signature[1:]
         tx.vin[0].script_witness = Witness([changed, b"\x50"])
     sig = bip322.Sig(tx)
-    with pytest.raises(
-        (ValueError, BTClibRuntimeError, BTClibEccRuntimeError)
-    ) as error:
+    with pytest.raises((ValueError, BTClibRuntimeError, EccRuntimeError)) as error:
         bip322.assert_as_valid(msg, addr, sig)
     assert not isinstance(error.value, InconclusiveError)
     assert not bip322.verify(msg, addr, sig)
@@ -549,9 +547,7 @@ def test_annex_policy_checks_every_input_after_all_required_rules(
     psbt.inputs[2].final_script_witness = Witness([last_script])
     sig = bip322.Sig(psbt)
     if invalid_later:
-        with pytest.raises(
-            (ValueError, BTClibRuntimeError, BTClibEccRuntimeError)
-        ) as error:
+        with pytest.raises((ValueError, BTClibRuntimeError, EccRuntimeError)) as error:
             bip322.assert_as_valid(msg, addr, sig)
         assert not isinstance(error.value, InconclusiveError)
     else:

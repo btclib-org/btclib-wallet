@@ -739,7 +739,7 @@ adds to the upstream bytes.
 repo    guggero/btcd
 path    bip322/testdata/generated-test-vectors.json
 ref     bip-322
-commit  2a3191e9d5766b8430b877d574bcc3bece74c250  2026-10-21
+commit  73c75a4e13f36b7042d4330d382d798d4d5ada70  2026-10-22
 blob    911c8a41ef5cb2ff0ab875b33a01273f1c351ae5
 ours    32f00f6a82d256c6e2e3283c1fada1ecca8f5ab1
 pulled  2026-10-23
