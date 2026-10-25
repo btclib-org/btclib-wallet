@@ -513,13 +513,7 @@ def test_a_number_with_leading_zeros_is_read_and_printed_without(
 def test_a_hash_fragment_refuses_whitespace_in_its_hex(
     fragment: str, digest: str
 ) -> None:
-    """Refuse the hash Bitcoin Core's `IsHex` refuses, which fromhex would read.
-
-    `bytes.fromhex` skips whitespace, so a hash holding a space would be
-    read without it and printed back that way, changing the checksum of
-    the descriptor it is in; Core reads the argument with `IsHex`, which
-    refuses any non-hex character
-    """
+    """Refuse the hash Core's `IsHex` refuses, which fromhex would read."""
     with pytest.raises(
         BTClibValueError, match=rf"^invalid {fragment}\(\) hash: hex expected$"
     ):
