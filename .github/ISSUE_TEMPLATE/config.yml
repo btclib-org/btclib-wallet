@@ -23,10 +23,10 @@ contact_links:
     url: https://github.com/btclib-org/bitcoin-core-rpc/issues
     about: What talks to a node over JSON-RPC is bitcoin-core-rpc's.
   - name: Bug in a mnemonic sentence, its entropy or its seed
-    url: https://github.com/btclib-org/btclib-mnemonics/issues
+    url: https://github.com/btclib-org/bip39-slip39/issues
     about: >
       The BIP39, SLIP39 and Electrum schemes up to the seed are
-      btclib-mnemonics'; the master key built from that seed is this
+      bip39-slip39's; the master key built from that seed is this
       package's.
   - name: Chat with the developers
     # a Slack workspace invite, which answers only to a signed-in member: a

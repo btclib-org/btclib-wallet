@@ -14,8 +14,8 @@ from btclib.exceptions import BTClibValueError
 from btclib.script import Witness
 from btclib.script.sig_hash import SIG_HASH_TYPES
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import sec_point, secp256k1
-from btclib_ecc.ecc import dsa
+from ecc.curves import sec_point, secp256k1
+from ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn
@@ -27,8 +27,8 @@ from btclib_wallet.psbt.psbt_in import (
     ValidSigHashType,
 )
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR
-from tests import assert_secret_free
 from tests.conftest import JsonGolden
+from tests.secret_free import assert_secret_free
 
 
 def test_psbt_out() -> None:
@@ -358,7 +358,7 @@ def test_a_partial_signature_is_refused_without_its_bytes() -> None:
 def test_a_partial_signature_scalar_out_of_range_is_not_echoed() -> None:
     """A signature of valid DER whose s is not below the order (issue #351).
 
-    btclib_ecc's own refusal prints the scalar in capitals, in groups of
+    ecc's own refusal prints the scalar in capitals, in groups of
     four bytes, and so the refusal chains no cause.
     """
     s = secp256k1.n + int.from_bytes(shake_256(b"btclib-wallet issue 351").digest(15))

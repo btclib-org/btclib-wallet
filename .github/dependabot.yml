@@ -1,7 +1,6 @@
 ---
-# three of the four ecosystems this repository has: the pre-commit hook
-# revisions are left out. Dependabot has a pre-commit ecosystem, and the
-# maintainer decided to keep pre-commit.ci for them instead
+# The pre-commit hook revisions are left out: Dependabot has a pre-commit
+# ecosystem, and the maintainer decided to keep pre-commit.ci for them instead
 # (btclib-org/.github#1391): its weekly autoupdate, configured in the ci:
 # block of .pre-commit-config.yaml, already rewrites rev: for every repo:
 # but local and meta, so a second bot on the same pin would only compete
@@ -9,9 +8,14 @@
 # typos moves by a hand edit of its additional_dependencies, and pyroma by
 # the uv ecosystem below, uv.lock being where its version is pinned.
 #
+# The cargo lock of .github/interop/miniscript-compare is left out of version
+# updates too, on purpose: its rev is the fixed revision of rust-miniscript
+# that the descriptor comparison reads, and a bump changes what the
+# comparison measures.
+#
 # every pull request here runs the whole merge gate, so each ecosystem
 # groups its updates into a single pull request rather than paying for
-# that once each. Neither declares a target-branch: without one dependabot
+# that once each. None declares a target-branch: without one dependabot
 # opens against the default branch, which is the only branch a change
 # lands on -- and a target-branch naming a branch that is not there is
 # not an error anywhere, it is a repository where nothing is proposed.
@@ -24,8 +28,10 @@
 # action bump, and a week where no action moved produces no pull request.
 #
 # The seven day cooldown is what the interval trades against: a
-# compromised release is usually yanked within days, so nothing is offered
-# before it has been public a week
+# compromised release is usually yanked within days, so nothing but
+# btclib-org/.github's tags, excluded in the github-actions block, is
+# offered before it has been public a week, wherever the release can be
+# dated: the docker block says where it cannot
 version: 2
 updates:
   # every action is pinned to a commit SHA, which nothing but this
@@ -44,15 +50,18 @@ updates:
         patterns: ["*"]
     cooldown:
       default-days: 7
+      # the exclude section 11 of btclib-org/.github's README.md gives for
+      # that repository's own tags, which the calls in .github/workflows pin
+      exclude: ["btclib-org/.github/*"]
 
   # uv.lock is committed and the workflows install from it with --locked, bar
   # the jobs that re-lock on purpose, install a published or built package, or
   # install ClusterFuzzLite's hash-pinned export, while the dependency groups
   # declare a floor and no ceiling: the drift of btclib, bitcoin-core-rpc and
-  # the tooling above those floors lives in the lock file, and this is the only
-  # thing that moves it. The uv-lock pre-commit hook re-locks what
-  # pyproject.toml changed and upgrades nothing, and deps-latest tests an
-  # upgrade it never commits
+  # the tooling above those floors lives in the lock file, and this moves it,
+  # bar the one exception section 1 of btclib-org/.github's README names. The
+  # uv-lock pre-commit hook re-locks what pyproject.toml changed and upgrades
+  # nothing, and deps-latest tests an upgrade it never commits
   - package-ecosystem: uv
     directory: /
     schedule:
@@ -67,7 +76,12 @@ updates:
   # the ClusterFuzzLite build container: base-builder-python, pinned by
   # digest in .clusterfuzzlite/Dockerfile. Once a `FROM` line names a
   # digest, dependabot's docker ecosystem is the only thing that moves it
-  # forward again.
+  # forward again. The cooldown is inert here: dependabot-core dates a
+  # docker tag only on Docker Hub (registry_tag_release_date,
+  # docker/lib/dependabot/docker/update_checker.rb) and this image is on
+  # gcr.io. It is kept so that one rule holds for every ecosystem, and it
+  # takes effect with no edit here where the registry or dependabot-core
+  # changes
   - package-ecosystem: docker
     directory: /.clusterfuzzlite
     schedule:

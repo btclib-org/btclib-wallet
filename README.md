@@ -42,6 +42,7 @@ says how the choice is enforced.
 [![integration-bitcoind workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-bitcoind.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-bitcoind.yml?query=branch%3Amain)
 [![integration-hwi workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-hwi.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-hwi.yml?query=branch%3Amain)
 [![integration-electrs workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-electrs.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-electrs.yml?query=branch%3Amain)
+[![integration-floresta workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-floresta.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-floresta.yml?query=branch%3Amain)
 [![deps-latest workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-latest.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-latest.yml?query=branch%3Amain)
 [![pypi-install workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/pypi-install.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/pypi-install.yml?query=branch%3Amain)
 [![deps-oldest workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-oldest.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-oldest.yml?query=branch%3Amain)
@@ -77,10 +78,10 @@ still match.
 python -m pip install --upgrade btclib-wallet
 ```
 
-Signing and verifying run where btclib-ecc runs them, so its
+Signing and verifying run where ecc runs them, so its
 [libsecp256k1 bindings](https://github.com/btclib-org/btclib-secp256k1)
-are the recommended install beside it, and btclib-ecc's
-[SECURITY.md](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
+are the recommended install beside it, and ecc's
+[SECURITY.md](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 says what happens without them.
 
 ## An address from a mnemonic
@@ -109,7 +110,7 @@ The address is the first one BIP84 lists for that mnemonic.
   [Electrum](https://electrum.org/#home) and
   [SLIP39](https://github.com/satoshilabs/slips/blob/master/slip-0039.md)
   master keys from a mnemonic, whose scheme up to the seed is
-  [btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics)'
+  [bip39-slip39](https://github.com/btclib-org/bip39-slip39)'
 - [BIP44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki)
   addresses from an extended key and a
   `m/purpose'/coin_type'/account'/change/address_index` path

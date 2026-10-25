@@ -154,17 +154,27 @@ whose).
 
 CI is read once, and this is where: on the head that lands. `main` does
 not ask that head to be up to date with it, and [section 11][s-branch]
-says why. So a branch is rebased only where it conflicts with `main`, or
-where its checks ran on a `main` that has since been repaired, because
-re-running its checks would test the same merge commit. A rebase that
-moved nothing but the base leaves the ack standing; one that resolved a
-conflict does not, that resolution being a change no reviewer has seen.
+says why. So a branch is rebased only where it conflicts with `main`. A
+rebase that moved nothing but the base leaves the ack standing; one that
+resolved a conflict does not, that resolution being a change no reviewer
+has seen.
 
-When `main`'s CI is red after a merge, its repair lands before any other
-pull request, and no `--auto` below stays armed until then: what lands
-meanwhile is merged onto a tree known to be broken, and `main`'s next run
-cannot tell a new failure from the one already there. An armed pull
-request whose checks ran before the break merges on them all the same.
+When `main`'s CI is red after a merge, its repair takes priority over
+every other pull request, because until it lands `main`'s runs cannot
+tell a new failure from the one already there. A pull request armed with
+`--auto` (below) stays armed, and others keep landing meanwhile. Holding
+every landing for a repair costs more than the break it guards against,
+so the risk of landing on a red `main` is accepted
+(btclib-org/.github#1777).
+
+A pull request whose required check is red only because `main` was red
+is closed and reopened once the repair lands (`gh pr close <n>`, then
+`gh pr reopen <n>`). GitHub then runs its checks on a fresh merge with
+the repaired `main`, where a re-run would test the old merge commit. No
+push is made, so its approvals and its ack of record stand. `--auto`,
+where closing dropped it, is armed again once the checks are green. The
+reopen also runs the review bot again, and changes that review requests
+are answered like any other review's.
 
 Then squash, [the only method the rule accepts][s11].
 
@@ -237,6 +247,23 @@ settings and why they are what they are.
 [roadmap]: https://github.com/btclib-org/.github/blob/main/ROADMAP.md
 [good-first]: https://github.com/search?q=org%3Abtclib-org+label%3A%22good+first+issue%22+is%3Aopen&type=issues
 
+## Worktrees
+
+Run `git fetch origin` in the primary checkout, then check that
+`git status --porcelain` is empty and `git branch --show-current` is
+`main`. Run `git pull --ff-only` only when both checks pass, then verify
+`git rev-parse HEAD origin/main` prints the same sha twice. Create a separate
+worktree for each task with
+`git worktree add <path> origin/main -b <branch>`. After committing,
+remove it with `git worktree remove <path>`. If initialized submodules
+make that fail,
+check for uncommitted, untracked, and ignored files in the worktree and
+its initialized submodules. Preserve anything needed before retrying with
+`git worktree remove --force <path>`; it can delete those files. Keep the
+primary checkout clean and on `main`; do not
+switch branches or stash there. Hooks can fix files in place, and the local
+`main` and `refs/stash` are shared by all worktrees.
+
 ## This repository in particular
 
 Everything above is the same file in every repository of the
@@ -275,6 +302,12 @@ alone is an issue for
 [its tracker](https://github.com/btclib-org/btclib/issues) rather than
 this one.
 
+A change in `btclib` reaches this tree through `uv.lock` only. A test
+that fails after `uv lock --upgrade-package btclib` and not before is a
+break in `btclib`'s surface, and
+[its `RELEASE_NOTES.md`](https://github.com/btclib-org/btclib/blob/main/RELEASE_NOTES.md)
+is asked before this code is.
+
 ### The one constraint
 
 **This package is built on btclib and never the reverse.** It imports
@@ -282,7 +315,7 @@ this one.
 names imports it from `btclib`. `tests/imports_test.py` is what reads the
 import graph. A name of `bitcoin_core_rpc` that `btclib_wallet.fetch`
 publishes is a re-export, and `tests/all_test.py`'s `REEXPORTED` records
-each such name. A name of `btclib_mnemonics` is reached through that
+each such name. A name of `bip39_slip39` is reached through that
 package and neither bound nor re-exported by a module here, which
 `tests/all_test.py` holds too: a caller reaches the mnemonic schemes by
 that package's name.
@@ -315,23 +348,23 @@ copy: `derive` validates and calls `_derive`, which does not, and
 `_key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
 becomes a validated `BIP32KeyData`.
 
-**A refusal of btclib_ecc's own leaves as that package's class.** Under
+**A refusal of ecc's own leaves as that package's class.** Under
 a btclib carrying issue btclib-org/btclib#2282 the curve arithmetic and the
-schemes on it are btclib_ecc's, whose `BTClibEccTypeError`,
-`BTClibEccValueError` and `BTClibEccRuntimeError` are a
+schemes on it are ecc's, whose `EccTypeError`,
+`EccValueError` and `EccRuntimeError` are a
 `TypeError`, a `ValueError` and a `RuntimeError` and no `BTClibException`:
 an argument this package hands on to it unchecked is refused as one of
-those, which a caller names from `btclib_ecc.exceptions`. A catch that
-renames a refusal btclib_ecc may raise, to say which field it was, names
+those, which a caller names from `ecc.exceptions`. A catch that
+renames a refusal ecc may raise, to say which field it was, names
 `ValueError`, so that the field is named whichever library refused; a catch
 that answers a failed check `False` names the runtime class of both
 libraries, which is `bip322`'s `_INVALID`.
 `tests/exception_family_test.py` holds the classes of both libraries for
 each kind, and a bare built-in is in none of them.
 
-**A refusal of btclib_mnemonics' own leaves as that package's class.** A
+**A refusal of bip39_slip39's own leaves as that package's class.** A
 mnemonic this package hands on is checked there, and
-`BTClibMnemonicsTypeError` and `BTClibMnemonicsValueError` are a
+`Bip39Slip39TypeError` and `Bip39Slip39ValueError` are a
 `TypeError` and a `ValueError` and no `BTClibException`, so `except
 ValueError` is what catches a refusal of either library.
 `tests/exception_family_test.py` holds them in the same families.
@@ -405,7 +438,7 @@ hook green — a name ending in an underscore is a reference to a link
 target, and the fix is double backticks around it. `-n` turns an
 unresolved cross-reference into a warning for `-W` to fail on, and
 `conf.py`'s `intersphinx_mapping` is what resolves a reference into the
-standard library, btclib or bitcoin-core-rpc.
+standard library, btclib, ecc or bitcoin-core-rpc.
 
 **Check exit codes, not filtered output.** `pre-commit run ... | grep -v
 Passed` hides a failure, and `grep` finding nothing exits 1, which is not
@@ -607,6 +640,34 @@ a required check: it builds a third party's server. Its `pull_request`
 trigger runs it on a pull request touching a path its `paths:` lists, and
 `gh workflow run integration-electrs.yml --ref <branch>` runs it by hand.
 
+`integration-floresta.yml` — `ElectrumFetcher` against `florestad`, on its
+plain port and its TLS port. Floresta checks blocks with utreexo proofs,
+which `bitcoind` does not serve, so `utreexod` sits between them: the pinned
+`bitcoind` mines, `utreexod` syncs from it and `florestad`'s only peer is
+`utreexod`. `utreexod` is the release tarball, checked against the sha256 in
+the release's manifest. The release publishes no signature for that
+manifest, so the pin is as good as the release page it was read from.
+`florestad` publishes no checksummed binary for the pinned commit, so the
+job builds it, with `libboost-dev` and `cmake` installed. `BTCLIB_FLORESTAD`
+and `BTCLIB_UTREEXOD` name the two programs:
+
+```shell
+cargo install --locked --bin florestad \
+    --git https://github.com/getfloresta/Floresta \
+    --rev <commit> --root /path/to/floresta-install florestad
+BTCLIB_INTEGRATION=1 BTCLIB_BITCOIND=/path/to/bitcoind \
+    BTCLIB_FLORESTAD=/path/to/floresta-install/bin/florestad \
+    BTCLIB_UTREEXOD=/path/to/utreexod \
+    uv run --locked --no-default-groups --group test \
+    pytest tests/integration/floresta_test.py --junitxml=integration.xml
+```
+
+A step after it fails the job if one of these tests skipped. The job is not
+a required check: it builds and downloads third parties' programs. Its
+`pull_request` trigger runs it on a pull request touching a path its
+`paths:` lists, and `gh workflow run integration-floresta.yml --ref <branch>`
+runs it by hand.
+
 `integration-hwi.yml` — the HWI tests against a Trezor emulator and
 against a Ledger one under Speculos, each beside the same node. The
 workflow's own header says what each job installs and pins; the Trezor
@@ -674,6 +735,7 @@ reliance `REVIEWING.md` provides for.
 | `deps-oldest` | weekly | the floor interpreter, dependencies at their floors |
 | `integration-hwi` | weekly, push to main | two emulators |
 | `integration-electrs` | pull request on its paths, push to main | — |
+| `integration-floresta` | pull request on its paths, push to main | — |
 | `scorecard` | weekly, push to main | — |
 | `verified-signatures` | push to main | — |
 | `links` | weekly | — |
@@ -742,3 +804,11 @@ hook each leave it unstaged.
 Read the diff before committing it: a new entry is a finding somebody has
 to have looked at, which is the whole point of a baseline over an
 exclusion.
+
+Two branches that each change `.secrets.baseline` conflict on its
+`generated_at`. Taking either side whole drops the other side's entries,
+and the hook does not add them back. Take `main`'s side, run the commands
+above, put `main`'s `generated_at` back, and stage the file. The baseline
+should then differ from `main`'s by this branch's entries alone. The
+resolution is still a conflict resolved, so
+[REVIEWING.md](./REVIEWING.md)'s *Re-review* applies.

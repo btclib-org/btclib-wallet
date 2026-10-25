@@ -21,7 +21,7 @@ other.
 
 The module sits at the top level, beside `bip44` and `slip132`, and for
 the same reason: the applications below need `b58` for a WIF, `b32` for
-a bech32-encoded key and `btclib_mnemonics.bip39` for a sentence, and
+a bech32-encoded key and `bip39_slip39.bip39` for a sentence, and
 `bip32/` imports none of them. Nothing in the library imports this
 module.
 
@@ -50,7 +50,7 @@ import hmac
 from base64 import b64encode, b85encode
 from hashlib import shake_256
 
-import btclib_mnemonics.bip39
+import bip39_slip39.bip39
 from btclib.alias import Octets
 from btclib.b32 import power_of_2_base_conversion
 from btclib.b58 import wif_from_prv_key
@@ -58,7 +58,7 @@ from btclib.bech32 import BECH32_1_CONST, encode
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name, network_from_xkeyversion
 from btclib.utils import assert_type, bytes_from_octets
-from btclib_ecc.curves import scalar_from_prv_key
+from ecc.curves import scalar_from_prv_key
 
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
@@ -102,7 +102,7 @@ _PURPOSE = 83696968
 # reference implementation the BIP names, refuses a shorter one too
 _MIN_INDEXES = 3
 
-# BIP85's Language Table, as the codes `btclib_mnemonics.mnemonic` keys its
+# BIP85's Language Table, as the codes `bip39_slip39.mnemonic` keys its
 # word-lists with: every BIP39 list that package ships but russian and
 # turkish, which are trezor's rather than the BIP's, so BIP85 numbers
 # neither, and a path derived for one would be a path no other
@@ -285,7 +285,7 @@ def mnemonic_from_root_key(
     entropy is truncated to what a sentence of that many words encodes
     and handed to BIP39, which appends its checksum. `words` is one of
     12, 15, 18, 21 and 24, and `lang` one of the ten of BIP85's Language
-    Table, which are ten of the twelve `btclib_mnemonics.bip39` writes.
+    Table, which are ten of the twelve `bip39_slip39.bip39` writes.
     """
     # a type check first: the membership test below would refuse a
     # hashable one as a value and let an unhashable one leave as a builtin
@@ -302,7 +302,7 @@ def mnemonic_from_root_key(
 
     der_path = f"m/{_PURPOSE}h/39h/{_LANGUAGE_INDEXES[lang]}h/{words}h/{index}h"
     entropy = _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
-    return btclib_mnemonics.bip39.mnemonic_from_entropy(
+    return bip39_slip39.bip39.mnemonic_from_entropy(
         entropy[: _ENTROPY_BYTES[words]], lang
     )
 
@@ -478,7 +478,7 @@ def rolls_from_root_key(
     hold, and the wait is the caller's: a session is `rolls` reads of a
     stream and takes as long as it takes.
 
-    `btclib_mnemonics.entropy.bin_str_entropy_from_rolls` is the other
+    `bip39_slip39.entropy.bin_str_entropy_from_rolls` is the other
     direction, dice into entropy for a wallet that does not exist yet; its
     docstring says how the two number a die's faces.
     """

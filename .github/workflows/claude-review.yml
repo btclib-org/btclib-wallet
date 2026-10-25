@@ -7,9 +7,9 @@ name: claude-review
 # whose every change reaches a user's keys wants a reading before a merge.
 # The prompt, the credential guard, the action, the verdict check and the
 # @claude answer are `btclib-org/.github`'s `reusable-claude-review.yml`,
-# called at `@main` so a fix there reaches this tree in one landing. What
-# stays here is the trigger, the concurrency group, the permissions, the
-# paragraph about what this tree ships and this header.
+# called at a tagged commit (section 10 of btclib-org/.github's README.md).
+# What stays here is the trigger, the concurrency group, the permissions,
+# the paragraph about what this tree ships and this header.
 #
 # Not a required check, and it must not become one. What it produces is a
 # review of type COMMENT, an opinion for the author to weigh, and a review
@@ -72,7 +72,7 @@ jobs:
       contents: read
       pull-requests: write # posting the review, and the reply to a mention
       id-token: write # the OIDC token the action mints at its own startup
-    uses: btclib-org/.github/.github/workflows/reusable-claude-review.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-claude-review.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     with:
       # this tree's own paragraph, landing where the callee inserts it
       extra-prompt: |

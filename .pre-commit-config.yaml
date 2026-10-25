@@ -285,7 +285,7 @@ repos:
   # repairs the very seam the third check exists to name, so a hook
   # reading the file after it would find nothing left to report.
   - repo: https://github.com/btclib-org/.github
-    rev: 0e359a9b5ae51cf1e17b8f59a650b2f2b58e38e9
+    rev: c77894642d8f3d1228a68cc5ff6203e61ee43512 # frozen: v2026.10.25
     hooks:
       - id: check-changelog
         args: [--grandfathered, "0"]
@@ -368,7 +368,7 @@ repos:
         language: pygrep
         # one line, and no literal space in it -- "\x20" is the space the
         # reference branch allows -- so yamllint reads the value as a
-        # single unbreakable word and its 100-column rule exempts it. A
+        # single unbreakable word, which its line-length rule exempts. A
         # block scalar rather than a quoted one for the same reason a
         # folded scalar was rejected: folding joins lines with a space,
         # which would land inside the regex
@@ -671,7 +671,7 @@ repos:
         pass_filenames: false
         require_serial: true
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.13.1
+    rev: 0.13.5
     hooks:
       # keep uv.lock in sync with pyproject.toml
       - id: uv-lock
@@ -728,7 +728,7 @@ repos:
     hooks:
       - id: check-sdist
         args: [--inject-junk, --installer=pip]
-        additional_dependencies: ["uv_build>=0.12.0,<0.13"]
+        additional_dependencies: ["uv_build>=0.12.0,<0.14"]
   # what test.yml's dist job's own pyroma step rates the sdist for -- a
   # missing classifier or url, metadata that is valid but poor -- this
   # rates the source tree instead, for an answer before pushing rather

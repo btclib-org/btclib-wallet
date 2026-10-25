@@ -12,11 +12,11 @@ name: vendored vectors
 # the run.
 #
 # The checkout, the optional interpreter setup and the re-check itself are
-# btclib-org/.github's: reusable-vendored-vectors.yml, called at @main
-# (section 10 of its README.md), running this tree's
-# .github/scripts/check_vendored_vectors.py. What stays here is the
-# trigger, the schedule, the concurrency group and the ledger this tree
-# checks.
+# btclib-org/.github's: reusable-vendored-vectors.yml, called at a tagged
+# commit (section 10 of btclib-org/.github's README.md), running this
+# tree's .github/scripts/check_vendored_vectors.py. What stays here is
+# the trigger, the schedule, the concurrency group and the ledger this
+# tree checks.
 #
 # issues: write is granted here and by no other workflow in this tree; the
 # reason is the called workflow's own header, not this file's to restate.
@@ -56,7 +56,7 @@ jobs:
     if: >-
       ${{ !github.event.pull_request.draft
       && github.event.action != 'closed' }}
-    uses: btclib-org/.github/.github/workflows/reusable-vendored-vectors.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-vendored-vectors.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     # a caller's permissions: block bounds the called workflow and refuses
     # rather than trims, so its job's scopes are named here
     permissions:

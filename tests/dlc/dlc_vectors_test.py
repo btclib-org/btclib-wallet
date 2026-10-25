@@ -30,8 +30,8 @@ from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.sig_hash import segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import bytes_from_point, mult, secp256k1
-from btclib_ecc.ecc import dlc_oracle, dsa
+from ecc.curves import bytes_from_point, mult, secp256k1
+from ecc.ecc import dlc_oracle, dsa
 
 from btclib_wallet import dlc
 from btclib_wallet.dlc import DlcParty, FundingInput
@@ -256,7 +256,7 @@ def test_signed_transactions(case: dict[str, Any]) -> None:
     index = outcomes.index(params["realOutcome"])
     secret = int.from_bytes(bytes.fromhex(params["oracleSignature"])[32:], "big")
     cet = built.cets[index]
-    point = dlc_oracle.sig_point_(
+    point = dlc_oracle.sig_point_var_(
         bytes.fromhex(outcomes[index]),
         bytes.fromhex(oracle["publicKey"]),
         bytes.fromhex(oracle["nonce"]),

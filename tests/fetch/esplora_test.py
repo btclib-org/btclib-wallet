@@ -20,6 +20,7 @@ from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 
+from btclib_wallet.fetch.balance import Balance
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
 from tests import chained_text
@@ -713,7 +714,7 @@ def test_estimate_fee_says_no_target_quoted_for_an_empty_object() -> None:
 
 
 def test_estimate_fee_requests_the_endpoint_and_nothing_else() -> None:
-    """`GET /fee-estimates`, the one endpoint here answering json."""
+    """`GET /fee-estimates`, and nothing else."""
     transport = Recorded((200, fee_estimates(**{"1": 10})))
     EsploraFetcher(BASE, transport=transport, verify_network=False).estimate_fee(1)
     assert transport.requests[0].full_url == f"{BASE}/fee-estimates"
@@ -755,3 +756,154 @@ def test_a_port_refusal_does_not_quote_the_port() -> None:
     with pytest.raises(BTClibValueError, match="^invalid base_url port$") as e:
         EsploraFetcher("https://esplora.example:LongPort9/api")
     assert "LongPort9" not in chained_text(e.value)
+
+
+# `GET /address/<address>` as blockstream.info/api and mempool.space/api
+# both answered it on 2026-10-21, byte for byte the same body: the genesis
+# coinbase's address, with an unconfirmed payment to it in the mempool
+GENESIS_ADDRESS = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+GENESIS_ADDRESS_BODY = (
+    b'{"address":"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa","chain_stats":'
+    b'{"funded_txo_count":80797,"funded_txo_sum":5768433876,"spent_txo_count":0,'
+    b'"spent_txo_sum":0,"tx_count":67084},"mempool_stats":{"funded_txo_count":1,'
+    b'"funded_txo_sum":3672,"spent_txo_count":0,"spent_txo_sum":0,"tx_count":1}}'
+)
+# the same endpoint of blockstream.info/api, the same day: an address
+# that has spent an output
+P2WPKH_ADDRESS = (
+    "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"  # pragma: allowlist secret
+)
+# an address of testnet, which a mainnet fetcher refuses
+TESTNET_ADDRESS = (
+    "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"  # pragma: allowlist secret
+)
+P2WPKH_ADDRESS_BODY = (
+    b'{"address":"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq","chain_stats":'  # pragma: allowlist secret
+    b'{"funded_txo_count":118,"funded_txo_sum":17997974,"spent_txo_count":1,'
+    b'"spent_txo_sum":14293,"tx_count":119},"mempool_stats":{"funded_txo_count":0,'
+    b'"funded_txo_sum":0,"spent_txo_count":0,"spent_txo_sum":0,"tx_count":0}}'
+)
+
+
+def address_body(
+    address: str = GENESIS_ADDRESS,
+    chain: tuple[object, object] = (100, 30),
+    mempool: tuple[object, object] = (5, 20),
+) -> bytes:
+    """Return an `/address/<address>` body with these funded and spent sums."""
+
+    def stats(sums: tuple[object, object]) -> dict[str, object]:
+        return {"funded_txo_sum": sums[0], "spent_txo_sum": sums[1]}
+
+    body = {"address": address, "chain_stats": stats(chain)}
+    body["mempool_stats"] = stats(mempool)
+    return json.dumps(body).encode()
+
+
+@pytest.mark.parametrize(
+    "address, body, confirmed, unconfirmed",
+    [
+        (GENESIS_ADDRESS, GENESIS_ADDRESS_BODY, 5768433876, 3672),
+        (P2WPKH_ADDRESS, P2WPKH_ADDRESS_BODY, 17997974 - 14293, 0),
+    ],
+)
+def test_get_balance_reads_a_recorded_answer(
+    address: str, body: bytes, confirmed: int, unconfirmed: int
+) -> None:
+    """Funded less spent, on the chain and in the mempool."""
+    transport = Recorded((200, body))
+    esplora = EsploraFetcher(BASE, transport=transport, verify_network=False)
+    balance = esplora.get_balance(address)
+    assert (balance.confirmed, balance.unconfirmed) == (confirmed, unconfirmed)
+    assert transport.requests[0].full_url == f"{BASE}/address/{address}"
+    assert transport.requests[0].get_method() == "GET"
+
+
+def test_get_balance_reports_a_negative_mempool_change() -> None:
+    """A mempool spend of a confirmed output is a negative `unconfirmed`."""
+    balance = fetcher((200, address_body(mempool=(5, 20)))).get_balance(GENESIS_ADDRESS)
+    assert (balance.confirmed, balance.unconfirmed) == (70, -15)
+
+
+def test_get_balance_reads_a_zero_balance() -> None:
+    """Funded equal to spent is a balance of zero, and no refusal."""
+    body = address_body(chain=(30, 30), mempool=(0, 0))
+    assert fetcher((200, body)).get_balance(GENESIS_ADDRESS) == Balance(0, 0)
+
+
+def test_get_balance_checks_the_address_on_the_fetchers_network() -> None:
+    """A testnet fetcher takes a testnet address and refuses a mainnet one."""
+    transport = Recorded((200, address_body(address=TESTNET_ADDRESS)))
+    esplora = EsploraFetcher(
+        BASE, network="testnet", transport=transport, verify_network=False
+    )
+    assert esplora.get_balance(TESTNET_ADDRESS) == Balance(
+        confirmed=70, unconfirmed=-15
+    )
+    assert transport.requests[0].full_url == f"{BASE}/address/{TESTNET_ADDRESS}"
+    with pytest.raises(BTClibValueError, match="^not an address of testnet$"):
+        esplora.get_balance(GENESIS_ADDRESS)
+
+
+def test_get_balance_sends_the_canonical_spelling() -> None:
+    """Upper case bech32 is asked for in lower case, whitespace stripped."""
+    transport = Recorded((200, P2WPKH_ADDRESS_BODY))
+    esplora = EsploraFetcher(BASE, transport=transport, verify_network=False)
+    esplora.get_balance(f" {P2WPKH_ADDRESS.upper()} ")
+    assert transport.requests[0].full_url == f"{BASE}/address/{P2WPKH_ADDRESS}"
+
+
+def test_get_balance_refuses_an_address_of_another_network_before_asking() -> None:
+    """No request is made for an address the fetcher's network cannot spell."""
+    transport = Recorded()
+    esplora = EsploraFetcher(BASE, transport=transport, verify_network=True)
+    with pytest.raises(BTClibValueError, match="^not an address of mainnet$"):
+        esplora.get_balance(TESTNET_ADDRESS)
+    assert transport.requests == []
+
+
+def test_get_balance_verifies_the_network_before_asking_the_balance() -> None:
+    """The same guard every other question goes through first."""
+    transport = Recorded((200, TESTNET_GENESIS.encode()))
+    esplora = EsploraFetcher(BASE, transport=transport, verify_network=True)
+    with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
+        esplora.get_balance(GENESIS_ADDRESS)
+    assert len(transport.requests) == 1
+
+
+def test_get_balance_refuses_an_answer_for_another_address() -> None:
+    """The server answered a question that was not asked."""
+    body = address_body(address=P2WPKH_ADDRESS)
+    with pytest.raises(FetchError, match=f"answered for '{P2WPKH_ADDRESS}'$"):
+        fetcher((200, body)).get_balance(GENESIS_ADDRESS)
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        (b"not json", "line 1 column"),
+        (b"[1, 2]", "not an object"),
+        (address_body(chain=(True, 0)), "chain_stats: invalid sums"),
+        (address_body(mempool=(5, 1.5)), "mempool_stats: invalid sums"),
+        (address_body(chain=("100", 0)), "chain_stats: invalid sums"),
+        (address_body(chain=(10, 30)), "negative confirmed balance: -20"),
+    ],
+)
+def test_get_balance_refuses_a_malformed_answer(body: bytes, message: str) -> None:
+    """Every refusal of the answer is a `FetchError` naming the address."""
+    with pytest.raises(FetchError, match=f"^address {GENESIS_ADDRESS}: .*{message}"):
+        fetcher((200, body)).get_balance(GENESIS_ADDRESS)
+
+
+def test_get_balance_refuses_stats_that_are_no_object() -> None:
+    """A stats member that is no object is refused, not read as zero."""
+    body = json.dumps({"address": GENESIS_ADDRESS, "chain_stats": None}).encode()
+    with pytest.raises(FetchError, match="chain_stats: not an object"):
+        fetcher((200, body)).get_balance(GENESIS_ADDRESS)
+
+
+def test_get_balance_reports_an_http_failure_with_its_status() -> None:
+    """A 400 from the explorer is an `HttpError` carrying the status."""
+    with pytest.raises(HttpError) as excinfo:
+        fetcher((400, b"Invalid Bitcoin address")).get_balance(GENESIS_ADDRESS)
+    assert excinfo.value.status == 400

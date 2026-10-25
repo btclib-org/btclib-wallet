@@ -13,8 +13,8 @@ name: sdist-rebuild
 # build with itself.
 #
 # The checkout at the tag, the rebuild and the verification are
-# btclib-org/.github's reusable-sdist-rebuild.yml, called at @main
-# (section 10 of its README.md)
+# btclib-org/.github's reusable-sdist-rebuild.yml, called at a tagged
+# commit (section 10 of btclib-org/.github's README.md)
 
 on:
   schedule:
@@ -46,4 +46,4 @@ jobs:
     permissions:
       contents: read
       attestations: read # gh attestation verify reads the attestations API with it
-    uses: btclib-org/.github/.github/workflows/reusable-sdist-rebuild.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-sdist-rebuild.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25

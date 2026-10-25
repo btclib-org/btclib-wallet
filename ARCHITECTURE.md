@@ -18,7 +18,9 @@ holds the first half: a module exporting a name it does not define fails
 it unless `REEXPORTED` records the name, and no entry there is btclib's;
 `tests/imports_test.py` adds that every import of a unit that moved here
 names this package rather than btclib's copy. The second half is
-btclib's own: its `pyproject.toml` does not depend on this package. The
+btclib's own: its `pyproject.toml` does not depend on this package, and
+`test_btclib_imports_nothing_of_btclib_wallet` in `tests/imports_test.py`
+holds it here. The
 edge is btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
 `src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on it
 and on [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc),
@@ -28,20 +30,18 @@ row 6: dependencies point one way, down that table, so nothing in
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
-Since btclib-org/btclib#2404 this package also depends on `btclib-ecc`
-directly — row 2 of that table, released under that name rather than its
-working name `ellipticcurves` — because every package now declares every
-distribution whose names it imports rather than relying on btclib's
-re-export of them; `pyproject.toml`'s comment beside the dependency names
-what this package imports from it.
+This package also depends on `ecc` directly — row 2 of that table —
+because every package declares every distribution whose names it imports
+rather than relying on btclib's re-export of them; `pyproject.toml`'s
+comment beside the dependency names what this package imports from it.
 
-It depends on `btclib-mnemonics` too, which holds the BIP39, SLIP39 and
+It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports
 nothing of btclib or of this package. What stays here is where a seed
 meets BIP32, which only a package seeing both sides can hold: the
 functions of `mnemonic/` below. A module here reaches a name of
-`btclib_mnemonics` through that package,
-`btclib_mnemonics.bip39.seed_from_mnemonic`, and neither binds nor
+`bip39_slip39` through that package,
+`bip39_slip39.bip39.seed_from_mnemonic`, and neither binds nor
 re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
@@ -51,11 +51,11 @@ from a seed to a signed, broadcast transaction, and every module with a
 counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol stays btclib's and opens nothing.
 
-What this package signs, it signs through `btclib_ecc.ecc`, so the
+What this package signs, it signs through `ecc.ecc`, so the
 dispatch to the libsecp256k1 bindings
-(`btclib_ecc.curves.curve._libsecp256k1_serves`) and where constant time
-ends are btclib-ecc's, stated in its
-[SECURITY](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
+(`ecc.curves.curve._libsecp256k1_serves`) and where constant time
+ends are ecc's, stated in its
+[SECURITY](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 under *Limitations, not vulnerabilities*.
 `src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
 are the two modules that reach past that dispatch and call the
@@ -73,7 +73,7 @@ submodule loads on first attribute access through the package's own
   and `bip32.key_origin` are its two notations — a `der_path` string and
   the fingerprint-plus-path pair a psbt or a descriptor carries.
 - `mnemonic/` builds the BIP32 master key of a BIP39, SLIP39 or
-  Electrum mnemonic from the seed `btclib_mnemonics` recovers from it,
+  Electrum mnemonic from the seed `bip39_slip39` recovers from it,
   and the master public key of a pre-2.0 Electrum one.
 - `bip85.py` derives another wallet's entropy — a BIP39 sentence among
   other formats — from one BIP32 root, so one backup stands behind
@@ -174,9 +174,10 @@ server, `CompactFilterFetcher` over a peer's BIP157 filters — so calling
 code takes a `Fetcher` and never branches on which one it got.
 `CompactFilterFetcher`'s docstrings say what it serves of `Fetcher` and what
 its `scan_blocks` does.
-`Broadcaster` and `FeeEstimator` are two further protocols a
-backend may or may not satisfy: `BitcoinCoreRestFetcher` answers neither,
-Core's `-rest` interface being read-only and carrying no fee estimation.
+`Broadcaster`, `FeeEstimator` and `BalanceReader` are further protocols
+a backend may or may not satisfy: `BitcoinCoreRestFetcher` answers none,
+Core's `-rest` interface being read-only and carrying no fee estimation
+and no address index.
 `fetch.transport` is the client seam — one HTTP connection per call, one
 kept open across calls, and `TlsLineTransport` for the Electrum line
 protocol — and `fetch.peer_transport` is the seam of the p2p peer:
@@ -200,15 +201,17 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's or btclib_ecc's, and a mnemonic up to its seed is
-btclib_mnemonics'; this package reimplements none of it. What is here is
+serialization — is btclib's or ecc's, and a mnemonic up to its seed is
+bip39_slip39's; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 — the wallets that remember what they have handed out, the one contract
 an external signer answers to, the transactions and signatures of a
 discreet log contract, and the clients that reach a node, an
 explorer, an Electrum server or a p2p peer for what the chain currently holds.
-`tests/imports_test.py` mirrors the edges above, and `tests/fuzz_test.py`
+`tests/imports_test.py` mirrors the edges above, and holds the layering
+inside the package: `bip32/`, `_fee` and `silent_payments` import nothing
+else of it, and `psbt/` imports only those three. `tests/fuzz_test.py`
 holds every parser named here to one contract: it fails the way the
 library says it fails, whatever it is handed, never with a bare
 `IndexError` or `OverflowError` a caller's `except BTClibValueError` does

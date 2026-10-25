@@ -17,7 +17,7 @@ The arms are counted from the source -- a function containing a call to
 fails.
 The entries were measured, not reasoned:
 
-    BTCLIB_NO_LIBSECP256K1=1 BTCLIB_ECC_NO_LIBSECP256K1=1 \
+    ECC_NO_LIBSECP256K1=1 \
         uv run --locked pytest <one module> \
         -m "not bindings" --cov=btclib_wallet --cov-report=json \
         --cov-fail-under=0
@@ -25,11 +25,10 @@ The entries were measured, not reasoned:
 reading back which lines of each arm ran. A module is named here when its
 run reached the arm's body, the `def` line excluded -- that line runs at
 import and would report every arm of every imported module as reached.
-Both variables, because a btclib reads only one of them --
-`tests/conftest.py`'s `NO_LIBSECP256K1` says which reads which -- and a
-run whose dispatch still serves with either set is refused there rather
-than measured.
-`-m "not bindings"` because the variables switch the dispatch off with
+The variable is ecc's, which `tests/conftest.py`'s `NO_LIBSECP256K1`
+names, and a run whose dispatch still serves with it set is refused there
+rather than measured.
+`-m "not bindings"` because the variable switches the dispatch off with
 the bindings still installed, so what needs them is deselected rather
 than skipped.
 

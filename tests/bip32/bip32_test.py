@@ -20,7 +20,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.key import PubKeyData
 from btclib.network import NETWORKS
-from btclib_ecc.curves import (
+from ecc.curves import (
     # its module holds the `mod_sqrt_var` the lift calls, and patching it
     # to raise is how the test below pins that validating an xpub takes no
     # modular square root
@@ -30,8 +30,8 @@ from btclib_ecc.curves import (
     mult,
     point_from_octets_var,
 )
-from btclib_ecc.curves import secp256k1 as ec
-from btclib_ecc.ecc.musig2 import key_agg
+from ecc.curves import secp256k1 as ec
+from ecc.ecc.musig2 import key_agg_var
 
 from btclib_wallet.bip32 import (
     BIP328_CHAIN_CODE,
@@ -68,7 +68,6 @@ from btclib_wallet.bip32.bip32 import (
 from btclib_wallet.bip32.der_path import _indexes_from_der_path_str
 from tests import (
     NOT_STRIPPED,
-    assert_secret_free,
     chained_text,
     load,
     needs_bindings,
@@ -78,6 +77,7 @@ from tests import (
     vector_id,
 )
 from tests.exception_family_test import TYPE_ERRORS
+from tests.secret_free import assert_secret_free
 
 # the bindings, None where they are not installed: every test reading
 # them is marked `bindings`, skipped in that configuration
@@ -1708,7 +1708,7 @@ def test_bip328_synthetic_xpub(
     out, the fingerprint of that xpub being enough to recognize it.
     """
     aggregate = bytes.fromhex(aggregate_pub_key)
-    assert bytes_from_point(key_agg(participants).Q, ec) == aggregate
+    assert bytes_from_point(key_agg_var(participants).Q, ec) == aggregate
 
     xkey = BIP32KeyData(
         version=NETWORKS["mainnet"].bip32_pub,

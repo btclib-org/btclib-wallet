@@ -32,9 +32,9 @@ from btclib.script.engine import verify_transaction
 from btclib.script.taproot import input_script_sig, tree_helper
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
-from btclib_ecc.curves import sec_point
-from btclib_ecc.ecc import dsa, ssa
-from btclib_ecc.hashes import tagged_hash
+from ecc.curves import sec_point
+from ecc.ecc import dsa, ssa
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import (
@@ -1138,7 +1138,7 @@ def test_creation() -> None:
     assert psbt_from_tx_ == psbt
 
 
-# all the updater stuff are missing
+# the Updater is replayed in rust_psbt_test.py, over rust-psbt's cases
 
 
 def test_psbt_combination() -> None:
@@ -2579,7 +2579,7 @@ def test_an_input_that_says_no_script_is_left_with_the_count() -> None:
 
     A bare multisig needs no script of its own to be finalized, so it
     reaches the Finalizer with the utxo missing the way any input whose
-    sig_hash is not computable does -- and there `is_p2ms` has nothing to
+    sig_hash is not computable does -- and there `is_p2ms_var` has nothing to
     read where the number of signatures still says something. Two
     signatures are a multisig in every case but the caller error the test
     above names, so the empty push stays.

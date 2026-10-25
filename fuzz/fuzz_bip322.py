@@ -16,7 +16,7 @@ A crash here on hostile bytes is a defect in `b64decode` itself, never
 in this harness: `data` is unconstrained bytes handed straight to it,
 the `String` it takes being bytes as readily as text, and the ascii
 decode inside it answering a byte outside ascii with the library's own
-exception. `BTClibException` and `BTClibEccException` are what it
+exception. `BTClibException` and `EccException` are what it
 answers a bad armor and a malformed payload alike with, so that family
 is caught below as the expected outcome. An `IndexError`, a
 `RecursionError` or an uncaught assertion is not, and propagates to
@@ -38,7 +38,7 @@ import sys
 
 import atheris
 from btclib.exceptions import BTClibException
-from btclib_ecc.exceptions import BTClibEccException
+from ecc.exceptions import EccException
 
 from btclib_wallet.bip322 import Sig
 
@@ -51,12 +51,12 @@ ENTRY_POINTS = ("btclib_wallet.bip322:Sig.b64decode",)
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as the base64 armor of a BIP322 signature.
 
-    `BTClibException` and `BTClibEccException` are swallowed as
+    `BTClibException` and `EccException` are swallowed as
     `b64decode`'s own refusal of malformed input; any other exception
     propagates, which is how atheris tells a defect in `b64decode` from
     the domain of input it already rejects.
     """
-    with contextlib.suppress(BTClibException, BTClibEccException):
+    with contextlib.suppress(BTClibException, EccException):
         Sig.b64decode(data)
 
 

@@ -3,10 +3,10 @@
 # declared by the glob patterns of [tool.uv.build-backend] below, beside
 # the rest of the configuration. The floor is where the sdist's own
 # pyproject.toml becomes a normalized copy of this file with the verbatim
-# one kept beside it as pyproject.toml.orig; the ceiling is the next
-# minor, which is where uv's versioning policy puts a breaking change,
-# this backend releasing with uv and versioned by it
-requires = ["uv_build>=0.12.0,<0.13"]
+# one kept beside it as pyproject.toml.orig; the ceiling is the minor
+# after the newest one uv.lock locks, which is where uv's versioning policy
+# puts a breaking change, this backend releasing with uv and versioned by it
+requires = ["uv_build>=0.12.0,<0.14"]
 build-backend = "uv_build"
 
 [project]
@@ -15,7 +15,7 @@ name = "btclib-wallet"
 # it back from the installed metadata. A cycle in progress is the month
 # alone; the release's own pull request replaces it by hand with the date
 # the release is cut, YYYY.M.D, whose month need not be the cycle's
-version = "2026.11"
+version = "2026.10.25"
 description = "Bitcoin wallet functionality built on btclib"
 readme = "README.md"
 # PEP 639: a SPDX expression and the files it refers to. COPYRIGHT is not
@@ -28,37 +28,29 @@ authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
 requires-python = ">=3.11"
 dependencies = [
     # the protocol package every module here is written against. The
-    # floor needs a release with `Tx.parse_without_witness`, which
-    # reads a PSBT's global unsigned transaction as Core does (issue
-    # #196). Below 2026.9.29, `btclib.curves`, `btclib.ecc` (less `bms`),
-    # `btclib.kdf` and `btclib.number_theory` do not bind btclib-ecc's own
-    # objects (issue btclib-org/btclib#2282), so a `Curve` or a `Sig` built
-    # through `btclib_ecc` is not the type btclib's own API returns.
-    # 2026.10.5 fixes GHSA-9r97-9x22-2pp4 and GHSA-rw95-w37r-537w, after
-    # 2026.10.4's GHSA-9fr5-46w5-5f9r: each made
-    # `script.engine.verify_transaction` slow on a transaction it was given.
-    # `bip322.verify` runs that engine on a signature it was given, so each
-    # is reached.
-    # Through 2026.10.7 `validated_network_name` quotes a refused network
-    # name whole, so `KeyWallet(network=wif)` puts the WIF in the error
-    # (GHSA-c6h8-5hv5-3gv7).
-    # 2026.10.16 is the floor because through 2026.10.9 btclib imports
-    # `point_from_octets` and `point_from_bip340pub_key` from btclib-ecc,
-    # which the btclib-ecc floor below no longer has
-    "btclib>=2026.10.16",
+    # floor is the release whose `_var` names this tree calls
+    # (`is_p2ms_var`, `output_pubkey_from_merkle_root_var` and the
+    # others) and which imports `ecc` in place of `btclib_ecc`: below it
+    # this tree fails at import. It carries `Tx.parse_without_witness`
+    # (issue #196), the fixes of GHSA-9r97-9x22-2pp4,
+    # GHSA-rw95-w37r-537w, GHSA-9fr5-46w5-5f9r and GHSA-c6h8-5hv5-3gv7,
+    # and `btclib.electrum`'s `block_headers_request` and
+    # `block_headers_response`, which `ElectrumFetcher.get_block_headers`
+    # asks through
+    "btclib>=2026.10.24",
     # the curve arithmetic and the signature schemes this tree imports
-    # directly: `btclib_ecc.curves`, `btclib_ecc.ecc` less `bms`, which
-    # stays btclib's own, `btclib_ecc.hashes`'s `tagged_hash` and
-    # `reduce_to_hlen`, and `btclib_ecc.exceptions`. The floor is the first
-    # release with `point_from_octets_var` and `point_from_bip340pub_key_var`,
-    # which this tree calls. 2026.10.10 is the first release whose `frost`
-    # follows BIP445 0.12.0, the interface `psbt/frost` calls. The bindings
-    # stay requested through `btclib[secp256k1]` below
-    "btclib-ecc>=2026.10.16",
+    # directly: `ecc.curves`, `ecc.ecc` less `bms`, which stays btclib's
+    # own, `ecc.hashes`'s `tagged_hash` and `reduce_to_hlen`, and
+    # `ecc.exceptions`. The floor is the release this tree is tested
+    # against: the `deps-oldest` workflow resolves the lowest direct
+    # versions and runs the suite on them. Its `secp256k1` extra is past
+    # GHSA-8h6f-34jj-7p6c. The bindings stay requested through
+    # `btclib[secp256k1]` below
+    "ecc>=2026.10.23",
     # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
     # `bip85` and the four seed-to-key functions under
     # `btclib_wallet.mnemonic` build on. The floor is its first release
-    "btclib-mnemonics>=2026.9.29",
+    "bip39-slip39>=2026.10.24",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
@@ -115,14 +107,13 @@ classifiers = [
 # the libsecp256k1 bindings, named twice. btclib's own extra states the
 # floor btclib's delegation needs; `btclib-secp256k1` is named directly
 # as well because `bip32.bip32` and `silent_payments` import it
-# themselves, and its floor is the one btclib's extra carries; 0.8.0.10
-# fixes GHSA-8h6f-34jj-7p6c, an invalid-curve oracle in
+# themselves; 0.8.0.10 fixes GHSA-8h6f-34jj-7p6c, an invalid-curve oracle in
 # `silentpayments.scan_outputs`. `silent_payments` calls it on a summary
 # it computes in the same call, never on one it was given. An extra
 # rather than a dependency for btclib's reason: every delegation declines
 # where the bindings are absent, and the Python arithmetic answers
 # instead. The btclib floor is the one of `dependencies`
-secp256k1 = ["btclib[secp256k1]>=2026.10.16", "btclib-secp256k1>=0.8.0.10"]
+secp256k1 = ["btclib[secp256k1]>=2026.10.24", "btclib-secp256k1>=0.8.0.10"]
 
 [project.urls]
 homepage = "https://btclib-wallet.readthedocs.io/"
@@ -143,7 +134,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.10.16", "btclib-secp256k1>=0.8.0.10"]
+bindings = ["btclib[secp256k1]>=2026.10.24", "btclib-secp256k1>=0.8.0.10"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was
@@ -174,14 +165,14 @@ check = [
     # pyroma builds this project non-isolated to read its metadata, so the
     # environment carries [build-system]'s own specifier and the isolated
     # fallback, which needs an index, is never asked for
-    "uv_build>=0.12.0,<0.13",
+    "uv_build>=0.12.0,<0.14",
 ]
 # the build backend .clusterfuzzlite/build.sh installs btclib-wallet with, in
 # the fuzz container and non-isolated, so that the backend is a hashed entry
 # of .clusterfuzzlite/requirements.txt -- this lock exported -- rather than
 # whatever an isolated build resolves off the index. [build-system]'s own
 # specifier, the way `check`'s is
-fuzz = ["uv_build>=0.12.0,<0.13"]
+fuzz = ["uv_build>=0.12.0,<0.14"]
 mutation = ["cosmic-ray>=8.7.0"]
 # the marker because the `sphinx` release the lock resolves declares a
 # Requires-Python above requires-python's floor, and an unmarked bound
@@ -204,7 +195,7 @@ dev = [
 # the oldest uv that may read uv.lock, at most the uv a Dependabot run's
 # log names -- section 1 of the organization standard has the argument,
 # section 15 the commands that measure it
-required-version = ">=0.12.18"
+required-version = ">=0.13.4"
 
 [tool.uv.build-backend]
 # `module-name` is not written: it defaults to `project.name` normalized,
@@ -236,6 +227,7 @@ source-exclude = [
     # decision. tests/source_exclude_test.py checks that every test its
     # reader finds reaching .github or fuzz/ is named here
     "/tests/check_vendored_vectors_test.py",
+    "/tests/compare_descriptors_test.py",
     "/tests/fuzz_corpus_test.py",
     "/tests/interpreters_test.py",
     "/tests/normalize_sdist_test.py",
@@ -372,6 +364,9 @@ UNKNWON_DEVICE_TYPE = "UNKNWON_DEVICE_TYPE"
 # BOLT9's own name for the feature at bits 8/9, `optin` for opt-in
 # (09-features.md), which src/btclib_wallet/bolt9.py transcribes
 var_onion_optin = "var_onion_optin"
+# btcd's own spelling of the outcome its SignMuSig2 answers on success,
+# which tests/psbt/_data/btcd/sign_bip373.go compares against
+SignSuccesful = "SignSuccesful"
 
 [tool.typos.default.extend-words]
 # "nd" is the Neutered Derivation of the bip32 docstrings, as for
@@ -590,6 +585,8 @@ ignore = [
 # and the device wait, whose whole output is one line for the log of the
 # job that started an emulator
 ".github/scripts/wait_for_hwi_device.py" = ["T201"]
+# and the descriptor comparison, whose output is the disagreements it found
+".github/scripts/compare_descriptors.py" = ["T201"]
 # the D rules are not here: a public test function states what it
 # verifies under the same docstring gate as the library
 "tests/**" = [

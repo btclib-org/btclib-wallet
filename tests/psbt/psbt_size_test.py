@@ -28,11 +28,11 @@ import pytest
 from btclib.block import Block
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
-from btclib.script import ScriptPubKey, Witness, is_p2ms, parse, serialize
+from btclib.script import ScriptPubKey, Witness, is_p2ms_var, parse, serialize
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import mult
-from btclib_ecc.curves.sec_point import bytes_from_point
-from btclib_ecc.ecc import dsa
+from ecc.curves import mult
+from ecc.curves.sec_point import bytes_from_point
+from ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut, extract_tx
@@ -133,7 +133,7 @@ def psbt_input_from_spend(tx_in: TxIn) -> tuple[PsbtIn, bytes] | None:  # noqa: 
         if len(stack) == 2 and len(stack[1]) in {33, 65}:
             program = ScriptPubKey.p2wpkh(PubKeyData(stack[1])).script
             witness_script = b""
-        elif is_p2ms(stack[-1]):
+        elif is_p2ms_var(stack[-1]):
             program = ScriptPubKey.p2wsh(stack[-1]).script
             witness_script = stack[-1]
         else:
@@ -161,7 +161,7 @@ def psbt_input_from_spend(tx_in: TxIn) -> tuple[PsbtIn, bytes] | None:  # noqa: 
         psbt_in = PsbtIn(hd_key_paths={pub_key: DUMMY_KEY_ORIGIN}, check_validity=False)
         return psbt_in, ScriptPubKey.p2pkh(PubKeyData(pub_key)).script
 
-    if is_p2ms(redeem_script):
+    if is_p2ms_var(redeem_script):
         psbt_in = PsbtIn(redeem_script=redeem_script, check_validity=False)
         return psbt_in, ScriptPubKey.p2sh(redeem_script).script
 
@@ -480,7 +480,7 @@ def test_a_taproot_script_path_has_no_estimate() -> None:
 def test_a_bare_multisig_is_solved_where_it_is_found() -> None:
     """p2ms as the script_pub_key, and not only as a redeem script."""
     redeem_script = Psbt.b64decode(BIP174_SIGNED_PSBT).inputs[0].redeem_script
-    assert is_p2ms(redeem_script)
+    assert is_p2ms_var(redeem_script)
 
     psbt = Psbt.b64decode(BIP174_SIGNED_PSBT)
     psbt.inputs[0].non_witness_utxo = None

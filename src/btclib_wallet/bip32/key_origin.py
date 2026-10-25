@@ -19,7 +19,7 @@ from btclib.utils import (
     list_from_json_array,
     read_exactly,
 )
-from btclib_ecc.curves import sec_point
+from ecc.curves import sec_point
 from typing_extensions import override
 
 from btclib_wallet.bip32.der_path import (

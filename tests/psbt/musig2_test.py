@@ -11,8 +11,8 @@ import pytest
 from btclib.exceptions import BTClibValueError
 from btclib.script import type_and_payload
 from btclib.script.engine import verify_transaction
-from btclib_ecc.curves import bytes_from_point, mult, secp256k1
-from btclib_ecc.ecc import ssa
+from ecc.curves import bytes_from_point, mult, secp256k1
+from ecc.ecc import ssa
 
 from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, musig2
 from btclib_wallet.psbt.psbt import prevouts, taproot_sig_hash
@@ -127,6 +127,84 @@ def test_aggregating_bip373s_partial_signatures_spends_the_output(
 
     tx = extract_tx(finalize(psbt))
     verify_transaction(spent, tx)
+
+
+# BIP373's participants-only vector each of btcd's psbts was made from,
+# by the description btcd's program gave and BIP373's own
+_BIP373_DESCRIPTION = {
+    "case 1a: output key is aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where the output key is a MuSig2 Aggregate"
+        " Pubkey, with participant pubkeys only"
+    ),
+    "case 2a: internal key is aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where the internal key is a MuSig2 Aggregate"
+        " Pubkey, with participant pubkeys only"
+    ),
+    "case 3a: key in script is aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where a key in a script is a MuSig2 Aggregate"
+        " Pubkey, with participant pubkeys only"
+    ),
+    "case 4a: internal key derived from aggregate, participant pubkeys only": (
+        "Spend of a Taproot output where the internal key is derived from a"
+        " MuSig2 Aggregate Pubkey, with participant pubkeys only"
+    ),
+}
+
+
+def btcd_vectors() -> list[Any]:
+    """Select the four psbts btcd signed: BIP373's participants-only ones.
+
+    `tests/_data/README.md` says how they were made, by btcd's code alone,
+    and how to make them again.
+    """
+    return [
+        pytest.param(test_vector, id=vector_id(index, test_vector["description"]))
+        for index, test_vector in enumerate(
+            load("psbt", "_data", "btcd", "signed_psbts.json")["signed psbts"], 1
+        )
+    ]
+
+
+@pytest.mark.parametrize("test_vector", btcd_vectors())
+def test_btcds_musig2_sessions_are_read_verified_and_spent(
+    test_vector: dict[str, str],
+) -> None:
+    """A second implementation's session: read, verified, aggregated, spent.
+
+    btcd made the nonces and the partial signatures, over a session it
+    derived for itself from BIP373's participants-only psbt. So each psbt
+    holds btclib-wallet to btcd's reading of the session -- the message,
+    the tweaks, the key data the fields are filed under -- where the four
+    vectors above hold it to Bitcoin Core's.
+    """
+    encoded = test_vector["encoded psbt"]
+    psbt = Psbt.b64decode(encoded)
+    assert psbt.b64encode() == encoded
+
+    # what btcd signed is BIP373's own psbt, the one its description names,
+    # and it added nothing else
+    unsigned = deepcopy(psbt)
+    unsigned.inputs[0].musig2_pub_nonces = {}
+    unsigned.inputs[0].musig2_partial_sigs = {}
+    bip373 = {
+        vector["description"]: vector["encoded psbt"]
+        for vector in load("psbt", "_data", "bip373_test_vectors.json")["valid psbts"]
+    }
+    assert (
+        unsigned.b64encode() == bip373[_BIP373_DESCRIPTION[test_vector["description"]]]
+    )
+
+    aggregate_pub_key, leaf_hash = session_of(psbt)
+    participants = psbt.inputs[0].musig2_participant_pub_keys[aggregate_pub_key]
+    assert len(psbt.inputs[0].musig2_partial_sigs) == len(participants)
+    for participant_pub_key in participants:
+        assert musig2.partial_sig_verify(
+            psbt, 0, participant_pub_key, aggregate_pub_key, leaf_hash=leaf_hash
+        )
+
+    spent = prevouts(psbt)
+    musig2.partial_sigs_agg(psbt, 0, aggregate_pub_key, leaf_hash=leaf_hash)
+    verify_transaction(spent, extract_tx(finalize(psbt)))
 
 
 def _participants_only_psbt() -> Psbt:

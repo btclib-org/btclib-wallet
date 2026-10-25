@@ -3,7 +3,12 @@
 # its test read straight off the disk. `-text` is what keeps a checkout
 # with `core.autocrlf=true` (Git for Windows' default) from converting
 # them, so those bytes are the ones on disk on every platform.
+#
+# `tests/strategies/__init__.py` is no vendored file, but
+# `tests/strategies/provenance_test.py` hashes its bytes against upstream's
+# and needs the same.
 src/btclib_wallet/bolt9.py -text
+tests/strategies/__init__.py -text
 tests/_data/basic-test-vectors.json -text
 tests/_data/bip85_test_vectors.json -text
 tests/_data/bolt11_test_vectors.json -text
@@ -46,3 +51,9 @@ tests/dlc/_data/test_vectors/enum_and_numerical_with_diff_3_of_5_test.json -text
 tests/dlc/_data/test_vectors/three_of_five_oracle_numerical_with_diff_test.json -text
 tests/psbt/_data/psbt_fuzz1.hex -text
 tests/psbt/_data/psbt_fuzz2.hex -text
+tests/psbt/_data/rust-psbt/bip174.json -text
+tests/psbt/_data/rust-psbt/bip370.json -text
+tests/psbt/_data/rust-psbt/bip371.json -text
+tests/psbt/_data/rust-psbt/bip375.json -text
+tests/psbt/_data/rust-psbt/fuzz.json -text
+tests/psbt/_data/btcd/signed_psbts.json -text

@@ -234,6 +234,13 @@ def _assert_valid_context(context: str) -> None:
         raise BTClibValueError(err_msg)
 
 
+def _multisig_context_fault(fragment: str) -> str:
+    """Return the fault of a multisig outside its context."""
+    if fragment == "multi":
+        return "multi() is not allowed in a tapscript"
+    return "multi_a() is only allowed in a tapscript"
+
+
 def _t(properties: str) -> frozenset[str]:
     """Return a set of type properties, one character each."""
     return frozenset(properties)
@@ -1127,10 +1134,10 @@ class Miniscript:
         """Refuse the keys no fragment holds, and the ones a context forbids."""
         fragment = self.fragment
         keys = len(self.keys)
-        if fragment == "multi" and self.context == TAPSCRIPT:
-            raise BTClibValueError("multi() is not allowed in a tapscript")
-        if fragment == "multi_a" and self.context != TAPSCRIPT:
-            raise BTClibValueError("multi_a() is only allowed in a tapscript")
+        if fragment in {"multi", "multi_a"} and (fragment == "multi_a") != (
+            self.context == TAPSCRIPT
+        ):
+            raise BTClibValueError(_multisig_context_fault(fragment))
         if fragment in {"pk_k", "pk_h"}:
             allowed = keys == 1
         elif fragment == "multi":
@@ -2035,8 +2042,17 @@ def _read_multi(
     context: str,
     prv_keys: dict[str, str],
 ) -> Miniscript:
-    """Return the node of a ``multi()`` or a ``multi_a()``: a k and keys."""
-    arguments = _split_arguments(argument)
+    """Return the node of a ``multi()`` or a ``multi_a()``: a k and keys.
+
+    A bracket that leaves the arguments unpaired is refused after the
+    keys Core reads before it, since Core counts no bracket in them.
+    """
+    try:
+        arguments = _split_arguments(argument)
+    except BTClibValueError:
+        threshold, *keys = argument.split(",")
+        _read_keys_as_core(threshold, keys, context, prv_keys)
+        raise
     if len(arguments) < 2:
         err_msg = f"{name}() takes a threshold and at least one key"
         raise BTClibValueError(err_msg)
@@ -2066,31 +2082,22 @@ def _read_multi(
     )
 
 
-def _read_unclosed_multisig_keys(
-    fragment: str, context: str, prv_keys: dict[str, str]
+def _read_keys_as_core(
+    threshold: str, keys: list[str], context: str, prv_keys: dict[str, str]
 ) -> None:
-    """Read each key a comma ends in a multisig with no closing parenthesis.
+    """Read the keys of a multisig in its own context, as Core splits them.
 
-    Core reads the threshold and then every key up to the next comma
-    before it finds that the fragment does not close. A multisig outside
-    its own context has no key read.
+    Core reads the threshold as an int64_t, and reads no key past one that
+    is not. It then reads each key up to the next comma, counting no
+    bracket, and stops at an empty key.
     """
-    start = fragment.index("(")
-    tapscript = context == TAPSCRIPT
-    if (fragment[:start] == "multi_a") != tapscript:
-        return
-    end = _expression_end(fragment, start, stop_at_close=True)
-    if fragment[end - 1 : end] == ")":
-        return
-    threshold, *keys = fragment[start + 1 :].split(",")
-    # Core reads the threshold as an int64_t, and reads no key past one
-    # that is not.
     digits = threshold.removeprefix("-")
     if not _NUMBER.fullmatch(digits):
         return
     if len(digits.lstrip("0")) > 19 or int(digits) >= 2**63 + (digits != threshold):
         return
-    for key in keys[:-1]:
+    tapscript = context == TAPSCRIPT
+    for key in keys:
         if not key:
             return
         _parse_key(
@@ -2098,12 +2105,29 @@ def _read_unclosed_multisig_keys(
         )
 
 
-class _InvalidTimelockError(BTClibValueError):
-    """An ``older()`` or ``after()`` number Core refuses before building a node.
+def _read_unclosed_multisig_keys(
+    fragment: str, context: str, prv_keys: dict[str, str]
+) -> None:
+    """Read each key a comma ends in a multisig with no closing parenthesis.
 
-    Inside ``wsh()``, the descriptor reader reports Core's P2WSH fallback
-    on this failure. Elsewhere, under ``tr()`` or in the standalone parser,
-    the number's own diagnostic stands.
+    Core reads the threshold and then every key up to the next comma
+    before it finds that the fragment does not close.
+    """
+    start = fragment.index("(")
+    end = _expression_end(fragment, start, stop_at_close=True)
+    if fragment[end - 1 : end] == ")":
+        return
+    threshold, *keys = fragment[start + 1 :].split(",")
+    _read_keys_as_core(threshold, keys[:-1], context, prv_keys)
+
+
+class _CoreFallbackError(BTClibValueError):
+    """A fault on which Core's miniscript parser stops without naming a key.
+
+    An ``older()`` or ``after()`` number it refuses, or a multisig outside
+    its own context. Core's descriptor reader then names its own fallback,
+    which the descriptor reader here names too: inside ``wsh()`` and in a
+    ``tr()`` leaf. The standalone parser keeps this diagnostic.
     """
 
 
@@ -2140,7 +2164,7 @@ def _read_leaf(
         try:
             return Miniscript(name, context, threshold=_read_number(name, argument))
         except BTClibValueError as error:
-            raise _InvalidTimelockError(str(error)) from error
+            raise _CoreFallbackError(str(error)) from error
     return _read_multi(name, argument, context, prv_keys)
 
 
@@ -2179,8 +2203,22 @@ def _read_fragment(
         return end + 1
     if name not in _LEAVES:
         raise BTClibValueError("unknown miniscript fragment")
-    # Core reads a multisig's keys only in its own context.
+    return _read_leaf_fragment(name, expression, pos, built, context, prv_keys)
+
+
+def _read_leaf_fragment(
+    name: str,
+    expression: str,
+    pos: int,
+    built: _Built,
+    context: str,
+    prv_keys: dict[str, str],
+) -> int:
+    """Read a fragment with no subexpression, and build it."""
     own = "multi_a" if context == TAPSCRIPT else "multi"
+    if name in {"multi", "multi_a"} and name != own:
+        # Core refuses a multisig outside its own context before any key
+        raise _CoreFallbackError(_multisig_context_fault(name))
     end = _expression_end(expression, pos, stop_at_close=name == own)
     if expression[end - 1 : end] != ")":
         if name in {"multi", "multi_a"}:

@@ -10,10 +10,11 @@ name: integration-bitcoind
 #
 # The checkout, the node install, the test run and the check that the
 # node's tests ran are btclib-org/.github's:
-# reusable-integration-bitcoind.yml, called at @main (section 10 of its
-# README.md). What stays here is the trigger, the schedule, the
-# concurrency group, the pinned release and its sha256, and the two
-# environment-variable names tests/integration/conftest.py reads.
+# reusable-integration-bitcoind.yml, called at a tagged commit (section
+# 10 of btclib-org/.github's README.md). What stays here is the trigger,
+# the schedule, the concurrency group, the pinned release and its
+# sha256, and the two environment-variable names
+# tests/integration/conftest.py reads.
 #
 # `regtest / Regtest against Bitcoin Core` is a required check on main:
 # what it asks is whether Core accepts what this branch built, and the
@@ -29,12 +30,13 @@ name: integration-bitcoind
 # is a claim a branch's review has anything to do with. Here those
 # testcases skip for want of BTCLIB_HWI or BTCLIB_HWI_SIGN, the electrs
 # ones (integration-electrs.yml's) for want of BTCLIB_ELECTRS, the
-# qa-assets replay (qa-assets.yml's) for want of BTCLIB_QA_ASSETS or
-# BTCLIB_RUST_BITCOIN_QA_ASSETS, the generated psbt comparison (also
-# qa-assets.yml's) for want of BTCLIB_PSBT_INTEROP or BTCLIB_BITCOIN_S,
-# and the check of the copied strategies against btclib's source for want
-# of BTCLIB_BTCLIB_STRATEGIES. Each switch's skip message starts
-# `set BTCLIB_`: `skip-reason-prefix` below
+# florestad ones (integration-floresta.yml's) for want of BTCLIB_FLORESTAD
+# or BTCLIB_UTREEXOD, the qa-assets replay (qa-assets.yml's) for want of
+# BTCLIB_QA_ASSETS or BTCLIB_RUST_BITCOIN_QA_ASSETS, the generated psbt
+# comparison (also qa-assets.yml's) for want of BTCLIB_PSBT_INTEROP or
+# BTCLIB_BITCOIN_S, and the check of the copied strategies against
+# btclib's source for want of BTCLIB_BTCLIB_STRATEGIES. Each switch's skip
+# message starts `set BTCLIB_`: `skip-reason-prefix` below
 # exempts such a skip from the check that the node's own tests ran, where
 # a testcase skipping for any other reason, a missing bitcoind among them,
 # fails it (btclib-org/.github#1419). The prefix also exempts the
@@ -88,7 +90,7 @@ concurrency:
 
 jobs:
   regtest:
-    uses: btclib-org/.github/.github/workflows/reusable-integration-bitcoind.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-integration-bitcoind.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     # a caller's permissions: block bounds the called workflow and refuses
     # rather than trims
     permissions:
@@ -98,14 +100,14 @@ jobs:
       # guix builders attested it in bitcoin-core/guix.sigs. Pinned rather
       # than resolved to "latest": a run that installs whatever is newest
       # reports the day Core released rather than the day this tree
-      # changed. integration-hwi.yml, integration-electrs.yml and qa-assets.yml
-      # pin the same two values for their own tests
+      # changed. integration-hwi.yml, integration-electrs.yml,
+      # integration-floresta.yml and qa-assets.yml pin the same two values
+      # for their own tests
       bitcoind-version: "31.1"
       bitcoind-sha256: >-
         b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
       # tests/integration/conftest.py's own two switches
       integration-env-var: BTCLIB_INTEGRATION
       bitcoind-path-env-var: BTCLIB_BITCOIND
-      # the HWI, electrs and qa-assets testcases' skips, exempt for the
-      # reason the header gives
+      # the skips the header names, exempt for the reason it gives
       skip-reason-prefix: "set BTCLIB_"

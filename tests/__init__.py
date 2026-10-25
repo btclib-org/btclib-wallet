@@ -52,40 +52,6 @@ def chained_text(e: BaseException | None) -> str:
     return text
 
 
-def assert_secret_free(exc: BaseException, secrets: list[str | bytes]) -> None:
-    """Assert that no piece of a secret is in a refusal or its causes.
-
-    A piece is 6 bytes, or 12 characters of a string, so that a refusal
-    quoting the end or the middle of a value is caught as well as one
-    quoting its start. A bytes secret is looked for as hex and as the body
-    of its `repr`, the two ways a refusal prints bytes. A secret fed is a
-    random value, not a run such as all zeros: a piece of one can be a
-    piece of the clean message.
-    """
-    text = ""
-    todo: list[BaseException | None] = [exc]
-    seen: set[int] = set()
-    while todo:
-        e = todo.pop()
-        if e is None or id(e) in seen:
-            continue
-        seen.add(id(e))
-        text += f" {e!s} {e!r} {e.args!r} {vars(e)!r}".lower()
-        todo += [e.__cause__, e.__context__]
-    # btclib_ecc prints a scalar in capitals and in groups of four bytes
-    text = "".join(text.split())
-    for secret in secrets:
-        size = 6 if isinstance(secret, bytes) else 12
-        for start in range(max(len(secret) - size, 0) + 1):
-            piece = secret[start : start + size]
-            if isinstance(piece, bytes):
-                spellings = [piece.hex(), repr(piece)[2:-1].lower()]
-            else:
-                spellings = [piece.lower()]
-            for spelling in spellings:
-                assert spelling not in text
-
-
 # what `str.strip()` takes and `string.whitespace` does not: U+001C is
 # ASCII and the rest are not. A value padded with one of them is not the
 # value it wraps (issue #102)
@@ -254,7 +220,7 @@ needs_bindings = pytest.mark.bindings
 # --------------------------------------------------------------------------
 # The libsecp256k1 dispatch switched off, shared by the tests that ask the
 # Python arm of a function a question. The dispatch they switch off is the
-# one `btclib_ecc.curves.set_libsecp256k1_serving` sets, and this package
+# one `ecc.curves.set_libsecp256k1_serving` sets, and this package
 # reaches the bindings through it and through the names its own modules
 # import.
 # --------------------------------------------------------------------------
@@ -303,16 +269,14 @@ def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     written here, which package defines the dispatch being btclib's to
     decide.
     """
-    from btclib_ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
+    from ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     set_libsecp256k1_serving(serving=False)
     _refuse_bindings(monkeypatch, sys.modules[set_libsecp256k1_serving.__module__])
 
 
 # the packages `no_bindings_anywhere` walks
-WALKED_PACKAGES = frozenset(
-    {"btclib", "btclib_ecc", "btclib_wallet", "btclib_secp256k1"}
-)
+WALKED_PACKAGES = frozenset({"btclib", "ecc", "btclib_wallet", "btclib_secp256k1"})
 
 
 def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -332,14 +296,14 @@ def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
 
     So this walks every module already loaded under a package of
     `WALKED_PACKAGES` and refuses every bindings callable there, whichever
-    module holds the name; `btclib_ecc` is where a btclib that delegates
+    module holds the name; `ecc` is where a btclib that delegates
     its curve arithmetic to it holds the dispatch. The dispatch is
     switched off alongside it, since a caller with the flag still on and
     every name unreachable is not the configuration a missing install
     produces. An arm this does not cover fails by calling through instead
     of passing by measuring the bindings against themselves.
     """
-    from btclib_ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
+    from ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
 
     for mod_name, mod in list(sys.modules.items()):
         if mod_name.split(".")[0] in WALKED_PACKAGES:

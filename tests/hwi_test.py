@@ -52,8 +52,8 @@ from btclib.key import PubKeyData
 from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import bytes_from_point, mult
-from btclib_ecc.ecc import dsa
+from ecc.curves import bytes_from_point, mult
+from ecc.ecc import dsa
 
 from btclib_wallet import hwi as hwi_module
 from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
