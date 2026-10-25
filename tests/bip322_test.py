@@ -442,7 +442,7 @@ def test_proof_of_funds_applies_codesep_policy_to_additional_inputs() -> None:
 def _taproot_annex_proof(
     msg: bytes, path: str, annex: bytes, hash_type: int
 ) -> tuple[str, Tx, Tx]:
-    """Return a key-path or script-path proof committing to its annex."""
+    """Return a key- or script-path proof whose witness carries the annex."""
     if path == "key":
         addr = _address(WIF, "p2tr")
         spend, tx = _to_sign_of(msg, addr)
@@ -523,7 +523,10 @@ def test_an_annex_does_not_hide_a_broken_required_rule(failure: str) -> None:
 def test_annex_policy_checks_every_input_after_all_required_rules(
     annex_input: int, invalid_later: bool
 ) -> None:
-    """An additional annex is found; a later invalid input still wins."""
+    """An annex on any input is inconclusive.
+
+    A later invalid input is still invalid.
+    """
     msg = b"annex in a proof of funds"
     taproot_addr, _, taproot_tx = _taproot_annex_proof(msg, "script", b"\x50", DEFAULT)
     taproot_output = TxOut(1000, ScriptPubKey.from_address(taproot_addr))

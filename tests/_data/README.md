@@ -712,10 +712,9 @@ is run by `tests/bip322_test.py`, including its expected invalid and
 inconclusive outcomes. Legacy P2SH cases needing BIP322's MINIMALIF
 interpreter rule remain strict expected failures under issue #493.
 
-The files are read from corpus snapshot
-`503719c950953906a8fad9286b3b51aef5ff152b`. Their `commit` fields name
-the last revision touching each path, so the upstream-tip check compares
-path history rather than the snapshot's unrelated changes.
+The files are taken from `503719c950953906a8fad9286b3b51aef5ff152b`,
+the head of btcsuite/btcd#2521. Each `commit` is the last one touching
+its path, which is what the weekly job compares.
 
 ### `tests/_data/btcd/basic-test-vectors.json`
 
