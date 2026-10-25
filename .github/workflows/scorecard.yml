@@ -8,7 +8,8 @@ name: scorecard
 # sentence explaining the score.
 #
 # The action, its inputs and the SARIF upload are btclib-org/.github's
-# reusable-scorecard.yml, called at @main (section 10 of its README.md)
+# reusable-scorecard.yml, called at a tagged commit (section 10 of
+# btclib-org/.github's README.md)
 
 # the action's own triggers and not section 10's: ossf/scorecard-action
 # supports push and schedule on the default branch and calls
@@ -31,7 +32,7 @@ concurrency:
 
 jobs:
   analysis:
-    uses: btclib-org/.github/.github/workflows/reusable-scorecard.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-scorecard.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     # a caller's permissions: block bounds the called workflow and refuses
     # rather than trims, so every scope its job declares is named here
     permissions:

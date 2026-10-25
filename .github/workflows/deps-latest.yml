@@ -9,9 +9,9 @@ name: deps-latest
 # diff whose result is already known.
 #
 # The upgrade, the lint and the suite cells are btclib-org/.github's
-# reusable-deps-latest.yml, called at @main (section 10 of its README.md);
-# the distribution checks stay here, being this tree's own dist job run
-# against the upgraded lock
+# reusable-deps-latest.yml, called at a tagged commit (section 10 of
+# btclib-org/.github's README.md); the distribution checks stay here,
+# being this tree's own dist job run against the upgraded lock
 
 on:
   schedule:
@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   deps-latest:
-    uses: btclib-org/.github/.github/workflows/reusable-deps-latest.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-deps-latest.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     with:
       # one image per platform family, at the floor and the ceiling of the
       # interpreters the package claims: an upgrade breaks at one end of

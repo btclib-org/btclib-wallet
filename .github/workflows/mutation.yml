@@ -8,11 +8,11 @@ name: mutation
 # here with the code they mutate.
 #
 # The baseline check, the session loop, the restore guard, the counts and
-# the upload are btclib-org/.github's reusable-mutation.yml, called at
-# @main (section 10 of that repository's README.md). What stays here is
-# this tree's own subject matter -- the profiles, their budgets and their
-# ceilings -- and the trigger, the schedule, the dispatch dropdown and the
-# concurrency group.
+# the upload are btclib-org/.github's reusable-mutation.yml, called at a
+# tagged commit (section 10 of btclib-org/.github's README.md). What stays
+# here is this tree's own subject matter -- the profiles, their budgets
+# and their ceilings -- and the trigger, the schedule, the dispatch
+# dropdown and the concurrency group.
 #
 # It gates nothing, by design: a survival rate is not a regression, a
 # mutant surviving because a test is missing, so a red merge would block
@@ -63,7 +63,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   mutation:
-    uses: btclib-org/.github/.github/workflows/reusable-mutation.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-mutation.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     with:
       # one job per profile: its name, the slug the dropdown above selects
       # it by, the job's ceiling in minutes, and one "<configuration>

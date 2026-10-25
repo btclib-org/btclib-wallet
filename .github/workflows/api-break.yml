@@ -5,9 +5,9 @@ name: api-break
 # griffe walk, against the pull request's base commit, the answer a label,
 # `api-break` (btclib-org/.github#1674). The walk, the label and what a
 # fork's pull request gets are btclib-org/.github's
-# `reusable-api-break.yml`, called at @main so a fix there reaches this
-# tree in one landing. What stays here is the trigger, the concurrency
-# group, the permissions and the package.
+# `reusable-api-break.yml`, called at a tagged commit (section 10 of
+# btclib-org/.github's README.md). What stays here is the trigger, the
+# concurrency group, the permissions and the package.
 #
 # Advisory, and not a required check: the label is a signal for whoever
 # writes RELEASE_NOTES.md, and no merge waits on it. A `workflow_dispatch`
@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # the label; read-only on a fork
-    uses: btclib-org/.github/.github/workflows/reusable-api-break.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-api-break.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     with:
       # the value release.yml's `public-api` job passes
       package: btclib_wallet

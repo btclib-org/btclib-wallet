@@ -80,11 +80,12 @@ jobs:
   # the cheapest job in the workflow, and the one that decides whether the
   # rest of it runs: a pull request that edits only prose changes nothing
   # the jobs below read. The event handling and the decision are
-  # btclib-org/.github's, called at @main (section 10 of its README.md);
-  # what stays here is which files are this tree's own prose
+  # btclib-org/.github's, called at a tagged commit (section 10 of
+  # btclib-org/.github's README.md); what stays here is which files are
+  # this tree's own prose
   changes:
     name: Decide whether the jobs below have anything to check
-    uses: btclib-org/.github/.github/workflows/reusable-changes.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-changes.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     # a job's permissions replace the workflow's rather than adding to
     # them, so contents: read is named beside the scope the callee's job
     # adds: a block leaving it off would bound the call to contents: none

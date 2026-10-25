@@ -103,7 +103,8 @@ jobs:
       # HWI declares ^3.9,<3.13 and is run as a program rather than imported
       # (src/btclib_wallet/hwi.py says why, and issue btclib-org/btclib#469 why
       # there is no extra), so it gets an interpreter of its own here: uv
-      # fetches 3.12, and nothing about the environment the tests run in changes.
+      # fetches 3.12, and nothing about the environment the tests run in
+      # changes.
       #
       # The version is the one .github/integration-hwi/requirements-hwi.in
       # names, and the install checks that it is. Installed from the hashed
@@ -125,10 +126,10 @@ jobs:
       # and installed by the same script: btclib-org/.github's
       # install_bitcoind.py, which its reusable-integration-bitcoind.yml
       # runs for that job. Checked out beside this tree rather than over
-      # it, `path:` keeping the two apart; `main` is the trust
-      # integration-bitcoind.yml already extends by calling that workflow
-      # at @main, and the checkout is sparse, so what lands is
-      # .github/scripts and that repository's root files
+      # it, `path:` keeping the two apart. It reads `main`, as section 10
+      # of btclib-org/.github's README.md has a tree's own job do, and the
+      # checkout is sparse, so what lands is .github/scripts and that
+      # repository's root files
       - name: Check out btclib-org/.github's scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
