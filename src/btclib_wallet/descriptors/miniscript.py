@@ -211,7 +211,8 @@ _ARITY = {
 # zeros included, and nothing else
 _NUMBER = re.compile(r"[0-9]+")
 
-# Bitcoin Core's `IsHex`: two or more hex characters, and nothing else.
+# Bitcoin Core's `IsHex`: an even, non-zero count of hex characters, and
+# nothing else.
 # `bytes.fromhex` skips the whitespace this refuses, which would read a
 # hash that prints back without the space, changing the checksum
 _HEX = re.compile(r"(?:[0-9a-fA-F]{2})+")

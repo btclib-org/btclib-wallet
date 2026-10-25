@@ -520,7 +520,9 @@ def test_a_hash_fragment_refuses_whitespace_in_its_hex(
     the descriptor it is in; Core reads the argument with `IsHex`, which
     refuses any non-hex character
     """
-    with pytest.raises(BTClibValueError, match="hex expected"):
+    with pytest.raises(
+        BTClibValueError, match=rf"^invalid {fragment}\(\) hash: hex expected$"
+    ):
         parse(f"and_v(v:pk({KEY}),{fragment}({digest[:10]} {digest[10:]}))")
 
 
