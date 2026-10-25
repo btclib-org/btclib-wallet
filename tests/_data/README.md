@@ -163,6 +163,30 @@ instead: the address versions (v31 refused, v1 through v30 read as far as
 v0 defines them), the 1023-character bound, and the label range. The
 vectors are all v0 addresses on mainnet.
 
+### Not vendored as a file: BIP352's invalid-control-block vector
+
+```text
+repo    Eunovo/bips
+path    bip-0352/send_and_receive_test_vectors.json
+ref     bip352-invalid-control-block-vector
+commit  118695ac5d23b35e7898760f80e4c6c68fcaeea7  2026-10-25
+pulled  2026-10-25
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, and cited inline rather than vendored: the one
+case `bitcoin/bips#2339` adds to the file above, a taproot script-path
+spend whose control block has a length BIP341 does not allow, sending and
+receiving. It is `_CONTROL_BLOCK_VECTOR` in
+`tests/silent_payments_test.py`, copied from the pinned commit. The pull
+request is open, so the path lives on its own branch, which the pin
+carries as its `ref`. The check: the last case of the file at the pin,
+parsed, equals `_CONTROL_BLOCK_VECTOR` as a Python value.
+
+The entry and `_CONTROL_BLOCK_VECTOR` go when
+[ISS 557](https://github.com/btclib-org/btclib-wallet/issues/557) vendors
+the merged file.
+
 ### `tests/bip32/_data/bip32_test_vectors.json`
 
 ```text
