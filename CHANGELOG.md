@@ -24,6 +24,22 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.26
+
+### BIP352 skips a taproot input whose control block has an invalid length
+
+A script-path spend whose control block is not 33 bytes plus a multiple of
+32, up to 128 of them, as bitcoin/bips#2339 has BIP352's reference
+implementation do (closes #556).
+
+### The calls of btclib-org/.github name the commit of its tag `v2026.10.25`
+
+`claude-review.yml`'s call included (issue btclib-org/.github#1870).
+
+### The check-sdist hook builds with `uv_build<0.14`
+
+As `[build-system]` does (closes #511).
+
 ## v2026.10.25
 
 ### `btclib-wallet` depends on `ecc`, the renamed `btclib-ecc`

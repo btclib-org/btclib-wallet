@@ -455,7 +455,7 @@ wheels = [
 
 [[package]]
 name = "btclib-wallet"
-version = "2026.10.25"
+version = "2026.10.26"
 source = { editable = "." }
 dependencies = [
     { name = "bip39-slip39" },

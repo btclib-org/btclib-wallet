@@ -9,6 +9,24 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.26
+
+- **BIP352 skips a taproot input whose control block has an invalid
+  length** ([ISS 556](https://github.com/btclib-org/btclib-wallet/issues/556)).
+  `pub_key_from_input` returns `None` for a script-path spend whose control
+  block is not 33 bytes plus a multiple of 32, up to 128 of them, where it
+  returned the input's output key. BIP341 allows no other length, and
+  bitcoin/bips#2339 has BIP352's reference implementation skip it.
+- **The release's attestation names its signer workflow at a commit**
+  (issue btclib-org/.github#1870).
+  `release.yml` calls `reusable-build.yml` of `btclib-org/.github` at a
+  tagged commit, where it called it at `refs/heads/main`. Act on it if you
+  verify a release with `--signer-workflow` naming
+  `reusable-build.yml@refs/heads/main`: name the workflow without a ref, as
+  `SECURITY.md` does.
+
+`CHANGELOG.md`'s own `v2026.10.26` section has the rest.
+
 ## v2026.10.25
 
 - **btclib-wallet requires `ecc`, the renamed `btclib-ecc`**
