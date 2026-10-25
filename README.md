@@ -78,10 +78,10 @@ still match.
 python -m pip install --upgrade btclib-wallet
 ```
 
-Signing and verifying run where btclib-ecc runs them, so its
+Signing and verifying run where ecc runs them, so its
 [libsecp256k1 bindings](https://github.com/btclib-org/btclib-secp256k1)
-are the recommended install beside it, and btclib-ecc's
-[SECURITY.md](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
+are the recommended install beside it, and ecc's
+[SECURITY.md](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 says what happens without them.
 
 ## An address from a mnemonic
@@ -110,7 +110,7 @@ The address is the first one BIP84 lists for that mnemonic.
   [Electrum](https://electrum.org/#home) and
   [SLIP39](https://github.com/satoshilabs/slips/blob/master/slip-0039.md)
   master keys from a mnemonic, whose scheme up to the seed is
-  [btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics)'
+  [bip39-slip39](https://github.com/btclib-org/bip39-slip39)'
 - [BIP44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki)
   addresses from an extended key and a
   `m/purpose'/coin_type'/account'/change/address_index` path

@@ -41,13 +41,13 @@ from btclib.fee import FeeRate
 from btclib.hashes import hash160, sha256
 from btclib.script import (
     Witness,
-    is_p2ms,
+    is_p2ms_var,
     is_p2pkh,
     is_p2sh,
     is_p2tr,
     is_p2wpkh,
     is_p2wsh,
-    p2ms_m_and_keys,
+    p2ms_m_and_keys_var,
     push_int,
     serialize,
     sig_hash,
@@ -77,8 +77,8 @@ from btclib.utils import (
     list_from_json_array,
     str_from_string,
 )
-from btclib_ecc.curves import sec_point
-from btclib_ecc.ecc import dsa, ssa
+from ecc.curves import sec_point
+from ecc.ecc import dsa, ssa
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet.bip32 import (
@@ -919,7 +919,7 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
     output_key = type_and_payload(prev_out.script_pub_key.script)[1]
 
     if psbt_in.taproot_internal_key:
-        tweaked = taproot.output_pubkey_from_merkle_root(
+        tweaked = taproot.output_pubkey_from_merkle_root_var(
             psbt_in.taproot_internal_key, psbt_in.taproot_merkle_root
         )[0]
         if tweaked != output_key:
@@ -2135,7 +2135,7 @@ def _bip147_dummy(psbt_in: PsbtIn) -> list[bytes]:
     """
     script = _satisfied_script(psbt_in)
     if script:
-        return [b""] if is_p2ms(script) else []
+        return [b""] if is_p2ms_var(script) else []
     return [b""] if len(psbt_in.partial_sigs) > 1 else []
 
 
@@ -2166,10 +2166,10 @@ def _pushed_sigs(psbt_in: PsbtIn) -> list[bytes]:
     key, and for a p2pk the one the script already names.
     """
     script = _satisfied_script(psbt_in)
-    if not is_p2ms(script):
+    if not is_p2ms_var(script):
         return list(psbt_in.partial_sigs.values())
 
-    m, pub_keys = p2ms_m_and_keys(script)
+    m, pub_keys = p2ms_m_and_keys_var(script)
     sigs = [
         psbt_in.partial_sigs[pub_key]
         for pub_key in pub_keys

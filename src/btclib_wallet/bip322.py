@@ -54,13 +54,13 @@ it to that one.
 
 Verification answers three states, as the BIP does. Valid is a return;
 invalid is a `ValueError` or a `RuntimeError` of btclib's or of
-btclib_ecc's, whatever failed being what it says; and *inconclusive*
+ecc's, whatever failed being what it says; and *inconclusive*
 is `InconclusiveError`, which is the state for a signature that today's
 rules cannot judge -- a `to_sign` whose version is neither 0 nor 2, an
 upgradeable NOP, a witness program of a version this library does not
-know. btclib_ecc's classes are no `BTClibException` -- a legacy
+know. ecc's classes are no `BTClibException` -- a legacy
 signature whose recovered key is the point at infinity is its
-`BTClibEccRuntimeError` -- so `_INVALID` names each class a single
+`EccRuntimeError` -- so `_INVALID` names each class a single
 `except` has to catch. `verify` collapses all three states to a
 boolean, and an inconclusive signature is not a valid one.
 
@@ -130,10 +130,10 @@ from btclib.script.taproot import output_prvkey_from_merkle_root, output_pubkey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, bytes_from_octets, str_from_string
-from btclib_ecc.curves import bytes_from_prv_key_int
-from btclib_ecc.ecc import dsa, ssa
-from btclib_ecc.exceptions import BTClibEccRuntimeError
-from btclib_ecc.hashes import tagged_hash
+from ecc.curves import bytes_from_prv_key_int
+from ecc.ecc import dsa, ssa
+from ecc.exceptions import EccRuntimeError
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.psbt import Psbt, extract_tx
 from btclib_wallet.psbt.psbt import _b64decode
@@ -160,13 +160,13 @@ __all__ = [
 TAG = b"BIP0322-signed-message"
 
 # what an invalid signature raises: any ValueError, btclib's
-# BTClibRuntimeError, and btclib_ecc's own BTClibEccRuntimeError. Named
+# BTClibRuntimeError, and ecc's own EccRuntimeError. Named
 # and not RuntimeError, which would read a RecursionError or a defect of
 # the library as a signature that failed
 _INVALID: tuple[type[Exception], ...] = (
     ValueError,
     BTClibRuntimeError,
-    BTClibEccRuntimeError,
+    EccRuntimeError,
 )
 
 SIMPLE = "smp"

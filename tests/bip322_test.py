@@ -48,10 +48,10 @@ from btclib.script.taproot import input_script_sig, output_prvkey, output_pubkey
 from btclib.script.taproot import serialize as serialize_tapscript
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from btclib_ecc.curves import secp256k1
-from btclib_ecc.ecc import dsa, ssa
-from btclib_ecc.exceptions import BTClibEccRuntimeError
-from btclib_ecc.hashes import reduce_to_hlen
+from ecc.curves import secp256k1
+from ecc.ecc import dsa, ssa
+from ecc.exceptions import EccRuntimeError
+from ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
 from btclib_wallet.psbt import Psbt, extract_tx, finalize
@@ -134,7 +134,7 @@ def test_btcd_vector(group: str, case: dict[str, Any]) -> None:
             bip322.assert_as_valid(msg, addr, signature)
         except InconclusiveError:
             result = "inconclusive"
-        except (ValueError, BTClibRuntimeError, BTClibEccRuntimeError):
+        except (ValueError, BTClibRuntimeError, EccRuntimeError):
             result = "invalid"
         else:
             result = "valid"
@@ -715,7 +715,7 @@ def test_a_legacy_signature_recovering_no_key_is_false(
 
     With r the generator's x and s the message's own reduced hash, the
     first key id names R = G, so recovery computes s*G - s*G. The Python
-    arm refuses that with a runtime error, which is btclib_ecc's under
+    arm refuses that with a runtime error, which is ecc's under
     a btclib carrying issue btclib-org/btclib#2282 and no
     `BTClibRuntimeError`; `verify` answers every refusal of a well-formed
     signature False, whichever library raised it.

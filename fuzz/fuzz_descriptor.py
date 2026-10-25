@@ -25,7 +25,7 @@ parser.
 
 A crash on hostile text is a defect in `parse` or in the printer, never in
 this harness: nothing validates or normalizes between the decode and the
-call. `BTClibException` and `BTClibEccException` are what `parse`
+call. `BTClibException` and `EccException` are what `parse`
 answers a character outside the charset, an unknown function, a bad key
 and a checksum that does not match with, so that family is caught below
 as the expected outcome. An `IndexError`, a `RecursionError` or an
@@ -82,7 +82,7 @@ from dataclasses import fields, is_dataclass, replace
 import atheris
 from btclib.exceptions import BTClibException
 from btclib.hashes import hash160
-from btclib_ecc.exceptions import BTClibEccException
+from ecc.exceptions import EccException
 
 from btclib_wallet.descriptors import descriptors, miniscript
 from btclib_wallet.descriptors.key_expression import KeyExpression
@@ -134,7 +134,7 @@ def _assert_miniscript_round_trips(
                     if value.context == miniscript.TAPSCRIPT:
                         sec = sec[1:]
                     key_hashes[hash160(sec)] = sec
-            except (BTClibException, BTClibEccException):
+            except (BTClibException, EccException):
                 continue
             script = value.script(0, parsed.network, prv_keys)
             decoded = miniscript.from_script(script, value.context, key_hashes)
@@ -151,7 +151,7 @@ def _assert_miniscript_round_trips(
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as an output descriptor and print it back.
 
-    A `BTClibException` or `BTClibEccException` from parsing `data` ends
+    A `BTClibException` or `EccException` from parsing `data` ends
     the run; the module docstring says what propagates.
     """
     prv_keys: dict[str, str] = {}
@@ -159,7 +159,7 @@ def fuzz_target(data: bytes) -> None:
         parsed = descriptors.parse(
             data.decode("utf-8", errors="replace"), prv_keys=prv_keys
         )
-    except (BTClibException, BTClibEccException):
+    except (BTClibException, EccException):
         return
     printed = str(parsed)
     reparsed = descriptors.parse(printed)

@@ -6,5 +6,6 @@
 #     --output-file requirements-speculos.txt requirements-speculos.in
 # overrides-speculos.txt replaces speculos's own `pillow<11.0.0` and
 # `flask<3.0.0`, whose newest releases, 10.4.0 and 2.3.3, carry published
-# advisories
+# advisories; its floor `pillow>=13` is the first release free of
+# GHSA-654x-cwwv-5j9c and GHSA-5x8w-8jj5-q52h
 speculos==0.26.10

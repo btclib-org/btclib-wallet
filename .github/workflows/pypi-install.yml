@@ -11,7 +11,7 @@ name: pypi-install
 #
 # The check derives an address from a mnemonic: importing `bip44` opens
 # the purposes table the wheel carries, and the derivation reads the
-# english word list btclib-mnemonics carries, where `import btclib_wallet`
+# english word list bip39-slip39 carries, where `import btclib_wallet`
 # alone runs `__init__.py` and opens neither
 
 on:

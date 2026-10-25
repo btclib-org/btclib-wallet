@@ -30,20 +30,18 @@ row 6: dependencies point one way, down that table, so nothing in
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
-Since btclib-org/btclib#2404 this package also depends on `btclib-ecc`
-directly — row 2 of that table, released under that name rather than its
-working name `ellipticcurves` — because every package now declares every
-distribution whose names it imports rather than relying on btclib's
-re-export of them; `pyproject.toml`'s comment beside the dependency names
-what this package imports from it.
+This package also depends on `ecc` directly — row 2 of that table —
+because every package declares every distribution whose names it imports
+rather than relying on btclib's re-export of them; `pyproject.toml`'s
+comment beside the dependency names what this package imports from it.
 
-It depends on `btclib-mnemonics` too, which holds the BIP39, SLIP39 and
+It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports
 nothing of btclib or of this package. What stays here is where a seed
 meets BIP32, which only a package seeing both sides can hold: the
 functions of `mnemonic/` below. A module here reaches a name of
-`btclib_mnemonics` through that package,
-`btclib_mnemonics.bip39.seed_from_mnemonic`, and neither binds nor
+`bip39_slip39` through that package,
+`bip39_slip39.bip39.seed_from_mnemonic`, and neither binds nor
 re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
@@ -53,11 +51,11 @@ from a seed to a signed, broadcast transaction, and every module with a
 counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol stays btclib's and opens nothing.
 
-What this package signs, it signs through `btclib_ecc.ecc`, so the
+What this package signs, it signs through `ecc.ecc`, so the
 dispatch to the libsecp256k1 bindings
-(`btclib_ecc.curves.curve._libsecp256k1_serves`) and where constant time
-ends are btclib-ecc's, stated in its
-[SECURITY](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md)
+(`ecc.curves.curve._libsecp256k1_serves`) and where constant time
+ends are ecc's, stated in its
+[SECURITY](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 under *Limitations, not vulnerabilities*.
 `src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
 are the two modules that reach past that dispatch and call the
@@ -75,7 +73,7 @@ submodule loads on first attribute access through the package's own
   and `bip32.key_origin` are its two notations — a `der_path` string and
   the fingerprint-plus-path pair a psbt or a descriptor carries.
 - `mnemonic/` builds the BIP32 master key of a BIP39, SLIP39 or
-  Electrum mnemonic from the seed `btclib_mnemonics` recovers from it,
+  Electrum mnemonic from the seed `bip39_slip39` recovers from it,
   and the master public key of a pre-2.0 Electrum one.
 - `bip85.py` derives another wallet's entropy — a BIP39 sentence among
   other formats — from one BIP32 root, so one backup stands behind
@@ -203,8 +201,8 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's or btclib_ecc's, and a mnemonic up to its seed is
-btclib_mnemonics'; this package reimplements none of it. What is here is
+serialization — is btclib's or ecc's, and a mnemonic up to its seed is
+bip39_slip39's; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 — the wallets that remember what they have handed out, the one contract

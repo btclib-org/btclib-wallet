@@ -35,7 +35,7 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
 - **Malformed input is refused the way the library says it is.** A
   public function handed an argument it cannot use raises
   `BTClibTypeError` or `BTClibValueError`, as btclib's own contract
-  requires, or btclib_ecc's class of the same kind where the argument
+  requires, or ecc's class of the same kind where the argument
   reaches that package unchecked (`tests/input_validation_test.py`,
   `tests/integer_policy_test.py`).
 - **Parsing octets from outside costs what the protocol allows.** A
@@ -46,9 +46,9 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   or `OverflowError` (`tests/fuzz_test.py`).
 - **Where a secret meets the curve, the protection is the one
   SECURITY.md's *Where constant time ends* states, and no more.** Signing
-  and verification run where btclib-ecc runs them; `bip32/bip32.py` and
+  and verification run where ecc runs them; `bip32/bip32.py` and
   `silent_payments.py` also call the libsecp256k1 bindings directly, as
-  *Where this package reaches past btclib-ecc's own dispatch* below says;
+  *Where this package reaches past ecc's own dispatch* below says;
   the sum this package builds for BIP352 and the EC-multiply factor BIP38
   builds are Python integer arithmetic, variable in time with the
   operands, whichever install is in use.
@@ -82,7 +82,7 @@ EOF
 ```
 
 Beside this package's imports of its own modules, its dependencies
-`btclib`, `btclib_ecc`, `btclib_mnemonics`, `bitcoin_core_rpc` and
+`btclib`, `ecc`, `bip39_slip39`, `bitcoin_core_rpc` and
 `typing_extensions`, and btclib's `btclib_secp256k1`, what it lists is
 the standard library: `subprocess` is `hwi.py`'s alone, `ssl` is
 `fetch.transport`'s, `socket` is `fetch.transport`'s and
@@ -207,7 +207,7 @@ check, as `dlc.oracle`'s module docstring says;
 
 **Mnemonics and passwords.** A sentence or a password only the user holds
 crosses in through `mnemonic/` and `bip38.py`. A sentence is read by
-`btclib_mnemonics`, against the word lists that package ships, before
+`bip39_slip39`, against the word lists that package ships, before
 `mnemonic/` derives a key from its seed.
 
 **The signing boundary.** `psbt_signer.PsbtSigner` is where a signer's
@@ -290,7 +290,7 @@ describes.
   request Bitcoin Core's `importdescriptors` takes and opens no RPC
   connection to send it.
 - **Psychological acceptability.** A parser refuses with
-  `BTClibTypeError` or `BTClibValueError`, or btclib_ecc's class of
+  `BTClibTypeError` or `BTClibValueError`, or ecc's class of
   the same kind, rather than an opaque exception, and
   `assert_psbt_signer` raises on the first breach with what was expected
   and what came back, because the first breach is the one an implementer
@@ -301,16 +301,16 @@ describes.
   only the ones before them; `fetch`'s own codec sits in `btclib.p2p`
   and `btclib.electrum`, outside this package, for the reason above.
 
-**Where this package reaches past btclib-ecc's own dispatch, it says so.**
+**Where this package reaches past ecc's own dispatch, it says so.**
 `bip32/bip32.py` and `silent_payments.py` are the two modules calling the
-libsecp256k1 bindings directly rather than through btclib-ecc's general
+libsecp256k1 bindings directly rather than through ecc's general
 dispatch. Each call is one fixed operation behind
 `is_libsecp256k1_serving`, not a copy of the dispatch logic:
 `prvkey_tweak_add` and `PubkeyTweakChain` in `bip32.py`;
 `create_outputs`, `prevouts_summary` and `scan_outputs` in
 `silent_payments.py`. That keeps the one place a caller has to read for
 "does this call reach the bindings" to
-`btclib_ecc.curves.curve._libsecp256k1_serves` plus these two modules.
+`ecc.curves.curve._libsecp256k1_serves` plus these two modules.
 
 ## Common implementation weaknesses
 
@@ -322,7 +322,7 @@ to, and what counters each.
   field — a derivation index, an account number — is expected.
 - **Uncaught exceptions on hostile input (CWE-248, CWE-755).**
   `tests/fuzz_test.py`'s contract — `BTClibValueError`, `BTClibTypeError`
-  or `BTClibRuntimeError`, or btclib_ecc's class of the same kind, and
+  or `BTClibRuntimeError`, or ecc's class of the same kind, and
   nothing else — driven by Hypothesis over
   every declared parser and by the harnesses under `fuzz/` running under
   ClusterFuzzLite. `tests/fuzz_corpus_test.py` checks that every seed of

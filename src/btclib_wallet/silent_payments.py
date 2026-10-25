@@ -58,7 +58,7 @@ secret is derived from. None of the three is a function here; the module
 docstring is where they are stated, and `btclib.script.sig_hash` is where
 the flags are.
 
-secp256k1 and sha256 are not parameters, as in `btclib_ecc.ecc.musig2`:
+secp256k1 and sha256 are not parameters, as in `ecc.ecc.musig2`:
 BIP352 is defined for that pair, and the 33-byte compressed points, the
 32-byte scalars and the three tags below are its serialization.
 """
@@ -79,7 +79,7 @@ from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
 from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_string
-from btclib_ecc.curves import (
+from ecc.curves import (
     PubKey,
     TweakChain,
     bytes_from_point,
@@ -93,8 +93,8 @@ from btclib_ecc.curves import (
     sum_var,
     tweak_add_var,
 )
-from btclib_ecc.ecc.ssa import point_from_bip340pub_key_var
-from btclib_ecc.hashes import tagged_hash
+from ecc.ecc.ssa import point_from_bip340pub_key_var
+from ecc.hashes import tagged_hash
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -174,6 +174,12 @@ NUMS_H = bytes.fromhex(
 # BIP341's annex prefix, which is popped off a witness stack before the
 # control block is read
 _ANNEX_PREFIX = 0x50
+
+# BIP341's control block: a control byte, the 32-byte internal key and up
+# to 128 hashes of 32 bytes each
+_CONTROL_BASE_SIZE = 33
+_CONTROL_NODE_SIZE = 32
+_CONTROL_MAX_SIZE = _CONTROL_BASE_SIZE + _CONTROL_NODE_SIZE * 128
 
 
 # what a label index is serialized as, and the whole of what bounds one:
@@ -422,9 +428,14 @@ def _pub_key_from_p2tr(script_pub_key: bytes, witness: Witness) -> Point | None:
     recipient would find nothing. So a script-path spend counts, and its
     output key is what counts.
 
-    The one exception is BIP341's NUMS internal key, which says there is
-    no key path to sign with: such an input is skipped, so that an output
-    of that shape can be spent into a silent payment at all.
+    One exception is BIP341's NUMS internal key, which says there is no
+    key path to sign with: such an input is skipped, so that an output of
+    that shape can be spent into a silent payment at all.
+
+    Another is a script-path spend whose control block is not 33 bytes
+    plus a multiple of 32, up to 128 of them. BIP341 allows no other
+    length, and bitcoin/bips#2339 has BIP352's reference implementation
+    skip it.
     """
     stack = list(witness.stack)
     if not stack:
@@ -434,7 +445,14 @@ def _pub_key_from_p2tr(script_pub_key: bytes, witness: Witness) -> Point | None:
     if len(stack) > 1 and stack[-1][:1] == bytes([_ANNEX_PREFIX]):
         stack.pop()
     if len(stack) > 1:
-        internal_key = stack[-1][1:33]
+        control_block = stack[-1]
+        if (
+            len(control_block) < _CONTROL_BASE_SIZE
+            or len(control_block) > _CONTROL_MAX_SIZE
+            or (len(control_block) - _CONTROL_BASE_SIZE) % _CONTROL_NODE_SIZE
+        ):
+            return None
+        internal_key = control_block[1:33]
         if internal_key == NUMS_H:
             return None
 
@@ -456,11 +474,12 @@ def pub_key_from_input(
 
     None is BIP352's "skip": the four eligible output types are p2pkh,
     p2wpkh, p2sh-p2wpkh and p2tr, and inside them an uncompressed key, a
-    taproot NUMS internal key, a p2sh wrapping anything but p2wpkh, and a
-    scriptSig or witness that carries no key at all are each skipped
-    rather than refused. A transaction of nothing but skipped inputs is a
-    transaction no silent payment can be made from, which is the caller's
-    to notice -- `pub_key_sum` of an empty sequence says so.
+    taproot NUMS internal key or control block of a length BIP341 does not
+    allow, a p2sh wrapping anything but p2wpkh, and a scriptSig or witness
+    that carries no key at all are each skipped rather than refused. A
+    transaction of nothing but skipped inputs is a transaction no silent
+    payment can be made from, which is the caller's to notice --
+    `pub_key_sum` of an empty sequence says so.
     """
     spk = bytes_from_octets(script_pub_key)
     sig = bytes_from_octets(script_sig)
@@ -591,7 +610,7 @@ def shared_secret(scalar: Integer, point: PubKey) -> Point:
     without the round trip through one. The point itself is the answer,
     which is why `ecdh.shared_secret` of the bindings is no substitute --
     it hashes, and BIP352 tags this point with a counter of its own;
-    `btclib_ecc.ecc.dh` has that verdict for all four of the library's
+    `ecc.ecc.dh` has that verdict for all four of the library's
     ECDH-shaped computations.
 
     The octets arrive unproven, as `ecc.ecies.derive_keys` takes them:
@@ -1025,7 +1044,7 @@ def prv_key_from_tweak(b_spend: Integer, prv_key_tweak: int) -> int:
 
     b_spend plus the tweak `scan_outputs` reported, modulo n. The taproot
     output is x-only, so a signer negates this key if it has to; that is
-    BIP340's business and `btclib_ecc.ecc.ssa.sign` does it.
+    BIP340's business and `ecc.ecc.ssa.sign` does it.
     """
     d = (
         scalar_from_prv_key(b_spend) + scalar_from_prv_key(prv_key_tweak)

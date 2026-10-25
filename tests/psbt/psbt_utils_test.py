@@ -12,7 +12,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import Witness
 from btclib.tx import Tx, TxIn, TxOut
 from btclib.tx.out_point import OutPoint
-from btclib_ecc.curves import sec_point, secp256k1
+from ecc.curves import sec_point, secp256k1
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt.psbt_utils import (

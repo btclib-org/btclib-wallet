@@ -315,7 +315,7 @@ is asked before this code is.
 names imports it from `btclib`. `tests/imports_test.py` is what reads the
 import graph. A name of `bitcoin_core_rpc` that `btclib_wallet.fetch`
 publishes is a re-export, and `tests/all_test.py`'s `REEXPORTED` records
-each such name. A name of `btclib_mnemonics` is reached through that
+each such name. A name of `bip39_slip39` is reached through that
 package and neither bound nor re-exported by a module here, which
 `tests/all_test.py` holds too: a caller reaches the mnemonic schemes by
 that package's name.
@@ -348,23 +348,23 @@ copy: `derive` validates and calls `_derive`, which does not, and
 `_key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
 becomes a validated `BIP32KeyData`.
 
-**A refusal of btclib_ecc's own leaves as that package's class.** Under
+**A refusal of ecc's own leaves as that package's class.** Under
 a btclib carrying issue btclib-org/btclib#2282 the curve arithmetic and the
-schemes on it are btclib_ecc's, whose `BTClibEccTypeError`,
-`BTClibEccValueError` and `BTClibEccRuntimeError` are a
+schemes on it are ecc's, whose `EccTypeError`,
+`EccValueError` and `EccRuntimeError` are a
 `TypeError`, a `ValueError` and a `RuntimeError` and no `BTClibException`:
 an argument this package hands on to it unchecked is refused as one of
-those, which a caller names from `btclib_ecc.exceptions`. A catch that
-renames a refusal btclib_ecc may raise, to say which field it was, names
+those, which a caller names from `ecc.exceptions`. A catch that
+renames a refusal ecc may raise, to say which field it was, names
 `ValueError`, so that the field is named whichever library refused; a catch
 that answers a failed check `False` names the runtime class of both
 libraries, which is `bip322`'s `_INVALID`.
 `tests/exception_family_test.py` holds the classes of both libraries for
 each kind, and a bare built-in is in none of them.
 
-**A refusal of btclib_mnemonics' own leaves as that package's class.** A
+**A refusal of bip39_slip39's own leaves as that package's class.** A
 mnemonic this package hands on is checked there, and
-`BTClibMnemonicsTypeError` and `BTClibMnemonicsValueError` are a
+`Bip39Slip39TypeError` and `Bip39Slip39ValueError` are a
 `TypeError` and a `ValueError` and no `BTClibException`, so `except
 ValueError` is what catches a refusal of either library.
 `tests/exception_family_test.py` holds them in the same families.
@@ -438,7 +438,7 @@ hook green — a name ending in an underscore is a reference to a link
 target, and the fix is double backticks around it. `-n` turns an
 unresolved cross-reference into a warning for `-W` to fail on, and
 `conf.py`'s `intersphinx_mapping` is what resolves a reference into the
-standard library, btclib or bitcoin-core-rpc.
+standard library, btclib, ecc or bitcoin-core-rpc.
 
 **Check exit codes, not filtered output.** `pre-commit run ... | grep -v
 Passed` hides a failure, and `grep` finding nothing exits 1, which is not

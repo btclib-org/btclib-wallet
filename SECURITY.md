@@ -31,7 +31,7 @@ schemes, the codecs, scripts and transactions — and on
 [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), which
 is the client the Bitcoin Core backends of `btclib_wallet.fetch` talk
 through, and on
-[btclib-mnemonics](https://github.com/btclib-org/btclib-mnemonics), which
+[bip39-slip39](https://github.com/btclib-org/bip39-slip39), which
 holds the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed.
 secp256k1 arithmetic is delegated further down, through btclib,
 to [btclib-secp256k1](https://github.com/btclib-org/btclib-secp256k1) and
@@ -113,22 +113,22 @@ written against, and the argument for what this file does promise.
 These are known and inherent, and worth stating because this package is
 used to teach and to prototype as much as to build.
 
-- **The arithmetic is btclib-ecc's, and so is its notice.** Signing,
+- **The arithmetic is ecc's, and so is its notice.** Signing,
     verification, BIP32's derivation and the silent-payment operations
-    reach libsecp256k1 where btclib-ecc's own predicate lets them,
-    through btclib-ecc or through the bindings `bip32` and
-    `silent_payments` call directly, and run btclib-ecc's Python
+    reach libsecp256k1 where ecc's own predicate lets them,
+    through ecc or through the bindings `bip32` and
+    `silent_payments` call directly, and run ecc's Python
     arithmetic otherwise — which is validated against the bindings but is
     not constant-time.
     Which operations cross the boundary, under which conditions, and
     what the Python path leaks is
-    [btclib-ecc's SECURITY.md](https://github.com/btclib-org/btclib-ecc/blob/main/SECURITY.md),
+    [ecc's SECURITY.md](https://github.com/btclib-org/ecc/blob/main/SECURITY.md),
     and this file does not restate it.
 - **An install decides whether the boundary is there.**
     `pip install "btclib-wallet[secp256k1]"` installs the bindings,
     through btclib's own extra and by name; `pip install btclib-wallet`
     installs no C, and every secret then meets the Python arithmetic.
-    Nothing raises to say so, and `btclib_ecc.curves.is_libsecp256k1_serving()`
+    Nothing raises to say so, and `ecc.curves.is_libsecp256k1_serving()`
     is how a caller asks which of the two it has.
 - **Where this package combines secret scalars itself, the arithmetic
     is on Python integers**, variable in time with the operands, whether
@@ -203,11 +203,24 @@ used to teach and to prototype as much as to build.
 - **`CompactFilterFetcher` checks the chain it follows and trusts one peer
     for the rest.** Every header connects to the one before it, carries the
     work its bits claim and carries the bits the retarget rules require
-    (`btclib.block.header_context.next_bits_required`); the median time past
-    and the clock are not asked. No chain with less work than the network's
-    `minimum_chain_work` is accepted. A fork is followed only if it ends
-    with more work than the chain it displaces; otherwise the chain held is
-    put back if it has the minimum work, and dropped if not. Every
+    (`btclib.block.header_context.next_bits_required`). Its time is after
+    the median time past of its parent, no more than two
+    hours ahead of the clock, and where the network enforces BIP94 not far
+    behind its parent at a retarget. No chain with less work than the
+    network's `minimum_chain_work` is followed: a call that ends on one fails,
+    and a later synchronization completes it or drops it. Until a chain has
+    the minimum work, its headers are downloaded without being kept, as
+    Bitcoin Core's headers presync does: the memory is a bit for every few
+    hundred headers, and the longest chain the rules allow at the time of
+    the clock bounds those bits. The chain is then downloaded again, and a
+    header is kept only once enough later ones have matched the commitments
+    of the first download, or once the chain has the work the first download
+    needed. A peer can still make the fetcher download as
+    many low-work headers as it has mined, up to that bound. A header's
+    version is not checked. A fork is
+    followed only if it ends with more work than the chain it displaces;
+    otherwise the chain held is put back if it has the minimum work, and
+    dropped if not. Every
     `cfheaders` answers the request it came from and chains from the filter
     header held. Every `cfilter` is the filter of the block asked for and
     hashes, chained to the filter header before it, to the filter header
@@ -223,14 +236,10 @@ used to teach and to prototype as much as to build.
     makes a block authoritative, so the work of those blocks is signet's low
     difficulty. A block with a witness changed or removed is refused, one
     with every witness removed included: its coinbase commits to witnesses
-    and carries no nonce for them. The peer can keep a synchronization
-    going, and the fetcher's headers growing in memory, for as long as it
-    sends headers that pass the checks, the minimum work being checked when
-    a synchronization ends without failing ([ISS
-    354](https://github.com/btclib-org/btclib-wallet/issues/354)). It also
-    decides which blocks are downloaded, up to the `max_blocks` of the call,
-    and sees which they are; it is given no script. Use a peer you trust, or
-    run several fetchers and compare.
+    and carries no nonce for them. The peer also decides which blocks are
+    downloaded, up to the `max_blocks` of the call, and sees which they are;
+    it is given no script. Use a peer you trust, or run several fetchers and
+    compare.
 - **An explorer learns every txid, outpoint and address you look up**,
     which is a good deal of what a wallet is. A public deployment is named
     as a constant and never as a default, so nothing here contacts anyone

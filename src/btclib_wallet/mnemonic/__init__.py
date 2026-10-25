@@ -6,7 +6,7 @@
 
 The master key of a BIP39, SLIP39 or Electrum mnemonic, one module per
 scheme. The schemes themselves -- entropy, sentence and seed -- are
-`btclib_mnemonics`', and what is here is where a seed meets BIP32:
+`bip39_slip39`'s, and what is here is where a seed meets BIP32:
 `bip39.mxprv_from_mnemonic`, `slip39.mxprv_from_mnemonics`,
 `electrum.mxprv_from_mnemonic` and
 `electrum.old_master_pub_key_from_mnemonic`.

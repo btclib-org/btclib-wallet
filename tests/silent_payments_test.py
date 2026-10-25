@@ -34,8 +34,8 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
-from btclib_ecc.curves import bytes_from_point, mult, secp256k1
-from btclib_ecc.ecc import ssa
+from ecc.curves import bytes_from_point, mult, secp256k1
+from ecc.ecc import ssa
 
 from btclib_wallet import silent_payments
 from tests import NOT_STRIPPED, load, needs_bindings, vector_id
@@ -1013,6 +1013,133 @@ def test_a_script_path_spend_counts_unless_its_internal_key_is_nums() -> None:
 
     nums = Witness([tapscript, b"\xc0" + silent_payments.NUMS_H])
     assert silent_payments.pub_key_from_input(script_pub_key, b"", nums) is None
+
+
+# The vector bitcoin/bips#2339 adds to BIP352's
+# `send_and_receive_test_vectors.json`. Where it is pinned, and why it is
+# not in the vendored file, `tests/_data/README.md` says.
+_CONTROL_BLOCK_VECTOR = {
+    "comment": "Single recipient: taproot script-path spend with invalid control block "
+    "size is skipped",
+    "sending": [
+        {
+            "given": {
+                "vin": [
+                    {
+                        "txid": "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+                        "vout": 0,
+                        "scriptSig": "",
+                        "txinwitness": "0340c459b671370d12cfb5acee76da7e3ba7cc29b0b4653e3af8388591082660137d087fdc8e89a612cd5d15be0febe61fc7cdcf3161a26e599a4514aa5c3e86f47b22205a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be5ac22c05a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be500",
+                        "prevout": {
+                            "scriptPubKey": {
+                                "hex": "51205a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be5"
+                            }
+                        },
+                        "private_key": "eadc78165ff1f8ea94ad7cfdc54990738a4c53f6e0507b42154201b8e5dff3b1",
+                    }
+                ],
+                "recipients": [
+                    {
+                        "address": "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv",
+                        "scan_pub_key": "0220bcfac5b99e04ad1a06ddfb016ee13582609d60b6291e98d01a9bc9a16c96d4",
+                        "spend_pub_key": "025cc9856d6f8375350e123978daac200c260cb5b5ae83106cab90484dcd8fcf36",
+                    }
+                ],
+            },
+            "expected": {
+                "outputs": [[]],
+                "shared_secrets": [None],
+                "input_pub_keys": [],
+            },
+        }
+    ],
+    "receiving": [
+        {
+            "given": {
+                "vin": [
+                    {
+                        "txid": "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+                        "vout": 0,
+                        "scriptSig": "",
+                        "txinwitness": "0340c459b671370d12cfb5acee76da7e3ba7cc29b0b4653e3af8388591082660137d087fdc8e89a612cd5d15be0febe61fc7cdcf3161a26e599a4514aa5c3e86f47b22205a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be5ac22c05a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be500",
+                        "prevout": {
+                            "scriptPubKey": {
+                                "hex": "51205a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be5"
+                            }
+                        },
+                    }
+                ],
+                "outputs": [
+                    "67fee277da9e8542b5d2e6f32d660a9bbd3f0e107c2d53638ab1d869088882d6"
+                ],
+                "key_material": {
+                    "spend_priv_key": "9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3",
+                    "scan_priv_key": "0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c",
+                },
+                "labels": [],
+            },
+            "expected": {
+                "addresses": [
+                    "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv"
+                ],
+                "outputs": [],
+                "tweak": None,
+                "shared_secret": None,
+            },
+        }
+    ],
+}
+
+
+def test_a_control_block_vector_skips_the_input_on_the_sending_side() -> None:
+    """The 34-byte control block of the vector's witness counts for nothing."""
+    # the vector has no position in the vendored file
+    test_sending_vectors(-1, _CONTROL_BLOCK_VECTOR["sending"][0])
+
+
+def test_a_control_block_vector_skips_the_input_on_the_receiving_side() -> None:
+    """The output paid to the receiver is not found: the input is skipped."""
+    test_receiving_vectors(-1, _CONTROL_BLOCK_VECTOR["receiving"][0])
+
+
+def _control_block_input(size: int, *, annex: bool) -> Witness:
+    """Return a script-path witness whose control block is `size` bytes."""
+    internal_key = bytes_from_point(mult(7))[1:]
+    control_block = (b"\xc0" + internal_key + bytes(max(0, size - 33)))[:size]
+    stack = [b"\x51", control_block]
+    return Witness([*stack, b"\x50"] if annex else stack)
+
+
+@pytest.mark.parametrize(
+    "size, counts",
+    [
+        (1, False),
+        (33, True),
+        (33 + 32 * 128, True),
+        (32, False),
+        (33 + 32 * 129, False),
+        (33 + 1, False),
+    ],
+)
+@pytest.mark.parametrize("annex", [False, True])
+def test_a_control_block_counts_only_at_a_length_bip341_allows(
+    size: int, counts: bool, annex: bool
+) -> None:
+    """33 plus a multiple of 32, up to 128 of them; the annex is not in it."""
+    output_key = bytes_from_point(mult(3))[1:]
+    script_pub_key = b"\x51\x20" + output_key
+    witness = _control_block_input(size, annex=annex)
+
+    expected = mult(3) if counts else None
+    assert silent_payments.pub_key_from_input(script_pub_key, b"", witness) == expected
+
+
+@pytest.mark.parametrize("element", [b"\x01", bytes(64), bytes(33 + 1)])
+def test_a_key_path_spend_has_no_control_block_to_measure(element: bytes) -> None:
+    """One element is a signature, whatever its length."""
+    script_pub_key = b"\x51\x20" + bytes_from_point(mult(3))[1:]
+    witness = Witness([element])
+    assert silent_payments.pub_key_from_input(script_pub_key, b"", witness) == mult(3)
 
 
 def test_only_ascii_whitespace_is_stripped_from_an_address() -> None:

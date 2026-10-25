@@ -27,11 +27,11 @@ from pathlib import Path
 from pkgutil import iter_modules
 from types import ModuleType
 
+import bip39_slip39
+import bip39_slip39.bip39
+import bip39_slip39.exceptions
+import bip39_slip39.mnemonic
 import bitcoin_core_rpc
-import btclib_mnemonics
-import btclib_mnemonics.bip39
-import btclib_mnemonics.exceptions
-import btclib_mnemonics.mnemonic
 import pytest
 
 import btclib_wallet
@@ -325,7 +325,7 @@ def test_psbt_exports_the_format_not_its_plumbing() -> None:
         "taproot_sig_hash",
     ]
 
-    # BIP373 is a role, so the module is the name, as btclib_ecc.ecc.musig2 is
+    # BIP373 is a role, so the module is the name, as ecc.ecc.musig2 is
     assert btclib_wallet.psbt.musig2.__name__ == "btclib_wallet.psbt.musig2"
     # and the same for the roles over a BIP445 session, whose fields are
     # btclib's own proprietary records rather than assigned type bytes
@@ -594,44 +594,44 @@ def test_nothing_becomes_public_by_accident() -> None:
         )
 
 
-def _owned_by_btclib_mnemonics(value: object) -> bool:
-    """Answer whether an object is one of btclib_mnemonics' own.
+def _owned_by_bip39_slip39(value: object) -> bool:
+    """Answer whether an object is one of bip39_slip39's own.
 
     A module of that package, a function or a class it defines, or an
     instance of a class it defines -- a word-list registry, say. The
-    package itself is not: `import btclib_mnemonics.bip39` binds it, and
+    package itself is not: `import bip39_slip39.bip39` binds it, and
     the name it is bound by is the one a caller already has.
     """
     if isinstance(value, ModuleType):
-        return value.__name__.startswith("btclib_mnemonics.")
+        return value.__name__.startswith("bip39_slip39.")
     owner = getattr(value, "__module__", None)
     if not isinstance(owner, str):
         owner = type(value).__module__
-    return owner == "btclib_mnemonics" or owner.startswith("btclib_mnemonics.")
+    return owner == "bip39_slip39" or owner.startswith("bip39_slip39.")
 
 
-def test_no_module_binds_a_name_btclib_mnemonics_owns() -> None:
-    """What moved to btclib_mnemonics is reached there and nowhere here.
+def test_no_module_binds_a_name_bip39_slip39_owns() -> None:
+    """What moved to bip39_slip39 is reached there and nowhere here.
 
     The narrower `test_no_module_exports_a_name_it_imported` reads
     `__all__`; this reads the namespace, where an imported name is bound
     whether or not a list publishes it -- so a moved path such as
     `btclib_wallet.mnemonic.bip39.seed_from_mnemonic` would still resolve
     for a caller. A module of this package reaches that package's names
-    through the package, `btclib_mnemonics.bip39.seed_from_mnemonic`, and
+    through the package, `bip39_slip39.bip39.seed_from_mnemonic`, and
     binds none of them.
     """
     for module in library_modules():
         bound = sorted(
             name
             for name, value in vars(module).items()
-            if not name.startswith("__") and _owned_by_btclib_mnemonics(value)
+            if not name.startswith("__") and _owned_by_bip39_slip39(value)
         )
-        assert bound == [], f"{module.__name__} binds {bound} of btclib_mnemonics"
+        assert bound == [], f"{module.__name__} binds {bound} of bip39_slip39"
 
 
 def test_the_ownership_check_sees_each_kind_of_name() -> None:
-    """Each kind of name btclib_mnemonics owns is seen, and nothing else.
+    """Each kind of name bip39_slip39 owns is seen, and nothing else.
 
     A module, a function, a class and an instance of one are; the package
     itself, a module of ours, a built-in type and an integer are not. The
@@ -640,42 +640,42 @@ def test_the_ownership_check_sees_each_kind_of_name() -> None:
     answering yes.
     """
     for owned in (
-        btclib_mnemonics.bip39,
-        btclib_mnemonics.bip39.seed_from_mnemonic,
-        btclib_mnemonics.exceptions.BTClibMnemonicsValueError,
-        btclib_mnemonics.mnemonic.WORDLISTS,
+        bip39_slip39.bip39,
+        bip39_slip39.bip39.seed_from_mnemonic,
+        bip39_slip39.exceptions.Bip39Slip39ValueError,
+        bip39_slip39.mnemonic.WORDLISTS,
     ):
-        assert _owned_by_btclib_mnemonics(owned)
-    for not_owned in (btclib_mnemonics, btclib_wallet.mnemonic.bip39, str, 1):
-        assert not _owned_by_btclib_mnemonics(not_owned)
+        assert _owned_by_bip39_slip39(owned)
+    for not_owned in (bip39_slip39, btclib_wallet.mnemonic.bip39, str, 1):
+        assert not _owned_by_bip39_slip39(not_owned)
 
 
-def _private_btclib_mnemonics_names_in(source: str) -> set[str]:
-    """Return every `_`-prefixed name of btclib_mnemonics a source reaches.
+def _private_bip39_slip39_names_in(source: str) -> set[str]:
+    """Return every `_`-prefixed name of bip39_slip39 a source reaches.
 
-    An import naming one -- `from btclib_mnemonics.electrum import
+    An import naming one -- `from bip39_slip39.electrum import
     _normalize`, or a private module in the dotted path -- and an attribute
     read off the package by its dotted name,
-    `btclib_mnemonics.electrum._normalize`.
+    `bip39_slip39.electrum._normalize`.
     """
     found: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if (
             isinstance(node, ast.ImportFrom)
-            and (node.module or "").split(".")[0] == "btclib_mnemonics"
+            and (node.module or "").split(".")[0] == "bip39_slip39"
         ):
             module = str(node.module)
             found |= {part for part in module.split(".") if part.startswith("_")}
             found |= {a.name for a in node.names if a.name.startswith("_")}
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.split(".")[0] == "btclib_mnemonics":
+                if alias.name.split(".")[0] == "bip39_slip39":
                     found |= {p for p in alias.name.split(".") if p.startswith("_")}
         elif isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             root: ast.expr = node.value
             while isinstance(root, ast.Attribute):
                 root = root.value
-            if isinstance(root, ast.Name) and root.id == "btclib_mnemonics":
+            if isinstance(root, ast.Name) and root.id == "bip39_slip39":
                 found.add(node.attr)
     return found
 
@@ -687,15 +687,15 @@ def test_the_private_name_scan_finds_each_spelling() -> None:
     this is the only green run that crosses the branch reporting one.
     """
     source = (
-        "from btclib_mnemonics.electrum import _normalize, version_from_mnemonic\n"
-        "from btclib_mnemonics._utils import assert_type\n"
-        "import btclib_mnemonics._data\n"
-        "import btclib_mnemonics.bip39\n"
-        "btclib_mnemonics.slip39._feistel\n"
-        "btclib_mnemonics.bip39.seed_from_mnemonic\n"
+        "from bip39_slip39.electrum import _normalize, version_from_mnemonic\n"
+        "from bip39_slip39._utils import assert_type\n"
+        "import bip39_slip39._data\n"
+        "import bip39_slip39.bip39\n"
+        "bip39_slip39.slip39._feistel\n"
+        "bip39_slip39.bip39.seed_from_mnemonic\n"
         "from btclib_wallet.bip32.der_path import _HARDENED_OFFSET\n"
     )
-    assert _private_btclib_mnemonics_names_in(source) == {
+    assert _private_bip39_slip39_names_in(source) == {
         "_normalize",
         "_utils",
         "_data",
@@ -703,13 +703,13 @@ def test_the_private_name_scan_finds_each_spelling() -> None:
     }
 
 
-def test_no_module_imports_a_private_name_of_btclib_mnemonics() -> None:
-    """A private name of btclib_mnemonics is that package's to change.
+def test_no_module_imports_a_private_name_of_bip39_slip39() -> None:
+    """A private name of bip39_slip39 is that package's to change.
 
     Every module of this package, private ones included: what a private
-    module of ours reached would break at a btclib_mnemonics release as
+    module of ours reached would break at a bip39_slip39 release as
     surely as a public one.
     """
     for path in sorted(Path(str(btclib_wallet.__file__)).parent.rglob("*.py")):
-        found = _private_btclib_mnemonics_names_in(path.read_text(encoding="utf-8"))
-        assert not found, f"{path.name} reaches {sorted(found)} of btclib_mnemonics"
+        found = _private_bip39_slip39_names_in(path.read_text(encoding="utf-8"))
+        assert not found, f"{path.name} reaches {sorted(found)} of bip39_slip39"

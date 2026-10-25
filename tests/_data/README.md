@@ -3,7 +3,7 @@
 This file is about `tests/**/_data/`, plus the shipped data this package
 holds that nothing else pins: `src/btclib_wallet/bolt9.py`, BOLT9's feature
 table transcribed into python mappings. The mnemonic word lists are
-btclib_mnemonics', and pinned there.
+bip39_slip39's, and pinned there.
 
 The files of `tests/**/_generated_files/` are the opposite kind of thing
 and have no entry here: they are this package's own output, `to_dict()`
@@ -162,6 +162,30 @@ Three BIP352 rules have no vector here and are covered by the test module
 instead: the address versions (v31 refused, v1 through v30 read as far as
 v0 defines them), the 1023-character bound, and the label range. The
 vectors are all v0 addresses on mainnet.
+
+### Not vendored as a file: BIP352's invalid-control-block vector
+
+```text
+repo    Eunovo/bips
+path    bip-0352/send_and_receive_test_vectors.json
+ref     bip352-invalid-control-block-vector
+commit  118695ac5d23b35e7898760f80e4c6c68fcaeea7  2026-10-25
+pulled  2026-10-25
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, and cited inline rather than vendored: the one
+case `bitcoin/bips#2339` adds to the file above, a taproot script-path
+spend whose control block has a length BIP341 does not allow, sending and
+receiving. It is `_CONTROL_BLOCK_VECTOR` in
+`tests/silent_payments_test.py`, copied from the pinned commit. The pull
+request is open, so the path lives on its own branch, which the pin
+carries as its `ref`. The check: the last case of the file at the pin,
+parsed, equals `_CONTROL_BLOCK_VECTOR` as a Python value.
+
+The entry and `_CONTROL_BLOCK_VECTOR` go when
+[ISS 557](https://github.com/btclib-org/btclib-wallet/issues/557) vendors
+the merged file.
 
 ### `tests/bip32/_data/bip32_test_vectors.json`
 
@@ -657,13 +681,13 @@ published keys. Matched against the pinned text on 2026-08-06.
 ### `tests/ecc/_data/bip445/sign_verify_vectors.json`
 
 The one BIP445 file this package reads: `tests/psbt/frost_test.py` takes
-its group of participants from it. btclib-ecc vendors the BIP445 files
+its group of participants from it. ecc vendors the BIP445 files
 whole, and its entry for them says why they sit in a subdirectory.
 
 The BIP is a draft, `bitcoin/bips#2070`, and the pinned commit is its
 version 0.12.1. The path lives on that pull request's own branch rather
 than on `bitcoin/bips`' default, so the pin carries the branch as its
-`ref`. btclib-ecc pins its copy to `siv2r/bip-frost-signing` instead, at
+`ref`. ecc pins its copy to `siv2r/bip-frost-signing` instead, at
 the same blob.
 
 ```text
@@ -1041,7 +1065,7 @@ Verdict: **identical but for a trailing newline**. Every case. The unsigned
 transactions are reproduced byte for byte. The signed ones are not, and their
 signatures are held to the script engine instead: a plain signature in them is
 not the deterministic one, with or without low-R grinding, and the adaptor
-signatures in their messages are in a layout `btclib_ecc.ecc.ecdsa_adaptor`
+signatures in their messages are in a layout `ecc.ecc.ecdsa_adaptor`
 does not parse.
 
 ### `tests/dlc/_data/test_vectors/`
@@ -1435,7 +1459,7 @@ the whole of a refresh -- and why nothing of btclib's is inside it.
 
 `tests/mnemonic/bip39_test.py` asserts the root extended private key of
 each vector, through `bip39.mxprv_from_mnemonic`; the entropy, sentence
-and seed columns are btclib_mnemonics' to assert.
+and seed columns are bip39_slip39's to assert.
 
 Two `pulled` dates because the `english` array was here on its own for
 as long as english was the only BIP39 language btclib read; that array
@@ -1471,7 +1495,7 @@ The passphrase is one string in NFC and another in NFKD, and the
 sentences are published composed against word-lists published
 decomposed, so these are the vectors that fail when normalisation is
 skipped anywhere. `tests/mnemonic/bip39_test.py` asserts their
-`bip32_xprv`, the rest being btclib_mnemonics' to assert.
+`bip32_xprv`, the rest being bip39_slip39's to assert.
 
 ### `tests/mnemonic/_data/vectors.json`
 
@@ -1492,7 +1516,7 @@ master secret, BIP32 root extended private key -- of which 15 are valid
 and 30 have an empty master secret, meaning combining those mnemonics
 must fail. `tests/mnemonic/slip39_test.py` asserts the root extended
 private key of each valid one, through `slip39.mxprv_from_mnemonics`;
-the recovery itself, the invalid vectors included, is btclib_mnemonics'
+the recovery itself, the invalid vectors included, is bip39_slip39's
 to assert.
 
 The reference implementation rather than the SLIP: SLIP-0039's own "Test
@@ -1926,7 +1950,7 @@ copied from a project. Treat them as ours: nothing upstream will ever
 refresh them.
 
 They are not the only Electrum vectors, and that is what makes the
-paragraph above bearable: btclib_mnemonics carries spesmilo/electrum's
+paragraph above bearable: bip39_slip39 carries spesmilo/electrum's
 own seed vectors, and `tests/mnemonic/electrum_test.py` the pre-2.0
 master public keys below, inline. Not vendored as files here: each
 block is small enough to read, and a
@@ -1944,7 +1968,7 @@ itself, and each of these is a value published by spesmilo/electrum:
 - the hex seed and `master_public_key` of the pre-2.0 wallet file in
   `tests/test_storage_upgrade.py`.
 
-The word-list they run over is btclib_mnemonics', and pinned there.
+The word-list they run over is bip39_slip39's, and pinned there.
 
 Pulled 2018-06-11; the pre-2.0 values 2026-08-02.
 
