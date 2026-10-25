@@ -9,9 +9,8 @@ name: docs
 # too short by a rename.
 #
 # The checkout, the build with -n -W and the unresolved-link check on the
-# built pages are btclib-org/.github's: reusable-docs.yml, called at @main
-# so a fix there reaches this tree in one landing (section 10 of its
-# README.md)
+# built pages are btclib-org/.github's: reusable-docs.yml, called at a
+# tagged commit (section 10 of btclib-org/.github's README.md)
 
 on:
   push:
@@ -62,4 +61,4 @@ jobs:
   # needs no submodule checked out and asks nothing of its built pages
   # beyond what the callee asks, so both inputs are left at their defaults
   docs:
-    uses: btclib-org/.github/.github/workflows/reusable-docs.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-docs.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25

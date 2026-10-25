@@ -89,7 +89,7 @@ signer=btclib-org/.github/.github/workflows/reusable-build.yml
 
 ```shell
 gh attestation verify --repo btclib-org/btclib-wallet \
-  --signer-workflow "${signer:?}@refs/heads/main" \
+  --signer-workflow "${signer:?}" \
   --source-ref refs/tags/v<version> \
   <a distribution file from the release>
 ```

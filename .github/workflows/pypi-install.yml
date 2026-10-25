@@ -58,10 +58,11 @@ jobs:
   # one question about the index, asked once, ahead of every cell: a cell
   # that starts before the index serves the new file tests the previous
   # version and reports a pass for it. The wait is btclib-org/.github's
-  # reusable-wait-for-index.yml, called at @main
+  # reusable-wait-for-index.yml, called at a tagged commit (section 10 of
+  # btclib-org/.github's README.md)
   wait-for-index:
     if: ${{ !github.event.pull_request.draft }}
-    uses: btclib-org/.github/.github/workflows/reusable-wait-for-index.yml@main
+    uses: btclib-org/.github/.github/workflows/reusable-wait-for-index.yml@0f5684ab3d7bf310b0d7a2e4dd91a03522f75d67 # v2026.10.25
     with:
       package: btclib-wallet
       version: ${{ inputs.version }}

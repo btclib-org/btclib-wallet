@@ -396,8 +396,11 @@ to, and what counters each.
   states that the suite and the lint gate install with `--locked`;
   `deps-latest.yml` and `deps-oldest.yml` resolve fresh on a schedule
   instead, so a break in what the pin hides is caught rather than never
-  seen. Every third-party action is pinned to a commit sha; `actionlint`,
-  `zizmor` and `detect-secrets` run as hooks in `.pre-commit-config.yaml`.
+  seen. Every third-party action is pinned to a commit sha, and so is
+  every call of the organization's own reusable workflows but
+  `claude-review.yml`'s, which `.github/zizmor.yml` permits at `@main`;
+  `actionlint`, `zizmor` and `detect-secrets` run as hooks in
+  `.pre-commit-config.yaml`.
 
 **Upstream.** `tests/_data/README.md` pins every vendored file to the
 upstream commit it was copied from and to a git blob hash, and states
