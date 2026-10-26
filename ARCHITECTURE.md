@@ -187,13 +187,14 @@ authentication. The codec each backend speaks is `btclib.p2p` or
 `electrum.py`, outside `fetch/`: importing `fetch` costs `urllib`, `ssl`
 and `socket`, never the reverse.
 
-`exceptions.py` declares the classes this package raises and btclib does
-not, each derived from btclib's class of its kind. A fetcher raises its
-`FetchError`, `HttpError` and `RpcError`. `bitcoin-core-rpc` declares
-classes of the same names, and `fetcher.client_errors` is where every
-fetcher re-raises them as this package's. `BitcoinCoreRpcClient` and
-`BitcoinCoreRestClient` are re-exported unchanged rather than wrapped, so
-calling them directly raises `bitcoin-core-rpc`'s own exceptions.
+`exceptions.py` declares the public classes this package raises and
+btclib does not, each derived from btclib's class of its kind. A fetcher
+raises its `FetchError`, `HttpError` and `RpcError`. `bitcoin-core-rpc`
+declares classes of the same names, and `fetcher.client_errors` is where
+every fetcher re-raises them as this package's. `BitcoinCoreRpcClient`
+and `BitcoinCoreRestClient` are re-exported unchanged rather than
+wrapped, so calling them directly raises `bitcoin-core-rpc`'s own
+exceptions.
 
 `bip21.py` and `bolt11.py`/`bolt9.py` sit above every layer named here:
 a BIP21 URI names an address, an amount and, through `lightning=`, a

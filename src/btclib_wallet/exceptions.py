@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""The exception classes this package raises and btclib does not.
+"""The public exception classes this package raises and btclib does not.
 
 Each derives from btclib's class of its kind, so `except BTClibException`
 catches these as it catches btclib's own, and `except ValueError` or

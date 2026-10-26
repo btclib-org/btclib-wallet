@@ -472,7 +472,7 @@ def test_electrum_response_honors_the_exception_contract(
 
 
 # What a stray-exception test cannot see: input the decoder must refuse
-# and used to return, as a value, with no exception to catch. Each case
+# and could return as a value, with no exception to catch. Each case
 # asserts the refusal itself
 _ELECTRUM_REFUSED = pytest.mark.parametrize(
     "decode", ELECTRUM_RESPONSES.values(), ids=list(ELECTRUM_RESPONSES.keys())
