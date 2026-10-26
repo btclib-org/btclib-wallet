@@ -409,13 +409,15 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         """Return the instant a request begun now has to be answered by."""
         return monotonic() + self.timeout
 
-    @staticmethod
-    def _remaining(deadline: float) -> float:
-        """Return the seconds left before `deadline`, or fail if none."""
+    def _remaining(self, deadline: float) -> float:
+        """Return the seconds left before `deadline`, or fail if none.
+
+        Never more than the timeout the deadline was set from.
+        """
         remaining = deadline - monotonic()
         if remaining <= 0:
             raise FetchError("the peer did not answer in time")
-        return remaining
+        return min(remaining, self.timeout)
 
     def _send(self, payload: Payload, deadline: float) -> None:
         """Send one payload to the peer, framed for this network, in time."""
