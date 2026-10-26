@@ -957,7 +957,7 @@ def _assert_labels(labels: object) -> None:
         tweak_octets = bytes(tweak)
         if len(tweak_octets) != secp256k1.n_size:
             raise BTClibValueError(f"the label tweak must be {secp256k1.n_size} bytes")
-        # the floor, 0.8.0.10, does not check the range
+        # the bindings' floor in pyproject.toml does not check the range
         if not 0 < int.from_bytes(tweak_octets, "big") < secp256k1.n:
             raise BTClibValueError("the label tweak must be in [1, n-1]")
 
