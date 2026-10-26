@@ -354,7 +354,11 @@ extend-exclude = [
 # unbroken run of 26 characters or more is a literal, not a word, 26 being
 # the length of the shortest possible base58 address, and the trailing =
 # covering base64 padding
-extend-ignore-re = ['[0-9A-Za-z+/]{26,}={0,2}']
+extend-ignore-re = [
+    '[0-9A-Za-z+/]{26,}={0,2}',
+    # A short, malformed BIP322 proof is still encoded data, not prose.
+    '"signature": "(?:smp|ful|pof)[A-Za-z0-9+/]*={0,2}"',
+]
 
 [tool.typos.default.extend-identifiers]
 # HWI's own former spelling of error code -4: upstream renamed it to

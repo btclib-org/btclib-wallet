@@ -88,6 +88,18 @@
       "message": "Hello World",
       "address": "bc1q9zgd3xcxanse37y7365zty493qf725rhw5mjpqm36f62vltvcwssrp6vul",
       "signature": "smpBEgwRQIhAIdOUJUBtWvNlc6fAJ5RNU6NN9XbByNFLc3Cf4yGQXnJAiAX0Mj6w6Ur4am4LHZzhCQPntXvBKcB+NJqA/hXrI3TTgEgMB0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBAXFjqCAgx8lbUGza5gB08FceetY5oFOgaOzdSA3MhtO/vUMalYghA7r3aJwKNVj7YEWJA2qNHktoXZCfbg4sYBihQEmuZOwmrGcC9AGxdSECnB9YWqgHYvn0RY9oBpeLe++0bHtor4LTmWMHk/8aK1CsaA=="
+    },
+    {
+      "description": "valid P2WPKH spend with an uncompressed public key",
+      "message": "Hello World",
+      "address": "bc1q220fuqpdm3vf6cddlqtj0rmedrwz7ue9ueqczc",
+      "signature": "smpAkgwRQIhALsMyFdoxA9qhjeWcsSSYvtuCCJXdzEpuZlv6QSi0fxeAiASEnLRNZp+PAtLk39CLFG5AmjinvyS0axyVrtlTgZ6XgFBBOYPzpO1np7FMBGqvCHCPpeyoxNpuHpa6cRO6J4qbewK9+NQc5nllZKduZ809Xk3EBKWiR5E0j8L4fMszmlhaCE="
+    },
+    {
+      "description": "valid P2WSH spend with an uncompressed public key in the witness script",
+      "message": "Hello World",
+      "address": "bc1qpyeyh398f579snzt6twgufs676gqt4nd984v9qk3nr87urywynfqnlfmga",
+      "signature": "smpAkcwRAIgXDIM192Pql60rpUuf228vCvPXf8lOHtcKBx897Lux/gCIDDRFf7c+frflTfoFm5sNrMQ/3HnrweFmrbvIQGXrkivAUNBBOYPzpO1np7FMBGqvCHCPpeyoxNpuHpa6cRO6J4qbewK9+NQc5nllZKduZ809Xk3EBKWiR5E0j8L4fMszmlhaCGs"
     }
   ],
   "error": [
