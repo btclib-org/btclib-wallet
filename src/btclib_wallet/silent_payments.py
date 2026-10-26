@@ -843,7 +843,9 @@ def _labelled(output: bytes, P_k: Point, labels: Mapping[bytes, bytes]) -> int |
         # P_k up to parity, which the x-only comparison already caught
         tweak = labels.get(bytes_from_point(label_point, secp256k1))
         if tweak is not None:
-            return scalar_from_prv_key(tweak)
+            # `scalar_from_prv_key` refuses a memoryview that is not
+            # contiguous, which the bindings accept: `bytes` copies it
+            return scalar_from_prv_key(bytes(tweak))
     return None
 
 
@@ -878,7 +880,8 @@ def _label_added(
             best = position, x_only, tweak
     if best is None:
         return None
-    return best[0], best[1], scalar_from_prv_key(best[2])
+    # `bytes` for a memoryview that is not contiguous, as in `_labelled`
+    return best[0], best[1], scalar_from_prv_key(bytes(best[2]))
 
 
 def _assert_outputs(outputs_to_check: object) -> None:
@@ -913,19 +916,26 @@ def _outputs_with_a_point(outputs_to_check: Sequence[Octets]) -> list[bytes]:
     return points
 
 
-def _assert_labels(labels: Mapping[bytes, bytes] | None) -> None:
+def _assert_labels(labels: object) -> None:
     """Refuse a label entry the locked bindings refuse, as they do.
 
-    The key must be 33 bytes and the tweak 32 bytes in [1, n-1], each
-    entry checked whether or not its key matches an output. The Python
-    scan reads a tweak only on a match, and `point_from_octets_var` would
-    lift a 65-byte key, which the addition could match and the
-    subtraction, looking a label up by its compressed key, never does.
+    The labels must be a mapping, each key 33 bytes and each tweak 32
+    bytes in [1, n-1], every entry checked whether or not its key matches
+    an output. The Python scan reads a tweak only on a match, and
+    `point_from_octets_var` would lift a 65-byte key, which the addition
+    could match and the subtraction, looking a label up by its compressed
+    key, never does.
     This runs before either scan is chosen, with the bindings' errors and
     messages, so that every scan answers alike.
     """
+    if labels is None:
+        return
+    if not isinstance(labels, Mapping):
+        raise BTClibTypeError(
+            f"the labels must be a mapping, not {type(labels).__name__}"
+        )
     # read as objects: the type is what is being checked
-    entries: Iterable[tuple[object, object]] = (labels or {}).items()
+    entries: Iterable[tuple[object, object]] = labels.items()
     for label, tweak in entries:
         if not isinstance(label, (bytes, memoryview)):
             raise BTClibTypeError(
@@ -942,10 +952,13 @@ def _assert_labels(labels: Mapping[bytes, bytes] | None) -> None:
                 "the label tweak must be a memoryview of bytes, "
                 f"not of {tweak.itemsize}-byte items"
             )
-        if len(bytes(tweak)) != secp256k1.n_size:
+        # `int.from_bytes` refuses a memoryview that is not contiguous,
+        # which the bindings accept: `bytes` copies it
+        tweak_octets = bytes(tweak)
+        if len(tweak_octets) != secp256k1.n_size:
             raise BTClibValueError(f"the label tweak must be {secp256k1.n_size} bytes")
         # the floor, 0.8.0.10, does not check the range
-        if not 0 < int.from_bytes(tweak, "big") < secp256k1.n:
+        if not 0 < int.from_bytes(tweak_octets, "big") < secp256k1.n:
             raise BTClibValueError("the label tweak must be in [1, n-1]")
 
 

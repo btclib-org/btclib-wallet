@@ -793,11 +793,9 @@ def test_an_unmatched_label_with_a_bad_tweak_is_refused(
 
 @needs_bindings
 def test_the_dispatch_refuses_an_unmatched_label_with_a_bad_tweak() -> None:
-    """Few labels go to the Python scan and many to the bindings: both refuse.
+    """`_assert_labels` refuses it before the dispatch, with 2 labels or 22.
 
-    The bad label beside label 0 is two labels over one output, which the
-    dispatch keeps in Python; beside twenty more, it reaches the bindings.
-    The bindings themselves refuse it with the same message, their
+    The bindings, called directly, refuse it with the same message, their
     TypeError unwrapped.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
@@ -817,6 +815,122 @@ def test_the_dispatch_refuses_an_unmatched_label_with_a_bad_tweak() -> None:
                 silent_payments._delegated_scan_outputs(
                     _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), keys, labels
                 )
+
+
+def _strided(octets: bytes) -> memoryview:
+    """Return a memoryview of `octets` that is not contiguous."""
+    view = memoryview(bytes(byte for octet in octets for byte in (octet, 0)))[::2]
+    assert not view.c_contiguous
+    assert bytes(view) == octets
+    return view
+
+
+def _strided_tweak_cases() -> list[
+    tuple[list[OutPoint], list[bytes], dict[bytes, bytes], dict[bytes, bytes]]
+]:
+    """Return (outpoints, outputs, labels, the same labels as bytes).
+
+    Label 5 carries its tweak in a memoryview that is not contiguous. It
+    pays the one output, or label 0 does and label 5 matches nothing.
+    Alone, label 5 is added; with label 0 beside it, there are more
+    labels than outputs, and they are subtracted.
+    """
+    ((key, tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [5]).items()
+    change = silent_payments.label_lookup(_B_SCAN_PRV, [0])
+    strided = cast("dict[bytes, bytes]", {key: _strided(tweak)})
+    paid = [
+        (*_paid_with_labels(m_values), extra)
+        for m_values, extra in (
+            ([5], {}),
+            ([5], change),
+            ([0], change),
+        )
+    ]
+    return [
+        (outpoints, keys, {**strided, **extra}, {key: tweak, **extra})
+        for outpoints, keys, extra in paid
+    ]
+
+
+def test_a_label_tweak_not_contiguous_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Python scan finds what it finds with the same tweak as bytes.
+
+    The bindings accept such a tweak, and `int.from_bytes` and
+    `scalar_from_prv_key` refuse it unless it is copied first.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+    for outpoints, outputs, labels, as_bytes in _strided_tweak_cases():
+        expected = _scan_paid(outpoints, outputs, as_bytes)
+        assert len(expected) == 1
+        assert _scan_paid(outpoints, outputs, labels) == expected
+        found = silent_payments.scan_transaction_outputs(
+            _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, outputs, labels
+        )
+        assert found == expected
+
+
+@needs_bindings
+def test_the_dispatch_reads_a_label_tweak_not_contiguous() -> None:
+    """Beside twenty more labels it reaches the bindings, which read it too."""
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    many = silent_payments.label_lookup(_B_SCAN_PRV, range(6, 26))
+    for outpoints, outputs, labels, as_bytes in _strided_tweak_cases():
+        expected = _scan_paid(outpoints, outputs, as_bytes)
+        assert len(expected) == 1
+        for extra in ({}, many):
+            found = silent_payments.scan_transaction_outputs(
+                _B_SCAN_PRV,
+                mult(_B_SPEND_PRV),
+                outpoints,
+                pub_keys,
+                outputs,
+                {**labels, **extra},
+            )
+            assert found == expected
+        delegated = silent_payments._delegated_scan_outputs(
+            _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), outputs, labels
+        )
+        assert delegated == expected
+
+
+def test_labels_that_are_no_mapping_are_refused() -> None:
+    """A list or a tuple of labels is refused, as the bindings refuse it."""
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    outpoints, keys = _paid_with_labels([0])
+    ((key, tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [0]).items()
+    for labels in ([key], ((key, tweak),)):
+        message = f"^the labels must be a mapping, not {type(labels).__name__}$"
+        bad = cast("dict[bytes, bytes]", labels)
+        with pytest.raises(BTClibTypeError, match=message):
+            _scan_paid(outpoints, keys, bad)
+        with pytest.raises(BTClibTypeError, match=message):
+            silent_payments.scan_transaction_outputs(
+                _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, keys, bad
+            )
+
+
+@needs_bindings
+def test_the_bindings_refuse_labels_that_are_no_mapping_alike() -> None:
+    """The bindings give the same message, with their own TypeError."""
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    outpoints, keys = _paid_with_labels([0])
+    ((key, _tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [0]).items()
+    with pytest.raises(TypeError, match="^the labels must be a mapping, not list$"):
+        silent_payments._delegated_scan_outputs(
+            _B_SCAN_PRV,
+            outpoints,
+            pub_keys,
+            mult(_B_SPEND_PRV),
+            keys,
+            cast("dict[bytes, bytes]", [key]),
+        )
 
 
 @needs_bindings
