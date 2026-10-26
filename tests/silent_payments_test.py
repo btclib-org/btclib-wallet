@@ -622,15 +622,16 @@ def _malformed_label_cases() -> list[
 ]:
     """Return (outpoints, outputs, labels, outputs found) with a bad label.
 
-    A label key that is no point is first in the map. One output is ours,
-    by label 0, and the map holds label 0 or not. The bad label alone is
-    added over one output and over two. With label 0 it is subtracted
-    over one output, there being more labels than outputs, and added over
-    two.
+    A label key that is no point is first in the map, with a tweak in
+    1..n-1, which the bindings check whether or not the key matches. One
+    output is ours, by label 0, and the map holds label 0 or not. The bad
+    label alone is added over one output and over two. With label 0 it is
+    subtracted over one output, there being more labels than outputs, and
+    added over two.
     """
     outpoints, keys = _paid_with_labels([0])
     stranger = bytes_from_point(mult(2))[1:]
-    bad = {b"\x02" + _NOT_AN_X: bytes(32)}
+    bad = {b"\x02" + _NOT_AN_X: (1).to_bytes(32, "big")}
     good = silent_payments.label_lookup(_B_SCAN_PRV, [0])
     return [
         (outpoints, outputs, labels, found)
@@ -645,26 +646,90 @@ def test_a_label_that_is_no_point_matches_nothing() -> None:
         assert len(_scan_paid(outpoints, outputs, labels)) == found
 
 
-def test_a_label_keyed_in_another_form_matches_nothing() -> None:
-    """Only the compressed key matches, whichever way labels are checked.
+def _label_keyed_in_another_form() -> list[
+    tuple[dict[bytes, bytes], type[Exception], str]
+]:
+    """Return (label 0 keyed otherwise, error, message), as the bindings refuse.
 
-    Label 0, which pays the one output, is keyed by its 65-byte form or
-    by its hex string. With label 1 beside it there are more labels than
-    outputs, and they are subtracted; alone, or over two outputs, they
-    are added. The compressed key finds the output in every case.
+    The key is label 0's 65-byte form, its compressed form cut to 32
+    bytes, or its hex string.
     """
-    outpoints, keys = _paid_with_labels([0])
-    stranger = bytes_from_point(mult(2))[1:]
     ((key, tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [0]).items()
     point = mult(silent_payments.label_tweak(_B_SCAN_PRV, 0))
     assert bytes_from_point(point) == key
     uncompressed = bytes_from_point(point, compressed=False)
+    return [
+        ({uncompressed: tweak}, BTClibValueError, "the label must be 33 bytes"),
+        ({key[1:]: tweak}, BTClibValueError, "the label must be 33 bytes"),
+        (
+            cast("dict[bytes, bytes]", {key.hex(): tweak}),
+            BTClibTypeError,
+            "the label must be bytes, not str",
+        ),
+    ]
+
+
+def test_a_label_keyed_in_another_form_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Python scan refuses it, whichever way it would check labels.
+
+    Label 0 pays the one output. Alone, it is added; with label 1 beside
+    it, there are more labels than outputs, and they are subtracted. Both
+    `scan_outputs` and `scan_transaction_outputs` refuse it.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    outpoints, keys = _paid_with_labels([0])
     other = silent_payments.label_lookup(_B_SCAN_PRV, [1])
-    for outputs in (keys, [stranger, *keys]):
-        for extra in ({}, other):
-            for form, found in ((key, 1), (uncompressed, 0), (key.hex(), 0)):
-                labels = cast("dict[bytes, bytes]", {form: tweak, **extra})
-                assert len(_scan_paid(outpoints, outputs, labels)) == found
+    monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+    for bad, error, message in _label_keyed_in_another_form():
+        for labels in (bad, {**bad, **other}):
+            with pytest.raises(error, match=f"^{message}$"):
+                _scan_paid(outpoints, keys, labels)
+            with pytest.raises(error, match=f"^{message}$"):
+                silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV,
+                    mult(_B_SPEND_PRV),
+                    outpoints,
+                    [(mult(a), script_pub_key)],
+                    keys,
+                    labels,
+                )
+
+
+@needs_bindings
+def test_the_bindings_refuse_a_label_keyed_in_another_form_alike() -> None:
+    """The bindings give the error and message the Python scan gives.
+
+    Twenty labels beside it over one output: the dispatch sends the scan
+    to the bindings, and it is refused there too, an output that is no
+    point included, which the bindings' retry would otherwise drop. The
+    bindings themselves refuse it with that message, a hex string with
+    their own TypeError.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    outpoints, keys = _paid_with_labels([0])
+    many = silent_payments.label_lookup(_B_SCAN_PRV, range(1, 21))
+    for bad, error, message in _label_keyed_in_another_form():
+        labels = {**bad, **many}
+        for outputs in (keys, [_NOT_AN_X]):
+            with pytest.raises(error, match=f"^{message}$"):
+                silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV,
+                    mult(_B_SPEND_PRV),
+                    outpoints,
+                    pub_keys,
+                    outputs,
+                    labels,
+                )
+        # `_delegated_scan_outputs` wraps the bindings' ValueError only
+        raw = TypeError if error is BTClibTypeError else error
+        with pytest.raises(raw, match=f"^{message}$"):
+            silent_payments._delegated_scan_outputs(
+                _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), keys, labels
+            )
 
 
 @needs_bindings

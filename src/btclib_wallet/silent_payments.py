@@ -89,6 +89,7 @@ from ecc.curves import (
     mult_pub_key,
     point_from_octets_var,
     point_from_pub_key,
+    prv_key_tweak_add,
     scalar_from_prv_key,
     secp256k1,
     sum_var,
@@ -913,25 +914,38 @@ def _outputs_with_a_point(outputs_to_check: Sequence[Octets]) -> list[bytes]:
     return points
 
 
+def _assert_labels(labels: Mapping[bytes, bytes] | None) -> None:
+    """Refuse a label key that is not 33 bytes, as the bindings do.
+
+    `point_from_octets_var` would lift a 65-byte key, which the addition
+    could match and the subtraction, looking a label up by its compressed
+    key, never does. The bindings refuse such a key, and this refuses it
+    with their error and message before either scan is chosen, so that
+    every scan answers alike.
+    """
+    for label in labels or ():
+        if not isinstance(label, (bytes, memoryview)):
+            raise BTClibTypeError(
+                f"the label must be bytes, not {type(label).__name__}"
+            )
+        if len(bytes(label)) != _PK_SIZE:
+            raise BTClibValueError(f"the label must be {_PK_SIZE} bytes")
+
+
 def _lifted_labels(
     label_map: Mapping[bytes, bytes],
 ) -> list[tuple[Point, bytes]]:
-    """Return the labels the subtraction can match, as points with their tweaks.
+    """Return the labels that are points, each with its tweak.
 
-    `_labelled` looks a label up by its compressed key, so a key is kept
-    only where it is that key. `point_from_octets_var` also takes the
-    65-byte and the hex forms, which the subtraction never matches. A key
-    that is no point matches nothing either way. Both are left out rather
-    than raised on.
+    A key that is no point matches no output, as it does when the outputs
+    are subtracted from: it is left out rather than raised on.
     """
     lifted = []
     for label, tweak in label_map.items():
         try:
-            point = point_from_octets_var(label, secp256k1)
+            lifted.append((point_from_octets_var(label, secp256k1), tweak))
         except (TypeError, ValueError):
             continue
-        if bytes_from_point(point, secp256k1) == label:
-            lifted.append((point, tweak))
     return lifted
 
 
@@ -1014,7 +1028,7 @@ def _scan(
             break
         _, output, label = match
         del remaining[output]
-        tweak = t_k if label is None else (t_k + label) % secp256k1.n
+        tweak = t_k if label is None else prv_key_tweak_add(t_k, label, secp256k1)
         found.append(SilentPaymentOutput(output, tweak))
     return found
 
@@ -1047,6 +1061,7 @@ def scan_outputs(
     sender is missed.
     """
     _assert_outputs(outputs_to_check)
+    _assert_labels(labels)
     return _scan(shared_secret(b_scan, tweak), B_spend, outputs_to_check, labels)
 
 
@@ -1142,8 +1157,8 @@ def scan_transaction_outputs(
     product of two integers in Python and no longer a scalar handed to
     the curve code.
 
-    No outputs to check is refused, and an output that is no point is
-    walked past, whichever scan runs.
+    No outputs to check and a label key that is not 33 bytes are refused,
+    and an output that is no point is walked past, whichever scan runs.
 
     `pub_key_sum` and `input_hash` run before either is chosen, so that a
     zero-sum refusal or an empty outpoint sequence gets the specific
@@ -1158,6 +1173,7 @@ def scan_transaction_outputs(
         raise BTClibValueError("no outputs to check")
     A_sum = pub_key_sum([pub_key for pub_key, _script_pub_key in pub_keys])
     h = input_hash(outpoints, A_sum)
+    _assert_labels(labels)
     if (
         is_libsecp256k1_serving()
         and len(labels or ()) > _PYTHON_SCAN_LABELS

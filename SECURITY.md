@@ -143,16 +143,12 @@ used to teach and to prototype as much as to build.
     is on Python integers**, variable in time with the operands, whether
     or not the bindings are installed: BIP352's sum of input keys and
     BIP38's EC-multiply factor are computed that way before the result
-    reaches a btclib call. BIP32's private derivation is the exception
-    that delegates: with the bindings serving, the child key is
-    `secp256k1_ec_seckey_tweak_add`'s. The silent payment scan computes
-    a found output's private tweak, (t_k + label) mod n, on Python
-    integers, which are neither constant-time nor wiped, wherever it
-    runs in Python: `scan_outputs` always, and `scan_transaction_outputs`
-    wherever the dispatch rule its docstring states keeps the scan in
-    Python. That sum moves to
-    btclib-ecc's dispatched `prv_key_tweak_add` once the wallet depends
-    on a btclib-ecc release that has it.
+    reaches a btclib call. With the bindings serving, two sums are
+    libsecp256k1's instead. BIP32's child private key is
+    `secp256k1_ec_seckey_tweak_add`'s. A found silent payment output's
+    private tweak, (t_k + label) mod n, is the same function's, through
+    `ecc.curves.prv_key_tweak_add`, where the scan runs in Python, and the
+    bindings' scan computes it where they scan.
 - **Secret material lives in Python objects**, which are immutable and
     not zeroized: an extended private key, a mnemonic or a seed stays in
     the process memory until garbage collection, and may have been
