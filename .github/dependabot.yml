@@ -57,11 +57,12 @@ updates:
   # uv.lock is committed and the workflows install from it with --locked, bar
   # the jobs that re-lock on purpose, install a published or built package, or
   # install ClusterFuzzLite's hash-pinned export, while the dependency groups
-  # declare a floor and no ceiling: the drift of btclib, bitcoin-core-rpc and
-  # the tooling above those floors lives in the lock file, and this moves it,
-  # bar the one exception section 1 of btclib-org/.github's README names. The
-  # uv-lock pre-commit hook re-locks what pyproject.toml changed and upgrades
-  # nothing, and deps-latest tests an upgrade it never commits
+  # declare a floor, and a ceiling only on uv_build, copied from
+  # [build-system]: the drift of btclib, bitcoin-core-rpc and the tooling
+  # above those floors lives in the lock file, and this moves it, bar the one
+  # exception section 1 of btclib-org/.github's README names. The uv-lock
+  # pre-commit hook re-locks what pyproject.toml changed and upgrades nothing,
+  # and deps-latest tests an upgrade it never commits
   - package-ecosystem: uv
     directory: /
     schedule:
