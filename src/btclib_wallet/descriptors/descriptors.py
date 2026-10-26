@@ -47,7 +47,8 @@ The grammar read is BIP380 to BIP390:
 - ``rawnode``, ``rawleaf`` and ``rawpkh``, which no BIP specifies either,
   and ``raw`` inside ``sh()``, ``wsh()`` and a ``tr()`` tree: they let a
   descriptor say what it knows of an output it knows in part. Bitcoin
-  Core's bitcoin/bitcoin#30243 specifies the first two. BIP385 says
+  Core's bitcoin/bitcoin#30243 specifies the first two, and the draft BIP
+  of bitcoin/bips#1721 specifies ``rawnode`` too. BIP385 says
   ``raw(HEX)`` can only be a top level descriptor and lists
   ``sh(raw(deadbeef))`` and ``wsh(raw(deadbeef))`` as invalid; the draft
   BIP of bitcoin/bips#1721 allows the nested ``raw``, and this module
@@ -413,8 +414,9 @@ _TREE_FUNCTIONS = ("multi_a", "sortedmulti_a")
 
 # the two functions that name a tree node whose script, or whose subtree,
 # is not a descriptor's to say. No BIP specifies them: Bitcoin Core's
-# bitcoin/bitcoin#30243 does, and they belong inside tr() only for the reason
-# the two above do
+# bitcoin/bitcoin#30243 does, and the draft BIP of bitcoin/bips#1721
+# specifies rawnode() too. They belong inside tr() only for the reason the
+# two above do
 _RAW_TREE_FUNCTIONS = ("rawnode", "rawleaf")
 
 # the bytes of a tree node's hash and of the hash160 a p2pkh script holds
@@ -591,7 +593,8 @@ class RawNode:
 
     A branch, or the whole tree, whose subtree the descriptor does not
     hold: the output key commits to it, and no script of it can be spent
-    from here. No BIP specifies it: Bitcoin Core's bitcoin/bitcoin#30243 does.
+    from here. No BIP specifies it: Bitcoin Core's bitcoin/bitcoin#30243
+    does, and so does the draft BIP of bitcoin/bips#1721.
     A hash that is a leaf's own is still a node here, the descriptor
     having no script to show for it.
     """
@@ -2778,10 +2781,16 @@ def _parse_addr(
 def _hex_bytes(text: str, fault: str) -> bytes:
     """Return the bytes of a hex argument, refusing an empty one or odd one.
 
-    The fault is Bitcoin Core's for ``raw()``, ``rawnode()`` and
-    ``rawleaf()``, and worded alike for ``rawpkh()``, which Core does not
-    read. It never carries the text: a descriptor may be handed a secret
-    where a script is expected.
+    The hex is read as Bitcoin Core's `IsHex` reads it: whole bytes and
+    nothing else. The message is Core's for ``raw()``, PR 30243's for
+    ``rawnode()`` and ``rawleaf()``, and worded alike for ``rawpkh()``,
+    which Core does not read. PR 30243 reads a ``rawnode()`` hash with
+    `TryParseHex`, which skips whitespace and reads an empty text as no
+    bytes: it accepts a hash with a space in it, and answers an empty one
+    "256 bits digest expected". Both are refused here as not hex.
+
+    The message never carries the text: a descriptor may be handed a
+    secret where a script is expected.
     """
     if not _HEX.fullmatch(text):
         raise BTClibValueError(fault)
@@ -2821,9 +2830,13 @@ def _parse_rawnode(args: list[str]) -> RawNode:
 def _parse_rawleaf(args: list[str]) -> RawLeaf:
     """Return the leaf of a ``rawleaf(HEX)`` or ``rawleaf(HEX,VER)``.
 
-    The faults and their order are Bitcoin Core's, in PR 30243. The version
-    is one byte, and an odd one is refused: its low bit is the parity of
-    the output key in a control block.
+    The messages and their order are those of Bitcoin Core's PR 30243.
+    That PR reads the version with `TryParseHex`, which skips whitespace,
+    so it accepts ``rawleaf(51, c0)``. Such a version is refused here as
+    not hex.
+
+    The version is one byte, and an odd one is refused: its low bit is the
+    parity of the output key in a control block.
     """
     script = _hex_bytes(args[0], "Leaf Script is not hex")
     if len(args) == 1:

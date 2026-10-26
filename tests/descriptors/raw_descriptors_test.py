@@ -192,7 +192,9 @@ BIP_VECTORS = [
 ]
 
 # its invalid vectors, the spaces after a comma left out: Core refuses a
-# function name that starts with a space
+# function name that starts with a space. The `key` of tr(raw(asdf), pk(key))
+# is written as XONLY. The vector whose hash is a placeholder, "<complete me
+# with a 32-bit non-hex hash>", is left out
 BIP_INVALID = [
     ("sh(raw(asdf))", "^Raw script is not hex$"),
     (f"tr({XONLY},rawnode(kjke))", "^Rawnode hash is not hex$"),

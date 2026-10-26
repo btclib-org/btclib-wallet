@@ -930,7 +930,10 @@ branch either, and `ref` is its head.
 `BIP_VECTORS` in `tests/descriptors/raw_descriptors_test.py` holds its
 valid vectors, and `BIP_INVALID` its invalid ones, with the space after a
 comma left out: Core refuses a function name that starts with a space.
-Its other examples are a to-do list in the draft.
+The `key` of `tr(raw(asdf), pk(key))` is written as an x-only key. The
+invalid vector whose hash is a placeholder, `<complete me with a 32-bit
+non-hex hash>`, is left out. The draft's other examples are a to-do
+list.
 
 ## bitcoin-core/HWI
 
