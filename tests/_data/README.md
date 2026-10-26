@@ -931,9 +931,8 @@ branch either, and `ref` is its head.
 valid vectors, and `BIP_INVALID` its invalid ones, with the space after a
 comma left out: Core refuses a function name that starts with a space.
 The `key` of `tr(raw(asdf), pk(key))` is written as an x-only key. The
-invalid vector whose hash is a placeholder, `<complete me with a 32-bit
-non-hex hash>`, is left out. The draft's other examples are a to-do
-list.
+invalid vector whose hash the draft leaves as a placeholder is left out.
+The draft's other examples are a to-do list.
 
 ## bitcoin-core/HWI
 
