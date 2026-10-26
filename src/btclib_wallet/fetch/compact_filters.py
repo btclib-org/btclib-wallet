@@ -46,16 +46,15 @@ reconnects. Calls are not safe to make from two threads.
 
 from __future__ import annotations
 
-import hashlib
 import secrets
-from collections import deque
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from copy import copy
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic, time
 from types import TracebackType
-from typing import NamedTuple, Self
+from typing import Self
 
 from btclib.alias import Octets
 from btclib.block.block import Block
@@ -66,9 +65,8 @@ from btclib.block.header_context import (
     median_time_past,
     next_bits_required,
 )
-from btclib.block.limits import MAX_FUTURE_BLOCK_TIME
-from btclib.block.proof_of_work import block_work, permitted_difficulty_transition
-from btclib.consensus import ConsensusParams
+from btclib.block.proof_of_work import block_work
+from btclib.consensus import HEADERS_SYNC_PARAMS
 from btclib.exceptions import (
     BTClibTypeError,
     BTClibValueError,
@@ -96,6 +94,12 @@ from btclib.p2p import (
     Verack,
     Version,
     magic_from_network,
+)
+from btclib.p2p.headers_sync import (
+    ChainStart,
+    HeadersSyncState,
+    State,
+    anti_dos_work_threshold,
 )
 from btclib.p2p.limits import (
     MAX_GETCFHEADERS_SIZE,
@@ -133,198 +137,20 @@ _NO_FILTER_HEADER = bytes(32)
 # is up to 4 MB
 _MAX_BLOCKS = 100
 
-# a chain cannot grow faster than six blocks a second: the median time past
-# of eleven blocks must be passed by the next one
-_MAX_BLOCKS_PER_SECOND = 6
 
-# Core's anti-DoS buffer: a chain needs the tip's work less that of this many
-# blocks at the tip's difficulty
-_NEAR_TIP_BLOCKS = 144
+@dataclass
+class _LowWorkSync:
+    """btclib's `HeadersSyncState`, with what the fetcher reads beside it.
 
-
-class _PresyncParams(NamedTuple):
-    """How a headers presync spends memory: Core's `HeadersSyncParams`."""
-
-    # the distance in blocks between two commitments
-    commitment_period: int
-    # how many headers the second pass holds back: a header is released once
-    # this many more have followed it
-    redownload_buffer_size: int
-
-
-# `HeadersSyncParams` of each network in `src/kernel/chainparams.cpp` of
-# Bitcoin Core v31.1 (bitcoin/bitcoin@9be056a8a7), which derives them with
-# `contrib/devtools/headerssync-params.py`
-_PRESYNC_PARAMS = {
-    "mainnet": _PresyncParams(641, 15218),
-    "testnet": _PresyncParams(673, 14460),
-    "testnet4": _PresyncParams(606, 16092),
-    "signet": _PresyncParams(620, 15724),
-    "regtest": _PresyncParams(275, 7017),
-}
-
-
-class _HeadersSync:
-    """A download of headers that holds none until their work is proved.
-
-    Bitcoin Core's `HeadersSyncState` (`src/headerssync.cpp`), in two passes
-    over the peer's chain from a header already held.
-
-    The first pass, the presync, keeps no header. It keeps the last one,
-    the work so far and a commitment to every `commitment_period`-th
-    header from a random offset: one bit of a salted hash of it. It
-    refuses a header whose `bits` no difficulty adjustment could have
-    produced. It ends when the work reaches the threshold, and it fails
-    when the chain is longer than the rules let a chain be at this time, so
-    that the commitments it keeps are bounded by the clock and not by the
-    peer.
-
-    The second pass, the redownload, asks for the same chain again. It
-    checks the commitment of each header it made one to, and holds the
-    headers back until `redownload_buffer_size` more have followed, so
-    that only a chain that matched many commitments is released for good. A
-    peer that served a chain with the work and then another one has to
-    guess each bit.
-
-    `process` takes the batches the peer sends and returns the headers that
-    are ready for the checks that need the chain held; `active` is whether
-    it wants another batch.
+    `threshold` is the work the sync was started for, `start_height` the
+    height of the header it starts from, and `height` that of the last
+    header of its current pass.
     """
 
-    def __init__(
-        self,
-        consensus: ConsensusParams,
-        params: _PresyncParams,
-        start: BlockHeader,
-        start_height: int,
-        start_work: int,
-        start_time: int,
-        threshold: int,
-        now: int,
-        salt: bytes,
-        offset: int,
-    ) -> None:
-        """Begin at `start`, held at `start_height`, with this median time.
-
-        `threshold` is the work a chain needs, `now` the clock in seconds,
-        and `salt` and `offset` the secrets of the commitments.
-        """
-        self._consensus = consensus
-        self._period = params.commitment_period
-        self._buffer_size = params.redownload_buffer_size
-        self._start = start
-        self.start_height = start_height
-        self._start_work = start_work
-        self._threshold = threshold
-        self._salt = salt
-        self._offset = offset
-        # Core's bound on the commitments of a chain the rules allow
-        seconds = max(0, now - start_time + MAX_FUTURE_BLOCK_TIME)
-        self._max_commitments = _MAX_BLOCKS_PER_SECOND * seconds // self._period
-        # the chain taken so far in the current pass
-        self.last_hash = start.hash
-        self.height = start_height
-        self._last_bits = start.bits
-        self._work = start_work
-        # the commitments, one bit each, and how many were taken back
-        self._bits = bytearray()
-        self._pushed = 0
-        self._popped = 0
-        self._redownloading = False
-        self._held: deque[BlockHeader] = deque()
-        self._proved = False
-        self.active = True
-
-    def _commitment(self, header_hash: bytes) -> int:
-        """Return the bit this header would commit to."""
-        return hashlib.sha256(self._salt + header_hash).digest()[0] & 1
-
-    def _push(self, bit: int) -> None:
-        """Add a bit to the commitments."""
-        if self._pushed % 8 == 0:
-            self._bits.append(0)
-        self._bits[-1] |= bit << (self._pushed % 8)
-        self._pushed += 1
-
-    def _pop(self) -> int:
-        """Take back the oldest bit of the commitments."""
-        bit = (self._bits[self._popped // 8] >> (self._popped % 8)) & 1
-        self._popped += 1
-        return bit
-
-    def _take(self, header: BlockHeader) -> int:
-        """Take a header that follows the last one; return its height."""
-        height = self.height + 1
-        if header.previous_block_hash != self.last_hash:
-            raise FetchError(f"header {height} does not follow the one before it")
-        if not permitted_difficulty_transition(
-            self._consensus, height, self._last_bits, header.bits
-        ):
-            err_msg = f"header {height}: bits {header.bits.hex()} cannot follow"
-            err_msg += f" {self._last_bits.hex()}"
-            raise FetchError(err_msg)
-        self._work += block_work(header.bits)
-        self.last_hash = header.hash
-        self.height = height
-        self._last_bits = header.bits
-        return height
-
-    def process(self, batch: list[BlockHeader]) -> list[BlockHeader]:
-        """Take a batch of headers; return those ready to be checked and held.
-
-        A batch that is not full is the last the peer has. A chain that ends
-        before it has the work, in either pass, is a `FetchError`.
-        """
-        full = len(batch) >= MAX_HEADERS_RESULTS
-        if self._redownloading:
-            return self._redownload(batch, full=full)
-        if not self._presync(batch) and not full:
-            err_msg = f"a chain of work {self._work}, below the {self._threshold}"
-            raise FetchError(err_msg)
-        return []
-
-    def _presync(self, batch: list[BlockHeader]) -> bool:
-        """Take the headers of the first pass; return whether it is over.
-
-        A commitment is kept now and then. The first pass is over when the
-        work is the threshold's, and the second begins from the start.
-        """
-        for header in batch:
-            height = self._take(header)
-            if height % self._period == self._offset:
-                self._push(self._commitment(header.hash))
-                if self._pushed > self._max_commitments:
-                    raise FetchError("a chain longer than the rules allow")
-        if self._work >= self._threshold:
-            self._redownloading = True
-            self.last_hash = self._start.hash
-            self.height = self.start_height
-            self._last_bits = self._start.bits
-            self._work = self._start_work
-        return self._redownloading
-
-    def _redownload(self, batch: list[BlockHeader], *, full: bool) -> list[BlockHeader]:
-        """Take the headers of the second pass, checking the bits kept."""
-        for header in batch:
-            height = self._take(header)
-            if self._work >= self._threshold:
-                self._proved = True
-            # past the work there is no commitment to expect: the peer may
-            # have extended its chain since the first pass
-            if not self._proved and height % self._period == self._offset:
-                if self._popped == self._pushed:
-                    raise FetchError(f"header {height} has no commitment to match")
-                if self._commitment(header.hash) != self._pop():
-                    raise FetchError(f"header {height} is not the one first served")
-            self._held.append(header)
-        ready = []
-        while len(self._held) > self._buffer_size or (self._held and self._proved):
-            ready.append(self._held.popleft())
-        if self._proved and not self._held:
-            self.active = False
-        elif not full:
-            raise FetchError("the peer stopped serving the chain it showed")
-        return ready
+    headers_sync: HeadersSyncState
+    threshold: int
+    start_height: int
+    height: int
 
 
 class CompactFilterFetcher(NetworkVerifyingFetcher):
@@ -369,7 +195,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         self.timeout = valid_timeout(timeout)
         self._magic = magic_from_network(self.network)
         self._consensus = NETWORKS[self.network].consensus
-        self._presync_params = _PRESYNC_PARAMS[self.network]
+        self._headers_sync_params = HEADERS_SYNC_PARAMS[self.network]
         genesis = genesis_block(self.network).header
         # the header chain, by height, and the inverse of its hashes
         self._headers = [genesis]
@@ -626,21 +452,20 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def _work_threshold(self) -> int:
         """Return the work a chain needs before its headers are held.
 
-        The network's minimum, or the work of the tip less
-        `_NEAR_TIP_BLOCKS` blocks if that is more: Bitcoin Core's
-        `GetAntiDoSWorkThreshold`.
+        btclib's `anti_dos_work_threshold` at the tip held, with the
+        network's minimum.
         """
-        tip_work = self._work[-1]
-        proof = block_work(self._headers[-1].bits)
-        near_tip = tip_work - min(_NEAR_TIP_BLOCKS * proof, tip_work)
-        return max(near_tip, self._consensus.minimum_chain_work)
+        return anti_dos_work_threshold(
+            self._work[-1], self._headers[-1].bits, self._consensus.minimum_chain_work
+        )
 
-    def _low_work_sync(self, batch: list[BlockHeader]) -> _HeadersSync | None:
+    def _low_work_sync(self, batch: list[BlockHeader]) -> _LowWorkSync | None:
         """Return the presync a batch of headers needs, or None for none.
 
         None is for a chain that is held, or whose work, up to the end of
         the batch, is the threshold's: its headers are checked and held as
-        they arrive. Bitcoin Core's `TryLowWorkHeadersSync`.
+        they arrive. Bitcoin Core's `TryLowWorkHeadersSync`, except that
+        a batch that is not full starts a sync too, which then fails.
         """
         parent_height = self._height_of.get(batch[0].previous_block_hash)
         if parent_height is None:
@@ -653,48 +478,99 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         if total >= threshold:
             return None
         parent = self._headers[parent_height]
-        return _HeadersSync(
-            self._consensus,
-            self._presync_params,
+        start = ChainStart(
             parent,
             parent_height,
             self._work[parent_height],
             median_time_past(parent, parent_height, self._parent_of),
-            threshold,
-            int(time()),
-            secrets.token_bytes(32),
-            secrets.randbelow(self._presync_params.commitment_period),
+            self._locator(parent_height),
         )
+        try:
+            headers_sync = HeadersSyncState(
+                self._consensus,
+                self._headers_sync_params,
+                start,
+                threshold,
+                now=datetime.fromtimestamp(time(), UTC),
+            )
+        except BTClibValueError as e:
+            # a clock far behind the median time past of the start
+            raise FetchError(f"headers sync: {e}") from e
+        return _LowWorkSync(headers_sync, threshold, parent_height, parent_height)
+
+    def _released_reach(self, ready: list[BlockHeader], threshold: int) -> bool:
+        """Return whether the headers a sync released reach `threshold`."""
+        if not ready:
+            return False
+        parent_height = self._height_of[ready[0].previous_block_hash]
+        work = sum(block_work(header.bits) for header in ready)
+        return self._work[parent_height] + work >= threshold
+
+    def _sync_batch(
+        self, sync: _LowWorkSync, batch: list[BlockHeader], *, full: bool
+    ) -> bool:
+        """Hand a batch to a low-work sync; return whether it asks for more.
+
+        The headers it releases are checked and held. A batch it refuses
+        fails the call, and so does a sync that ends before it has
+        released a chain with the work it was started for.
+        """
+        first = sync.height + 1
+        sync.height += len(batch)
+        state = sync.headers_sync.state
+        result = sync.headers_sync.process_next_headers(
+            batch, full_headers_message=full
+        )
+        if not result.success and batch:
+            if state is State.PRESYNC:
+                err_msg = f"headers {first} to {sync.height} are not a chain"
+                err_msg += " the rules allow"
+            else:
+                err_msg = f"headers {first} to {sync.height} are not the chain"
+                err_msg += " first served"
+            raise FetchError(err_msg)
+        if state is State.PRESYNC:
+            if not result.request_more:
+                err_msg = f"a chain of work {sync.headers_sync.presync_work},"
+                err_msg += f" below the {sync.threshold}"
+                raise FetchError(err_msg)
+            if sync.headers_sync.state is State.REDOWNLOAD:
+                sync.height = sync.start_height
+            return True
+        ready = result.pow_validated_headers
+        if not result.request_more and not self._released_reach(ready, sync.threshold):
+            raise FetchError("the peer stopped serving the chain it showed")
+        if ready:
+            self._connect(ready)
+        return result.request_more
 
     def _fetch_headers(self) -> None:
         """Ask for headers until the peer sends none that are new.
 
-        A chain without the work to be held is downloaded twice, by a
-        `_HeadersSync` that holds nothing the first time, and the headers
-        it releases the second time are checked and held as any others.
+        A chain without the work to be held is downloaded twice, by
+        btclib's `HeadersSyncState`, which holds nothing the first time.
+        The headers it releases the second time are checked and held as
+        any others.
         """
         sync = None
         while True:
             if sync is None:
                 locator = self._locator(len(self._hashes) - 1)
             else:
-                locator = [sync.last_hash, *self._locator(sync.start_height)]
+                locator = sync.headers_sync.next_headers_request_locator
             batch = self._request_headers(locator)
             full = len(batch) >= MAX_HEADERS_RESULTS
             if sync is None:
                 if not batch:
                     return
                 sync = self._low_work_sync(batch)
+                if sync is None:
+                    if not self._connect(batch) or not full:
+                        return
+                    continue
             else:
                 self._assert_pow(batch, sync.height + 1)
-            if sync is None:
-                if not self._connect(batch) or not full:
-                    return
-                continue
-            ready = sync.process(batch)
-            if ready:
-                self._connect(ready)
-            if sync.active:
+            if self._sync_batch(sync, batch, full=full):
                 continue
             sync = None
             if not full:
