@@ -58,6 +58,7 @@ from typing import Self
 
 from btclib.alias import Octets
 from btclib.block.block import Block
+from btclib.block.block_context import BlockContext
 from btclib.block.block_header import BlockHeader
 from btclib.block.genesis import genesis_block
 from btclib.block.header_context import (
@@ -708,17 +709,21 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 if height < 0:
                     raise BTClibValueError("a block that was not asked for")
                 block.assert_valid_structure()
-                # Core's bad-witness-nonce-size. btclib asks it only of a
-                # block that carries a witness, and a peer can strip them all
-                nonce = block.transactions[0].vin[0].script_witness.stack
-                if (
-                    height >= self._consensus.segwit_height
-                    and block.witness_commitment is not None
-                    and (len(nonce) != 1 or len(nonce[0]) != 32)
-                ):
-                    raise BTClibValueError(
-                        "a witness commitment without a 32-byte witness nonce"
+                past = (
+                    median_time_past(
+                        self._headers[height - 1], height - 1, self._parent_of
                     )
+                    if height
+                    else None
+                )
+                block.assert_valid_contextual(
+                    BlockContext(
+                        height,
+                        datetime.fromtimestamp(time(), UTC),
+                        self._consensus,
+                        median_time_past=past,
+                    )
+                )
             blocks[height] = Block(
                 block.header,
                 [tx_for_network(tx, self.network) for tx in block.transactions],
