@@ -686,12 +686,11 @@ result.
    carry it. The signing runs inside `btclib-org/.github`'s
    `reusable-build.yml`, which `release.yml`'s `build` job calls, so
    that is the workflow the certificate names. `--owner` names the
-   organization, and the check of `sourceRepositoryIdentifier` names this
-   repository by its id, which a rename keeps: `--repo` compares the
-   current name, and refuses every release signed before a rename. The
-   exit code is `0` only where a verified attestation names this
-   repository. `--source-ref` names the tag, which is what stops a
-   rehearsal dispatched from a branch from verifying as this release. A
+   organization. The exit code is `0` only where a verified attestation
+   names this repository. `SECURITY.md` says why the repository is
+   compared by its id rather than by `--repo`. `--source-ref` names the
+   tag, which is what stops a rehearsal dispatched from a branch from
+   verifying as this release. A
    release made before this repository called `reusable-build.yml` was
    signed by `reusable-attest.yml`, and verifies with that workflow as
    the signer, `--source-ref` included. For a signer that is a reusable workflow,
