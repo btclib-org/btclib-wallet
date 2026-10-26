@@ -211,6 +211,11 @@ _ARITY = {
 # zeros included, and nothing else
 _NUMBER = re.compile(r"[0-9]+")
 
+# Bitcoin Core's `IsHex`: an even, non-zero count of hex characters, and
+# nothing else. `bytes.fromhex` skips whitespace, so a hash holding a space
+# would print back without it, changing the checksum.
+_HEX = re.compile(r"(?:[0-9a-fA-F]{2})+")
+
 
 def _assert_valid_context(context: str) -> None:
     """Refuse a spend context that is not one of BIP379's two.
@@ -2151,6 +2156,8 @@ def _read_leaf(
     if name in _KEY_FRAGMENTS:
         return _read_key_fragment(name, argument, context, prv_keys)
     if name in _HASH_OP_CODES:
+        if not _HEX.fullmatch(argument):
+            raise BTClibValueError(f"invalid {name}() hash: hex expected")
         digest = bytes_from_octets(argument, _DATA_SIZE[name])
         return Miniscript(name, context, data=digest)
     if name in {"older", "after"}:
