@@ -389,8 +389,7 @@ def label_lookup(b_scan: Integer, m_values: Iterable[int]) -> dict[bytes, bytes]
     itself.
 
     The tweak is 32 bytes, big-endian -- `silentpayments.scan_outputs`'s
-    own spelling of a label cache, `Mapping[bytes, bytes]`, which refuses
-    a `bytearray` or a `memoryview` as a key and is what
+    own spelling of a label cache, `Mapping[bytes, bytes]`, and is what
     `scan_transaction_outputs` hands the bindings unconverted where they
     serve. `scan_outputs`'s Python loop reads the same bytes through
     `scalar_from_prv_key`, which already accepts 32-octet SEC input, so
@@ -915,21 +914,39 @@ def _outputs_with_a_point(outputs_to_check: Sequence[Octets]) -> list[bytes]:
 
 
 def _assert_labels(labels: Mapping[bytes, bytes] | None) -> None:
-    """Refuse a label key that is not 33 bytes, as the bindings do.
+    """Refuse a label entry the locked bindings refuse, as they do.
 
-    `point_from_octets_var` would lift a 65-byte key, which the addition
-    could match and the subtraction, looking a label up by its compressed
-    key, never does. The bindings refuse such a key, and this refuses it
-    with their error and message before either scan is chosen, so that
-    every scan answers alike.
+    The key must be 33 bytes and the tweak 32 bytes in [1, n-1], each
+    entry checked whether or not its key matches an output. The Python
+    scan reads a tweak only on a match, and `point_from_octets_var` would
+    lift a 65-byte key, which the addition could match and the
+    subtraction, looking a label up by its compressed key, never does.
+    This runs before either scan is chosen, with the bindings' errors and
+    messages, so that every scan answers alike.
     """
-    for label in labels or ():
+    # read as objects: the type is what is being checked
+    entries: Iterable[tuple[object, object]] = (labels or {}).items()
+    for label, tweak in entries:
         if not isinstance(label, (bytes, memoryview)):
             raise BTClibTypeError(
                 f"the label must be bytes, not {type(label).__name__}"
             )
         if len(bytes(label)) != _PK_SIZE:
             raise BTClibValueError(f"the label must be {_PK_SIZE} bytes")
+        if not isinstance(tweak, (bytes, bytearray, memoryview)):
+            raise BTClibTypeError(
+                f"the label tweak must be bytes, not {type(tweak).__name__}"
+            )
+        if isinstance(tweak, memoryview) and tweak.itemsize != 1:
+            raise BTClibTypeError(
+                "the label tweak must be a memoryview of bytes, "
+                f"not of {tweak.itemsize}-byte items"
+            )
+        if len(bytes(tweak)) != secp256k1.n_size:
+            raise BTClibValueError(f"the label tweak must be {secp256k1.n_size} bytes")
+        # the floor, 0.8.0.10, does not check the range
+        if not 0 < int.from_bytes(tweak, "big") < secp256k1.n:
+            raise BTClibValueError("the label tweak must be in [1, n-1]")
 
 
 def _lifted_labels(
@@ -1157,8 +1174,9 @@ def scan_transaction_outputs(
     product of two integers in Python and no longer a scalar handed to
     the curve code.
 
-    No outputs to check and a label key that is not 33 bytes are refused,
-    and an output that is no point is walked past, whichever scan runs.
+    No outputs to check and a label entry the bindings refuse
+    (`_assert_labels`) are refused, and an output that is no point is
+    walked past, whichever scan runs.
 
     `pub_key_sum` and `input_hash` run before either is chosen, so that a
     zero-sum refusal or an empty outpoint sequence gets the specific
@@ -1168,7 +1186,7 @@ def scan_transaction_outputs(
     `labels` is `label_lookup`'s map -- 33-byte label to 32-byte tweak.
     """
     _assert_outputs(outputs_to_check)
-    # whichever scan runs, as the bindings did
+    # whichever scan runs, as the bindings do
     if not outputs_to_check:
         raise BTClibValueError("no outputs to check")
     A_sum = pub_key_sum([pub_key for pub_key, _script_pub_key in pub_keys])

@@ -23,6 +23,7 @@ that says the output is *spendable* rather than merely predicted.
 
 from __future__ import annotations
 
+import re
 import string
 from hashlib import sha256
 from typing import Any, cast
@@ -623,11 +624,11 @@ def _malformed_label_cases() -> list[
     """Return (outpoints, outputs, labels, outputs found) with a bad label.
 
     A label key that is no point is first in the map, with a tweak in
-    1..n-1, which the bindings check whether or not the key matches. One
-    output is ours, by label 0, and the map holds label 0 or not. The bad
-    label alone is added over one output and over two. With label 0 it is
-    subtracted over one output, there being more labels than outputs, and
-    added over two.
+    1..n-1: the locked bindings and `_assert_labels` refuse any other,
+    whether or not the key matches. One output is ours, by label 0, and
+    the map holds label 0 or not. The bad label alone is added over one
+    output and over two. With label 0 it is subtracted over one output,
+    there being more labels than outputs, and added over two.
     """
     outpoints, keys = _paid_with_labels([0])
     stranger = bytes_from_point(mult(2))[1:]
@@ -730,6 +731,92 @@ def test_the_bindings_refuse_a_label_keyed_in_another_form_alike() -> None:
             silent_payments._delegated_scan_outputs(
                 _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), keys, labels
             )
+
+
+def _label_with_a_bad_tweak() -> list[tuple[dict[bytes, bytes], type[Exception], str]]:
+    """Return (label 5 with a bad tweak, error, message) the bindings give.
+
+    Label 5 pays no output of `_paid_with_labels([0])`, so a scan that
+    reads a tweak only on a match never reads this one. The tweak is 0,
+    n, n+1, 31 bytes, an int, or a memoryview of 4-byte items.
+    """
+    ((key, tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [5]).items()
+    n = secp256k1.n
+    in_range = "the label tweak must be in [1, n-1]"
+    bad_tweaks: list[tuple[object, type[Exception], str]] = [
+        (bytes(32), BTClibValueError, in_range),
+        (n.to_bytes(32, "big"), BTClibValueError, in_range),
+        ((n + 1).to_bytes(32, "big"), BTClibValueError, in_range),
+        (tweak[1:], BTClibValueError, "the label tweak must be 32 bytes"),
+        (
+            int.from_bytes(tweak, "big"),
+            BTClibTypeError,
+            "the label tweak must be bytes, not int",
+        ),
+        (
+            memoryview(tweak).cast("I"),
+            BTClibTypeError,
+            "the label tweak must be a memoryview of bytes, not of 4-byte items",
+        ),
+    ]
+    return [
+        (cast("dict[bytes, bytes]", {key: bad}), error, message)
+        for bad, error, message in bad_tweaks
+    ]
+
+
+def test_an_unmatched_label_with_a_bad_tweak_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Python scan refuses it, though it matches no output.
+
+    Label 0 pays the one output. The bad label alone is added; with label
+    0 beside it, there are more labels than outputs, and they are
+    subtracted. Both `scan_outputs` and `scan_transaction_outputs` refuse
+    it, with the bindings' error and message.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    outpoints, keys = _paid_with_labels([0])
+    change = silent_payments.label_lookup(_B_SCAN_PRV, [0])
+    assert len(_scan_paid(outpoints, keys, change)) == 1
+    monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+    for bad, error, message in _label_with_a_bad_tweak():
+        for labels in (bad, {**bad, **change}):
+            with pytest.raises(error, match=f"^{re.escape(message)}$"):
+                _scan_paid(outpoints, keys, labels)
+            with pytest.raises(error, match=f"^{re.escape(message)}$"):
+                silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, keys, labels
+                )
+
+
+@needs_bindings
+def test_the_dispatch_refuses_an_unmatched_label_with_a_bad_tweak() -> None:
+    """Few labels go to the Python scan and many to the bindings: both refuse.
+
+    The bad label beside label 0 is two labels over one output, which the
+    dispatch keeps in Python; beside twenty more, it reaches the bindings.
+    The bindings themselves refuse it with the same message, their
+    TypeError unwrapped.
+    """
+    a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
+    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    outpoints, keys = _paid_with_labels([0])
+    change = silent_payments.label_lookup(_B_SCAN_PRV, [0])
+    many = silent_payments.label_lookup(_B_SCAN_PRV, range(6, 26))
+    for bad, error, message in _label_with_a_bad_tweak():
+        for labels in ({**bad, **change}, {**bad, **change, **many}):
+            with pytest.raises(error, match=f"^{re.escape(message)}$"):
+                silent_payments.scan_transaction_outputs(
+                    _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, keys, labels
+                )
+            # `_delegated_scan_outputs` wraps the bindings' ValueError only
+            raw = TypeError if error is BTClibTypeError else error
+            with pytest.raises(raw, match=f"^{re.escape(message)}$"):
+                silent_payments._delegated_scan_outputs(
+                    _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), keys, labels
+                )
 
 
 @needs_bindings
