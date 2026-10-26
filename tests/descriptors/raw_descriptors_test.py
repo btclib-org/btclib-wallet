@@ -179,7 +179,7 @@ CORE_UNPARSABLE = [
     ),
 ]
 
-# the three valid vectors of the draft BIP of bitcoin/bips PR 1721. Its
+# the valid vectors of the draft BIP of bitcoin/bips PR 1721. Its
 # prose says a wsh() script is "OP_0 <hash160(HEX_script)>", and its vector
 # is OP_0 and the 32 bytes of the sha256 of the witness script
 BIP_VECTORS = [
@@ -395,7 +395,7 @@ def test_bip_vector(descriptor: str, script: str) -> None:
 
 
 def test_bip_vector_hashes_are_the_hashes_of_the_script() -> None:
-    """The three scripts of the draft BIP are what the BIP says they are."""
+    """The scripts of the draft BIP are what the BIP says they are."""
     from hashlib import sha256  # noqa: PLC0415
 
     redeem = bytes.fromhex("5387")
