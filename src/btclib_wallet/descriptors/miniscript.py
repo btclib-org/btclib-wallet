@@ -218,8 +218,6 @@ _ARITY = {
 # a number, as the fragments that take one accept it: digits, leading
 # zeros included, and nothing else
 _NUMBER = re.compile(r"[0-9]+")
-# whole bytes of hex, as Bitcoin Core's `IsHex` reads them
-_HEX_BYTES = re.compile(r"(?:[0-9a-fA-F]{2})+")
 
 # Bitcoin Core's `IsHex`: an even, non-zero count of hex characters, and
 # nothing else. `bytes.fromhex` skips whitespace, so a hash holding a space
@@ -2112,7 +2110,7 @@ def _read_raw_key_hash(argument: str, context: str) -> Miniscript:
     the 33-byte SEC key in a p2wsh script, and of the 32-byte x-only key in
     a tapscript, as `_leaf_fragment_script` hashes them for a ``pkh()``.
     """
-    if not _HEX_BYTES.fullmatch(argument):
+    if not _HEX.fullmatch(argument):
         raise BTClibValueError("Rawpkh hash is not hex")
     if len(argument) != 2 * _DATA_SIZE["raw_pk_h"]:
         raise BTClibValueError("160 bits digest expected")
