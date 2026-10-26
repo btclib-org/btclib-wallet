@@ -10,9 +10,10 @@
 what `decodescript` answers, with an empty provider.
 `tests/integration/infer_test.py` asks the node again.
 
-The rest of the branches need a provider no descriptor expands to, and
-are held to Core's source at bitcoin/bitcoin@9be056a8a7 (the v31.1 tag),
-`src/script/descriptor.cpp`.
+The other tests are held to Core's source at bitcoin/bitcoin@9be056a8a7
+(the v31.1 tag), `src/script/descriptor.cpp`, except those whose ``tr()``
+holds a ``rawleaf()`` or a ``rawnode()``. Core v31.1 answers a ``rawtr()``
+there, and `infer_descriptor` says what is answered here.
 """
 
 from __future__ import annotations

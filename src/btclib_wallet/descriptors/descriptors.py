@@ -225,6 +225,7 @@ from btclib_wallet.descriptors.key_expression import (
     _steps_set_aside,
 )
 from btclib_wallet.descriptors.miniscript import (
+    _HEX,
     Miniscript,
     SpendContext,
     _assert_sane,
@@ -416,8 +417,6 @@ _TREE_FUNCTIONS = ("multi_a", "sortedmulti_a")
 # the two above do
 _RAW_TREE_FUNCTIONS = ("rawnode", "rawleaf")
 
-# what a hex argument is: whole bytes, as Bitcoin Core's `IsHex` reads it
-_HEX_BYTES = re.compile(r"(?:[0-9a-fA-F]{2})+")
 # the bytes of a tree node's hash and of the hash160 a p2pkh script holds
 _NODE_HASH_SIZE = 32
 _KEY_HASH_SIZE = 20
@@ -2784,7 +2783,7 @@ def _hex_bytes(text: str, fault: str) -> bytes:
     read. It never carries the text: a descriptor may be handed a secret
     where a script is expected.
     """
-    if not _HEX_BYTES.fullmatch(text):
+    if not _HEX.fullmatch(text):
         raise BTClibValueError(fault)
     return bytes.fromhex(text)
 
@@ -2830,7 +2829,7 @@ def _parse_rawleaf(args: list[str]) -> RawLeaf:
     if len(args) == 1:
         return RawLeaf(script)
     text = args[1]
-    if text and not _HEX_BYTES.fullmatch(text):
+    if text and not _HEX.fullmatch(text):
         raise BTClibValueError("Leaf Version is not hex")
     if len(text) > _LEAF_VERSION_DIGITS:
         raise BTClibValueError("Leaf Version is too large")
@@ -3531,7 +3530,6 @@ class _TreeNode:
     leaf: tuple[bytes, int] | None = None
     explored: bool = False
     inner: bool = False
-    done: bool = False
 
 
 def _proved_leaf(
@@ -3797,21 +3795,22 @@ def infer_descriptor(
 
     What `scantxoutset` answers in each `unspents[].desc`, at
     bitcoin/bitcoin@9be056a8a7 (the v31.1 tag), read from the script and
-    from what `provider` knows. Each key is the public key the script
-    holds, behind its origin where the provider knows one. A sorted
-    multisig is a ``multi()`` of its keys in the script's order. A key in
-    a ``tr()`` is x-only, except in a ``pkh()``, and the leaves are
-    in the order Core rebuilds them. A script nothing else describes is an
-    ``addr()`` where it has an address -- a ``rawtr()`` for a p2tr output
-    whose key is a point -- and a ``raw()`` otherwise.
+    from what `provider` knows, except for the p2tr trees below. Each key
+    is the public key the script holds, behind its origin where the
+    provider knows one. A sorted multisig is a ``multi()`` of its keys in
+    the script's order. A key in a ``tr()`` is x-only, except in a
+    ``pkh()``, and the leaves are in the order Core rebuilds them. A
+    script nothing else describes is an ``addr()`` where it has an address
+    -- a ``rawtr()`` for a p2tr output whose key is a point -- and a
+    ``raw()`` otherwise.
 
     A p2tr output whose internal key and merkle root the provider knows is
     a ``tr()`` of the tree it can rebuild, whatever is missing from it: a
     leaf that infers to nothing else, or that has another leaf version, is
     a ``rawleaf()``, and a branch without a known leaf is a ``rawnode()``.
-    Core's PR 30243 infers the root of a tree it cannot rebuild as one
-    ``rawnode()``, and drops the leaf version of a leaf it infers as
-    another descriptor.
+    Core v31.1 answers a ``rawtr()`` for such a tree. Core's PR 30243
+    infers the root of a tree it cannot rebuild as one ``rawnode()``, and
+    drops the leaf version of a leaf it infers as another descriptor.
     """
     script = bytes_from_octets(script)
     _assert_provider(provider)

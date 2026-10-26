@@ -14,8 +14,8 @@ as the argument of ``pkh()``.
 No case is left out as unsupported: ``combo()``, ``addr()`` and ``raw()``
 are all supported.
 
-Two cases are accepted here where bitcoin-s refuses them: ``raw()`` inside
-``sh()`` and ``wsh()``, which the draft BIP of bitcoin/bips#1721 allows.
+``raw()`` inside ``sh()`` and ``wsh()`` is accepted here where bitcoin-s
+refuses it, as `ACCEPTED_HERE` says.
 """
 
 import pytest

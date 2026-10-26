@@ -31,7 +31,7 @@ asks again. That equivalent is the third entry. Core has none for another
 leaf version, and those scripts are btclib's `output_pubkey` of the tree.
 
 Core's `raw()` is top level only, and it refuses ``sh(raw(00))``. This
-package accepts it, as the draft BIP does.
+package accepts it.
 """
 
 from __future__ import annotations
