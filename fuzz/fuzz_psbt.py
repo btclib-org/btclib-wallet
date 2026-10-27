@@ -20,13 +20,25 @@ the other, `b64decode` refusing what is not canonical base64 before
 psbts drives those readers too; each also has its own direct entry point
 in the Hypothesis property suite, `tests/fuzz_test.py`.
 
-A crash here on hostile bytes is a defect in the parser, never in this
-harness: `data` is unconstrained bytes handed straight to each entry
-point, `b64decode` taking bytes as the ascii it decodes them from.
-`BTClibException` and `EccException` are what both answer
-malformed input with, so that family is caught below as the expected
-outcome. An `IndexError`, a `RecursionError` or an uncaught assertion is
-not, and propagates to atheris as the finding it is.
+A psbt that parses is then used. It is serialized, and the
+serialization has to be a fixed point: `serialize(parse(serialize(p)))
+== serialize(p)`. The bytes need not come back as they arrived, because
+`PsbtIn.serialize` drops the signing fields of a finalized input
+(`_DROPPED_ONCE_FINALIZED` in `psbt_in.py`). The psbt is then read the
+way a wallet reads it next: `to_dict`, `prevouts`, `assert_signable`
+and `finalize`, whose result has to serialize to a fixed point too.
+
+A crash here on hostile bytes is a defect in the parser, in `serialize`
+or in one of those readers, never in this harness: `data` is
+unconstrained bytes handed straight to each entry point, `b64decode`
+taking bytes as the ascii it decodes them from. `BTClibException` and
+`EccException` are what the entry points and the readers answer input
+they refuse with, so that family is caught below as the expected
+outcome. `parse` has already validated the psbt, so nothing is caught
+around `serialize`, the second `parse` and `to_dict`: a refusal from
+any of them is a finding. An `IndexError`, a `RecursionError` or a
+failed check of this harness propagates to atheris as the finding it
+is.
 
 The seed corpus holds, as octets, every valid psbt of
 `tests/psbt/_data/bip174_test_vectors.json` and
@@ -49,7 +61,7 @@ import atheris
 from btclib.exceptions import BTClibException
 from ecc.exceptions import EccException
 
-from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt.psbt import Psbt, finalize, prevouts
 
 # tests/fuzz_corpus_test.py reads this by ast.literal_eval. It also loads
 # this module with a placeholder for the CI-only atheris, and runs
@@ -60,18 +72,46 @@ ENTRY_POINTS = (
 )
 
 
+def _assert_fixed_point(psbt: Psbt) -> None:
+    """Serialize `psbt`, parse that, and serialize it again unchanged."""
+    serialized = psbt.serialize()
+    if Psbt.parse(serialized).serialize() != serialized:
+        raise AssertionError("psbt serialization is not a fixed point")
+
+
+def _use(psbt: Psbt) -> None:
+    """Serialize an accepted psbt, then read it as a wallet would."""
+    _assert_fixed_point(psbt)
+    psbt.to_dict()
+    with contextlib.suppress(BTClibException, EccException):
+        prevouts(psbt)
+    with contextlib.suppress(BTClibException, EccException):
+        psbt.assert_signable()
+    try:
+        finalized = finalize(psbt)
+    except (BTClibException, EccException):
+        return
+    _assert_fixed_point(finalized)
+
+
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as psbt octets, then as the base64 armor of some.
 
-    `BTClibException` and `EccException` are swallowed as each
-    entry point's own refusal of malformed input; any other exception
-    propagates, which is how atheris tells a defect in the parser from
-    the domain of input it already rejects.
+    Each psbt either one accepts is used; the module docstring says what
+    is caught and what propagates.
     """
-    with contextlib.suppress(BTClibException, EccException):
-        Psbt.parse(data)
-    with contextlib.suppress(BTClibException, EccException):
-        Psbt.b64decode(data)
+    try:
+        psbt = Psbt.parse(data)
+    except (BTClibException, EccException):
+        pass
+    else:
+        _use(psbt)
+    try:
+        psbt = Psbt.b64decode(data)
+    except (BTClibException, EccException):
+        pass
+    else:
+        _use(psbt)
 
 
 def main() -> None:

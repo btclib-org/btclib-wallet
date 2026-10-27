@@ -76,6 +76,7 @@ from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.descriptors import descriptors, miniscript
 from btclib_wallet.descriptors.key_expression import KeyExpression
+from btclib_wallet.psbt.psbt import PSBT_MAGIC_BYTES, Psbt
 
 _TESTS = Path(__file__).parent
 _FUZZ = _TESTS.parent / "fuzz"
@@ -709,6 +710,58 @@ def test_miniscript_script_round_trip_keeps_bytes_across_associations(
     assert left_node.script() == right_node.script()
     descriptor_harness.fuzz_target(f"wsh({left})".encode())
     descriptor_harness.fuzz_target(f"wsh({right})".encode())
+
+
+@pytest.fixture
+def psbt_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the psbt target with an atheris placeholder."""
+    return _load_harness("fuzz_psbt", monkeypatch)
+
+
+def test_psbt_harness_refuses_a_moving_serialization(
+    psbt_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A serialization that changes on every round trip fails the target."""
+    original = Psbt.serialize
+
+    def growing_serialize(psbt: Psbt, *, check_validity: bool = True) -> bytes:
+        psbt.unknown = {**psbt.unknown, b"\xee" + bytes([len(psbt.unknown)]): b""}
+        return original(psbt, check_validity=check_validity)
+
+    monkeypatch.setattr(Psbt, "serialize", growing_serialize)
+    seed = _CORPUS / "fuzz_psbt" / "bip174.bin"
+    with pytest.raises(
+        AssertionError, match="^psbt serialization is not a fixed point$"
+    ):
+        psbt_harness.fuzz_target(seed.read_bytes())
+
+
+@pytest.mark.parametrize("reader", ["to_dict", "finalize"])
+def test_psbt_harness_propagates_a_reader_crash(
+    psbt_harness: ModuleType, monkeypatch: pytest.MonkeyPatch, reader: str
+) -> None:
+    """A crash in a reader of an accepted psbt reaches atheris."""
+
+    def crash(*_: object, **__: object) -> None:
+        raise IndexError(reader)
+
+    target = Psbt if reader == "to_dict" else psbt_harness
+    monkeypatch.setattr(target, reader, crash)
+    seed = _CORPUS / "fuzz_psbt" / "bip174.bin"
+    with pytest.raises(IndexError, match=f"^{reader}$"):
+        psbt_harness.fuzz_target(seed.read_bytes())
+
+
+def test_psbt_harness_serializes_what_finalize_returns(
+    psbt_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The finalized psbt is held to the fixed point too."""
+    finalized = Mock(spec=Psbt)
+    finalized.serialize.return_value = PSBT_MAGIC_BYTES
+    monkeypatch.setattr(psbt_harness, "finalize", lambda _: finalized)
+    seed = _CORPUS / "fuzz_psbt" / "bip174.bin"
+    with pytest.raises(BTClibValueError, match="^malformed psbt: "):
+        psbt_harness.fuzz_target(seed.read_bytes())
 
 
 @pytest.mark.parametrize("number", [1, 2])
