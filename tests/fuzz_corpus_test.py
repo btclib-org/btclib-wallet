@@ -7,8 +7,11 @@
 The entry-point checks read `fuzz/fuzz_<name>.py` with `ast` and resolve
 what a harness names against the installed btclib_wallet. Every harness
 imports atheris, which is CI-only and undeclared in `[dependency-groups]`.
-The descriptor round-trip tests load that harness with an atheris
-placeholder, and run its pure target without starting the fuzz engine.
+`test_seed_runs_its_harness` loads a harness with an atheris placeholder,
+and runs its pure target on every seed of its corpus without starting the
+fuzz engine: the checks a target makes after the read run in the suite
+too. `fuzz/fuzz_psbt.py` is not loaded, its comment on `ENTRY_POINTS`
+saying the suite does not execute it.
 
 `ENTRY_POINTS`, a module-level tuple of `"module:Qual.name"` string
 literals, is what each harness names. `test_entry_points_are_declared`
@@ -42,8 +45,6 @@ wire form, so a descriptor seed is held to the normal form that
 `fuzz/fuzz_descriptor.py` states, and to a checksum that is valid. A seed
 in normal form prints back as written, the checksum aside;
 `_REWRITTEN_SEEDS` names the seeds that the normal form rewrites.
-`test_descriptor_seed_runs_the_harness` applies the harness's own
-input, print and script assertions to every descriptor seed.
 
 `test_psbt_crash_inputs_are_seeds` ties the two rust-bitcoin psbts that
 `tests/psbt/psbt_crash_inputs_test.py` reads to their `fuzz_psbt` seeds.
@@ -67,6 +68,9 @@ from unittest.mock import Mock
 import pytest
 from btclib.exceptions import BTClibException, BTClibValueError
 
+from btclib_wallet.bip32.bip32 import BIP32KeyData
+from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
+from btclib_wallet.bip322 import Sig
 from btclib_wallet.descriptors import descriptors, miniscript
 from btclib_wallet.descriptors.key_expression import KeyExpression
 
@@ -360,27 +364,174 @@ def test_every_rewritten_seed_exists() -> None:
     assert {seed.stem for seed in _DESCRIPTOR_SEEDS} >= _REWRITTEN_SEEDS
 
 
-@pytest.fixture
-def descriptor_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Load the descriptor target without loading its CI-only fuzz engine."""
+def _load_harness(name: str, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load a target without loading its CI-only fuzz engine."""
     monkeypatch.setitem(sys.modules, "atheris", ModuleType("atheris"))
-    spec = importlib.util.spec_from_file_location(
-        "fuzz_descriptor", _FUZZ / "fuzz_descriptor.py"
-    )
+    spec = importlib.util.spec_from_file_location(name, _FUZZ / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-@pytest.mark.parametrize(
-    "seed", _DESCRIPTOR_SEEDS, ids=[seed.stem for seed in _DESCRIPTOR_SEEDS]
+@pytest.fixture
+def descriptor_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the descriptor target with an atheris placeholder."""
+    return _load_harness(_TEXT_HARNESS, monkeypatch)
+
+
+@pytest.fixture
+def bip32_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the BIP32 target with an atheris placeholder."""
+    return _load_harness("fuzz_bip32", monkeypatch)
+
+
+@pytest.fixture
+def bip322_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the BIP322 target with an atheris placeholder."""
+    return _load_harness("fuzz_bip322", monkeypatch)
+
+
+_LOADED_SEEDS = tuple(
+    (harness, seed) for harness, seed in _SEEDS if harness != "fuzz_psbt"
 )
-def test_descriptor_seed_runs_the_harness(
-    descriptor_harness: ModuleType, seed: Path
+
+
+@pytest.mark.parametrize(
+    "harness, seed",
+    _LOADED_SEEDS,
+    ids=[str(seed.relative_to(_CORPUS)) for _, seed in _LOADED_SEEDS],
+)
+def test_seed_runs_its_harness(
+    monkeypatch: pytest.MonkeyPatch, harness: str, seed: Path
 ) -> None:
-    """The corpus runs the target's input, print and script assertions."""
-    descriptor_harness.fuzz_target(seed.read_bytes())
+    """A seed passes every check its target makes after the read."""
+    _load_harness(harness, monkeypatch).fuzz_target(seed.read_bytes())
+
+
+def _bip32_seed(name: str) -> bytes:
+    return (_CORPUS / "fuzz_bip32" / f"{name}.bin").read_bytes()
+
+
+@pytest.mark.parametrize(
+    "seed, message",
+    [
+        ("xpub_binary", "^extended key does not serialize back to its input$"),
+        ("xpub", "^extended key does not encode back to its input$"),
+    ],
+)
+def test_bip32_harness_refuses_a_key_that_reads_back_otherwise(
+    bip32_harness: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    seed: str,
+    message: str,
+) -> None:
+    """A serializer that writes another depth fails either comparison."""
+    original = BIP32KeyData.serialize
+
+    def deeper(key: BIP32KeyData, *, check_validity: bool = True) -> bytes:
+        serialized = original(key, check_validity=check_validity)
+        return serialized[:4] + bytes([serialized[4] + 1]) + serialized[5:]
+
+    monkeypatch.setattr(BIP32KeyData, "serialize", deeper)
+    with pytest.raises(AssertionError, match=message):
+        bip32_harness.fuzz_target(_bip32_seed(seed))
+
+
+def test_bip32_harness_refuses_an_origin_that_reads_back_otherwise(
+    bip32_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key origin that serializes longer than its input is a finding."""
+    original = BIP32KeyOrigin.serialize
+
+    def longer(origin: BIP32KeyOrigin, *, check_validity: bool = True) -> bytes:
+        return original(origin, check_validity=check_validity) + bytes(4)
+
+    monkeypatch.setattr(BIP32KeyOrigin, "serialize", longer)
+    with pytest.raises(
+        AssertionError, match="^key origin does not serialize back to its input$"
+    ):
+        bip32_harness.fuzz_target(_bip32_seed("key_origin"))
+
+
+@pytest.mark.parametrize(
+    "seed, neutered", [("xprv", 1), ("xpub", 0), ("xpub_binary", 0)]
+)
+def test_bip32_harness_derives_each_key(
+    bip32_harness: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    seed: str,
+    neutered: int,
+) -> None:
+    """Each accepted key derives a child, and a private one its xpub."""
+    derive = Mock(wraps=bip32_harness.derive_)
+    neuter = Mock(wraps=bip32_harness.xpub_from_xprv_)
+    monkeypatch.setattr(bip32_harness, "derive_", derive)
+    monkeypatch.setattr(bip32_harness, "xpub_from_xprv_", neuter)
+
+    bip32_harness.fuzz_target(_bip32_seed(seed))
+
+    derive.assert_called_once()
+    assert neuter.call_count == neutered
+
+
+def test_bip32_harness_lets_a_refused_derivation_pass(
+    bip32_harness: ModuleType,
+) -> None:
+    """A key at depth 255 has no child, which is a refusal and no finding."""
+    data = _bip32_seed("xpub_binary")
+    deepest = data[:4] + b"\xff" + b"\x01\x02\x03\x04" + data[9:]
+    with pytest.raises(BTClibValueError, match="final depth greater than 255"):
+        bip32_harness.derive_(BIP32KeyData.parse(deepest), 0)
+    bip32_harness.fuzz_target(deepest)
+
+
+@pytest.mark.parametrize("operation", ["derive_", "xpub_from_xprv_"])
+def test_bip32_harness_propagates_a_derivation_defect(
+    bip32_harness: ModuleType, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    """Only the two exception families may leave a derivation quietly."""
+
+    def fail(*_: object) -> None:
+        raise IndexError("derivation failed")
+
+    monkeypatch.setattr(bip32_harness, operation, fail)
+    with pytest.raises(IndexError, match="^derivation failed$"):
+        bip32_harness.fuzz_target(_bip32_seed("xprv"))
+
+
+def test_bip322_harness_refuses_an_armor_that_reads_back_otherwise(
+    bip322_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A signature whose armor decodes to another signature is a finding."""
+    smp, ful = (
+        (_CORPUS / "fuzz_bip322" / f"{name}.bin").read_text(encoding="ascii")
+        for name in ("smp", "ful")
+    )
+    monkeypatch.setattr(Sig, "b64encode", Mock(side_effect=[smp, ful]))
+    with pytest.raises(AssertionError, match="^signature armor is not a fixed point$"):
+        bip322_harness.fuzz_target(smp.encode())
+
+
+def test_bip322_harness_propagates_a_refusal_of_its_own_armor(
+    bip322_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the first decode may refuse quietly; the second is a finding."""
+    smp = (_CORPUS / "fuzz_bip322" / "smp.bin").read_text(encoding="ascii")
+    monkeypatch.setattr(Sig, "b64encode", Mock(return_value=smp + "A"))
+    with pytest.raises(BTClibException):
+        bip322_harness.fuzz_target(smp.encode())
+
+
+def test_bip322_harness_reads_an_unprefixed_simple_signature(
+    bip322_harness: ModuleType,
+) -> None:
+    """A simple signature may omit its prefix, so only a fixed point holds."""
+    smp = (_CORPUS / "fuzz_bip322" / "smp.bin").read_text(encoding="ascii")
+    unprefixed = smp.removeprefix("smp")
+    assert unprefixed != smp
+    assert Sig.b64decode(unprefixed).b64encode() == smp
+    bip322_harness.fuzz_target(unprefixed.encode())
 
 
 @pytest.mark.parametrize("loss", ["origin", "wildcard", "key"])
@@ -469,6 +620,68 @@ def test_descriptor_harness_skips_only_the_nonderivable_script(
     descriptor_harness.fuzz_target(f"wsh(and_v(v:pk({xpub}/0h),older(10)))".encode())
 
     decode.assert_not_called()
+
+
+def test_descriptor_harness_derives_every_script_of_a_combo(
+    descriptor_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A combo() has several scripts, so only the lists are asked of it."""
+    original = descriptors.Descriptor.script_pub_keys
+    counts: list[int] = []
+
+    def counted(descriptor: descriptors.Descriptor, *args: Any) -> list[Any]:
+        scripts = original(descriptor, *args)
+        counts.append(len(scripts))
+        return scripts
+
+    single = Mock(side_effect=AssertionError("one script asked of a combo"))
+    monkeypatch.setattr(descriptors.Descriptor, "script_pub_keys", counted)
+    monkeypatch.setattr(descriptors.Descriptor, "script_pub_key", single)
+    seed = _CORPUS / _TEXT_HARNESS / "bip384_combo_origin_xpub.bin"
+
+    descriptor_harness.fuzz_target(seed.read_bytes())
+
+    assert counts
+    assert set(counts) == {4}
+    single.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "operation, error",
+    [
+        ("script_pub_keys", IndexError),
+        ("addresses", BTClibValueError),
+        ("script_pub_key", BTClibValueError),
+        ("address", BTClibValueError),
+    ],
+)
+def test_descriptor_harness_propagates_derivation_failures(
+    descriptor_harness: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    error: type[Exception],
+) -> None:
+    """Once the scripts derive, any later failure is a finding."""
+
+    def fail(*_: object) -> None:
+        raise error("derivation failed")
+
+    monkeypatch.setattr(descriptors.Descriptor, operation, fail)
+    seed = _CORPUS / _TEXT_HARNESS / "wpkh.bin"
+    with pytest.raises(error, match="^derivation failed$"):
+        descriptor_harness.fuzz_target(seed.read_bytes())
+
+
+def test_descriptor_harness_refuses_an_address_off_its_list(
+    descriptor_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one-script accessors must answer what the lists answer."""
+    monkeypatch.setattr(descriptors.Descriptor, "address", Mock(return_value=""))
+    seed = _CORPUS / _TEXT_HARNESS / "wpkh.bin"
+    with pytest.raises(
+        AssertionError, match="^script_pub_key or address disagrees with its list$"
+    ):
+        descriptor_harness.fuzz_target(seed.read_bytes())
 
 
 def test_descriptor_harness_compares_deep_miniscript_without_recursing(

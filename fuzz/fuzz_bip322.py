@@ -12,15 +12,15 @@ it is decoded and handed to that payload's own parser before anything
 is verified. Reading the signature is therefore ahead of judging it,
 which is what puts it here rather than beside `verify`.
 
-A crash here on hostile bytes is a defect in `b64decode` itself, never
-in this harness: `data` is unconstrained bytes handed straight to it,
-the `String` it takes being bytes as readily as text, and the ascii
+A crash here on hostile bytes is a defect in `b64decode` or `b64encode`,
+never in this harness: `data` is unconstrained bytes handed straight to
+it, the `String` it takes being bytes as readily as text, and the ascii
 decode inside it answering a byte outside ascii with the library's own
-exception. `BTClibException` and `EccException` are what it
-answers a bad armor and a malformed payload alike with, so that family
-is caught below as the expected outcome. An `IndexError`, a
-`RecursionError` or an uncaught assertion is not, and propagates to
-atheris as the finding it is.
+exception. `BTClibException` and `EccException` are what it answers a
+bad armor and a malformed payload alike with, so that family is caught
+below as the expected outcome. An `IndexError`, a `RecursionError` or an
+uncaught assertion is not, and propagates to atheris as the finding it
+is.
 
 The seed corpus is one signature per prefix `b64decode` dispatches on,
 taken from the vendored `tests/_data/generated-test-vectors.json`:
@@ -29,11 +29,18 @@ tree's own decoder and `fuzz_psbt.py`'s subject; `smp` and `ful` reach
 `Witness.parse` and `Tx.parse`, which stay btclib's. The legacy variant
 is not among the seeds, being `ecc.bms`'s compact signature rather than
 anything this method decodes.
+
+**What `b64decode` accepts is then written back.** A signature has more
+than one spelling: ASCII whitespace around it is stripped, a simple one
+may come without its prefix, and a proof of funds may hold its map
+records in any order. So the check is a fixed point rather than `data`
+itself: the text `b64encode` writes decodes to a signature that writes
+the same text. An exception from `b64encode`, or from decoding what it
+wrote, propagates, and a different text raises `AssertionError`.
 """
 
 from __future__ import annotations
 
-import contextlib
 import sys
 
 import atheris
@@ -42,22 +49,26 @@ from ecc.exceptions import EccException
 
 from btclib_wallet.bip322 import Sig
 
-# tests/fuzz_corpus_test.py reads this by ast.literal_eval, never by
-# importing the module -- atheris below is CI-only and undeclared in
-# pyproject.toml, so the test must not execute this file
+# tests/fuzz_corpus_test.py reads this by ast.literal_eval. It also loads
+# this module with a placeholder for the CI-only atheris, so the corpus
+# runs the very assertions the fuzz target runs.
 ENTRY_POINTS = ("btclib_wallet.bip322:Sig.b64decode",)
 
 
 def fuzz_target(data: bytes) -> None:
     """Parse `data` as the base64 armor of a BIP322 signature.
 
-    `BTClibException` and `EccException` are swallowed as
-    `b64decode`'s own refusal of malformed input; any other exception
-    propagates, which is how atheris tells a defect in `b64decode` from
-    the domain of input it already rejects.
+    A `BTClibException` or `EccException` from `b64decode` is its refusal
+    of malformed input and is swallowed; the module docstring says what
+    is checked after an input is accepted.
     """
-    with contextlib.suppress(BTClibException, EccException):
-        Sig.b64decode(data)
+    try:
+        sig = Sig.b64decode(data)
+    except (BTClibException, EccException):
+        return
+    armored = sig.b64encode()
+    if Sig.b64decode(armored).b64encode() != armored:
+        raise AssertionError("signature armor is not a fixed point")
 
 
 def main() -> None:
