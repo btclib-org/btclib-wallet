@@ -85,14 +85,23 @@ them:
 
 ```shell
 signer=btclib-org/.github/.github/workflows/reusable-build.yml
+id=$(gh api repos/btclib-org/btclib-wallet --jq .id)
+cert='.[].verificationResult.signature.certificate'
 ```
 
 ```shell
-gh attestation verify --repo btclib-org/btclib-wallet \
+gh attestation verify <file> --owner btclib-org \
   --signer-workflow "${signer:?}" \
-  --source-ref refs/tags/v<version> \
-  <a distribution file from the release>
+  --source-ref refs/tags/v<version> --format json \
+  --jq "${cert:?}.sourceRepositoryIdentifier" | grep -qx "${id:?}"
 ```
+
+The exit code is `0` only where a verified attestation names this
+repository. The repository is compared by its id, which a rename keeps:
+`--repo` compares the current name and refuses every release signed
+before a rename.
+
+`<file>` is a distribution file from the release.
 
 `--signer-workflow` is what makes that say which workflow signed, rather
 than accepting any attestation this repository has: the signing runs in
