@@ -32,6 +32,7 @@ in the middle of a message. `PeerTransport` says what the caller sees.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from socket import create_connection, socket
 from time import monotonic
 from typing import Protocol, Self
@@ -88,8 +89,8 @@ class TcpPeerTransport:
 
     Everything that goes wrong below the message -- an unresolvable host, a
     refused connection, a timeout, a connection closed before a whole
-    message, a message announcing more than a peer may send, a checksum
-    that does not match -- is a `FetchError`.
+    message, a message announcing more than a peer may send, a checksum that
+    does not match, a socket that fails to close -- is a `FetchError`.
     """
 
     def __init__(self, host: str, port: int) -> None:
@@ -138,7 +139,15 @@ class TcpPeerTransport:
         """Close the connection, if there is one."""
         if self._socket is not None:
             sock, self._socket = self._socket, None
-            sock.close()
+            try:
+                sock.close()
+            except OSError as e:
+                raise FetchError(f"closing {self._host}:{self._port}: {e}") from e
+
+    def _discard(self) -> None:
+        """Close the connection after a failure, which stays the one raised."""
+        with suppress(FetchError):
+            self.close()
 
     def send(self, message: Message, timeout: float) -> None:
         """Write one message, connecting first if there is no connection."""
@@ -156,10 +165,10 @@ class TcpPeerTransport:
             sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(message.serialize())
         except OSError as e:
-            self.close()
+            self._discard()
             raise FetchError(f"no connection to {where}: {e}") from e
         except FetchError:
-            self.close()
+            self._discard()
             raise
 
     def receive(self, timeout: float) -> Message:
@@ -179,13 +188,13 @@ class TcpPeerTransport:
                 rest = _read(sock, e.missing, deadline, timeout, where)
             return Message.parse(header + rest)
         except OSError as e:
-            self.close()
+            self._discard()
             raise FetchError(f"no message from {where}: {e}") from e
         except ValueError as e:
-            self.close()
+            self._discard()
             raise FetchError(f"{where}: {e}") from e
         except FetchError:
-            self.close()
+            self._discard()
             raise
 
 
