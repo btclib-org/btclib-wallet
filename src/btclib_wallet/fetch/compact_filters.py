@@ -1029,14 +1029,14 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
 
         `max_blocks` bounds the matching blocks one call downloads and holds: a
         peer serving filters that match every block would otherwise decide how
-        much memory the call takes. Settling a disagreement between peers keeps
-        one block more, outside the bound, and asks for it at most twice: of a
-        second peer where the first does not serve it. Filters are read
-        `MAX_GETCFILTERS_SIZE` heights at a time, and the matching blocks of
-        each batch are downloaded before the next batch is read. The call
-        raises `FetchError` before downloading a batch whose matches would pass
-        the bound, by which time the earlier batches' blocks are downloaded. A
-        caller with more matches raises `max_blocks` or scans in ranges.
+        much memory the call takes. The block that settles a disagreement
+        between peers is outside the bound, and `SECURITY.md` says how it is
+        downloaded. Filters are read `MAX_GETCFILTERS_SIZE` heights at a time,
+        and the matching blocks of each batch are downloaded before the next
+        batch is read. The call raises `FetchError` before downloading a batch
+        whose matches would pass the bound, by which time the earlier batches'
+        blocks are downloaded. A caller with more matches raises `max_blocks`
+        or scans in ranges.
         """
         if not is_integer(max_blocks):
             raise BTClibTypeError(
