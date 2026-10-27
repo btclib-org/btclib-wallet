@@ -1345,18 +1345,20 @@ def test_the_filter_headers_of_a_peer_are_asked_for_in_batches(
     assert starts == [0, 5, 10]
 
 
-def test_a_checkpoint_its_filter_headers_contradict_is_a_fetch_error(
+def test_a_peer_whose_checkpoint_its_filter_headers_contradict_is_dropped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A peer whose `cfcheckpt` and `cfheaders` disagree fails the call."""
+    """A peer whose `cfcheckpt` and `cfheaders` disagree has lied."""
     monkeypatch.setattr(compact_filters, "CFCHECKPT_INTERVAL", 4)
     other = ScriptedPeer(CHAIN, checkpoint_interval=4)
     other.reply_getcfcheckpt = liar(  # type: ignore[method-assign]
         6, checkpoint_interval=4
     ).reply_getcfcheckpt
-    fetcher, _ = build(cross_check=[other])
-    with pytest.raises(FetchError, match="a cfcheckpt that its cfheaders do not"):
-        fetcher.sync()
+    fetcher, peer = build(cross_check=[other])
+    assert fetcher.sync() == TIP
+    assert fetcher.cross_check == []
+    assert (peer.closed, other.closed) == (0, 1)
+    assert other.requests("getcfilters") == []
 
 
 @pytest.mark.parametrize(
@@ -1447,3 +1449,41 @@ def test_a_filter_holds_all_the_scripts_match_finds_in_it() -> None:
     empty = BasicBlockFilter(CHAIN.hashes[3], 0, b"")
     assert not holds_all(empty, {WALLET})
     assert not empty.match(WALLET)
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [lambda peer: [peer.message("notfound", b"\x00")], lambda _peer: []],
+    ids=["notfound", "silent"],
+)
+def test_a_serving_liar_that_withholds_the_block_is_dropped_all_the_same(
+    refusal: Callable[[ScriptedPeer], list[Message]],
+) -> None:
+    """The block that settles a disagreement is asked of the other peer."""
+    honest = ScriptedPeer(CHAIN)
+    fetcher, lying = build(
+        CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[honest]
+    )
+    says(lying, "reply_getdata", refusal(lying))
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+    assert fetcher.transport is honest
+    assert fetcher.cross_check == []
+    # closed once for the block it did not serve, once when dropped
+    assert lying.closed == 2
+    blocks = [
+        GetData.parse(m.payload).items[0].hash for m in honest.requests("getdata")
+    ]
+    assert blocks[0] == CHAIN.hashes[3]
+
+
+def test_a_block_that_no_peer_in_a_disagreement_serves_is_a_fetch_error() -> None:
+    """The last peer's refusal fails the call."""
+    honest = ScriptedPeer(CHAIN)
+    fetcher, lying = build(
+        CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[honest]
+    )
+    for peer in (lying, honest):
+        says(peer, "reply_getdata", [peer.message("notfound", b"\x00")])
+    with pytest.raises(FetchError, match="does not hold a block asked for"):
+        fetcher.scan_blocks([WALLET])
+    assert fetcher.cross_check == [honest]

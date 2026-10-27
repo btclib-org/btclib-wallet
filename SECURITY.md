@@ -236,25 +236,33 @@ used to teach and to prototype as much as to build.
     at its height. The filter headers are compared with those of each
     `cross_check` peer: its `cfcheckpt` up to the tip, then its `cfheaders` from
     the last checkpoint it agrees on to the first it does not, or to the tip. At
-    the first height where they differ, the block is downloaded and both peers
-    are asked for its filter. A peer whose filter does not hash to the filter
-    header it served, or leaves out one of the block's output scripts, is
+    the first height where they differ, the block is downloaded, from the
+    `transport` peer or, where it does not serve it, from the other, and both
+    peers are asked for its filter. A peer whose filter does not hash to the
+    filter header it served, or leaves out one of the block's output scripts, is
     dropped, unless that would drop every peer, which is a `FetchError`. A
-    filter also holds the scripts the block's inputs spend, which the block does
-    not carry, so a disagreement that neither filter fails that way is a
-    `FetchError`, and so is a `cross_check` peer that does not answer. Where
-    every peer lies alike, or there is no `cross_check` peer, the filter headers
-    are the word of the peer that served them, and a peer that lies in them can
-    hide a block that pays the wallet. A peer can hold back the network's newer
-    blocks and serve blocks of its own on the tip it showed, and invent a
-    payment in them; that costs the work of those blocks, not a majority of the
-    network's. On signet nothing checks the signature that makes a block
-    authoritative, so the work of those blocks is signet's low difficulty. A
-    block with a witness changed or removed is refused, one with every witness
-    removed included: its coinbase commits to witnesses and carries no nonce for
-    them. The `transport` peer also decides which blocks are downloaded, up to
-    the `max_blocks` of the call, and sees which they are; it is given no
-    script. Use a peer you trust, or cross-check it with peers run by others.
+    `cross_check` peer whose `cfheaders` agree with ours at a checkpoint height
+    where its own `cfcheckpt` does not is dropped too. A filter also holds the
+    scripts the block's inputs spend, which the block does not carry, so a
+    disagreement that neither filter fails that way is a `FetchError`, and so is
+    a peer that does not answer. Where every peer lies alike, or there is no
+    `cross_check` peer, the filter headers are the word of the peer that served
+    them, and a peer that lies in them can hide a block that pays the wallet. A
+    peer can hold back the network's newer blocks and serve blocks of its own on
+    the tip it showed, and invent a payment in them; that costs the work of
+    those blocks, not a majority of the network's. On signet nothing checks the
+    signature that makes a block authoritative, so the work of those blocks is
+    signet's low difficulty. A block with a witness changed or removed is
+    refused, one with every witness removed included: its coinbase commits to
+    witnesses and carries no nonce for them. The `transport` peer also decides
+    which blocks a scan downloads, up to the `max_blocks` of the call, and sees
+    which they are; it is given no script. Settling a disagreement keeps one
+    block more, the one at the height where two peers' filter headers part, and
+    asks for it at most twice: of a second peer where the first does not serve
+    it. A `cross_check` peer sees the tip and, where its filter headers part
+    from the `transport` peer's, a `cfilter` request at that height and perhaps
+    a request for that block; nothing it sees comes from the wallet's scripts.
+    Use a peer you trust, or cross-check it with peers run by others.
 - **An explorer learns every txid, outpoint and address you look up**,
     which is a good deal of what a wallet is. A public deployment is named
     as a constant and never as a default, so nothing here contacts anyone

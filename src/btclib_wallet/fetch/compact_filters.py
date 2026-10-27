@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Iterable, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from copy import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -163,6 +163,10 @@ class _LowWorkSync:
     threshold: int
     start_height: int
     height: int
+
+
+class _SelfContradictionError(Exception):
+    """A peer whose `cfcheckpt` and `cfheaders` cannot both be true."""
 
 
 class _Peer:
@@ -793,7 +797,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
 
         None if the peer agrees up to the tip. Its checkpoints are compared
         first, and then its filter headers from the last one it agrees on
-        to the first one it does not, or to the tip.
+        to the first one it does not, or to the tip. Raises
+        `_SelfContradictionError` where its filter headers match ours at a
+        checkpoint height whose `cfcheckpt` entry does not.
         """
         start, stop = 0, tip
         for index, checkpoint in enumerate(self._checkpoints(tip), 1):
@@ -810,7 +816,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                     return height, header
             start = end + 1
         if stop < tip:
-            raise FetchError("a cfcheckpt that its cfheaders do not chain to")
+            raise _SelfContradictionError
         return None
 
     def _request_filter(self, height: int) -> BasicBlockFilter:
@@ -834,7 +840,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         too, so two filters that are not wrong that way are a `FetchError`.
         """
         serving = self._peers[0]
-        scripts = _output_scripts(self._blocks([height])[height])
+        scripts = _output_scripts(self._settling_block(height, [serving, peer]))
         previous = self._filter_headers[height - 1] if height else _NO_FILTER_HEADER
         wrong = []
         for each, served in ((serving, self._filter_headers[height]), (peer, header)):
@@ -852,9 +858,32 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         # closed, so that a failure to close one leaves none of them in it
         if serving in wrong:
             del self._filter_headers[height:]
-        for each in wrong:
+        self._drop(wrong)
+
+    def _settling_block(self, height: int, peers: list[_Peer]) -> Block:
+        """Return the block at `height`, from the first of `peers` serving it.
+
+        The block is checked against the header held, so any peer's copy
+        will do, and a peer that does not serve it is closed and the next
+        one asked: the peer that served the chain cannot hide the block
+        that would show its filter wrong.
+        """
+        for each in peers[:-1]:
+            try:
+                with self._speaking_to(each):
+                    return self._blocks([height])[height]
+            except FetchError:
+                # its stream may stop mid-message; what failed is the block
+                with suppress(FetchError):
+                    _close_all([each])
+        with self._speaking_to(peers[-1]):
+            return self._blocks([height])[height]
+
+    def _drop(self, peers: list[_Peer]) -> None:
+        """Forget peers that lied, then close them."""
+        for each in peers:
             self._peers.remove(each)
-        _close_all(wrong)
+        _close_all(peers)
 
     def _cross_check(self, tip: int) -> bool:
         """Compare the filter headers held with those of every other peer.
@@ -863,8 +892,12 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         them held only below the height it was dropped for.
         """
         for peer in self._peers[1:]:
-            with self._speaking_to(peer):
-                found = self._first_difference(tip)
+            try:
+                with self._speaking_to(peer):
+                    found = self._first_difference(tip)
+            except _SelfContradictionError:
+                self._drop([peer])
+                continue
             if found is not None:
                 serving = self._peers[0]
                 self._settle(found[0], peer, found[1])
@@ -994,15 +1027,16 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         the outputs it spends. The scripts are `ScriptPubKey` objects or
         their octets.
 
-        `max_blocks` bounds the blocks one call downloads and holds: a
-        peer serving filters that match every block would otherwise
-        decide how much memory the call takes. Filters are read
-        `MAX_GETCFILTERS_SIZE` heights at a time, and the matching blocks
-        of each batch are downloaded before the next batch is read. The
-        call raises `FetchError` before downloading a batch whose matches
-        would pass the bound, by which time the earlier batches' blocks
-        are downloaded. A caller with more matches raises `max_blocks` or
-        scans in ranges.
+        `max_blocks` bounds the matching blocks one call downloads and holds: a
+        peer serving filters that match every block would otherwise decide how
+        much memory the call takes. Settling a disagreement between peers keeps
+        one block more, outside the bound, and asks for it at most twice: of a
+        second peer where the first does not serve it. Filters are read
+        `MAX_GETCFILTERS_SIZE` heights at a time, and the matching blocks of
+        each batch are downloaded before the next batch is read. The call
+        raises `FetchError` before downloading a batch whose matches would pass
+        the bound, by which time the earlier batches' blocks are downloaded. A
+        caller with more matches raises `max_blocks` or scans in ranges.
         """
         if not is_integer(max_blocks):
             raise BTClibTypeError(
