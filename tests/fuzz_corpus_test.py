@@ -10,8 +10,7 @@ imports atheris, which is CI-only and undeclared in `[dependency-groups]`.
 `test_seed_runs_its_harness` loads a harness with an atheris placeholder,
 and runs its pure target on every seed of its corpus without starting the
 fuzz engine: the checks a target makes after the read run in the suite
-too. `fuzz/fuzz_psbt.py` is not loaded, its comment on `ENTRY_POINTS`
-saying the suite does not execute it.
+too.
 
 `ENTRY_POINTS`, a module-level tuple of `"module:Qual.name"` string
 literals, is what each harness names. `test_entry_points_are_declared`
@@ -392,15 +391,10 @@ def bip322_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_harness("fuzz_bip322", monkeypatch)
 
 
-_LOADED_SEEDS = tuple(
-    (harness, seed) for harness, seed in _SEEDS if harness != "fuzz_psbt"
-)
-
-
 @pytest.mark.parametrize(
     "harness, seed",
-    _LOADED_SEEDS,
-    ids=[str(seed.relative_to(_CORPUS)) for _, seed in _LOADED_SEEDS],
+    _SEEDS,
+    ids=[str(seed.relative_to(_CORPUS)) for _, seed in _SEEDS],
 )
 def test_seed_runs_its_harness(
     monkeypatch: pytest.MonkeyPatch, harness: str, seed: Path

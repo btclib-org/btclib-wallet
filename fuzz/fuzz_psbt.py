@@ -46,9 +46,9 @@ from ecc.exceptions import EccException
 
 from btclib_wallet.psbt.psbt import Psbt
 
-# tests/fuzz_corpus_test.py reads this by ast.literal_eval, never by
-# importing the module -- atheris below is CI-only and undeclared in
-# pyproject.toml, so the test must not execute this file
+# tests/fuzz_corpus_test.py reads this by ast.literal_eval. It also loads
+# this module with a placeholder for the CI-only atheris, and runs
+# fuzz_target on every seed.
 ENTRY_POINTS = (
     "btclib_wallet.psbt.psbt:Psbt.parse",
     "btclib_wallet.psbt.psbt:Psbt.b64decode",
