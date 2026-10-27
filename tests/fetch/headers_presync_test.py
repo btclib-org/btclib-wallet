@@ -4,44 +4,36 @@
 
 """Tests for the header checks of `CompactFilterFetcher`.
 
-A chain without the work to be held is downloaded twice, by
-`_HeadersSync`, which Bitcoin Core calls `HeadersSyncState`; the headers
-that are held are checked on the checks of `ContextualCheckBlockHeader`,
-except its version check. The
-peers are the scripted ones of `tests/fetch/peer_chain_test.py`, and the
-class is also driven by hand, with the headers it would be sent.
+A chain without the work to be held is downloaded twice, by btclib's
+`HeadersSyncState`, whose own tests are btclib's; these test the fetcher
+around it. The headers that are held are checked on the checks of
+`ContextualCheckBlockHeader`, except its version check. The peers are
+the scripted ones of `tests/fetch/peer_chain_test.py`.
 """
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 from dataclasses import replace
 from datetime import timedelta
-from unittest import mock
 
 import pytest
+from btclib import consensus
 from btclib.block.block import Block
 from btclib.block.block_header import BlockHeader
 from btclib.block.build import build_block, build_coinbase
 from btclib.block.genesis import genesis_block
 from btclib.block.proof_of_work import (
-    bits_from_target,
     block_work,
-    target_from_bits,
 )
 from btclib.exceptions import FetchError
 from btclib.network import NETWORKS
 from btclib.p2p import GetHeaders, Headers, Message
+from btclib.p2p.headers_sync import HeadersSyncState
 from typing_extensions import override
 
 from btclib_wallet.fetch import compact_filters
-from btclib_wallet.fetch.compact_filters import (
-    _PRESYNC_PARAMS,
-    CompactFilterFetcher,
-    _HeadersSync,
-    _PresyncParams,
-)
+from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from tests.fetch.peer_chain_test import (
     OTHER,
     REGTEST_BITS,
@@ -56,12 +48,8 @@ GENESIS_TIME = int(GENESIS.time.timestamp())
 CONSENSUS = NETWORKS["regtest"].consensus
 
 # a commitment every fourth header, and six held back in the second pass
-PARAMS = _PresyncParams(4, 6)
+PARAMS = consensus.HeadersSyncParams(4, 6)
 EASY = REGTEST_BITS
-# 256 times the work of `EASY` for each header
-HARD = b"\x1f\x7f\xff\xff"
-# mainnet's target, low enough for a retarget to scale without wrapping
-MAINNET_BITS = b"\x1d\x00\xff\xff"
 
 
 def work_of(chain: Chain) -> int:
@@ -84,13 +72,12 @@ def presync_fetcher(
     """
     monkeypatch.setattr(compact_filters, "MAX_HEADERS_RESULTS", batch)
     monkeypatch.setattr(secrets, "randbelow", lambda _n: offset)
-    monkeypatch.setattr(secrets, "token_bytes", lambda _n: bytes(32))
     peer = ScriptedPeer(chain, max_headers=batch)
     fetcher = CompactFilterFetcher("regtest", transport=peer, verify_network=False)
     monkeypatch.setattr(
         fetcher, "_consensus", replace(CONSENSUS, minimum_chain_work=minimum)
     )
-    monkeypatch.setattr(fetcher, "_presync_params", PARAMS)
+    monkeypatch.setattr(fetcher, "_headers_sync_params", PARAMS)
     return fetcher, peer
 
 
@@ -131,17 +118,13 @@ class EndlessPeer(ScriptedPeer):
         return [self.message("headers", Headers(headers).serialize())]
 
 
-def test_every_network_has_the_presync_parameters_of_bitcoin_core() -> None:
-    """The table has a row for each network, with the values of Core."""
-    assert set(_PRESYNC_PARAMS) == set(NETWORKS)
-    # `HeadersSyncParams` of Bitcoin Core v31.1, `src/kernel/chainparams.cpp`
-    assert _PRESYNC_PARAMS == {
-        "mainnet": (641, 15218),
-        "testnet": (673, 14460),
-        "testnet4": (606, 16092),
-        "signet": (620, 15724),
-        "regtest": (275, 7017),
-    }
+@pytest.mark.parametrize("network", NETWORKS)
+def test_each_network_syncs_with_its_row_of_btclib_s_parameters(network: str) -> None:
+    """The fetcher of a network reads that network's `HEADERS_SYNC_PARAMS`."""
+    fetcher = CompactFilterFetcher(
+        network, transport=ScriptedPeer(Chain()), verify_network=False
+    )
+    assert fetcher._headers_sync_params is consensus.HEADERS_SYNC_PARAMS[network]
 
 
 # the endless peer
@@ -162,9 +145,13 @@ def test_an_endless_chain_of_low_work_is_bounded_and_refused(
     monkeypatch.setattr(
         fetcher, "_consensus", replace(CONSENSUS, minimum_chain_work=10**80)
     )
-    monkeypatch.setattr(fetcher, "_presync_params", _PresyncParams(10, 20))
+    monkeypatch.setattr(
+        fetcher, "_headers_sync_params", consensus.HeadersSyncParams(10, 20)
+    )
     clock(monkeypatch, -7200 + 50)
-    with pytest.raises(FetchError, match="longer than the rules allow"):
+    with pytest.raises(
+        FetchError, match="headers 301 to 350 are not a chain the rules"
+    ):
         fetcher.get_block_count()
     # the 31st commitment is the header 310, in the seventh batch
     assert peer.served == 350
@@ -212,6 +199,31 @@ def test_a_chain_with_the_work_is_downloaded_twice_and_held_the_second_time(
     assert len(peer.getheaders) == 10
 
 
+def test_a_buffer_longer_than_a_batch_holds_nothing_of_the_first_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first batches of the second pass release nothing.
+
+    So on every network, whose buffer is longer than a full batch.
+    """
+    chain = Chain().extend(30)
+    fetcher, peer = presync_fetcher(monkeypatch, chain, work_of(chain), batch=7)
+    monkeypatch.setattr(
+        fetcher, "_headers_sync_params", consensus.HeadersSyncParams(4, 10)
+    )
+    held = []
+    honest = peer.reply_getheaders
+
+    def record(payload: bytes) -> list[Message]:
+        held.append(len(fetcher._hashes))
+        return honest(payload)
+
+    monkeypatch.setattr(peer, "reply_getheaders", record)
+    assert fetcher.get_block_count() == 30
+    assert fetcher._headers == [b.header for b in chain.blocks]
+    assert held == [1] * 7 + [5, 12, 19]
+
+
 def test_a_second_pass_that_is_another_chain_is_refused_before_it_is_held(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -220,8 +232,10 @@ def test_a_second_pass_that_is_another_chain_is_refused_before_it_is_held(
     The commitment of the first header kept is a bit of a salted hash, and
     here the two chains differ in that bit.
     """
+    # the hash a commitment is taken of is in Core's byte order, the
+    # reverse of the order `BlockHeader.hash` displays
     monkeypatch.setattr(
-        _HeadersSync, "_commitment", lambda _self, header_hash: header_hash[0] & 1
+        HeadersSyncState, "_commitment", lambda _self, raw_hash: raw_hash[-1] & 1
     )
     shown = Chain().extend(30)
     other = next(
@@ -238,9 +252,46 @@ def test_a_second_pass_that_is_another_chain_is_refused_before_it_is_held(
         return honest(payload)
 
     monkeypatch.setattr(peer, "reply_getheaders", switch)
-    with pytest.raises(FetchError, match="header 4 is not the one first served"):
+    with pytest.raises(FetchError, match="headers 1 to 7 are not the chain first"):
         fetcher.get_block_count()
     assert fetcher._headers == [GENESIS]
+
+
+@pytest.mark.parametrize("served", [7, 10])
+def test_a_second_pass_that_ends_before_the_work_is_refused(
+    monkeypatch: pytest.MonkeyPatch, served: int
+) -> None:
+    """A peer that serves only part of the chain it showed is caught.
+
+    The second pass has its first batch, and then no header or three more,
+    short of the work.
+    """
+    shown = Chain().extend(30)
+    fetcher, peer = presync_fetcher(monkeypatch, shown, work_of(shown), batch=7)
+    honest = peer.reply_getheaders
+
+    def stop(payload: bytes) -> list[Message]:
+        if len(peer.getheaders) > 6:
+            peer.chain = Chain(shown.blocks[: served + 1])
+        return honest(payload)
+
+    monkeypatch.setattr(peer, "reply_getheaders", stop)
+    with pytest.raises(FetchError, match="stopped serving the chain it showed"):
+        fetcher.get_block_count()
+    assert len(fetcher._hashes) < 31
+
+
+def test_a_clock_hours_behind_the_chain_start_starts_no_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sync refuses the clock, and the fetcher fails the call."""
+    chain = Chain().extend(30)
+    fetcher, peer = presync_fetcher(monkeypatch, chain, work_of(chain), batch=7)
+    clock(monkeypatch, -3 * 3600)
+    with pytest.raises(FetchError, match="headers sync: the clock is more than"):
+        fetcher.get_block_count()
+    assert fetcher._headers == [GENESIS]
+    assert len(peer.getheaders) == 1
 
 
 def test_headers_past_the_work_proved_need_no_commitment(
@@ -517,157 +568,6 @@ def test_the_first_header_of_a_period_is_not_far_behind_its_parent_where_bip94_i
             assert fetcher.get_block_count() == expected
 
 
-# the class, with the headers it would be sent
-
-
-def chain_of(
-    count: int, *, bits: bytes = EASY, seed: int = 0, start: BlockHeader = GENESIS
-) -> list[BlockHeader]:
-    """Return `count` unmined headers after `start`: no work is checked."""
-    headers = []
-    last = start
-    for i in range(count):
-        last = BlockHeader(
-            1,
-            last.hash,
-            (seed * 1000 + i).to_bytes(32, "big"),
-            last.time + timedelta(seconds=1),
-            bits,
-        )
-        headers.append(last)
-    return headers
-
-
-def sync_of(
-    threshold: int,
-    *,
-    params: _PresyncParams = PARAMS,
-    consensus: object = CONSENSUS,
-    now: int = GENESIS_TIME,
-    salt: bytes = bytes(32),
-) -> _HeadersSync:
-    """Return a sync from the genesis block, with this threshold and clock."""
-    return _HeadersSync(
-        consensus,  # type: ignore[arg-type]
-        params,
-        GENESIS,
-        0,
-        block_work(GENESIS.bits),
-        GENESIS_TIME,
-        threshold,
-        now,
-        salt,
-        0,
-    )
-
-
-def feed(
-    sync: _HeadersSync, batch: list[BlockHeader], *, full: bool
-) -> list[BlockHeader]:
-    """Give the sync a batch that is, or is not, a peer's longest."""
-    limit = len(batch) if full else len(batch) + 1
-    with mock.patch.object(compact_filters, "MAX_HEADERS_RESULTS", limit):
-        return sync.process(batch)
-
-
-def test_a_header_that_does_not_follow_the_last_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The headers are one chain, in a batch and from one to the next."""
-    headers = chain_of(6)
-    sync = sync_of(10**80)
-    with pytest.raises(FetchError, match="header 2 does not follow"):
-        feed(sync, [headers[0], headers[2]], full=True)
-    sync = sync_of(10**80)
-    feed(sync, headers[:3], full=True)
-    with pytest.raises(FetchError, match="header 4 does not follow"):
-        feed(sync, headers[4:], full=True)
-
-
-def test_a_difficulty_that_no_adjustment_could_make_is_refused() -> None:
-    """Where bits may not change, they do not."""
-    strict = replace(CONSENSUS, pow_allow_min_difficulty_blocks=False)
-    sync = sync_of(10**80, consensus=strict)
-    with pytest.raises(FetchError, match="header 1: bits 1f7fffff cannot follow 207"):
-        feed(sync, chain_of(1, bits=HARD), full=True)
-    # and in the second pass
-    sync = sync_of(block_work(GENESIS.bits) + 8 * block_work(EASY), consensus=strict)
-    feed(sync, chain_of(8), full=True)
-    with pytest.raises(FetchError, match="header 1: bits 1f7fffff cannot follow 207"):
-        feed(sync, chain_of(8, bits=HARD, seed=1), full=True)
-
-
-def test_a_chain_with_more_commitments_than_the_rules_allow_is_refused() -> None:
-    """The clock bounds the commitments: six blocks a second, a period each."""
-    # 2 seconds past the earliest a genesis block's chain can be seen: 12
-    # blocks, 3 periods
-    sync = sync_of(10**80, now=GENESIS_TIME - 7200 + 2)
-    headers = chain_of(16)
-    with pytest.raises(FetchError, match="longer than the rules allow"):
-        feed(sync, headers, full=True)
-    sync = sync_of(10**80, now=GENESIS_TIME - 7200 + 2)
-    feed(sync, headers[:15], full=True)
-
-
-def test_the_commitments_depend_on_a_salt() -> None:
-    """Two syncs of one chain keep the bits that their salts give."""
-    headers = chain_of(40)
-    kept = []
-    for salt in (bytes(32), bytes([1]) * 32):
-        sync = sync_of(10**80, params=_PresyncParams(1, 6), salt=salt)
-        feed(sync, headers, full=True)
-        kept.append(bytes(sync._bits))
-    assert kept[0] != kept[1]
-    expected = sum(
-        (hashlib.sha256(bytes(32) + h.hash).digest()[0] & 1) << i
-        for i, h in enumerate(headers[:8])
-    )
-    assert kept[0][0] == expected
-
-
-def test_a_second_pass_with_more_commitments_than_the_first_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A chain of less work per header has more commitments than were kept."""
-    monkeypatch.setattr(_HeadersSync, "_commitment", lambda _self, _hash: 0)
-    shown = chain_of(8, bits=HARD)
-    threshold = block_work(GENESIS.bits) + 8 * block_work(HARD)
-    sync = sync_of(threshold)
-    feed(sync, shown, full=True)
-    with pytest.raises(FetchError, match="header 12 has no commitment to match"):
-        feed(sync, chain_of(20, seed=1), full=True)
-
-
-def test_a_peer_that_stops_serving_the_chain_it_showed_is_refused() -> None:
-    """A second pass that ends before the work is reached has failed."""
-    shown = chain_of(8)
-    sync = sync_of(block_work(GENESIS.bits) + 8 * block_work(EASY))
-    assert feed(sync, shown, full=True) == []
-    with pytest.raises(FetchError, match="stopped serving"):
-        feed(sync, shown[:4], full=False)
-
-
-def test_the_passes_hand_back_the_headers_once_the_work_is_proved() -> None:
-    """Headers come out six behind the last, and all of them at the work."""
-    headers = chain_of(20)
-    sync = sync_of(block_work(GENESIS.bits) + 20 * block_work(EASY), params=PARAMS)
-    assert feed(sync, headers[:10], full=True) == []
-    assert feed(sync, headers[10:], full=True) == []
-    assert sync.active
-    assert feed(sync, headers[:8], full=True) == headers[:2]
-    assert feed(sync, headers[8:14], full=True) == headers[2:8]
-    assert sync.active
-    assert feed(sync, headers[14:], full=False) == headers[8:]
-    assert not sync.active
-
-
-def test_a_clock_before_the_start_allows_no_commitment() -> None:
-    """A start in the future of the clock, by hours, is allowed no chain."""
-    sync = sync_of(10**80, now=GENESIS_TIME - 8 * 3600)
-    with pytest.raises(FetchError, match="longer than the rules allow"):
-        feed(sync, chain_of(4), full=True)
-
-
 def test_the_total_work_may_be_the_threshold_exactly() -> None:
     """A chain with exactly the work is held at once; with one more, not."""
     chain = Chain().extend(14)
@@ -682,88 +582,6 @@ def test_the_total_work_may_be_the_threshold_exactly() -> None:
         else:
             with pytest.raises(FetchError, match="below the"):
                 fetcher.get_block_count()
-
-
-def test_the_commitments_are_kept_at_the_random_offset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """With an offset of 2 and a period of 4, headers 2, 6 and 10 commit."""
-    monkeypatch.setattr(_HeadersSync, "_commitment", lambda _self, _hash: 1)
-    sync = _HeadersSync(
-        CONSENSUS,
-        PARAMS,
-        GENESIS,
-        0,
-        block_work(GENESIS.bits),
-        GENESIS_TIME,
-        10**80,
-        GENESIS_TIME,
-        bytes(32),
-        2,
-    )
-    feed(sync, chain_of(10), full=True)
-    assert sync._pushed == 3
-
-
-def test_a_second_pass_checks_the_commitments_at_the_random_offset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The header 2 is the first with a commitment, when the offset is 2."""
-    monkeypatch.setattr(
-        _HeadersSync, "_commitment", lambda _self, header_hash: header_hash[0] & 1
-    )
-    shown = chain_of(10)
-    other = next(
-        c
-        for c in (chain_of(10, seed=i) for i in range(1, 64))
-        if (c[1].hash[0] & 1) != (shown[1].hash[0] & 1)
-    )
-    sync = _HeadersSync(
-        CONSENSUS,
-        PARAMS,
-        GENESIS,
-        0,
-        block_work(GENESIS.bits),
-        GENESIS_TIME,
-        block_work(GENESIS.bits) + 10 * block_work(EASY),
-        GENESIS_TIME,
-        bytes(32),
-        2,
-    )
-    feed(sync, shown, full=True)
-    with pytest.raises(FetchError, match="header 2 is not the one first served"):
-        feed(sync, other, full=True)
-
-
-def test_the_second_pass_begins_from_the_bits_of_the_start() -> None:
-    """The first pass crosses a change of bits; the second begins before it."""
-    strict = replace(
-        CONSENSUS,
-        pow_allow_min_difficulty_blocks=False,
-        pow_target_timespan=4 * CONSENSUS.pow_target_spacing,
-    )
-    # a period of four blocks: the bits may be four times harder at block 4
-    start = replace(GENESIS, bits=MAINNET_BITS)
-    harder = bits_from_target(
-        (int.from_bytes(target_from_bits(MAINNET_BITS), "big") // 4).to_bytes(32, "big")
-    )
-    head = chain_of(3, bits=MAINNET_BITS, start=start)
-    shown = [*head, *chain_of(5, bits=harder, start=head[-1])]
-    threshold = block_work(MAINNET_BITS) + sum(block_work(h.bits) for h in shown)
-    sync = _HeadersSync(
-        strict,
-        PARAMS,
-        start,
-        0,
-        block_work(MAINNET_BITS),
-        GENESIS_TIME,
-        threshold,
-        GENESIS_TIME,
-        bytes(32),
-        0,
-    )
-    assert feed(sync, shown, full=True) == []
-    assert feed(sync, shown, full=False) == shown
 
 
 def test_a_batch_ending_on_a_held_header_is_checked_for_its_work(
