@@ -61,6 +61,16 @@ The decoded expression must compile to the same bytes, rather than have
 the original tree: scripts carry no origins or derivation paths, and
 different associations of `and_v()` can compile to the same script.
 
+**Every accepted descriptor also derives its scripts and addresses at
+index 0**, with the private material read from the input.
+`script_pub_keys` and `addresses` answer for every descriptor, a
+`combo()` included, which describes several scripts. Where there is one
+script, `script_pub_key` and `address` must answer for it too, and must
+agree with the lists. A `BTClibException` or `EccException` from
+`script_pub_keys` is a key that cannot derive at index 0 and leaves this
+check unasked. Any other exception propagates, and so does any exception
+from the calls after it.
+
 The seed corpus: each `bipNNN_*` seed is one of BIP NNN's examples, from
 BIP380 to BIP387 and BIP390, with its checksum.
 `ms_*` are miniscript fragments inside `wsh()` composed here from keys of
@@ -148,8 +158,24 @@ def _assert_miniscript_round_trips(
             pending.extend(value)
 
 
+def _assert_scripts_derive(
+    parsed: descriptors.Descriptor, prv_keys: dict[str, str]
+) -> None:
+    """Derive the scripts and addresses of a descriptor at index 0."""
+    try:
+        script_pub_keys = parsed.script_pub_keys(0, prv_keys)
+    except (BTClibException, EccException):
+        return
+    addresses = parsed.addresses(0, prv_keys)
+    if len(script_pub_keys) == 1 and (
+        parsed.script_pub_key(0, prv_keys) != script_pub_keys[0]
+        or parsed.address(0, prv_keys) != addresses[0]
+    ):
+        raise AssertionError("script_pub_key or address disagrees with its list")
+
+
 def fuzz_target(data: bytes) -> None:
-    """Parse `data` as an output descriptor and print it back.
+    """Parse `data` as an output descriptor, print it back, and derive it.
 
     A `BTClibException` or `EccException` from parsing `data` ends
     the run; the module docstring says what propagates.
@@ -170,6 +196,7 @@ def fuzz_target(data: bytes) -> None:
         msg = f"{printed!r} parses and prints as {reprinted!r}"
         raise AssertionError(msg)
     _assert_miniscript_round_trips(parsed, prv_keys)
+    _assert_scripts_derive(parsed, prv_keys)
 
 
 def main() -> None:
