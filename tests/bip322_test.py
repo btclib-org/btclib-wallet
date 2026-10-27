@@ -1669,7 +1669,7 @@ def test_a_witness_on_a_legacy_p2sh_input_is_invalid() -> None:
         bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
 
 
-@pytest.mark.parametrize("n_keys", [15, 16], ids=["513-bytes", "547-bytes"])
+@pytest.mark.parametrize("n_keys", [15, 16], ids=["under-520", "over-520"])
 def test_a_p2sh_redeem_script_over_520_bytes_is_invalid(n_keys: int) -> None:
     """A 1-of-n p2sh multisig verifies until its redeem script passes 520 bytes.
 
