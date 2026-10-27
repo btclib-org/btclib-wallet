@@ -11,8 +11,8 @@ the chain tip. `Fetcher` is the interface, implemented once per
 backend -- `BitcoinCoreFetcher` over a full node's JSON-RPC,
 `BitcoinCoreRestFetcher` over the same node's unauthenticated `-rest`
 interface, `EsploraFetcher` over a block explorer's HTTP api,
-`ElectrumFetcher` over an Electrum server, `CompactFilterFetcher` over a
-p2p peer serving BIP157 filters -- so that calling code takes a
+`ElectrumFetcher` over an Electrum server, `CompactFilterFetcher` over
+p2p peers serving BIP157 filters -- so that calling code takes a
 `Fetcher` and never branches on which one it got.
 
 **`CompactFilterFetcher` adds `scan_blocks`**, which returns the blocks that

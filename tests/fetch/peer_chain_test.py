@@ -30,8 +30,10 @@ from btclib.network import NETWORKS
 from btclib.p2p import (
     BlockFilterType,
     BlockPayload,
+    CFCheckpt,
     CFHeaders,
     CFilter,
+    GetCFCheckpt,
     GetCFHeaders,
     GetCFilters,
     GetData,
@@ -44,6 +46,7 @@ from btclib.p2p import (
     Version,
     magic_from_network,
 )
+from btclib.p2p.limits import CFCHECKPT_INTERVAL
 from typing_extensions import override
 
 from btclib_wallet.fetch.peer_transport import PeerTransport
@@ -69,11 +72,15 @@ class Chain:
     `height` is the tip's.
     """
 
-    def __init__(self, blocks: list[Block] | None = None) -> None:
+    def __init__(
+        self,
+        blocks: list[Block] | None = None,
+        filters: list[BasicBlockFilter] | None = None,
+    ) -> None:
         self.blocks = [genesis_block("regtest")] if blocks is None else blocks
         # the scripts a block's inputs spend are in its filter, and `OTHER` is
         # what a spend here is said to have spent
-        self.filters = [
+        self.filters = filters or [
             BasicBlockFilter.from_block(
                 b, [OTHER] * sum(len(tx.vin) for tx in b.transactions[1:])
             )
@@ -127,6 +134,16 @@ class Chain:
         """Return the chain cut back to `height`."""
         return Chain(self.blocks[: height + 1])
 
+    def lying(self, height: int, filter_: BasicBlockFilter) -> Chain:
+        """Return the chain with another filter at `height`, a liar's chain.
+
+        The filter headers from `height` on chain from that filter, so the
+        lie is one a peer can tell consistently.
+        """
+        filters = list(self.filters)
+        filters[height] = filter_
+        return Chain(self.blocks, filters)
+
 
 def services(*, filters: bool = True, network: bool = True) -> int:
     """Return the service flags a full node advertises."""
@@ -154,11 +171,13 @@ class ScriptedPeer(PeerTransport):
         magic: bytes | None = None,
         peer_services: int | None = None,
         max_headers: int = 2000,
+        checkpoint_interval: int = CFCHECKPT_INTERVAL,
     ) -> None:
         self.chain = chain
         self.magic = magic_from_network("regtest") if magic is None else magic
         self.services = services() if peer_services is None else peer_services
         self.max_headers = max_headers
+        self.checkpoint_interval = checkpoint_interval
         self.sent: list[Message] = []
         self.getheaders: list[Message] = []
         self.inbox: deque[Message] = deque()
@@ -180,6 +199,7 @@ class ScriptedPeer(PeerTransport):
             "version": self.reply_version,
             "getheaders": self.reply_getheaders,
             "getcfheaders": self.reply_getcfheaders,
+            "getcfcheckpt": self.reply_getcfcheckpt,
             "getcfilters": self.reply_getcfilters,
             "getdata": self.reply_getdata,
         }.get(message.command)
@@ -235,6 +255,15 @@ class ScriptedPeer(PeerTransport):
         hashes = [f.hash for f in self.chain.filters[start : stop + 1]]
         reply = CFHeaders(BlockFilterType.BASIC, request.stop_hash, previous, hashes)
         return [self.message("cfheaders", reply.serialize())]
+
+    def reply_getcfcheckpt(self, payload: bytes) -> list[Message]:
+        """Answer with the filter header every `checkpoint_interval` blocks."""
+        request = GetCFCheckpt.parse(payload)
+        stop = self.chain.hashes.index(request.stop_hash)
+        step = self.checkpoint_interval
+        headers = self.chain.filter_headers[step : stop + 1 : step]
+        reply = CFCheckpt(BlockFilterType.BASIC, request.stop_hash, headers)
+        return [self.message("cfcheckpt", reply.serialize())]
 
     def reply_getcfilters(self, payload: bytes) -> list[Message]:
         """Answer with one `cfilter` per block of the range asked for."""
