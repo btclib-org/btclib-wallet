@@ -22,13 +22,16 @@ from typing import Any
 import pytest
 from bitcoin_core_rpc import FetchError as RpcFetchError
 from btclib.block.block import Block
+from btclib.block.block_filter import BasicBlockFilter
 from btclib.block.block_header import BlockHeader
 from btclib.block.build import build_block, build_coinbase
 from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
 from btclib.p2p import (
     BlockFilterType,
+    CFCheckpt,
     CFHeaders,
     CFilter,
+    GetCFCheckpt,
     GetCFHeaders,
     GetCFilters,
     GetData,
@@ -1126,3 +1129,321 @@ def test_a_peer_is_never_given_more_than_the_timeout(
     fetcher.get_block_count()
     assert timeouts
     assert all(0 < timeout <= 5 for timeout in timeouts)
+
+
+# several peers
+
+
+def filter_with_outputs(
+    height: int, swap: bool, extra: bytes = b""
+) -> BasicBlockFilter:
+    """Return a filter of the block at `height` that is not Core's.
+
+    `swap` puts `OTHER` for `WALLET` in the block's outputs, and the other
+    way round, so the filter leaves out a script the block pays. `extra`
+    is a script added to them, which may be one an input spends.
+    """
+    block = CHAIN.blocks[height]
+    coinbase = block.transactions[0]
+    scripts = {WALLET: OTHER, OTHER: WALLET} if swap else {}
+    vout = [
+        TxOut(
+            out.value, scripts.get(out.script_pub_key.script, out.script_pub_key.script)
+        )
+        for out in coinbase.vout
+    ]
+    if extra:
+        vout.append(TxOut(0, extra))
+    altered = Block(block.header, [replace(coinbase, vout=vout)], check_validity=False)
+    return BasicBlockFilter.from_block(altered, [])
+
+
+EXTRA = b"\x00\x14" + bytes(range(2, 22))
+
+
+def liar(
+    height: int, swap: bool = True, extra: bytes = b"", **kwargs: Any
+) -> ScriptedPeer:
+    """Return a peer serving `filter_with_outputs` at `height`, consistently."""
+    return ScriptedPeer(
+        CHAIN.lying(height, filter_with_outputs(height, swap, extra)), **kwargs
+    )
+
+
+def test_peers_are_checked_at_construction() -> None:
+    """`cross_check` is an iterable of distinct transports."""
+    peer = ScriptedPeer(CHAIN)
+    with pytest.raises(BTClibTypeError, match="not an iterable of transports: Scr"):
+        build(cross_check=peer)
+    with pytest.raises(BTClibTypeError, match="not a peer transport"):
+        build(cross_check=[object()])
+    with pytest.raises(BTClibValueError, match="a peer transport named twice"):
+        CompactFilterFetcher("regtest", transport=peer, cross_check=[peer])
+    fetcher, serving = build(cross_check=iter([peer]))
+    assert fetcher.transport is serving
+    assert fetcher.cross_check == [peer]
+
+
+def test_peers_that_agree_serve_the_scan_from_the_first() -> None:
+    """A peer that agrees is asked for its filter headers and nothing more."""
+    other = ScriptedPeer(CHAIN)
+    fetcher, peer = build(cross_check=[other])
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+    assert fetcher.cross_check == [other]
+    assert [m.command for m in other.sent] == [
+        "version",
+        "verack",
+        "getcfcheckpt",
+        "getcfheaders",
+    ]
+    assert GetCFCheckpt.parse(other.sent[2].payload).stop_hash == CHAIN.hashes[-1]
+    assert len(peer.requests("getdata")) == 1
+
+
+def test_every_peer_is_closed_with_the_fetcher() -> None:
+    """Closing the fetcher closes every connection, and the next call greets."""
+    other = ScriptedPeer(CHAIN)
+    with CompactFilterFetcher(
+        "regtest", transport=ScriptedPeer(CHAIN), cross_check=[other]
+    ) as fetcher:
+        fetcher.sync()
+    assert other.closed == 1
+    assert fetcher.transport.closed == 1  # type: ignore[attr-defined]
+    fetcher.sync()
+    assert other.versions == 2
+
+
+@pytest.mark.parametrize("lie_at", [3, 6], ids=["hides a payment", "invents one"])
+def test_a_cross_check_peer_that_serves_a_wrong_filter_is_dropped(lie_at: int) -> None:
+    """The block says which filter is wrong, and its peer is asked no more."""
+    other = liar(lie_at)
+    fetcher, peer = build(cross_check=[other])
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+    assert fetcher.cross_check == []
+    assert other.closed == 1
+    # the block was downloaded from the serving peer, and both filters asked for
+    blocks = [GetData.parse(m.payload).items[0].hash for m in peer.requests("getdata")]
+    assert blocks[0] == CHAIN.hashes[lie_at]
+    (request,) = other.requests("getcfilters")
+    assert GetCFilters.parse(request.payload).start_height == lie_at
+    asked = len(other.sent)
+    fetcher.scan_blocks([WALLET])
+    assert len(other.sent) == asked
+
+
+def test_a_serving_peer_that_serves_a_wrong_filter_is_replaced() -> None:
+    """The next peer serves the scan, from the filter headers it agrees on."""
+    honest = ScriptedPeer(CHAIN)
+    fetcher, lying = build(
+        CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[honest]
+    )
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+    assert fetcher.transport is honest
+    assert fetcher.cross_check == []
+    assert lying.closed == 1
+    assert honest.requests("getheaders") == []
+    starts = [
+        GetCFHeaders.parse(m.payload).start_height
+        for m in honest.requests("getcfheaders")
+    ]
+    # the cross-check from the genesis block, then the filter headers held
+    # from the height the lie was at
+    assert starts == [0, 3]
+    assert len(honest.requests("getdata")) == 1
+
+
+def test_two_liars_are_dropped_and_the_honest_peer_serves() -> None:
+    """Two wrong filters of one block drop both peers, where a third remains."""
+    honest = ScriptedPeer(CHAIN)
+    other = liar(3, extra=EXTRA)
+    fetcher, lying = build(
+        CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[other, honest]
+    )
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+    assert fetcher.transport is honest
+    assert fetcher.cross_check == []
+    assert (lying.closed, other.closed, honest.closed) == (1, 1, 0)
+
+
+def test_two_peers_that_both_lie_are_a_fetch_error() -> None:
+    """No peer is dropped where every peer served a wrong filter."""
+    other = liar(3, extra=EXTRA)
+    fetcher, _ = build(
+        CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[other]
+    )
+    with pytest.raises(FetchError, match="every peer served a wrong filter of block 3"):
+        fetcher.scan_blocks([WALLET])
+    assert fetcher.cross_check == [other]
+
+
+def test_a_disagreement_the_block_cannot_settle_is_a_fetch_error() -> None:
+    """A filter with every output script may still hold another script.
+
+    The scripts a block's inputs spend are not in the block, so a filter
+    with one more script than Core's is not provably wrong from it.
+    """
+    other = liar(3, swap=False, extra=EXTRA)
+    fetcher, _ = build(cross_check=[other])
+    with pytest.raises(FetchError, match="the block does not say which one is wrong"):
+        fetcher.scan_blocks([WALLET])
+    assert fetcher.cross_check == [other]
+    assert other.closed == 1
+
+
+def test_a_filter_that_does_not_hash_to_its_peers_filter_header_is_wrong() -> None:
+    """A peer whose filter disowns the filter header it served is dropped."""
+    other = liar(3, swap=False, extra=EXTRA)
+    other.reply_getcfilters = ScriptedPeer(CHAIN).reply_getcfilters  # type: ignore[method-assign]
+    fetcher, _ = build(cross_check=[other])
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+    assert fetcher.cross_check == []
+
+
+def test_a_filter_of_another_block_in_a_disagreement_is_refused() -> None:
+    """The filter asked for to settle a disagreement is checked as any other."""
+    other = liar(3)
+    says_with(
+        other,
+        "reply_getcfilters",
+        lambda _payload: [other.message("cfilter", other.cfilter(4).serialize())],
+    )
+    fetcher, _ = build(cross_check=[other])
+    with pytest.raises(FetchError, match="cfilter 3: not the filter asked for"):
+        fetcher.scan_blocks([WALLET])
+
+
+@pytest.mark.parametrize(
+    "lie_at, start",
+    [(3, 0), (11, 9), (13, 13)],
+    ids=["below the first checkpoint", "between two", "above the last"],
+)
+def test_the_checkpoints_narrow_down_the_filter_headers_asked_for(
+    monkeypatch: pytest.MonkeyPatch, lie_at: int, start: int
+) -> None:
+    """Filter headers are asked for from the last checkpoint agreed on."""
+    monkeypatch.setattr(compact_filters, "CFCHECKPT_INTERVAL", 4)
+    other = liar(lie_at, checkpoint_interval=4)
+    fetcher, _ = build(cross_check=[other])
+    fetcher.sync()
+    (request,) = other.requests("getcfheaders")
+    assert GetCFHeaders.parse(request.payload).start_height == start
+    assert fetcher.cross_check == []
+
+
+def test_the_filter_headers_of_a_peer_are_asked_for_in_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `getcfheaders` asks a peer for more than one message holds."""
+    monkeypatch.setattr(compact_filters, "MAX_GETCFHEADERS_SIZE", 5)
+    other = liar(11)
+    fetcher, _ = build(cross_check=[other])
+    fetcher.sync()
+    starts = [
+        GetCFHeaders.parse(m.payload).start_height
+        for m in other.requests("getcfheaders")
+    ]
+    assert starts == [0, 5, 10]
+
+
+def test_a_checkpoint_its_filter_headers_contradict_is_a_fetch_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A peer whose `cfcheckpt` and `cfheaders` disagree fails the call."""
+    monkeypatch.setattr(compact_filters, "CFCHECKPT_INTERVAL", 4)
+    other = ScriptedPeer(CHAIN, checkpoint_interval=4)
+    other.reply_getcfcheckpt = liar(  # type: ignore[method-assign]
+        6, checkpoint_interval=4
+    ).reply_getcfcheckpt
+    fetcher, _ = build(cross_check=[other])
+    with pytest.raises(FetchError, match="a cfcheckpt that its cfheaders do not"):
+        fetcher.sync()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"filter_type": 1},
+        {"stop_hash": b"\x22" * 32},
+        {"filter_headers": (b"\x22" * 32,)},
+    ],
+    ids=["type", "stop hash", "count"],
+)
+def test_a_cfcheckpt_that_does_not_answer_the_request_is_refused(
+    changes: dict[str, Any],
+) -> None:
+    """A `cfcheckpt` answering another request is refused."""
+    other = ScriptedPeer(CHAIN)
+    honest = other.reply_getcfcheckpt
+
+    def lie(payload: bytes) -> list[Message]:
+        reply = CFCheckpt.parse(honest(payload)[0].payload)
+        return [other.message("cfcheckpt", replace(reply, **changes).serialize())]
+
+    says_with(other, "reply_getcfcheckpt", lie)
+    fetcher, peer = build(cross_check=[other])
+    with pytest.raises(FetchError, match="cfcheckpt that does not answer"):
+        fetcher.sync()
+    assert (peer.closed, other.closed) == (1, 1)
+
+
+def test_a_cfcheckpt_that_does_not_parse_is_refused() -> None:
+    """A `cfcheckpt` that does not parse is the peer's failure."""
+    other = ScriptedPeer(CHAIN)
+    says(other, "reply_getcfcheckpt", [other.message("cfcheckpt", b"")])
+    fetcher, _ = build(cross_check=[other])
+    with pytest.raises(FetchError, match="cfcheckpt"):
+        fetcher.sync()
+
+
+def refusing_to_close(peer: ScriptedPeer) -> None:
+    """Make closing the peer fail, as a transport that cannot close does."""
+
+    def refuse() -> None:
+        peer.closed += 1
+        raise RpcFetchError("stuck")
+
+    peer.close = refuse  # type: ignore[method-assign]
+
+
+def test_a_liar_that_cannot_be_closed_is_dropped_all_the_same() -> None:
+    """The liar and its filter headers are gone before it is closed."""
+    honest = ScriptedPeer(CHAIN)
+    fetcher, lying = build(
+        CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[honest]
+    )
+    refusing_to_close(lying)
+    with pytest.raises(FetchError, match="stuck"):
+        fetcher.scan_blocks([WALLET])
+    assert lying.closed == 1
+    assert fetcher.transport is honest
+    assert fetcher.cross_check == []
+    assert list(fetcher.scan_blocks([WALLET])) == PAID
+
+
+def test_a_peer_that_cannot_be_closed_leaves_the_others_closed() -> None:
+    """Every peer is closed, and greeted again on the next call."""
+    other = ScriptedPeer(CHAIN)
+    fetcher, peer = build(cross_check=[other])
+    fetcher.sync()
+    refusing_to_close(peer)
+    with pytest.raises(FetchError, match="stuck"):
+        fetcher.close()
+    assert (peer.closed, other.closed) == (1, 1)
+    fetcher.sync()
+    assert (peer.versions, other.versions) == (2, 2)
+
+
+def test_a_filter_holds_all_the_scripts_match_finds_in_it() -> None:
+    """One decode answers what a `match` per script answers."""
+    holds_all = compact_filters._holds_all
+    paid = CHAIN.filters[3]
+    assert holds_all(paid, {WALLET})
+    assert not holds_all(paid, {WALLET, EXTRA})
+    assert not paid.match(EXTRA)
+    assert holds_all(paid, set())
+    padded = filter_with_outputs(3, False, EXTRA)
+    assert holds_all(padded, {WALLET, EXTRA})
+    assert padded.match(WALLET) and padded.match(EXTRA)
+    empty = BasicBlockFilter(CHAIN.hashes[3], 0, b"")
+    assert not holds_all(empty, {WALLET})
+    assert not empty.match(WALLET)
