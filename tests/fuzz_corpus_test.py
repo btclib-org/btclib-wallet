@@ -46,7 +46,9 @@ in normal form prints back as written, the checksum aside;
 `_REWRITTEN_SEEDS` names the seeds that the normal form rewrites.
 
 `test_psbt_crash_inputs_are_seeds` ties the two rust-bitcoin psbts that
-`tests/psbt/psbt_crash_inputs_test.py` reads to their `fuzz_psbt` seeds.
+`tests/psbt/psbt_crash_inputs_test.py` reads to their `fuzz_psbt` seeds,
+and `test_psbt_vectors_are_seeds` ties the psbt vectors that
+`fuzz/fuzz_psbt.py` names as seeds to theirs.
 
 A seed may legitimately be empty in principle -- no harness here has one
 today -- so nothing here asks a seed to be non-empty, only that no seed
@@ -56,8 +58,10 @@ ends in the newline a fixer appends.
 from __future__ import annotations
 
 import ast
+import base64
 import importlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -76,6 +80,7 @@ from btclib_wallet.descriptors.key_expression import KeyExpression
 _TESTS = Path(__file__).parent
 _FUZZ = _TESTS.parent / "fuzz"
 _CORPUS = _FUZZ / "corpus"
+_PSBT_DATA = _TESTS / "psbt" / "_data"
 
 # the one harness whose declared entry point takes text rather than
 # bytes: fuzz_descriptor.py decodes with errors="replace" before calling
@@ -712,6 +717,33 @@ def test_psbt_crash_inputs_are_seeds(number: int) -> None:
     vendored = _TESTS / "psbt" / "_data" / f"psbt_fuzz{number}.hex"
     seed = _CORPUS / "fuzz_psbt" / f"rust_bitcoin_psbt_fuzz{number}.bin"
     assert seed.read_bytes() == bytes.fromhex(vendored.read_text(encoding="ascii"))
+
+
+def _psbt_vectors() -> tuple[tuple[str, bytes], ...]:
+    """Every valid BIP174 and BIP371 psbt, and one with a final witness."""
+    psbts: list[tuple[str, bytes]] = []
+    for name in ("bip174_test_vectors.json", "bip371_test_vectors.json"):
+        vectors = json.loads((_PSBT_DATA / name).read_text(encoding="utf-8"))
+        psbts.extend(
+            (f"{name}[{i}]", base64.b64decode(vector["encoded psbt"]))
+            for i, vector in enumerate(vectors["valid psbts"])
+        )
+    rust_psbt = _PSBT_DATA / "rust-psbt" / "bip174.json"
+    cases = json.loads(rust_psbt.read_text(encoding="utf-8"))["cases"]
+    (case,) = (c for c in cases if c["description"].startswith("Workflow A (step 7)"))
+    psbts.append(("Workflow A (step 7)", bytes.fromhex(case["expected"]["hex"])))
+    return tuple(psbts)
+
+
+_PSBT_VECTORS = _psbt_vectors()
+
+
+@pytest.mark.parametrize(
+    "psbt", [psbt for _, psbt in _PSBT_VECTORS], ids=[name for name, _ in _PSBT_VECTORS]
+)
+def test_psbt_vectors_are_seeds(psbt: bytes) -> None:
+    """Each psbt `fuzz/fuzz_psbt.py` names as a seed is one, as octets."""
+    assert psbt in {seed.read_bytes() for seed in _seed_paths("fuzz_psbt")}
 
 
 # ---- unit tests of the pure ast helpers, for the branches no harness trips

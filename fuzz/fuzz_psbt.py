@@ -28,11 +28,16 @@ malformed input with, so that family is caught below as the expected
 outcome. An `IndexError`, a `RecursionError` or an uncaught assertion is
 not, and propagates to atheris as the finding it is.
 
-The seed corpus is one of the BIP174 vectors
-`tests/psbt/_data/bip174_test_vectors.json` carries, in both forms: the
-octets `serialize` writes, and the base64 the vector itself is published
-as. It also holds the two psbts that crashed rust-bitcoin's combiner,
-`tests/psbt/_data/psbt_fuzz1.hex` and `psbt_fuzz2.hex`, as octets.
+The seed corpus holds, as octets, every valid psbt of
+`tests/psbt/_data/bip174_test_vectors.json` and
+`bip371_test_vectors.json`, and the first BIP174 one also as the base64
+it is published as. The fuzzer thus starts from witness utxos, partial
+signatures, scripts, BIP32 derivations and the Taproot records, rather
+than having to build each by mutation. It also holds the psbt with a
+final script witness that `tests/psbt/_data/rust-psbt/bip174.json`
+expects from "Workflow A (step 7)", and the two psbts that crashed
+rust-bitcoin's combiner, `tests/psbt/_data/psbt_fuzz1.hex` and
+`psbt_fuzz2.hex`.
 """
 
 from __future__ import annotations
