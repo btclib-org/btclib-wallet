@@ -188,9 +188,9 @@ def fuzz_target(data: bytes) -> None:
 # ---- the structure-aware mutator --------------------------------------
 #
 # Bitcoin Core's PSBT mutator, PR bitcoin/bitcoin#36631's
-# src/test/fuzz/util/psbt.cpp, in Python. Where Core replaces an input
-# that does not split into maps with a minimal psbt, this hands it to
-# atheris.Mutate: the same bytes also feed Psbt.b64decode, and a
+# src/test/fuzz/util/psbt.cpp at f34b7ff, in Python. Where Core replaces
+# an input that does not split into maps with a minimal psbt, this hands
+# it to atheris.Mutate: the same bytes also feed Psbt.b64decode, and a
 # template would replace the base64 seed.
 
 _Map = list[tuple[bytes, bytes]]
