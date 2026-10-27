@@ -863,9 +863,10 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     def _settling_block(self, height: int, peers: list[_Peer]) -> Block:
         """Return the block at `height`, from the first of `peers` serving it.
 
-        The block is checked against the header held, so any peer's copy
-        will do, and a peer that does not serve it is closed and the next
-        one asked: the peer that served the chain cannot hide the block
+        `_blocks` checks it as every block it downloads, against the header
+        held and with `Block.assert_valid_contextual` at its height, so any
+        peer's copy will do. A peer that does not serve it is closed and the
+        next one asked: the peer that served the chain cannot hide the block
         that would show its filter wrong.
         """
         for each in peers[:-1]:
