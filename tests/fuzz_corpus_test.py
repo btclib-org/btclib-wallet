@@ -45,8 +45,12 @@ wire form, so a descriptor seed is held to the normal form that
 in normal form prints back as written, the checksum aside;
 `_REWRITTEN_SEEDS` names the seeds that the normal form rewrites.
 
+The `test_psbt_mutator_*` tests run the psbt harness's `custom_mutator`
+and its helpers, `_mutate` standing in for `atheris.Mutate`.
 `test_psbt_crash_inputs_are_seeds` ties the two rust-bitcoin psbts that
-`tests/psbt/psbt_crash_inputs_test.py` reads to their `fuzz_psbt` seeds.
+`tests/psbt/psbt_crash_inputs_test.py` reads to their `fuzz_psbt` seeds,
+and `test_psbt_vectors_are_seeds` ties the psbt vectors that
+`fuzz/fuzz_psbt.py` names as seeds to theirs.
 
 A seed may legitimately be empty in principle -- no harness here has one
 today -- so nothing here asks a seed to be non-empty, only that no seed
@@ -56,8 +60,11 @@ ends in the newline a fixer appends.
 from __future__ import annotations
 
 import ast
+import base64
 import importlib
 import importlib.util
+import json
+import random
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -72,10 +79,13 @@ from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.descriptors import descriptors, miniscript
 from btclib_wallet.descriptors.key_expression import KeyExpression
+from btclib_wallet.psbt.psbt import PSBT_MAGIC_BYTES, Psbt
+from btclib_wallet.psbt.psbt_utils import deserialize_map
 
 _TESTS = Path(__file__).parent
 _FUZZ = _TESTS.parent / "fuzz"
 _CORPUS = _FUZZ / "corpus"
+_PSBT_DATA = _TESTS / "psbt" / "_data"
 
 # the one harness whose declared entry point takes text rather than
 # bytes: fuzz_descriptor.py decodes with errors="replace" before calling
@@ -706,12 +716,218 @@ def test_miniscript_script_round_trip_keeps_bytes_across_associations(
     descriptor_harness.fuzz_target(f"wsh({right})".encode())
 
 
+_PSBT_SEEDS = _seed_paths("fuzz_psbt")
+
+
+def _mutate(data: bytes, max_size: int) -> bytes:
+    """Stand in for `atheris.Mutate`, rotating the bytes by one."""
+    return (data[1:] + data[:1])[:max_size]
+
+
+@pytest.fixture
+def psbt_harness(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the psbt target and mutator, with `_mutate` as `atheris.Mutate`."""
+    harness = _load_harness("fuzz_psbt", monkeypatch)
+    setattr(harness.atheris, "Mutate", _mutate)  # noqa: B010 -- no Mutate declared
+    return harness
+
+
+def test_psbt_harness_refuses_a_moving_serialization(
+    psbt_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A serialization that changes on every round trip fails the target."""
+    original = Psbt.serialize
+
+    def growing_serialize(psbt: Psbt, *, check_validity: bool = True) -> bytes:
+        psbt.unknown = {**psbt.unknown, b"\xee" + bytes([len(psbt.unknown)]): b""}
+        return original(psbt, check_validity=check_validity)
+
+    monkeypatch.setattr(Psbt, "serialize", growing_serialize)
+    seed = _CORPUS / "fuzz_psbt" / "bip174.bin"
+    with pytest.raises(
+        AssertionError, match="^psbt serialization is not a fixed point$"
+    ):
+        psbt_harness.fuzz_target(seed.read_bytes())
+
+
+def _record_types(psbt_harness: ModuleType, data: bytes) -> set[tuple[int, bytes]]:
+    """Return the (map index, key type byte) pairs `data` splits into."""
+    maps = psbt_harness._split(data)
+    return {(i, key[:1]) for i, records in enumerate(maps) for key, _ in records}
+
+
+def _parses(data: bytes) -> bool:
+    try:
+        Psbt.parse(data)
+    except BTClibException:
+        return False
+    return True
+
+
+@pytest.mark.parametrize("seed", _PSBT_SEEDS, ids=[seed.stem for seed in _PSBT_SEEDS])
+def test_psbt_mutator_fits_and_parses(psbt_harness: ModuleType, seed: Path) -> None:
+    """Every output fits `max_size`; some changed octet mutant parses.
+
+    Of the mutants that parse, one at least carries a record type, in
+    some map, that the seed lacks.
+    """
+    data = seed.read_bytes()
+    max_size = len(data) + 32
+    outputs = [psbt_harness.custom_mutator(data, max_size, i) for i in range(1000)]
+    assert all(type(out) is bytes and len(out) <= max_size for out in outputs)
+    if data.startswith(PSBT_MAGIC_BYTES):
+        parsed = [out for out in outputs if out != data and _parses(out)]
+        assert parsed
+        seed_types = _record_types(psbt_harness, data)
+        assert any(_record_types(psbt_harness, out) - seed_types for out in parsed)
+    else:
+        assert set(outputs) == {_mutate(data, max_size)}
+
+
+def test_psbt_mutator_prefers_the_declared_version(psbt_harness: ModuleType) -> None:
+    """A v0 global map gets a v2-only record type on some calls, not most."""
+    maps = psbt_harness._split((_CORPUS / "fuzz_psbt" / "bip174.bin").read_bytes())
+    v2_only = {
+        record[0]
+        for record in psbt_harness._GLOBAL_RECORDS
+        if record[1] == psbt_harness._V2
+    }
+    key_types = [
+        psbt_harness._known_record(maps, 0, random.Random(i))[0][:1]
+        for i in range(1000)
+    ]
+    assert 0 < sum(key_type in v2_only for key_type in key_types) < 1000 / 4
+
+
+class _Picks:
+    """Stand in for the mutator's `random.Random`, answering `values`."""
+
+    def __init__(self, *values: int) -> None:
+        self.values = list(values)
+
+    def randrange(self, *_: int) -> int:
+        return self.values.pop(0)
+
+    def getrandbits(self, _: int) -> int:
+        return self.values.pop(0)
+
+
+_RECORD_A = (b"\xfc\x01", b"")
+_RECORD_B = (b"\xfc\x02", b"")
+
+
+@pytest.mark.parametrize(
+    "maps, picks, mutated",
+    [
+        ([[_RECORD_A, _RECORD_B]], (0, 2, 0), [[_RECORD_B]]),
+        ([[_RECORD_A]], (0, 5), [[_RECORD_A], []]),
+        ([[_RECORD_A], [_RECORD_B]], (1, 5, 0), [[_RECORD_A]]),
+    ],
+    ids=["delete a record", "add a map", "remove a map"],
+)
+def test_psbt_mutator_changes_the_record_and_map_counts(
+    psbt_harness: ModuleType,
+    maps: list[list[tuple[bytes, bytes]]],
+    picks: tuple[int, ...],
+    mutated: list[list[tuple[bytes, bytes]]],
+) -> None:
+    """The record delete and the map add or remove do what they say."""
+    psbt_harness._mutate_maps(maps, _Picks(*picks))
+    assert maps == mutated
+
+
+def test_psbt_mutator_falls_back_one_call_in_eight(psbt_harness: ModuleType) -> None:
+    """A seed that splits still goes to `atheris.Mutate` on some calls."""
+    data = (_CORPUS / "fuzz_psbt" / "bip174.bin").read_bytes()
+    outputs = [psbt_harness.custom_mutator(data, len(data), i) for i in range(1000)]
+    assert abs(outputs.count(_mutate(data, len(data))) - 1000 / 8) < 50
+
+
+@pytest.mark.parametrize("seed", _PSBT_SEEDS, ids=[seed.stem for seed in _PSBT_SEEDS])
+def test_psbt_mutator_splits_and_joins(psbt_harness: ModuleType, seed: Path) -> None:
+    """Joining the maps a psbt splits into gives back its own octets."""
+    data = seed.read_bytes()
+    if data.startswith(PSBT_MAGIC_BYTES):
+        assert psbt_harness._join(psbt_harness._split(data)) == data
+    else:
+        assert psbt_harness._split(data) == []
+
+
+def test_psbt_mutator_keeps_a_duplicated_key(psbt_harness: ModuleType) -> None:
+    """The split keeps the record `deserialize_map` refuses as duplicated."""
+    record = b"\x01\xfc\x00"
+    data = PSBT_MAGIC_BYTES + record + record + b"\x00"
+    assert psbt_harness._split(data) == [[(b"\xfc", b""), (b"\xfc", b"")]]
+    with pytest.raises(BTClibValueError, match="^duplicated key in psbt map: "):
+        deserialize_map(data[len(PSBT_MAGIC_BYTES) :], "global")
+
+
+def test_psbt_mutator_drops_a_map_cut_short(psbt_harness: ModuleType) -> None:
+    """A map with no separator is dropped, and the maps before it kept."""
+    assert psbt_harness._split(PSBT_MAGIC_BYTES + b"\x00\x01\xfc") == [[]]
+
+
+@pytest.mark.parametrize("reader", ["to_dict", "finalize"])
+def test_psbt_harness_propagates_a_reader_crash(
+    psbt_harness: ModuleType, monkeypatch: pytest.MonkeyPatch, reader: str
+) -> None:
+    """A crash in a reader of an accepted psbt reaches atheris."""
+
+    def crash(*_: object, **__: object) -> None:
+        raise IndexError(reader)
+
+    target = Psbt if reader == "to_dict" else psbt_harness
+    monkeypatch.setattr(target, reader, crash)
+    seed = _CORPUS / "fuzz_psbt" / "bip174.bin"
+    with pytest.raises(IndexError, match=f"^{reader}$"):
+        psbt_harness.fuzz_target(seed.read_bytes())
+
+
+def test_psbt_harness_serializes_what_finalize_returns(
+    psbt_harness: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The finalized psbt is held to the fixed point too."""
+    finalized = Mock(spec=Psbt)
+    finalized.serialize.return_value = PSBT_MAGIC_BYTES
+    monkeypatch.setattr(psbt_harness, "finalize", lambda _: finalized)
+    seed = _CORPUS / "fuzz_psbt" / "bip174.bin"
+    with pytest.raises(BTClibValueError, match="^malformed psbt: "):
+        psbt_harness.fuzz_target(seed.read_bytes())
+
+
 @pytest.mark.parametrize("number", [1, 2])
 def test_psbt_crash_inputs_are_seeds(number: int) -> None:
     """Each rust-bitcoin psbt vendored under tests/psbt/_data/ is a seed."""
     vendored = _TESTS / "psbt" / "_data" / f"psbt_fuzz{number}.hex"
     seed = _CORPUS / "fuzz_psbt" / f"rust_bitcoin_psbt_fuzz{number}.bin"
     assert seed.read_bytes() == bytes.fromhex(vendored.read_text(encoding="ascii"))
+
+
+def _psbt_vectors() -> tuple[tuple[str, bytes], ...]:
+    """Every valid BIP174 and BIP371 psbt, and one with a final witness."""
+    psbts: list[tuple[str, bytes]] = []
+    for name in ("bip174_test_vectors.json", "bip371_test_vectors.json"):
+        vectors = json.loads((_PSBT_DATA / name).read_text(encoding="utf-8"))
+        psbts.extend(
+            (f"{name}[{i}]", base64.b64decode(vector["encoded psbt"]))
+            for i, vector in enumerate(vectors["valid psbts"])
+        )
+    rust_psbt = _PSBT_DATA / "rust-psbt" / "bip174.json"
+    cases = json.loads(rust_psbt.read_text(encoding="utf-8"))["cases"]
+    (case,) = (c for c in cases if c["description"].startswith("Workflow A (step 7)"))
+    psbts.append(("Workflow A (step 7)", bytes.fromhex(case["expected"]["hex"])))
+    return tuple(psbts)
+
+
+_PSBT_VECTORS = _psbt_vectors()
+
+
+@pytest.mark.parametrize(
+    "psbt", [psbt for _, psbt in _PSBT_VECTORS], ids=[name for name, _ in _PSBT_VECTORS]
+)
+def test_psbt_vectors_are_seeds(psbt: bytes) -> None:
+    """Each psbt `fuzz/fuzz_psbt.py` names as a seed is one, as octets."""
+    assert psbt in {seed.read_bytes() for seed in _seed_paths("fuzz_psbt")}
 
 
 # ---- unit tests of the pure ast helpers, for the branches no harness trips
