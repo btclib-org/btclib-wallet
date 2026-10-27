@@ -163,11 +163,13 @@ def test_an_over_limit_thresh_is_refused_before_it_is_analysed(
 
     The cost of the analysis is quadratic in the arguments, and a timing
     would depend on the machine, so what is asserted is that neither
-    analysis is entered.
+    analysis is entered. Where a descriptor names Core's fallback for the
+    size, the size is the fault under it.
     """
     calls = _forbid_the_quadratic_step(monkeypatch)
-    with pytest.raises(BTClibValueError, match=message):
+    with pytest.raises(BTClibValueError) as caught:
         parse()
+    assert message in str(caught.value.__cause__ or caught.value)
     assert calls == []
 
 
@@ -207,8 +209,11 @@ def test_nested_thresh_is_refused_by_the_running_total_of_size(
     inner = _thresh(60, _KEY)
     miniscript.parse(inner)  # one alone is within the limit
     calls.clear()
-    with pytest.raises(BTClibValueError, match="too large for P2WSH"):
+    with pytest.raises(
+        BTClibValueError, match="^A function is needed within P2WSH$"
+    ) as caught:
         descriptors.parse(f"wsh({_nested_thresh(200, inner)})")
+    assert "too large for P2WSH" in str(caught.value.__cause__)
     assert calls == ["_thresh_ops", "_thresh_stack"]
 
 
@@ -224,8 +229,11 @@ def test_nested_thresh_is_refused_by_the_running_total_in_tapscript(
     inner = _thresh(300, _XONLY)
     assert miniscript.parse(inner, miniscript.TAPSCRIPT).script_size < 15_000
     calls = _count_the_quadratic_step(monkeypatch)
-    with pytest.raises(BTClibValueError, match="too large for tapscript"):
+    with pytest.raises(
+        BTClibValueError, match=r"^tr\(\) leaf is not a valid descriptor function$"
+    ) as caught:
         descriptors.parse(f"tr({_XONLY},{_nested_thresh(50, inner)})")
+    assert "too large for tapscript" in str(caught.value.__cause__)
     assert calls == ["_thresh_ops", "_thresh_stack"]
 
 

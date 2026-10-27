@@ -448,7 +448,7 @@ def test_sorted_multi_is_not_a_fragment() -> None:
     nowhere inside `or_i()` to write one.
     """
     key = f"[00000000/44h/0h/0h]{_PRIMARY[0]}/0/*"
-    with pytest.raises(BTClibValueError, match="unknown miniscript fragment"):
+    with pytest.raises(BTClibValueError, match="^A function is needed within P2WSH$"):
         parse(add_checksum(f"wsh(or_i(sortedmulti(1,{key}),1))"))
 
     # while the same expression on its own is a descriptor, and a ranged

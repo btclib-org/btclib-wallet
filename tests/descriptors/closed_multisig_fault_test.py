@@ -91,10 +91,9 @@ def test_a_bracket_in_a_multisig_key_is_the_key_fault(
 def test_no_key_past_a_bad_threshold_or_an_empty_key_is_read(descriptor: str) -> None:
     """Core stops before the bracketed key, so no key fault is named.
 
-    Core then names its fallback for the leaf, where parse names the
-    brackets.
+    Core then names its fallback for the leaf, and so does parse.
     """
-    with pytest.raises(BTClibValueError, match="^unbalanced brackets$"):
+    with pytest.raises(BTClibValueError, match=_TR_LEAF_FAULT):
         parse(descriptor)
 
 

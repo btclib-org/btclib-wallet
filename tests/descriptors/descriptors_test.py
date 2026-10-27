@@ -112,6 +112,11 @@ from tests import load, replace_unchecked, vector_id
 from tests.exception_family_test import VALUE_ERRORS
 from tests.secret_free import assert_secret_free
 
+# what Bitcoin Core v31.1 names where its miniscript parser fails without
+# naming a key, inside wsh() and in a tr() leaf
+P2WSH_FAULT = "^A function is needed within P2WSH$"
+TR_LEAF_FAULT = r"^tr\(\) leaf is not a valid descriptor function$"
+
 DOC_DESCRIPTORS = [
     descriptor_data["desc"]
     for descriptor_data in load("_data", "descriptor_checksums.json", encoding="utf-8")
@@ -1527,7 +1532,7 @@ def test_multipath_refuses_a_step_in_a_function_argument(template: str) -> None:
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = template.format(xpub=xpub)
-    with pytest.raises(BTClibValueError, match="^A function is needed within P2WSH$"):
+    with pytest.raises(BTClibValueError, match=P2WSH_FAULT):
         multipath_descriptors(descriptor)
 
 
@@ -2363,7 +2368,7 @@ def test_a_space_by_a_function_name_is_no_key_fault() -> None:
                 function(descriptor)
     # where no key may stand, the space is no key's: it is the script's
     for function in (parse, multipath_descriptors):
-        with pytest.raises(BTClibValueError, match="^not a miniscript fragment"):
+        with pytest.raises(BTClibValueError, match=P2WSH_FAULT):
             function(f"wsh( {musig})")
 
 
@@ -2544,8 +2549,9 @@ UNPARSABLE = [
     (f"wsh(rawtr({XONLY}))", "not allowed inside"),
     (f"tr({XONLY},rawtr({XONLY}))", "not allowed inside"),
     # inside tr() a function that is no BIP386 leaf is read as a
-    # miniscript, so what answers is the language and not the table
-    (f"tr({XONLY},nope({KEY}))", "unknown miniscript fragment"),
+    # miniscript, so what answers is Core's fallback for a leaf, and not
+    # the table
+    (f"tr({XONLY},nope({KEY}))", TR_LEAF_FAULT),
     # Core refuses a second key too, as rawtr(): only one key expected
     (f"rawtr({XONLY},{XONLY})", "takes one argument"),
     (f"rawtr({UNCOMPRESSED})", "uncompressed"),
@@ -3519,9 +3525,9 @@ def test_sortedmulti_a_is_no_miniscript_fragment() -> None:
     """
     keys = f"{XPUB}/0,{XPUB}/1"
     assert isinstance(parse(f"tr({XONLY},n:multi_a(1,{keys}))"), TrDescriptor)
-    with pytest.raises(BTClibValueError, match="^unknown miniscript fragment$"):
+    with pytest.raises(BTClibValueError, match=TR_LEAF_FAULT):
         parse(f"tr({XONLY},n:sortedmulti_a(1,{keys}))")
-    with pytest.raises(BTClibValueError, match="^unknown miniscript fragment$"):
+    with pytest.raises(BTClibValueError, match=TR_LEAF_FAULT):
         parse(f"tr({XONLY},and_v(v:sortedmulti_a(1,{keys}),older(1)))")
 
 
@@ -5174,44 +5180,22 @@ UNECHOED = [
     (f"addr(bc1{HEX_PRV}qqqqqq)", "^invalid checksum$"),
     (f"raw({WIF})", r"^raw\(\) takes a hex script$"),
     (f"{WIF}(0)", "^unknown descriptor function$"),
-    (f"wsh({WIF})", "^not a miniscript fragment: a name expected$"),
-    (
-        f"wsh(and_v(v:pk({WIF}),{HEX_PRV}))",
-        r"^not a miniscript fragment: '\(' expected after a name$",
-    ),
-    (f"wsh(and_v(v:pk({WIF}),{HEX_PRV}(1)))", "^unknown miniscript fragment$"),
-    (
-        f"wsh(and_v(v:pk({WIF}),multi({MUSIG_A_WIF},{XPRV_ROOT})))",
-        r"^invalid multi\(\) threshold: digits expected$",
-    ),
-    (
-        f"wsh(and_v(v:pk({WIF}),older({MUSIG_A_WIF})))",
-        "^A function is needed within P2WSH$",
-    ),
-    (
-        f"wsh(thresh({WIF},pk({MUSIG_A_WIF})))",
-        r"^invalid thresh\(\) number: digits expected$",
-    ),
-    (
-        f"wsh(and_v(v:pk({XPRV_ROOT}/0/*)x,older(1)))",
-        r"^unbalanced brackets in pk\(\)$",
-    ),
+    # Core names its fallback for these, and the fault parse found is in
+    # the chain the traceback prints
+    (f"wsh({WIF})", P2WSH_FAULT),
+    (f"wsh(and_v(v:pk({WIF}),{HEX_PRV}))", P2WSH_FAULT),
+    (f"wsh(and_v(v:pk({WIF}),{HEX_PRV}(1)))", P2WSH_FAULT),
+    (f"wsh(and_v(v:pk({WIF}),multi({MUSIG_A_WIF},{XPRV_ROOT})))", P2WSH_FAULT),
+    (f"wsh(and_v(v:pk({WIF}),older({MUSIG_A_WIF})))", P2WSH_FAULT),
+    (f"wsh(thresh({WIF},pk({MUSIG_A_WIF})))", P2WSH_FAULT),
+    (f"wsh(and_v(v:pk({XPRV_ROOT}/0/*)x,older(1)))", P2WSH_FAULT),
     (
         f"wsh(thresh(1,pk({WIF}),a:and_v(v:pk({MUSIG_A_WIF}),1)x,a:pk({XPRV_ROOT})))",
-        r"^unbalanced brackets in thresh\(\)$",
+        P2WSH_FAULT,
     ),
-    (
-        f"wsh(and_v(v:older(10),pk({WIF}),pk({MUSIG_A_WIF})))",
-        r"^expected '\)' in the miniscript$",
-    ),
-    (
-        f"wsh(or_d(pk({WIF}),older(1))pk({MUSIG_A_WIF}))",
-        "^trailing characters after the miniscript$",
-    ),
-    (
-        f"tr({XPRV_ROOT},and_v(v:pk({WIF}),pk({MUSIG_A_WIF})x))",
-        r"^unbalanced brackets in pk\(\)$",
-    ),
+    (f"wsh(and_v(v:older(10),pk({WIF}),pk({MUSIG_A_WIF})))", P2WSH_FAULT),
+    (f"wsh(or_d(pk({WIF}),older(1))pk({MUSIG_A_WIF}))", P2WSH_FAULT),
+    (f"tr({XPRV_ROOT},and_v(v:pk({WIF}),pk({MUSIG_A_WIF})x))", TR_LEAF_FAULT),
 ]
 
 

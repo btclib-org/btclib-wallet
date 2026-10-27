@@ -1103,11 +1103,12 @@ class Miniscript:
     def _assert_shape(self) -> None:
         """Refuse a node no fragment has the shape of.
 
-        The arity, the keys, the digest and the number, which neither
-        `parse` nor `from_script` can get wrong and a caller building a
-        node by hand can. Refused rather than typed empty: an
-        ill-*shaped* node is not an expression the rules have anything to
-        say about, where an ill-*typed* one is an expression they refuse.
+        The arity, the keys, the digest and the number: a caller building
+        a node by hand can get any of them wrong, and `parse` and
+        `from_script` leave some of them to it. Refused rather than typed
+        empty: an ill-*shaped* node is not an expression the rules have
+        anything to say about, where an ill-*typed* one is an expression
+        they refuse.
         """
         fragment = self.fragment
         if fragment == "thresh":
@@ -1845,6 +1846,18 @@ _CLOSE = ")"
 _NAME_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz_0123456789")
 
 
+class _CoreFallbackError(BTClibValueError):
+    """A fault on which Core's miniscript parser stops without naming a key.
+
+    Text it reads as no fragment, a number, a hash or a multisig it
+    refuses, or a script past the size of its context. Core's descriptor
+    reader then names its own fallback, which the descriptor reader here
+    names too: inside ``wsh()`` and in a ``tr()`` leaf. A key it refuses,
+    and a type or sanity fault, which Core finds on the expression it
+    built, are not one. The standalone parser keeps this diagnostic.
+    """
+
+
 def _expression_end(text: str, pos: int, *, stop_at_close: bool) -> int:
     """Return the index one past the expression starting at `pos`.
 
@@ -1896,7 +1909,7 @@ class _Built(list[Miniscript]):
                 f"miniscript too large for {self._context}: "
                 f"at least {self._total} bytes of script"
             )
-            raise BTClibValueError(err_msg)
+            raise _CoreFallbackError(err_msg)
         super().append(node)
 
     @override
@@ -1931,7 +1944,7 @@ def _assert_typed(node: Miniscript) -> Miniscript:
             f"miniscript too large for {node.context}: "
             f"{node.script_size} bytes of script"
         )
-        raise BTClibValueError(err_msg)
+        raise _CoreFallbackError(err_msg)
     return node
 
 
@@ -1983,7 +1996,11 @@ def _read_wrappers(
             break
         if expression[i] not in _NAME_CHARACTERS:
             break
-    for letter in expression[pos:colon] if colon else "":
+    letters = expression[pos:colon] if colon else ""
+    if "vv" in letters:
+        # Core refuses it as it reads the wrappers, before the expression
+        raise _CoreFallbackError("invalid miniscript wrappers: vv:")
+    for letter in letters:
         if letter == "l":
             built.append(Miniscript("0", context))
             to_parse.append(("or_i", 0, 0))
@@ -1994,7 +2011,7 @@ def _read_wrappers(
         elif f"{letter}:" in _WRAPPERS:
             to_parse.append((f"{letter}:", 0, 0))
         else:
-            raise BTClibValueError(f"unknown miniscript wrapper: {letter}:")
+            raise _CoreFallbackError(f"unknown miniscript wrapper: {letter}:")
     to_parse.append((_EXPR, 0, 0))
     return colon + 1 if colon else pos
 
@@ -2005,7 +2022,7 @@ def _read_name(expression: str, pos: int) -> tuple[str, int]:
     while end < len(expression) and expression[end] in _NAME_CHARACTERS:
         end += 1
     if end == pos:
-        raise BTClibValueError("not a miniscript fragment: a name expected")
+        raise _CoreFallbackError("not a miniscript fragment: a name expected")
     return expression[pos:end], end
 
 
@@ -2049,22 +2066,27 @@ def _read_multi(
     """
     try:
         arguments = _split_arguments(argument)
-    except BTClibValueError:
+    except BTClibValueError as error:
         threshold, *keys = argument.split(",")
         _read_keys_as_core(threshold, keys, context, prv_keys)
-        raise
+        raise _CoreFallbackError(str(error)) from error
     if len(arguments) < 2:
         err_msg = f"{name}() takes a threshold and at least one key"
-        raise BTClibValueError(err_msg)
+        raise _CoreFallbackError(err_msg)
     threshold, *keys = arguments
     if not _NUMBER.fullmatch(threshold):
-        raise BTClibValueError(f"invalid {name}() threshold: digits expected")
+        # Core reads the keys after a negative threshold
+        _read_keys_as_core(threshold, argument.split(",")[1:], context, prv_keys)
+        raise _CoreFallbackError(f"invalid {name}() threshold: digits expected")
+    if _int64_read_as_core(threshold) is None:
+        # Core reads no key after a threshold past an int64_t
+        raise _CoreFallbackError(f"invalid {name}() threshold: past an int64_t")
     tapscript = context == TAPSCRIPT
     read = []
     for key in keys:
         # Core refuses an empty key as structure, reading no key after it.
         if not key:
-            raise BTClibValueError(f"empty key in {name}()")
+            raise _CoreFallbackError(f"empty key in {name}()")
         read.append(
             _parse_key(
                 key,
@@ -2074,12 +2096,34 @@ def _read_multi(
                 musig_allowed=tapscript,
             )
         )
-    return Miniscript(
-        name,
-        context,
-        keys=tuple(read),
-        threshold=_int_from_digits(threshold, f"{name}() threshold"),
-    )
+    try:
+        return Miniscript(
+            name,
+            context,
+            keys=tuple(read),
+            threshold=_int_from_digits(threshold, f"{name}() threshold"),
+        )
+    except BTClibValueError as error:
+        # the number of keys, or a threshold out of its bounds
+        raise _CoreFallbackError(str(error)) from error
+
+
+def _int64_read_as_core(text: str) -> int | None:
+    """Return the int64_t Core reads in `text`, or None where it reads none.
+
+    Core's ``ToIntegral<int64_t>`` is ``std::from_chars``: an optional
+    "-", then digits, leading zeros read, and nothing past an int64_t.
+    """
+    digits = text.removeprefix("-")
+    if not _NUMBER.fullmatch(digits):
+        return None
+    significant = digits.lstrip("0")
+    if len(significant) > 19:
+        return None
+    value = int(significant or "0")
+    if digits != text:
+        value = -value
+    return value if -(2**63) <= value < 2**63 else None
 
 
 def _read_keys_as_core(
@@ -2091,10 +2135,7 @@ def _read_keys_as_core(
     is not. It then reads each key up to the next comma, counting no
     bracket, and stops at an empty key.
     """
-    digits = threshold.removeprefix("-")
-    if not _NUMBER.fullmatch(digits):
-        return
-    if len(digits.lstrip("0")) > 19 or int(digits) >= 2**63 + (digits != threshold):
+    if _int64_read_as_core(threshold) is None:
         return
     tapscript = context == TAPSCRIPT
     for key in keys:
@@ -2121,16 +2162,6 @@ def _read_unclosed_multisig_keys(
     _read_keys_as_core(threshold, keys[:-1], context, prv_keys)
 
 
-class _CoreFallbackError(BTClibValueError):
-    """A fault on which Core's miniscript parser stops without naming a key.
-
-    An ``older()`` or ``after()`` number it refuses, or a multisig outside
-    its own context. Core's descriptor reader then names its own fallback,
-    which the descriptor reader here names too: inside ``wsh()`` and in a
-    ``tr()`` leaf. The standalone parser keeps this diagnostic.
-    """
-
-
 def _read_number(name: str, argument: str) -> int:
     """Return the number a fragment's argument is, refusing anything else.
 
@@ -2142,8 +2173,11 @@ def _read_number(name: str, argument: str) -> int:
     to give a number below 1, which every fragment that takes one refuses.
     """
     if not _NUMBER.fullmatch(argument):
-        raise BTClibValueError(f"invalid {name}() number: digits expected")
-    return _int_from_digits(argument, f"{name}() number")
+        raise _CoreFallbackError(f"invalid {name}() number: digits expected")
+    try:
+        return _int_from_digits(argument, f"{name}() number")
+    except BTClibValueError as error:
+        raise _CoreFallbackError(str(error)) from error
 
 
 def _read_leaf(
@@ -2157,8 +2191,11 @@ def _read_leaf(
         return _read_key_fragment(name, argument, context, prv_keys)
     if name in _HASH_OP_CODES:
         if not _HEX.fullmatch(argument):
-            raise BTClibValueError(f"invalid {name}() hash: hex expected")
-        digest = bytes_from_octets(argument, _DATA_SIZE[name])
+            raise _CoreFallbackError(f"invalid {name}() hash: hex expected")
+        try:
+            digest = bytes_from_octets(argument, _DATA_SIZE[name])
+        except BTClibValueError as error:
+            raise _CoreFallbackError(str(error)) from error
         return Miniscript(name, context, data=digest)
     if name in {"older", "after"}:
         try:
@@ -2166,6 +2203,23 @@ def _read_leaf(
         except BTClibValueError as error:
             raise _CoreFallbackError(str(error)) from error
     return _read_multi(name, argument, context, prv_keys)
+
+
+def _read_thresh_threshold(argument: str) -> int:
+    """Return the threshold of a thresh(), read as Core reads it.
+
+    Core reads it as an int64_t, and refuses one it cannot read, or one
+    below 1, before the subexpressions; one above their count is refused
+    once they are read.
+    """
+    if not _NUMBER.fullmatch(argument):
+        raise _CoreFallbackError("invalid thresh() number: digits expected")
+    threshold = _int64_read_as_core(argument)
+    if threshold is None:
+        raise _CoreFallbackError("invalid thresh() threshold: past an int64_t")
+    if threshold < 1:
+        raise _CoreFallbackError(f"invalid thresh() threshold: {threshold}")
+    return threshold
 
 
 def _read_fragment(
@@ -2182,7 +2236,7 @@ def _read_fragment(
         built.append(Miniscript(name, context))
         return pos
     if expression[pos : pos + 1] != "(":
-        raise BTClibValueError("not a miniscript fragment: '(' expected after a name")
+        raise _CoreFallbackError("not a miniscript fragment: '(' expected after a name")
     if name in _COMBINATORS:
         to_parse.append((name, 0, 0))
         to_parse.append((_CLOSE, 0, 0))
@@ -2194,15 +2248,15 @@ def _read_fragment(
     if name == "thresh":
         end = _expression_end(expression, pos + 1, stop_at_close=False)
         if expression[end : end + 1] != ",":
-            raise BTClibValueError("thresh() takes a threshold and subexpressions")
-        threshold = _read_number(name, expression[pos + 1 : end])
+            raise _CoreFallbackError("thresh() takes a threshold and subexpressions")
+        threshold = _read_thresh_threshold(expression[pos + 1 : end])
         # the first argument is read before the state that loops over the
         # rest, so the count starts at one
         to_parse.append((_MORE_THRESH, 1, threshold))
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return end + 1
     if name not in _LEAVES:
-        raise BTClibValueError("unknown miniscript fragment")
+        raise _CoreFallbackError("unknown miniscript fragment")
     return _read_leaf_fragment(name, expression, pos, built, context, prv_keys)
 
 
@@ -2225,7 +2279,7 @@ def _read_leaf_fragment(
             _read_unclosed_multisig_keys(
                 expression[pos - len(name) :], context, prv_keys
             )
-        raise BTClibValueError(f"unbalanced brackets in {name}()")
+        raise _CoreFallbackError(f"unbalanced brackets in {name}()")
     built.append(
         _assert_typed(
             _read_leaf(name, expression[pos + 1 : end - 1], context, prv_keys)
@@ -2253,12 +2307,30 @@ def _read_more_thresh(
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
     if char != ")":
-        raise BTClibValueError("unbalanced brackets in thresh()")
+        raise _CoreFallbackError("unbalanced brackets in thresh()")
+    if threshold > count:
+        err_msg = f"invalid thresh() threshold: {threshold} of {count}"
+        raise _CoreFallbackError(err_msg)
     arguments = built.drop_last(count)
     built.append(
         _assert_typed(Miniscript("thresh", context, arguments, threshold=threshold))
     )
     return pos + 1
+
+
+def _assert_no_trailing_text(expression: str, pos: int) -> None:
+    """Refuse text after the miniscript that ends at `pos`.
+
+    Core's descriptor reader hands its miniscript parser the text up to
+    the first "," or ")" outside brackets, so text from one of them on is
+    no fault of the miniscript's.
+    """
+    if pos == len(expression):
+        return
+    err_msg = "trailing characters after the miniscript"
+    if expression[pos] in ",)":
+        raise BTClibValueError(err_msg)
+    raise _CoreFallbackError(err_msg)
 
 
 def parse(
@@ -2304,7 +2376,7 @@ def parse(
             pos = _read_fragment(expression, pos, to_parse, built, context, prv_keys)
         elif state in {_COMMA, _CLOSE}:
             if expression[pos : pos + 1] != state:
-                raise BTClibValueError(f"expected {state!r} in the miniscript")
+                raise _CoreFallbackError(f"expected {state!r} in the miniscript")
             pos += 1
         elif state == _MORE_THRESH:
             pos = _read_more_thresh(
@@ -2312,8 +2384,7 @@ def parse(
             )
         else:
             _built(state, built, context)
-    if pos != len(expression):
-        raise BTClibValueError("trailing characters after the miniscript")
+    _assert_no_trailing_text(expression, pos)
     node = built[0]
     if not _has(node.properties, "B"):
         basic = "".join(sorted(node.properties & _t("BVKW")))

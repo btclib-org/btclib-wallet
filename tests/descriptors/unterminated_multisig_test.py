@@ -57,25 +57,19 @@ def test_a_multisig_key_is_read_before_its_trailing_structure(
 @pytest.mark.parametrize(
     "descriptor,message",
     [
-        (f"wsh(multi(x,[dead]]{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
-        (
-            f"wsh(multi(9223372036854775808,[dead]]{_KEY},{_KEY})",
-            r"unbalanced brackets in multi\(\)",
-        ),
-        (
-            f"wsh(multi(-9223372036854775809,[dead]]{_KEY},{_KEY})",
-            r"unbalanced brackets in multi\(\)",
-        ),
+        (f"wsh(multi(x,[dead]]{_KEY},{_KEY})", _P2WSH_FAULT),
+        (f"wsh(multi(9223372036854775808,[dead]]{_KEY},{_KEY})", _P2WSH_FAULT),
+        (f"wsh(multi(-9223372036854775809,[dead]]{_KEY},{_KEY})", _P2WSH_FAULT),
         pytest.param(
             f"wsh(multi({'9' * 5000},[dead]]{_KEY},{_KEY})",
-            r"unbalanced brackets in multi\(\)",
+            _P2WSH_FAULT,
             id="threshold-of-5000-digits",
         ),
-        (f"wsh(multi(1,,[dead]]{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
-        (f"wsh(multi(1,{_KEY},{_KEY})", r"unbalanced brackets in multi\(\)"),
-        (f"wsh(multi(1,{_KEY},[dead]]{_KEY})", r"unbalanced brackets in multi\(\)"),
+        (f"wsh(multi(1,,[dead]]{_KEY},{_KEY})", _P2WSH_FAULT),
+        (f"wsh(multi(1,{_KEY},{_KEY})", _P2WSH_FAULT),
+        (f"wsh(multi(1,{_KEY},[dead]]{_KEY})", _P2WSH_FAULT),
         (f"wsh(multi(1,{_KEY}),{_KEY}))", "trailing characters after the miniscript"),
-        (f"wsh(multi(1,){_KEY},{_KEY}))", r"empty key in multi\(\)"),
+        (f"wsh(multi(1,){_KEY},{_KEY}))", _P2WSH_FAULT),
         (
             f"wsh(and_v(v:pk({_KEY}),multi_a(1,[dead]{_KEY}){_KEY},{_KEY})))",
             _P2WSH_FAULT,
