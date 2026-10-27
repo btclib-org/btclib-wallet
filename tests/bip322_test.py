@@ -30,6 +30,7 @@ from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
     InconclusiveError,
+    ScriptError,
 )
 from btclib.hashes import hash160, magic_message
 from btclib.script import ScriptPubKey, address, serialize
@@ -41,6 +42,7 @@ from btclib.script.sig_hash import (
     NONE,
     SINGLE,
     from_tx,
+    legacy,
     segwit_v0,
 )
 from btclib.script.sig_hash import taproot as taproot_sig_hash
@@ -1610,3 +1612,100 @@ def test_the_sigop_limit_counts_to_spend_too(to_sign_cost: int) -> None:
         return
     with pytest.raises(BTClibValueError, match="over the block limit"):
         bip322._assert_sig_op_cost(spend, prevouts, tx)
+
+
+# The tests below rebuild consensus-invalid signatures from
+# rust-bitcoin/bip322#89, read at its head `27f33fa69b` in `src/lib.rs`.
+# Each docstring names the test there.
+
+
+@pytest.mark.parametrize("opcode", ["OP_CHECKSEQUENCEVERIFY", "OP_CHECKLOCKTIMEVERIFY"])
+def test_a_naked_zero_timelock_script_is_invalid(opcode: str) -> None:
+    """`OP_0` then a timelock opcode is satisfied by no signature.
+
+    `naked_zero_timelock_scripts_are_invalid`: the script alone, as the
+    witness script of a p2wsh at version 0 and 2, and as the redeem
+    script of a p2sh. `OP_CHECKSEQUENCEVERIFY` fails at version 0, which
+    the p2sh `to_sign` also has; everywhere else the zero is left on the
+    stack as a false result. Both are invalid rather than inconclusive.
+    """
+
+    def reason(version: int) -> str:
+        if opcode == "OP_CHECKSEQUENCEVERIFY" and version == 0:
+            return "transaction version 0 < 2"
+        return "false top stack element"
+
+    msg = b"foo"
+    script = serialize(["OP_0", opcode])
+    addr = p2wsh(script)
+    for version in (0, 2):
+        _, tx = _to_sign_of(msg, addr, witness=Witness([script]), version=version)
+        with pytest.raises(ScriptError, match=reason(version)):
+            bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+
+    addr = ScriptPubKey.p2sh(script).address
+    _, tx = _to_sign_of(msg, addr, script_sig=serialize([script]))
+    with pytest.raises(ScriptError, match=reason(0)):
+        bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+
+
+def test_a_witness_on_a_legacy_p2sh_input_is_invalid() -> None:
+    """A 2-of-2 p2sh signature stops verifying once a witness is added.
+
+    `legacy_and_nested_spends_enforce_consensus_structure`, its first
+    half: consensus refuses a witness on an input that is not segwit.
+    """
+    keys = [b58.prv_key_data_from_wif(wif).pub.sec for wif in (WIF, OTHER_WIF)]
+    redeem_script = serialize(["OP_2", *keys, "OP_2", "OP_CHECKMULTISIG"])
+    msg, addr = b"foo", ScriptPubKey.p2sh(redeem_script).address
+    _, tx = _to_sign_of(msg, addr)
+    msg_hash = legacy(redeem_script, tx, 0, ALL)
+    signatures = [dsa_sign(msg_hash, wif) for wif in (WIF, OTHER_WIF)]
+    tx.vin[0].script_sig = serialize([b"", *signatures, redeem_script])
+    bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+
+    tx.vin[0].script_witness = Witness([b"\x01"])
+    with pytest.raises(ScriptError, match="witness for a non-segwit input"):
+        bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+
+
+@pytest.mark.parametrize("n_keys", [15, 16], ids=["under-520", "over-520"])
+def test_a_p2sh_redeem_script_over_520_bytes_is_invalid(n_keys: int) -> None:
+    """A 1-of-n p2sh multisig verifies until its redeem script passes 520 bytes.
+
+    `oversized_bare_p2sh_redeem_script_is_invalid` repeats one key 16
+    times; 15 is the control under the limit. Consensus caps a push at
+    520 bytes, and the redeem script is a push in the script_sig.
+    """
+    key = b58.prv_key_data_from_wif(WIF).pub.sec
+    redeem_script = serialize(
+        ["OP_1", *[key] * n_keys, f"OP_{n_keys}", "OP_CHECKMULTISIG"]
+    )
+    # ScriptPubKey.p2sh refuses a redeem script over the limit
+    msg = b"foo"
+    addr = address(serialize(["OP_HASH160", hash160(redeem_script), "OP_EQUAL"]))
+    _, tx = _to_sign_of(msg, addr)
+    signature = dsa_sign(legacy(redeem_script, tx, 0, ALL), WIF)
+    tx.vin[0].script_sig = serialize([b"", signature, redeem_script])
+    if len(redeem_script) <= 520:
+        bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+        return
+    with pytest.raises(ScriptError, match="pushdata longer than 520 bytes"):
+        bip322.assert_as_valid(msg, addr, bip322.Sig(tx))
+
+
+def test_a_p2sh_p2wpkh_signature_without_its_script_sig_is_invalid() -> None:
+    """A nested segwit signature with its script_sig emptied is refused.
+
+    `legacy_and_nested_spends_enforce_consensus_structure`, its second
+    half: the p2sh output needs the witness program pushed in the
+    script_sig, and an empty one leaves `OP_HASH160` nothing to hash.
+    """
+    msg, addr = b"foo", _address(WIF, "p2sh-p2wpkh")
+    sig = bip322.sign(msg, b58.prv_key_data_from_wif(WIF), addr)
+    bip322.assert_as_valid(msg, addr, sig)
+
+    assert isinstance(sig.payload, Tx)
+    sig.payload.vin[0].script_sig = b""
+    with pytest.raises(ScriptError, match="stack underflow"):
+        bip322.assert_as_valid(msg, addr, sig)
