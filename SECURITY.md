@@ -226,7 +226,7 @@ used to teach and to prototype as much as to build.
     of the first download, or once the chain has the work the first download
     needed. A peer can still make the fetcher download as
     many low-work headers as it has mined, up to that bound. A header's
-    version is not checked. A fork is
+    version is checked only in a block that is downloaded. A fork is
     followed only if it ends with more work than the chain it displaces;
     otherwise the chain held is put back if it has the minimum work, and
     dropped if not. Every
@@ -235,7 +235,8 @@ used to teach and to prototype as much as to build.
     hashes, chained to the filter header before it, to the filter header
     held. Every block downloaded is one that was asked for, whose header is
     the one in the chain and which passes `Block.assert_valid_structure`
-    (its merkle root and witness commitment among the checks). The filter
+    (its merkle root and witness commitment among the checks) and
+    `Block.assert_valid_contextual` at its height. The filter
     headers are the peer's word: BIP157 compares them with the checkpoints
     of other peers, this fetcher has one, and a peer that lies in them can
     hide a block that pays the wallet. A peer can hold back the network's

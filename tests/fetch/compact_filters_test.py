@@ -978,8 +978,9 @@ def test_a_block_with_a_witness_changed_or_removed_is_refused(witness: Witness) 
 def test_a_block_with_every_witness_stripped_is_refused() -> None:
     """A coinbase that commits to witnesses has to carry the nonce.
 
-    btclib's `Block` returns early for a block with no witness, so this
-    is the fetcher's own check, Core's bad-witness-nonce-size.
+    `assert_valid_structure` passes a block with no witness, so this is
+    `assert_valid_contextual` at the block's height: Core's
+    bad-witness-nonce-size.
     """
     chain, block = segwit_block()
     stripped = witnesses_replaced(block, None)
@@ -990,7 +991,39 @@ def test_a_block_with_every_witness_stripped_is_refused() -> None:
     # the block sits exactly at the activation height
     fetcher._consensus = replace(fetcher._consensus, segwit_height=3)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(stripped))])
-    with pytest.raises(FetchError, match="without a 32-byte witness nonce"):
+    with pytest.raises(FetchError, match="invalid witness nonce"):
+        fetcher.scan_blocks([WALLET])
+
+
+def test_a_block_with_a_time_lock_past_the_median_time_past_is_refused() -> None:
+    """A time lock is final only below the parent's median time past (BIP113).
+
+    The lock is a second before block 3's own timestamp, and so final
+    against it, but past the median time of blocks 0 to 2.
+    """
+    base = CHAIN.fork(2)
+    previous = base.blocks[-1].header
+    time = previous.time + timedelta(seconds=1)
+    locked = Tx(
+        vin=[TxIn(OutPoint(bytes(range(32)), 0), b"", 0xFFFFFFFE)],
+        vout=[TxOut(1000, WALLET)],
+        lock_time=int(time.timestamp()) - 1,
+    )
+    coinbase = build_coinbase(3, OTHER, halving_interval=REGTEST_HALVING)
+    block = build_block(previous.hash, [coinbase, locked], time, REGTEST_BITS)
+    block.header = mined(block.header)
+    fetcher, _ = build(Chain([*base.blocks, block]).extend(TIP - 3))
+    with pytest.raises(FetchError, match="non-final transaction"):
+        fetcher.scan_blocks([WALLET])
+
+
+def test_a_segwit_block_below_the_segwit_height_is_refused() -> None:
+    """Before segwit no witness is allowed, committed or not."""
+    chain, block = segwit_block()
+    block.assert_valid_structure()
+    fetcher, _ = build(chain)
+    fetcher._consensus = replace(fetcher._consensus, segwit_height=4)
+    with pytest.raises(FetchError, match="unexpected witness"):
         fetcher.scan_blocks([WALLET])
 
 
