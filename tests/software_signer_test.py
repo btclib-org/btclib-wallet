@@ -533,8 +533,8 @@ def test_a_signer_of_watch_only_accounts_derives_but_does_not_sign() -> None:
         signer.sign_psbt(spending(receive, change)[0])
 
 
-# A taproot psbt written by BDK and the account key that signs it, from
-# bitcoindevkit/bdk_wallet#610, which reports rust-miniscript's
+# A taproot psbt and the account key that signs it, as
+# bitcoindevkit/bdk_wallet#610 reports them, with rust-miniscript's
 # `KeyMapWrapper` walking the account path twice and signing with the wrong
 # key. Where it is pinned, and why not to a commit, `tests/_data/README.md`
 # says.
@@ -553,8 +553,8 @@ BDK_TPRV = (
 )
 
 
-def test_a_signer_of_accounts_signs_bdks_taproot_key_path() -> None:
-    """Another implementation's psbt, signed on the key path by an account.
+def test_a_signer_of_accounts_signs_the_bdk_issue_taproot_key_path() -> None:
+    """A psbt from an upstream issue, signed on the key path by an account.
 
     The origin of the key path is in `PSBT_IN_TAP_BIP32_DERIVATION`, and
     names the full path from the master. The key is derived by walking
@@ -576,7 +576,7 @@ def test_a_signer_of_accounts_signs_bdks_taproot_key_path() -> None:
     xpub = BIP32KeyData.b58decode(signer.xpub(origin.der_path))
     assert xpub.key[1:] == pub_key
 
-    # BDK wrote no previous transaction, only the output it spends
+    # the psbt carries no previous transaction, only the output it spends
     signed = signer.sign_psbt(psbt, require_non_witness_utxo=False)
     assert signed != psbt
 
