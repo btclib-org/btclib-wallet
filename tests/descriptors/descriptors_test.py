@@ -2088,26 +2088,6 @@ def test_raw() -> None:
     assert parsed.key_expressions == ()
 
 
-@pytest.mark.parametrize(
-    "descriptor, message",
-    [
-        ("raw(00 51)", "^Raw script is not hex$"),
-        ("raw( 0051)", "^Raw script is not hex$"),
-        ("raw(0051 )", "^Raw script is not hex$"),
-        # Core refuses these before raw() reads them, as outside its
-        # INPUT_CHARSET: "Invalid characters in payload"
-        ("raw(00\t51)", r"^invalid descriptor character: '\\t'$"),
-        ("raw(00\n51)", r"^invalid descriptor character: '\\n'$"),
-        ("raw(\t0051)", r"^invalid descriptor character: '\\t'$"),
-        ("raw(0051\n)", r"^invalid descriptor character: '\\n'$"),
-    ],
-)
-def test_raw_refuses_whitespace(descriptor: str, message: str) -> None:
-    """Refuse whitespace in raw()'s hex, as Core's IsHex does."""
-    with pytest.raises(BTClibValueError, match=message):
-        parse(descriptor)
-
-
 def test_combo_is_a_set_of_scripts() -> None:
     """`combo()` answers with four scripts, so it answers with no address.
 
@@ -5923,3 +5903,23 @@ def test_a_musig_participants_valid_origin_is_accepted(origin: str) -> None:
     descriptor = f"tr(musig([{origin}]{MUSIG_A},{MUSIG_B}))"
     assert isinstance(parse(descriptor), TrDescriptor)
     assert multipath_descriptors(descriptor) == [add_checksum(descriptor)]
+
+
+@pytest.mark.parametrize(
+    "descriptor, message",
+    [
+        ("raw(00 51)", "^Raw script is not hex$"),
+        ("raw( 0051)", "^Raw script is not hex$"),
+        ("raw(0051 )", "^Raw script is not hex$"),
+        # Core refuses these sooner, as characters no descriptor may hold,
+        # with "Invalid characters in payload"
+        ("raw(00\t51)", r"^invalid descriptor character: '\\t'$"),
+        ("raw(00\n51)", r"^invalid descriptor character: '\\n'$"),
+        ("raw(\t0051)", r"^invalid descriptor character: '\\t'$"),
+        ("raw(0051\n)", r"^invalid descriptor character: '\\n'$"),
+    ],
+)
+def test_raw_refuses_whitespace(descriptor: str, message: str) -> None:
+    """Refuse whitespace in raw()'s hex, as Core's IsHex does."""
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
