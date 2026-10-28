@@ -109,7 +109,7 @@ __all__ = [
 
 # A single block under a key, with no mode and no padding: (key, block) to
 # the transformed block, both fixed-size. This module takes one of these
-# in each direction for the reason btclib.alias.CipherF exists -- it ships
+# in each direction for the reason ecc.alias.CipherF exists -- it ships
 # no cipher of its own -- but BIP38 calls AES-256 directly on one or two
 # 16-byte blocks rather than chaining them, so there is no iv and nothing
 # for a mode parameter to name
