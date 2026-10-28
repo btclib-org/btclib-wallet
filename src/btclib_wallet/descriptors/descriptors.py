@@ -401,6 +401,8 @@ _MAX_BARE_MULTISIG_KEYS = 3
 _TREE_FUNCTIONS = ("multi_a", "sortedmulti_a")
 
 _THRESHOLD = re.compile(r"[0-9]+")
+# "*" lets raw() hold no script, which Core refuses (issue #504)
+_RAW_HEX = re.compile(r"(?:[0-9a-fA-F]{2})*")
 # a multipath step. A text that `parse` has read, each step on its first
 # path, holds no "<" or ">" but in one, as a whole element of a key's path
 _MULTIPATH_STEP = re.compile(r"<[^<>]*>")
@@ -2568,13 +2570,12 @@ def _parse_raw(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     hex_script = _one_argument(args, "raw")
-    try:
-        script = bytes_from_octets(hex_script)
-    # bytes.fromhex raises a plain ValueError, and every other way of
-    # writing a descriptor wrong raises a BTClibValueError
-    except ValueError as e:
-        raise BTClibValueError("raw() takes a hex script") from e
-    return RawDescriptor(script, network=network)
+    # whole bytes and nothing else, as Core's IsHex reads them:
+    # bytes.fromhex alone would skip a space
+    if not _RAW_HEX.fullmatch(hex_script):
+        # Core's message, without the text, which may be a secret
+        raise BTClibValueError("Raw script is not hex")
+    return RawDescriptor(bytes.fromhex(hex_script), network=network)
 
 
 # the functions whose one argument Core reads whole, a key or a script,

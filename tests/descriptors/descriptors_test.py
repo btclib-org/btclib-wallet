@@ -2088,6 +2088,26 @@ def test_raw() -> None:
     assert parsed.key_expressions == ()
 
 
+@pytest.mark.parametrize(
+    "descriptor, message",
+    [
+        ("raw(00 51)", "^Raw script is not hex$"),
+        ("raw( 0051)", "^Raw script is not hex$"),
+        ("raw(0051 )", "^Raw script is not hex$"),
+        # Core refuses these before raw() reads them, as outside its
+        # INPUT_CHARSET: "Invalid characters in payload"
+        ("raw(00\t51)", r"^invalid descriptor character: '\\t'$"),
+        ("raw(00\n51)", r"^invalid descriptor character: '\\n'$"),
+        ("raw(\t0051)", r"^invalid descriptor character: '\\t'$"),
+        ("raw(0051\n)", r"^invalid descriptor character: '\\n'$"),
+    ],
+)
+def test_raw_refuses_whitespace(descriptor: str, message: str) -> None:
+    """Refuse whitespace in raw()'s hex, as Core's IsHex does."""
+    with pytest.raises(BTClibValueError, match=message):
+        parse(descriptor)
+
+
 def test_combo_is_a_set_of_scripts() -> None:
     """`combo()` answers with four scripts, so it answers with no address.
 
@@ -2530,7 +2550,7 @@ UNPARSABLE = [
     (f"pkh({XPUB}/ 0 h)", "invalid derivation index"),
     # Core: an address that is not one, and a script that is not hex
     ("addr(asdf)", "base58"),
-    ("raw(asdf)", "hex script"),
+    ("raw(asdf)", "^Raw script is not hex$"),
     # the position rules
     (f"wsh(sh(pk({KEY})))", "not allowed inside"),
     (f"sh(combo({KEY}))", "not allowed inside"),
@@ -5172,7 +5192,7 @@ UNECHOED = [
     (f"addr(bc1{HEX_PRV}bqqqqqq)", "^invalid data character$"),
     (f"addr(bc1{HEX_PRV}qqqqqqb)", "^invalid character in checksum$"),
     (f"addr(bc1{HEX_PRV}qqqqqq)", "^invalid checksum$"),
-    (f"raw({WIF})", r"^raw\(\) takes a hex script$"),
+    (f"raw({WIF})", "^Raw script is not hex$"),
     (f"{WIF}(0)", "^unknown descriptor function$"),
     (f"wsh({WIF})", "^not a miniscript fragment: a name expected$"),
     (
