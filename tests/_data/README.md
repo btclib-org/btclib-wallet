@@ -1819,9 +1819,9 @@ pulled  2026-10-28
 Verdict: **transcribed**, and cited inline: `BDK_PSBT`, `BDK_TPRV`,
 `BDK_MASTER_FINGERPRINT` and `BDK_ACCOUNT_PATH` in
 `tests/software_signer_test.py`. They are the psbt and the descriptor's
-account key that bitcoindevkit/bdk_wallet#610 reports, a taproot key-path
-spend rust-miniscript's `KeyMapWrapper` signs with the wrong key, the
-issue says, having walked the account path twice. GitHub's code search
+account key in bitcoindevkit/bdk_wallet#610. The issue reports that
+rust-miniscript's `KeyMapWrapper` signs this taproot key-path spend with
+the wrong key, having walked the account path twice. GitHub's code search
 finds the tprv in no repository (the search below, empty on 2026-10-28),
 so there is no commit to pin: the source is that issue's body, as last
 edited on 2026-10-27. The tprv is `BDK_TPRV`, its pieces joined:
