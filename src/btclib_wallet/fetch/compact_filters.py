@@ -801,11 +801,11 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         `_SelfContradictionError` where its filter headers match ours at a
         checkpoint height whose `cfcheckpt` entry does not.
         """
-        start, stop = 0, tip
+        start, stop, parted = 0, tip, False
         for index, checkpoint in enumerate(self._checkpoints(tip), 1):
             height = index * CFCHECKPT_INTERVAL
             if checkpoint != self._filter_headers[height]:
-                stop = height
+                stop, parted = height, True
                 break
             start = height + 1
         while start <= stop:
@@ -815,7 +815,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 if header != self._filter_headers[height]:
                     return height, header
             start = end + 1
-        if stop < tip:
+        if parted:
             raise _SelfContradictionError
         return None
 
