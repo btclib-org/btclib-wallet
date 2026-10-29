@@ -1505,6 +1505,40 @@ def test_the_scan_answers_alike_whatever_the_labels(
             assert [output.pub_key for output in found] == [ours]
 
 
+@pytest.mark.parametrize("n_labels", [0, 2, 5, 20])
+def test_a_bad_key_is_refused_whatever_the_scan(
+    n_labels: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scan key out of range and a spend key off the curve are refused.
+
+    With no output a point, the bindings refuse the outputs and the scan
+    answers [] without a retry, so the keys are checked before either
+    scan is chosen. The refusal is the same error whichever scan the rule
+    picks.
+    """
+    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
+    outpoints = [OutPoint("00" * 31 + "01", 0)]
+    labels = silent_payments.label_lookup(_B_SCAN_PRV, range(n_labels))
+    bad_keys: list[tuple[int, tuple[int, int] | bytes, str]] = [
+        (0, mult(_B_SPEND_PRV), "private key not in 1..n-1"),
+        (_B_SCAN_PRV, b"\x02" + _NOT_AN_X, "not a public key"),
+    ]
+    classes = set()
+    for serving in (True, False):
+        with monkeypatch.context() as arm:
+            if not serving:
+                arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
+            for outputs in ([_NOT_AN_X], [_NOT_AN_X, bytes_from_point(mult(2))[1:]]):
+                for b_scan, B_spend, message in bad_keys:
+                    with pytest.raises(ValueError, match=message) as refused:
+                        silent_payments.scan_transaction_outputs(
+                            b_scan, B_spend, outpoints, pub_keys, outputs, labels
+                        )
+                    classes.add(type(refused.value))
+    assert len(classes) == 1
+
+
 def _earliest_cases() -> tuple[
     list[
         tuple[

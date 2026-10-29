@@ -1187,9 +1187,9 @@ def scan_transaction_outputs(
     product of two integers in Python and no longer a scalar handed to
     the curve code.
 
-    No outputs to check and a label entry the bindings refuse
-    (`_assert_labels`) are refused, and an output that is no point is
-    walked past, whichever scan runs.
+    No outputs to check, a bad scan or spend key, and a label entry the
+    bindings refuse (`_assert_labels`) are refused, and an output that is
+    no point is walked past, whichever scan runs.
 
     `pub_key_sum` and `input_hash` run before either is chosen, so that a
     zero-sum refusal or an empty outpoint sequence gets the specific
@@ -1205,6 +1205,10 @@ def scan_transaction_outputs(
     A_sum = pub_key_sum([pub_key for pub_key, _script_pub_key in pub_keys])
     h = input_hash(outpoints, A_sum)
     _assert_labels(labels)
+    # the keys too, before either scan is chosen: where no output is a
+    # point, the retry below answers without the bindings reading them
+    q_scan = scalar_from_prv_key(b_scan)
+    P_spend = point_from_pub_key(B_spend)
     if (
         is_libsecp256k1_serving()
         and len(labels or ()) > _PYTHON_SCAN_LABELS
@@ -1212,7 +1216,7 @@ def scan_transaction_outputs(
     ):
         try:
             return _delegated_scan_outputs(
-                b_scan, outpoints, pub_keys, B_spend, outputs_to_check, labels
+                q_scan, outpoints, pub_keys, P_spend, outputs_to_check, labels
             )
         except BTClibValueError:
             # the bindings refuse the scan for an output that is no point
@@ -1224,14 +1228,14 @@ def scan_transaction_outputs(
             if not points:
                 return []
             return _delegated_scan_outputs(
-                b_scan, outpoints, pub_keys, B_spend, points, labels
+                q_scan, outpoints, pub_keys, P_spend, points, labels
             )
 
     # `tweak_data` would recompute `input_hash`, redoing the outpoint sort
     # and the tagged hash over the same data: `h` is already this
     # transaction's
     tweak = mult(h, A_sum)
-    return _scan(shared_secret(b_scan, tweak), B_spend, outputs_to_check, labels)
+    return _scan(shared_secret(q_scan, tweak), P_spend, outputs_to_check, labels)
 
 
 def prv_key_from_tweak(b_spend: Integer, prv_key_tweak: int) -> int:
