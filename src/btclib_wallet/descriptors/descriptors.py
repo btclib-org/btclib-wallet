@@ -2558,8 +2558,8 @@ def _parse_other_leaf(
         # not something a later release adds, which is what the position
         # table says and Bitcoin Core's own message says too. ``pk()``,
         # ``pkh()``, ``raw()`` and ``rawpkh()`` allow tr() among their
-        # positions and fall through to be read, ``pkh()`` and ``rawpkh()``
-        # as BIP379 fragments
+        # positions and fall through to be read, ``pkh()`` as BIP379's
+        # fragment and ``rawpkh()`` as this package's fragment beside it
         _assert_position(name, _P2TR, _PARSERS[name][0])
     if name == "raw" or name in _RAW_TREE_FUNCTIONS:
         return _read_split(_split_function(expression)[1], _RAW_TREE_PARSERS[name])
