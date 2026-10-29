@@ -1345,17 +1345,26 @@ def test_the_filter_headers_of_a_peer_are_asked_for_in_batches(
     assert starts == [0, 5, 10]
 
 
+@pytest.mark.parametrize(
+    "chain, lie_at",
+    [(CHAIN, 6), (CHAIN.fork(12), 10)],
+    ids=["below the tip", "at the tip"],
+)
 def test_a_peer_whose_checkpoint_its_filter_headers_contradict_is_dropped(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, chain: Chain, lie_at: int
 ) -> None:
-    """A peer whose `cfcheckpt` and `cfheaders` disagree has lied."""
+    """A peer whose `cfcheckpt` and `cfheaders` disagree has lied.
+
+    In the second case the tip is a checkpoint, the only one its `cfcheckpt`
+    gets wrong.
+    """
     monkeypatch.setattr(compact_filters, "CFCHECKPT_INTERVAL", 4)
-    other = ScriptedPeer(CHAIN, checkpoint_interval=4)
+    other = ScriptedPeer(chain, checkpoint_interval=4)
     other.reply_getcfcheckpt = liar(  # type: ignore[method-assign]
-        6, checkpoint_interval=4
+        lie_at, checkpoint_interval=4
     ).reply_getcfcheckpt
-    fetcher, peer = build(cross_check=[other])
-    assert fetcher.sync() == TIP
+    fetcher, peer = build(chain, cross_check=[other])
+    assert fetcher.sync() == chain.height
     assert fetcher.cross_check == []
     assert (peer.closed, other.closed) == (0, 1)
     assert other.requests("getcfilters") == []
