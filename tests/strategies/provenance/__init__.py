@@ -6,6 +6,7 @@
 
 import ast
 import hashlib
+import os
 import shutil
 import subprocess
 import tomllib
@@ -57,6 +58,16 @@ def _provenance() -> dict[str, Any]:
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
+def _git_environment() -> dict[str, str]:
+    """Return this process's environment without its ``GIT_*`` variables.
+
+    Git hands ``GIT_DIR`` and ``GIT_INDEX_FILE`` to a hook, and a git call
+    obeys them over ``-C``: a suite run from a hook would read and write the
+    repository running the hook instead of the one named.
+    """
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def _committed_lock(root: Path) -> dict[str, Any]:
     """Parse the ``uv.lock`` a tree ships rather than one re-resolved over it.
 
@@ -70,6 +81,7 @@ def _committed_lock(root: Path) -> dict[str, Any]:
             capture_output=True,
             check=True,
             encoding="utf-8",
+            env=_git_environment(),
         ).stdout
     else:
         text = (root / "uv.lock").read_text(encoding="utf-8")
