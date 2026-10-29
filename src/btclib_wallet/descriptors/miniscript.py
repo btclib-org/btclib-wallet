@@ -2322,8 +2322,10 @@ def _assert_no_trailing_text(expression: str, pos: int) -> None:
     """Refuse text after the miniscript that ends at `pos`.
 
     Core's descriptor reader hands its miniscript parser the text up to
-    the first "," or ")" outside brackets, so text from one of them on is
-    no fault of the miniscript's.
+    the first ",", ")" or "}" outside brackets, so text from one of them
+    on is no fault of the miniscript's. No "}" reaches here from the
+    descriptor reader, which refuses it first in `_assert_no_closing_brace`
+    (issue btclib-org/btclib-wallet#582).
     """
     if pos == len(expression):
         return
