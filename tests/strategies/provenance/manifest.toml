@@ -1,9 +1,9 @@
-version = "2026.10.24"
+version = "2026.10.28"
 repository = "https://github.com/btclib-org/btclib"
-revision = "e69bb4a6275f6c069d037e5c371010158c655dc6"
+revision = "67df24ab97860bc1051d7247c44c7a22ad9365fa"
 source_path = "tests/strategies/__init__.py"
 source_sha256 = "810a3973c8ef8c2639c5fb8efd34310faafdabd94b6a2be02e0501ae487769cb"
-sdist_sha256 = "b32b45b93489ac3177768ea8f4a0828d64ee9fbb1e2066444b07c5d4655915fa"
+sdist_sha256 = "82bb3907da76137db202a736e40f4a327192310247cfe3939e81c54addb1e2e5"
 
 [definitions]
 _UINT32 = "6e8153a7a77adbaf3da1943105b58600bb7c6ebb063c990498a098307fa5687a"
