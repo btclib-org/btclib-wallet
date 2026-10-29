@@ -2203,6 +2203,10 @@ def _parse_tree(
 
         def read_branches(branches: list[str]) -> DescriptorTree:
             if len(branches) != 2:
+                # Core reads up to two subtrees before it finds the count
+                # wrong, so a fault inside one of them comes first
+                for branch in branches[:2]:
+                    _parse_tree(branch, prv_keys, depth + 1)
                 err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
                 raise BTClibValueError(err_msg)
             return (
