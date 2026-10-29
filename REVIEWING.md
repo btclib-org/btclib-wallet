@@ -513,8 +513,8 @@ Everything above is the same file in every repository of the
 organization; everything below is this one's, and the comparison stops at
 this heading.
 
-Each of these is a question, and the document that answers it is named
-because that document, and not this one, is where the rule lives.
+Each of these is a question. Where another document holds the rule, the
+question names it.
 
 - Does the diff make this package **re-export a name of btclib's**, or
   publish a `bitcoin_core_rpc` name that `tests/all_test.py`'s
