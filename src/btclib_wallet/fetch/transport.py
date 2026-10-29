@@ -234,7 +234,7 @@ class TlsLineTransport:
     refused connection, a handshake the certificate fails, a timeout, a
     connection closed before a whole line, a line over the limit -- is
     `bitcoin_core_rpc`'s `FetchError`, the contract `LineTransport` states,
-    which `ElectrumFetcher` translates into btclib's own.
+    which `ElectrumFetcher` translates into this package's own.
     """
 
     def __init__(

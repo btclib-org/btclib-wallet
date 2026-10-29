@@ -237,8 +237,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
         `client_errors` because `http_request` is `bitcoin_core_rpc`'s and
         raises that package's exceptions: a refused connection reaching a
-        caller as something no `except FetchError` of btclib's catches is
-        what it is there to prevent.
+        caller as something no `except FetchError` of this package's catches
+        is what it is there to prevent.
         """
         url = f"{self.base_url}{path}"
         headers = None if data is None else {"Content-Type": "text/plain"}
