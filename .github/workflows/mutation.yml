@@ -63,7 +63,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   mutation:
-    uses: btclib-org/.github/.github/workflows/reusable-mutation.yml@eb3b0c28476b98694ab3a3c3a9dce7e8e26ab4f5 # v2026.10.26
+    uses: btclib-org/.github/.github/workflows/reusable-mutation.yml@ed616d71c43cd4c8bded40d1182befccd99e6ee7 # v2026.10.29
     with:
       # one job per profile: its name, the slug the dropdown above selects
       # it by, the job's ceiling in minutes, and one "<configuration>
