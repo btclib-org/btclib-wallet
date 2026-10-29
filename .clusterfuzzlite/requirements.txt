@@ -8,13 +8,13 @@ bitcoin-core-rpc==2026.10.17 \
     --hash=sha256:4e8491c47f9d430024d70511f2714c367d81f17534f8d8e93876dd085aa917b1 \
     --hash=sha256:5ee180b85c9427c0c143c3e310d0e19df2305e63af7548cdcbfe97ae066de554
     # via btclib-wallet
-btclib==2026.10.24 \
-    --hash=sha256:a4a88030aacb32543dc123db4b00baba164ff29990d75e47d42f77a088726a6f \
-    --hash=sha256:b32b45b93489ac3177768ea8f4a0828d64ee9fbb1e2066444b07c5d4655915fa
+btclib==2026.10.28 \
+    --hash=sha256:82bb3907da76137db202a736e40f4a327192310247cfe3939e81c54addb1e2e5 \
+    --hash=sha256:d7c725ab186cbe6a8dc68ce2af85c9c9694d504d56060e98a6eb3c9ba585a0fc
     # via btclib-wallet
-ecc==2026.10.23 \
-    --hash=sha256:023b3a9099223bcb7c04744901c5ed550feaa552c99fc58692d8cae721a9f621 \
-    --hash=sha256:ee86bc2f0622f8835b11d8f84f1f03d9d3ae7b30b17d3082bf6cd43af29d7bfc
+ecc==2026.10.28 \
+    --hash=sha256:78a4768200a16badd922e28f04423f5f152defdd9fa55cfae8fcc65ecc28ebca \
+    --hash=sha256:9e933dd6128dc5fc76c3f69f9edc47bda7fcc9df9b8e29bf9f0c8ed2f843d460
     # via
     #   btclib
     #   btclib-wallet
