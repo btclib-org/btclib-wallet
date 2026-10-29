@@ -34,10 +34,17 @@ shape `Bip21.__init__`'s does not cover: a classmethod a walk stopping
 at the constructor would miss. Inherited methods are not walked a second
 time under a subclass that does not override them, deduplication being
 by the id of the underlying function once resolved, so a name
-re-exported under a second `__all__` --
-`btclib_wallet.fetch.bitcoin_core` aliasing the `bitcoin-core-rpc`
-package, `all_test.py`'s `REEXPORTED` -- is one entry and not two
-either.
+re-exported under a second `__all__` -- `btclib_wallet.bip32`
+publishing what `btclib_wallet.bip32.bip32` defines -- is one entry
+and not two either.
+
+Only a function defined in `btclib_wallet` is walked, as its
+`__module__` says. A name `btclib_wallet.fetch` takes from
+`bitcoin-core-rpc` (`all_test.py`'s `REEXPORTED`) has the signature of
+whichever release is installed: `SessionTransport.__init__` takes a
+keyword-only `max_body_size` at the floor `pyproject.toml` declares for
+that package, and not at the release `uv.lock` pins. Its `*` is in that
+package's source, so no mutant of this tree reaches it either.
 """
 
 from __future__ import annotations
@@ -50,13 +57,13 @@ import pytest
 
 from tests.all_test import library_modules
 
-# Walked from `btclib_wallet`, on the commit this file is part of: every public
-# callable that takes at least one keyword-only parameter, and the names
-# of those parameters in declaration order. A site dropping out of this
-# table -- a parameter renamed, one no longer keyword-only, a callable
-# removed from `__all__` -- and a site missing from it -- a new
-# keyword-only parameter nothing here has asked about yet -- are both
-# a deliberate edit to make, which is what
+# Walked from `btclib_wallet`, on the commit this file is part of: every
+# public callable it defines that takes at least one keyword-only
+# parameter, and the names of those parameters in declaration order. A
+# site dropping out of this table -- a parameter renamed, one no longer
+# keyword-only, a callable removed from `__all__` -- and a site missing
+# from it -- a new keyword-only parameter nothing here has asked about
+# yet -- are both a deliberate edit to make, which is what
 # test_the_recorded_surface_is_the_whole_of_it asks for
 KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.bip21:Bip21.__init__": ["check_validity"],
@@ -209,59 +216,12 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.dlc:verify_announcement": ["scheme"],
     "btclib_wallet.fetch.fetcher:block_header_from_raw": ["network"],
     "btclib_wallet.fetch.fetcher:NetworkVerifyingFetcher.__init__": ["verify_network"],
-    "btclib_wallet.fetch.transport:http_request": [
-        "data",
-        "headers",
-        "timeout",
-        "max_body_size",
-        "transport",
-    ],
     "btclib_wallet.fetch:BitcoinCoreFetcher.__init__": [
         "verify_network",
         "signet_challenge",
         "estimate_mode",
     ],
     "btclib_wallet.fetch:BitcoinCoreFetcher.broadcast": ["maxfeerate"],
-    "btclib_wallet.fetch:BitcoinCoreRpcClient.__init__": [
-        "user",
-        "password",
-        "cookie_path",
-        "timeout",
-        "transport",
-    ],
-    "btclib_wallet.fetch:BitcoinCoreRpcClient.assert_chain": ["signet_challenge"],
-    "btclib_wallet.fetch:BitcoinCoreRpcClient.call": [
-        "request_timeout",
-        "max_body_size",
-    ],
-    "btclib_wallet.fetch:BitcoinCoreRpcClient.call_batch": [
-        "request_timeout",
-        "max_body_size",
-    ],
-    "btclib_wallet.fetch:BitcoinCoreRpcClient.call_raw": [
-        "jsonrpc",
-        "request_timeout",
-        "max_body_size",
-    ],
-    "btclib_wallet.fetch:BitcoinCoreRpcClient.from_chain": [
-        "user",
-        "password",
-        "cookie_path",
-        "timeout",
-        "transport",
-        "verify_chain",
-        "signet_challenge",
-    ],
-    "btclib_wallet.fetch:BitcoinCoreRestClient.__init__": ["timeout", "transport"],
-    "btclib_wallet.fetch:BitcoinCoreRestClient.from_chain": ["timeout", "transport"],
-    "btclib_wallet.fetch:BitcoinCoreRestClient.get_bin": [
-        "request_timeout",
-        "max_body_size",
-    ],
-    "btclib_wallet.fetch:BitcoinCoreRestClient.get_json": [
-        "request_timeout",
-        "max_body_size",
-    ],
     "btclib_wallet.fetch:BitcoinCoreRestFetcher.__init__": [
         "verify_network",
         "signet_challenge",
@@ -283,11 +243,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "timeout",
         "transport",
     ],
-    "btclib_wallet.fetch:SessionTransport.__init__": [
-        "connection_factory",
-    ],
     "btclib_wallet.fetch:TlsLineTransport.__init__": ["context", "max_line_size"],
-    "btclib_wallet.fetch:urlopen_transport": ["max_body_size"],
     "btclib_wallet.hwi:HwiSigner.__init__": [
         "executable",
         "network",
@@ -404,6 +360,12 @@ def _kwonly_names(signature: inspect.Signature) -> list[str]:
     ]
 
 
+def _defined_here(function: Any) -> bool:
+    """Whether `btclib_wallet` defines the function, not a dependency."""
+    module_name = getattr(function, "__module__", None) or ""
+    return module_name.partition(".")[0] == "btclib_wallet"
+
+
 def _class_sites(
     module: Any, name: str, cls: type, seen_ids: set[int]
 ) -> dict[str, list[str]]:
@@ -426,7 +388,7 @@ def _class_sites(
         if not (inspect.isfunction(bound) or inspect.ismethod(bound)):
             continue  # a property or a plain class attribute
         target = bound.__func__ if inspect.ismethod(bound) else bound
-        if id(target) in seen_ids:
+        if id(target) in seen_ids or not _defined_here(target):
             continue
         seen_ids.add(id(target))
         kwonly = _kwonly_names(inspect.signature(bound))
@@ -442,7 +404,8 @@ def _live_keyword_only() -> dict[str, list[str]]:
     module's `__all__`, a function named directly and a class expanded
     by `_class_sites`. Deduplicated by the id of the resolved function --
     `__func__` for a bound classmethod, the function itself otherwise --
-    so an object reachable under two names is one entry.
+    so an object reachable under two names is one entry. A function a
+    dependency defines is left out, as the module docstring says.
     """
     seen_ids: set[int] = set()
     found: dict[str, list[str]] = {}
@@ -452,7 +415,7 @@ def _live_keyword_only() -> dict[str, list[str]]:
             if inspect.isclass(obj):
                 found.update(_class_sites(module, name, obj, seen_ids))
             elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
-                if id(obj) in seen_ids:
+                if id(obj) in seen_ids or not _defined_here(obj):
                     continue
                 seen_ids.add(id(obj))
                 kwonly = _kwonly_names(inspect.signature(obj))
