@@ -1809,6 +1809,43 @@ verify. Every string is in the source, as one literal or as the literals
 its `val` concatenates, and the source's blob is
 `e10a3fdaeeb75896b3cc1503c94d5339d2a3a3a3`.
 
+### Not vendored as a file: the taproot psbt of bitcoindevkit/bdk_wallet#610
+
+```text
+repo    bitcoindevkit/bdk_wallet
+pulled  2026-10-28
+```
+
+Verdict: **transcribed**, and cited inline: `BDK_PSBT`, `BDK_TPRV`,
+`BDK_MASTER_FINGERPRINT` and `BDK_ACCOUNT_PATH` in
+`tests/software_signer_test.py`. They are the psbt and the descriptor's
+account key in bitcoindevkit/bdk_wallet#610. The issue reports that
+rust-miniscript's `KeyMapWrapper` signs this taproot key-path spend with
+the wrong key, having walked the account path twice. GitHub's code search
+finds the tprv in no repository (the search below, empty on 2026-10-28),
+so there is no commit to pin: the source is that issue's body, as last
+edited on 2026-10-27. The tprv is `BDK_TPRV`, its pieces joined:
+
+```shell
+tprv=<BDK_TPRV>
+```
+
+```shell
+gh search code "${tprv:?}"
+```
+
+The check: `BDK_PSBT` and `BDK_TPRV`, their pieces joined, are in that
+body, the tprv right after the origin `[5159c173/86h/1h/0h]`, which the
+fingerprint and the path spell. This reads when the body was last edited,
+and an answer other than the one in its comment means it changed since:
+
+```shell
+# 2026-10-27T14:35:26Z when transcribed
+gh api graphql --jq .data.repository.issue.lastEditedAt -f query='
+  query { repository(owner: "bitcoindevkit", name: "bdk_wallet") {
+    issue(number: 610) { lastEditedAt } } }'
+```
+
 ## Chain data, not a repository
 
 These are consensus bytes. There is no upstream repository to pin and no

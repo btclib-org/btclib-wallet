@@ -531,3 +531,55 @@ def test_a_signer_of_watch_only_accounts_derives_but_does_not_sign() -> None:
     receive, change = export_account(SoftwareSigner(XPRV_ROOT), account_path)
     with pytest.raises(BTClibValueError, match="watch-only signer"):
         signer.sign_psbt(spending(receive, change)[0])
+
+
+# A taproot psbt and the account key that signs it, as
+# bitcoindevkit/bdk_wallet#610 reports them. Where it is pinned, and why
+# not to a commit, `tests/_data/README.md` says.
+BDK_PSBT = (
+    "cHNidP8BAF4CAAAAAU1jsXk14vinaw/FavxEf6I13DTTWcQ3W3qfEO45TulmAAAAAAD/////"
+    "ASgjAAAAAAAAIlEgXnzxN1lKw2Se0nelATBRTNfinxJWqjQNKLqvwkspeREAAAAAAAEBKxAn"
+    "AAAAAAAAIlEgXnzxN1lKw2Se0nelATBRTNfinxJWqjQNKLqvwkspeREhFtXKImYR1dqFkU+0"
+    "ktlTKKLzI4vHT1o4Ukyt7xYanJ5zGQBRWcFzVgAAgAEAAIAAAACAAAAAAAAAAAABFyDVyiJm"
+    "EdXahZFPtJLZUyii8yOLx09aOFJMre8WGpyecwAA"
+)
+BDK_MASTER_FINGERPRINT = bytes.fromhex("5159c173")
+BDK_ACCOUNT_PATH = "m/86h/1h/0h"
+BDK_TPRV = (
+    "tprv8gfBCLYgHZLJLhg1DUSY6NN6eNAee3aqt3SE3M1hywpAiFWYGsm6U6B17VDKh8W1SQnat"
+    "RpZujU5xseJ84nYZmkxPGCngNhmBMVRY2sAZhY"
+)
+
+
+def test_a_signer_of_accounts_signs_the_bdk_issue_taproot_key_path() -> None:
+    """A psbt from an upstream issue, signed on the key path by an account.
+
+    The origin of the key path is in `PSBT_IN_TAP_BIP32_DERIVATION`, and
+    names the full path from the master. The key is derived by walking
+    only what follows the account's own path, which the xpub check pins:
+    walking the account path a second time reaches another key.
+    """
+    signer = SoftwareSigner.from_accounts(
+        BDK_MASTER_FINGERPRINT, {BDK_ACCOUNT_PATH: BDK_TPRV}
+    )
+    psbt = Psbt.b64decode(BDK_PSBT)
+    psbt_in = psbt.inputs[0]
+
+    # one key, the internal key, on the key path and in no leaf
+    pub_key = psbt_in.taproot_internal_key
+    leaf_hashes, origin = psbt_in.taproot_hd_key_paths[pub_key]
+    assert list(psbt_in.taproot_hd_key_paths) == [pub_key]
+    assert leaf_hashes == []
+    assert origin == BIP32KeyOrigin(BDK_MASTER_FINGERPRINT, f"{BDK_ACCOUNT_PATH}/0/0")
+    xpub = BIP32KeyData.b58decode(signer.xpub(origin.der_path))
+    assert xpub.key[1:] == pub_key
+
+    signed = signer.sign_psbt(psbt)
+    assert signed != psbt
+
+    final = finalize(signed)
+    tx = final.tx
+    tx.vin[0].script_witness = final.inputs[0].final_script_witness
+    prev_out = psbt_in.witness_utxo
+    assert prev_out is not None
+    verify_transaction([prev_out], tx)
