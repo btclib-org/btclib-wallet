@@ -438,7 +438,9 @@ def interrupted(
     """Return a fetcher whose download stopped half way, and its peer.
 
     The peer served a chain of work the fetcher wants and then went silent
-    in the second pass, after the fetcher held some of it.
+    in the second pass, after the fetcher held some of it. A caller takes
+    the silence away with `monkeypatch.delattr`, never `del`: the undo at
+    teardown then finds the attribute `monkeypatch` set.
     """
     chain = Chain().extend(30)
     fetcher, peer = presync_fetcher(monkeypatch, chain, work_of(chain), batch=7)
@@ -472,7 +474,7 @@ def test_an_interrupted_download_goes_on_from_what_it_held(
 ) -> None:
     """The second try begins at the tip held, and ends with the whole chain."""
     fetcher, peer, chain = interrupted(monkeypatch)
-    del peer.reply_getheaders
+    monkeypatch.delattr(peer, "reply_getheaders")
     assert fetcher.get_block_count() == 30
     assert fetcher._headers == [b.header for b in chain.blocks]
 
@@ -482,7 +484,7 @@ def test_a_chain_with_the_work_replaces_a_chain_held_without_it(
 ) -> None:
     """A fork with the minimum work displaces what an interrupted try held."""
     fetcher, peer, chain = interrupted(monkeypatch)
-    del peer.reply_getheaders
+    monkeypatch.delattr(peer, "reply_getheaders")
     fork = chain.fork(1).extend(30, salt=b"fork")
     monkeypatch.setattr(
         fetcher,
