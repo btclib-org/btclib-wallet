@@ -5,12 +5,17 @@
 """Copied transaction strategies stay byte-for-byte at the locked release."""
 
 import hashlib
-import tomllib
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from tests.strategies.provenance import _definition_hashes, _provenance
+from tests.strategies.provenance import (
+    _GIT,
+    _committed_lock,
+    _definition_hashes,
+    _provenance,
+)
 
 
 def test_copied_definitions_match_the_upstream_hashes() -> None:
@@ -21,12 +26,41 @@ def test_copied_definitions_match_the_upstream_hashes() -> None:
 
 def test_upstream_pin_is_the_locked_btclib_release() -> None:
     """A lock upgrade asks for a new comparison with the released source."""
-    lock_path = Path(__file__).parents[2] / "uv.lock"
-    packages = tomllib.loads(lock_path.read_text(encoding="utf-8"))["package"]
+    packages = _committed_lock(Path(__file__).parents[2])["package"]
     (package,) = [item for item in packages if item["name"] == "btclib"]
     provenance = _provenance()
     assert package["version"] == provenance["version"]
     assert package["sdist"]["hash"] == "sha256:" + provenance["sdist_sha256"]
+
+
+def test_a_checkout_reads_the_lock_at_head(tmp_path: Path) -> None:
+    """A lock re-resolved over the commit, as deps-oldest does, is not read."""
+    lock = tmp_path / "uv.lock"
+    lock.write_bytes(b"committed = true\n")
+
+    def git(*args: str) -> str:
+        return subprocess.run(  # noqa: S603
+            [_GIT, "-C", str(tmp_path), *args],
+            capture_output=True,
+            check=True,
+            encoding="utf-8",
+        ).stdout.strip()
+
+    # commit-tree rather than commit: it does not sign, whatever
+    # commit.gpgsign says, so the test asks for no key
+    git("init", "--quiet")
+    git("add", "uv.lock")
+    tree = git("write-tree")
+    identity = ("-c", "user.name=test", "-c", "user.email=test@example.invalid")
+    git("update-ref", "HEAD", git(*identity, "commit-tree", "-m", "lock", tree))
+    lock.write_bytes(b"committed = false\n")
+    assert _committed_lock(tmp_path) == {"committed": True}
+
+
+def test_an_unpacked_sdist_reads_its_own_lock(tmp_path: Path) -> None:
+    """Outside a checkout the lock on disk is the one shipped."""
+    (tmp_path / "uv.lock").write_bytes(b"committed = true\n")
+    assert _committed_lock(tmp_path) == {"committed": True}
 
 
 def test_hashes_include_decorators_and_preserve_source_bytes() -> None:

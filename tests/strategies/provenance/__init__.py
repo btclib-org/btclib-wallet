@@ -2,13 +2,19 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""Read the upstream pin and hash each copied definition's exact bytes."""
+"""Read the upstream pin and the committed lock, and hash copied definitions."""
 
 import ast
 import hashlib
+import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
+
+# resolved once: a bare "git" in a subprocess list is a partial executable
+# path
+_GIT = shutil.which("git") or "git"
 
 
 def _definition_hashes(source: bytes) -> dict[str, str]:
@@ -49,3 +55,22 @@ def _provenance() -> dict[str, Any]:
     """Read the pin captured from btclib's released source archive."""
     path = Path(__file__).with_name("manifest.toml")
     return tomllib.loads(path.read_text(encoding="utf-8"))
+
+
+def _committed_lock(root: Path) -> dict[str, Any]:
+    """Parse the ``uv.lock`` a tree ships rather than one re-resolved over it.
+
+    deps-oldest and deps-latest rewrite the working ``uv.lock`` before the
+    suite runs, so a checkout's lock is read from ``HEAD``. An unpacked
+    sdist has no history, and its ``uv.lock`` is the one it was built with.
+    """
+    if (root / ".git").exists():
+        text = subprocess.run(  # noqa: S603
+            [_GIT, "-C", str(root), "show", "HEAD:uv.lock"],
+            capture_output=True,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    else:
+        text = (root / "uv.lock").read_text(encoding="utf-8")
+    return tomllib.loads(text)
