@@ -9,6 +9,54 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.29
+
+- **BIP322 finds a proof inconclusive where a taproot input carries an
+  annex** ([ISS 516](https://github.com/btclib-org/btclib-wallet/issues/516)).
+  `assert_as_valid` raises `InconclusiveError`, `taproot annex is reserved
+  for future extensions`, and `verify` returns `False`, where both accepted
+  the proof as valid. BIP341 reserves the annex for future extensions. Act
+  on it if you verify proofs whose taproot witness carries an annex.
+- **A miniscript hash refuses whitespace and anything else that is not
+  hex** ([ISS 507](https://github.com/btclib-org/btclib-wallet/issues/507)).
+  `sha256()`, `hash256()`, `ripemd160()` and `hash160()` refuse whitespace
+  and anything else that is not an even, non-zero count of hex characters,
+  as Core's `IsHex`, in a descriptor as in a miniscript, as
+  `BTClibValueError` naming the fragment:
+  `invalid sha256() hash: hex expected`. A hash with whitespace inside or
+  around it was read without the whitespace, which changed the
+  descriptor's checksum. Act on it if you pass such a hash:
+  remove the whitespace. Act on it if you match the refusal of a hash that
+  is not hex: match the new message.
+- **`CompactFilterFetcher` checks each block it downloads with btclib's
+  `Block.assert_valid_contextual` at the block's height** (issue
+  btclib-org/btclib#2705). `scan_blocks` fails with `FetchError` on these
+  blocks, which it accepted. Below the segwit height, a block with
+  witnesses its coinbase commits to fails as
+  `block: unexpected witness`. A block with a time lock not yet reached,
+  compared with the parent's median time past where BIP113 binds, fails as
+  `block: non-final transaction: <txid>`. Where the block's height carries
+  the rule, a block whose version is too low fails as
+  `block: invalid version (outdated): …`, and one whose coinbase names
+  another height as `block: invalid coinbase height: …`. `SECURITY.md`
+  says which checks a downloaded block passes.
+- **`CompactFilterFetcher` synchronizes a low-work chain with btclib's
+  `HeadersSyncState`** (issue btclib-org/btclib#2706). A batch of headers
+  the sync refuses fails the call with `FetchError`, which does not say
+  which check failed: in the first download as
+  `headers <first> to <last> are not a chain the rules allow`, and in the
+  second as `headers <first> to <last> are not the chain first served`.
+  Act on it if you match the messages of those refusals.
+- **`SECURITY.md` verifies a release by this repository's id**
+  ([ISS 517](https://github.com/btclib-org/btclib-wallet/issues/517)). Its
+  command passes `--owner btclib-org` to `gh attestation verify` and
+  compares the certificate's `sourceRepositoryIdentifier` with the id,
+  where it passed `--repo btclib-org/btclib-wallet`, which `SECURITY.md`
+  says refuses every release signed before a rename. Act on it if you
+  verify releases with `--repo`: run `SECURITY.md`'s command.
+
+`CHANGELOG.md`'s own `v2026.10.29` section has the rest.
+
 ## v2026.10.26
 
 - **BIP352 skips a taproot input whose control block has an invalid

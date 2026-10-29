@@ -24,6 +24,86 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.29
+
+### BIP322 finds a taproot annex inconclusive
+
+On any taproot input of `to_sign`, once the required rules have passed
+(closes #516).
+
+### A miniscript hash fragment takes Core's `IsHex`
+
+`sha256()`, `hash256()`, `ripemd160()` and `hash160()` refuse whitespace
+and anything else that is not an even, non-zero count of hex characters
+(closes #507).
+
+### `CompactFilterFetcher` checks blocks with btclib's contextual rules
+
+`Block.assert_valid_contextual` at the block's height, in place of its own
+copy of Core's bad-witness-nonce-size (issue btclib-org/btclib#2705).
+
+### `CompactFilterFetcher` uses btclib's headers sync
+
+`btclib.p2p.headers_sync` and its parameters replace its own copy of
+Core's `HeadersSyncState`. The commitment is Core's salted SipHash (issue
+btclib-org/btclib#2706).
+
+### No socket is given more than the timeout of the call
+
+`_time_left` and `CompactFilterFetcher._remaining` (closes #533).
+
+### `bip38`'s cipher comment cites `ecc.alias.CipherF`
+
+Where it cited `btclib.alias.CipherF`, which btclib PR 2738 removes; ecc's
+definition gives the same reason (issue btclib-org/btclib#2710).
+
+### `SECURITY.md` and `RELEASING.md` verify a release by repository id
+
+`gh attestation verify` takes `--owner btclib-org`, and the certificate's
+repository id, which a rename keeps, is compared with this repository's,
+where `--repo` compared the name (closes #517).
+
+### BIP322 is tested on rust-bitcoin/bip322's consensus-invalid cases
+
+Those of its pull request 89, at 27f33fa69b. Tests only (closes #570).
+
+### The bip32, bip322 and descriptor fuzz targets use what they accept
+
+(closes #552).
+
+### `fuzz_psbt` is seeded with the valid BIP174 and BIP371 vector psbts
+
+It holds what it accepts to a serialization fixed point and, where its input
+splits into maps of records, mutates records as bitcoin/bitcoin#36631's PSBT
+mutator does on seven calls in eight (closes #541, closes #542, issue #543).
+
+### The calls of btclib-org/.github name the commit of its tag `v2026.10.26`
+
+And its hook the tag. The hook pins also move markdownlint-cli2 to v0.24.0,
+check-jsonschema to 0.39.0 and ruff-pre-commit to v0.17.2.
+
+### The pyroma hook builds no dependency from source
+
+It passes `--no-build` (issue btclib-org/.github#1763).
+
+### `uv.lock` takes bitcoin-core-rpc 2026.10.17
+
+With hypothesis 6.170.5 and uv-build 0.13.3.
+
+### `README.md` says development is LLM-based
+
+And asks that a contribution be read and understood by whoever submits it.
+`CONTRIBUTING.md` and `REVIEWING.md` take the organization's shared text
+(issue btclib-org/.github#1846).
+
+### `REVIEWING.md`'s shared part is btclib-org/.github 72e0222's
+
+(issue btclib-org/.github#1904).
+
+### `dependabot.yml` says only uv_build has a ceiling in the dependency groups
+
+(issue btclib-org/.github#1848).
+
 ## v2026.10.26
 
 ### BIP352 skips a taproot input whose control block has an invalid length
