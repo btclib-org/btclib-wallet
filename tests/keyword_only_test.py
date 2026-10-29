@@ -41,10 +41,9 @@ and not two either.
 Only a function defined in `btclib_wallet` is walked, as its
 `__module__` says. A name `btclib_wallet.fetch` takes from
 `bitcoin-core-rpc` (`all_test.py`'s `REEXPORTED`) has the signature of
-whichever release is installed: `SessionTransport.__init__` takes a
-keyword-only `max_body_size` at the floor `pyproject.toml` declares for
-that package, and not at the release `uv.lock` pins. Its `*` is in that
-package's source, so no mutant of this tree reaches it either.
+whichever release is installed, which can differ between the floor
+`pyproject.toml` declares and the release `uv.lock` pins. Its `*` is in
+that package's source, so no mutant of this tree reaches it either.
 """
 
 from __future__ import annotations
