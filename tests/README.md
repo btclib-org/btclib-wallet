@@ -131,7 +131,7 @@ The `qa-assets` workflow also compares generated PSBTs with bitcoin-s
 and Bitcoin Core. This job runs on its clock and on manual dispatch:
 the compiler's cold downloads do not belong to a pull request's checks.
 Its Scala helper pins the parser dependency. A local run needs Scala CLI,
-a JDK, and the node binary:
+a JDK, and a `bitcoind` of the release `qa-assets.yml` pins:
 
 ```shell
 BTCLIB_INTEGRATION=1 BTCLIB_PSBT_INTEROP=1 \
