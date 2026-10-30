@@ -126,7 +126,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
-from typing import Any, NoReturn, cast
+from typing import Any, cast
 
 from btclib.alias import Octets, ScriptList, TaprootScriptTree
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -357,7 +357,7 @@ _MAX_BARE_MULTISIG_KEYS = 3
 
 # the two functions BIP387 allows inside tr() and nowhere else. Not in
 # _PARSERS with the SCRIPT expressions: what they parse to is a leaf of a
-# script tree and not a descriptor, so `_parse_tree` reads them and this
+# script tree and not a descriptor, so `_parse_leaf` reads them and this
 # is what refuses them anywhere a SCRIPT expression is expected
 _TREE_FUNCTIONS = ("multi_a", "sortedmulti_a")
 
@@ -2108,17 +2108,6 @@ def _parse_multi_a(name: str, args: list[str], prv_keys: dict[str, str]) -> Mult
     return MultiA(threshold, keys, sort=name == "sortedmulti_a")
 
 
-def _assert_no_closing_brace(expression: str) -> None:
-    """Refuse a "}" in what Core reads as a miniscript or a key.
-
-    Core pairs the brackets of a miniscript before it reads a key, and a
-    key holds none, so a "}" there closes nothing: the structure's fault.
-    An unclosed "{" is left to the key, which Core refuses first.
-    """
-    if "}" in expression:
-        raise BTClibValueError("unbalanced braces")
-
-
 def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscript:
     """Return the miniscript of a tr() leaf, sanity checked as a wsh() one is.
 
@@ -2136,7 +2125,6 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     """
     if expression.startswith("multi_a("):
         _read_unclosed_multisig_keys(expression, miniscript.TAPSCRIPT, prv_keys)
-    _assert_no_closing_brace(expression)
     with _steps_compared():
         try:
             node = _parse_miniscript(expression, miniscript.TAPSCRIPT, prv_keys)
@@ -2147,78 +2135,8 @@ def _parse_leaf_miniscript(expression: str, prv_keys: dict[str, str]) -> Miniscr
     return node
 
 
-def _assert_no_braces(key: str) -> None:
-    """Refuse a brace in the key of a ``pk()`` leaf.
-
-    In a brace tree, a brace there leaves the tree unpaired, which Core
-    refuses before it reads the key. For a bare leaf, ``tr(X,pk(X{))``,
-    Core names the key instead, so this differs from Core there.
-    """
-    if "{" in key or "}" in key:
-        raise BTClibValueError("unbalanced braces")
-
-
-def _refuse_unclosed_tree(
-    expression: str, prv_keys: dict[str, str], depth: int
-) -> NoReturn:
-    """Refuse a tree that does not end at the "}" closing its first "{".
-
-    Core reads the tree up to that "}", if there is one, before it finds
-    what follows, so a fault of the tree comes first.
-    """
-    level = 0
-    for match in re.finditer("[{}]", expression):
-        level += 1 if match[0] == "{" else -1
-        if not level:
-            _parse_tree(expression[: match.end()], prv_keys, depth)
-            break
-    else:
-        first = _split_unpaired_arguments(expression[1:])[0]
-        # Core reads a multisig's keys before finding the absent tree end.
-        if first.startswith("multi_a("):
-            _parse_tree(first, prv_keys, depth + 1)
-    raise BTClibValueError("unbalanced braces")
-
-
-def _read_branches(
-    branches: list[str], prv_keys: dict[str, str], depth: int
-) -> DescriptorTree:
-    """Return the two subtrees of a branch, each `depth` braces deep.
-
-    Core reads the first subtree, and the second after a comma, before it
-    finds the count wrong, so a fault inside one of them comes first.
-    """
-    subtrees = [_parse_tree(branch, prv_keys, depth) for branch in branches[:2]]
-    if len(branches) != 2:
-        err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
-        raise BTClibValueError(err_msg)
-    return subtrees[0], subtrees[1]
-
-
-def _parse_tree(
-    expression: str, prv_keys: dict[str, str], depth: int
-) -> DescriptorTree:
-    """Return the script tree of a BIP386 TREE expression.
-
-    `depth` is how many braces enclose this subtree, and bounding it is
-    what keeps a hostile expression from recursing past the interpreter's
-    stack: without it a tree nested a thousand deep left through
-    `RecursionError`, which is not a class this library raises and not one
-    a caller of `parse` catches. MAX_TREE_DEPTH is the bound because a
-    leaf below it has no control block to be spent with, so the
-    expression describes no output rather than a large one -- and it is
-    where Core stops too, "tr() supports at most 128 nesting levels".
-    """
-    if depth > MAX_TREE_DEPTH:
-        err_msg = f"tr() supports at most {MAX_TREE_DEPTH} nesting levels"
-        raise BTClibValueError(err_msg)
-    if expression.startswith("{"):
-        if not expression.endswith("}"):
-            _refuse_unclosed_tree(expression, prv_keys, depth)
-        return _read_split(
-            expression[1:-1],
-            lambda branches: _read_branches(branches, prv_keys, depth + 1),
-        )
+def _parse_leaf(expression: str, prv_keys: dict[str, str]) -> DescriptorLeaf:
+    """Return a leaf of a tr() tree: what Core's ``Expr`` cut, read whole."""
     name = expression.partition("(")[0]
     # An unterminated multi_a falls through to miniscript, as Core does.
     if name in _TREE_FUNCTIONS and (name != "multi_a" or expression.endswith(")")):
@@ -2243,7 +2161,6 @@ def _parse_tree(
         # the same order the wsh() half reads its two grammars in
         return _parse_leaf_miniscript(expression, prv_keys)
     key = _split_function(expression)[1]
-    _assert_no_braces(key)
     return _parse_key(
         key,
         prv_keys,
@@ -2251,6 +2168,65 @@ def _parse_tree(
         compressed=True,
         musig_allowed=True,
     )
+
+
+def _parse_tree(
+    text: str, pos: int, prv_keys: dict[str, str]
+) -> tuple[DescriptorTree, int]:
+    """Return the script tree starting at `pos`, and the index past it.
+
+    Core's ``tr()`` loop: take each "{", which opens a left subtree; cut
+    one leaf as ``Expr`` does and read it; take a "}" for each right
+    subtree the leaf ends; then a "," after a left one, which turns it
+    into a right one. A leaf is read before what follows it, so a leaf
+    that runs on into the tree's own "}" or "," is the leaf's fault.
+
+    MAX_TREE_DEPTH bounds how many braces are open at once. A leaf below
+    it has no control block to be spent with, so the expression describes
+    no output rather than a large one, and it is where Core stops too,
+    "tr() supports at most 128 nesting levels".
+    """
+    # where the subtrees of each open branch start, and which one it is in
+    starts: list[int] = []
+    in_right: list[bool] = []
+    subtrees: list[DescriptorTree] = []
+    while True:
+        while text.startswith("{", pos):
+            pos += 1
+            starts.append(pos)
+            in_right.append(False)
+            if len(starts) > MAX_TREE_DEPTH:
+                err_msg = f"tr() supports at most {MAX_TREE_DEPTH} nesting levels"
+                raise BTClibValueError(err_msg)
+        end = miniscript._leaf_end(text, pos)
+        subtrees.append(_parse_leaf(text[pos:end], prv_keys))
+        pos = end
+        while in_right and in_right[-1]:
+            _expect_branch_end(text, pos, starts.pop(), "}")
+            pos += 1
+            in_right.pop()
+            right = subtrees.pop()
+            subtrees.append((subtrees.pop(), right))
+        if not in_right:
+            return subtrees[0], pos
+        _expect_branch_end(text, pos, starts[-1], ",")
+        pos += 1
+        in_right[-1] = True
+
+
+def _expect_branch_end(text: str, pos: int, start: int, char: str) -> None:
+    """Refuse a subtree that `char` does not follow at `pos`.
+
+    The branch's subtrees start at `start`. A "," where its "}" is due
+    is a third subtree, and a "}" where its "," is due leaves it one.
+    """
+    if text.startswith(char, pos):
+        return
+    if text.startswith(",}".replace(char, ""), pos):
+        count = len(_split_unpaired_arguments(text[start:]))
+        err_msg = f"a tr() branch takes two subtrees, {count} given"
+        raise BTClibValueError(err_msg)
+    raise BTClibValueError("unbalanced braces")
 
 
 # inside a witness program an uncompressed key is unspendable, so
@@ -2417,15 +2393,30 @@ def _parse_sorted_multi(
 def _parse_tr(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
+    """Return the ``tr()`` of `args`, its one argument the whole text.
+
+    Core cuts the key as ``Expr`` does, then reads the tree after a ","
+    up to its last "}", and only then finds what follows.
+    """
+    text = args[0]
     with _steps_compared():
+        end = miniscript._leaf_end(text, 0)
         internal_key = _parse_key(
-            args[0], prv_keys, x_only=True, compressed=True, musig_allowed=True
+            text[:end], prv_keys, x_only=True, compressed=True, musig_allowed=True
         )
-        tree = None if len(args) == 1 else _parse_tree(args[1], prv_keys, 0)
-        # Core reads the key and the tree before it finds a third argument
-        if len(args) > 2:
-            err_msg = f"tr() takes a key and at most one tree, {len(args)} given"
-            raise BTClibValueError(err_msg)
+        tree = None
+        if end < len(text):
+            if text[end] != ",":
+                raise BTClibValueError("unbalanced brackets")
+            tree, end = _parse_tree(text, end + 1, prv_keys)
+        if end < len(text):
+            if text[end] == ",":
+                count = len(_split_unpaired_arguments(text))
+                err_msg = f"tr() takes a key and at most one tree, {count} given"
+                raise BTClibValueError(err_msg)
+            if text[end] in ")}":
+                raise BTClibValueError("unbalanced brackets")
+            raise BTClibValueError("unbalanced braces")
     return TrDescriptor(internal_key, tree, network=network)
 
 
@@ -2467,8 +2458,9 @@ def _parse_raw(
 
 
 # the functions whose one argument Core reads whole, a key or a script,
-# "," and brackets included, so that a fault inside it is that argument's
-_WHOLE_ARGUMENT_FUNCTIONS = frozenset({"pk", "pkh", "wpkh", "combo", "sh", "wsh"})
+# "," and brackets included, so that a fault inside it is that argument's;
+# and tr(), whose key and tree Core cuts from the text itself
+_WHOLE_ARGUMENT_FUNCTIONS = frozenset({"pk", "pkh", "wpkh", "combo", "sh", "wsh", "tr"})
 
 # every SCRIPT function, where BIP381 to BIP386 allow it, and what
 # reads it. A table rather than a chain of comparisons because the
@@ -2509,7 +2501,6 @@ def _parse_miniscript_expression(
         _read_unclosed_multisig_keys(
             expression, _MINISCRIPT_CONTEXTS[context], prv_keys
         )
-    _assert_no_closing_brace(expression)
     with _steps_compared():
         node = _parse_miniscript(expression, _MINISCRIPT_CONTEXTS[context], prv_keys)
         _assert_sane(node, prv_keys)

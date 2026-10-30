@@ -468,10 +468,7 @@ def _split_delimited(arguments: str, *, strict: bool) -> list[str]:
     start = 0
     result = []
     # the loop is over the delimiters and not over the string: every
-    # other character decides nothing, and `re` skips them in C. What
-    # makes that worth writing is the recursion above -- `_parse_tree`
-    # splits a branch and splits each of its branches again, so a
-    # character deep in a tr() tree is walked once per level above it
+    # other character decides nothing, and `re` skips them in C
     for match in _DELIMITERS.finditer(arguments):
         char = match[0]
         if char in "({":

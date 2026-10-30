@@ -1872,12 +1872,13 @@ def _expression_end(text: str, pos: int, *, stop_at_close: bool) -> int:
 
 
 def _leaf_end(text: str, pos: int) -> int:
-    """Return the index one past a key, hash or timelock fragment.
+    """Return the index where Core's ``Expr`` ends the text at `pos`.
 
-    Where Core's ``Expr`` ends it, which counts a brace as a bracket: in
-    ``pk(K){,pk(K2))`` the key is ``K){,pk(K2)``, so the key is what is
-    refused. A multisig is cut by ``_expression_end`` instead, Core
-    reading its keys up to the next comma.
+    The argument of a key, hash or timelock fragment, and a tr() key or
+    leaf. ``Expr`` counts a brace as a bracket: in ``pk(K){,pk(K2))`` the
+    key is ``K){,pk(K2)``, so the key is what is refused. A multisig is
+    cut by ``_expression_end`` instead, Core reading its keys up to the
+    next comma.
     """
     depth = 0
     for i in range(pos, len(text)):
@@ -2128,17 +2129,32 @@ def _read_keys_as_core(
 def _read_unclosed_multisig_keys(
     fragment: str, context: str, prv_keys: dict[str, str]
 ) -> None:
-    """Read each key a comma ends in a multisig with no closing parenthesis.
+    """Read the keys Core reads in a multisig with no closing parenthesis.
 
-    Core reads the threshold and then every key up to the next comma
-    before it finds that the fragment does not close.
+    Core reads the threshold and then the keys, as `_multisig_keys_as_core`
+    cuts them, before it finds that the fragment does not close.
     """
     start = fragment.index("(")
     end = _expression_end(fragment, start, stop_at_close=True)
     if fragment[end - 1 : end] == ")":
         return
-    threshold, *keys = fragment[start + 1 :].split(",")
-    _read_keys_as_core(threshold, keys[:-1], context, prv_keys)
+    threshold, _, keys = fragment[start + 1 :].partition(",")
+    _read_keys_as_core(threshold, _multisig_keys_as_core(keys), context, prv_keys)
+
+
+def _multisig_keys_as_core(text: str) -> list[str]:
+    """Return the keys of a multisig as Core's ``FindNextChar`` cuts them.
+
+    A key ends at the next comma, counting no bracket, and the first ")"
+    before it ends the last key. With no ")" there, Core reads no last key.
+    """
+    keys: list[str] = []
+    while True:
+        comma, close = text.find(","), text.find(")")
+        if comma == -1 or -1 < close < comma:
+            return keys if close == -1 else [*keys, text[:close]]
+        keys.append(text[:comma])
+        text = text[comma + 1 :]
 
 
 class _CoreFallbackError(BTClibValueError):

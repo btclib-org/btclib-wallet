@@ -1041,8 +1041,11 @@ def test_parse_reads_what_core_reads_before_the_brackets_and_the_rest() -> None:
         (f"pkh([deadbeef/0]]{xpub}/0),", "more than one ']'"),
         (f"pkh({xpub}/0),", "not a descriptor expression"),
         (f"pkh({xpub}))", "^unbalanced brackets$"),
-        (f"tr({xpub},{{pk({xpub}),pk({xpub}{{)}})", "^unbalanced braces$"),
-        (f"wsh(and_v(v:pk({xpub}}}),older(1)))", "^unbalanced braces$"),
+        (
+            f"tr({xpub},{{pk({xpub}),pk({xpub}{{)}})",
+            r"^not a descriptor expression: expected name\(arguments\)$",
+        ),
+        (f"wsh(and_v(v:pk({xpub}}}),older(1)))", r"^unbalanced brackets in pk\(\)$"),
         (f"tr(musig({xpub}{{,{xpub})/x)", "musig\\(\\): invalid key expression"),
     ):
         with pytest.raises(BTClibValueError, match=message):
@@ -2628,13 +2631,13 @@ CORE_UNPARSABLE = [
     # Core: a taptree 129 braces deep, which no bracket closes
     (
         "tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1," + "{" * 129 + ")",
-        "unbalanced braces",
+        r"^tr\(\) supports at most 128 nesting levels$",
     ),
     (
         "tr(03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,"
         + "{" * 129
         + ")",
-        "unbalanced braces",
+        r"^tr\(\) supports at most 128 nesting levels$",
     ),
     # Core: a taptree pair with a third branch
     (
@@ -2873,11 +2876,8 @@ def test_tr_tree_depth_is_bounded() -> None:
 
     Issue btclib-org/btclib#571.
 
-    The parser recurses once per brace, so without a bound a deep enough
-    expression exhausts the interpreter stack and leaves through
-    `RecursionError` -- which `btclib.exceptions` does not declare and no
-    caller of `parse` catches. 1000 braces did exactly that at the
-    default recursion limit.
+    A tree far deeper is refused the same way, as a `BTClibValueError`,
+    the class a caller of `parse` catches.
 
     128 is the bound because it is `taproot.MAX_TREE_DEPTH`, i.e. Core's
     TAPROOT_CONTROL_MAX_NODE_COUNT: a leaf below it is proved by a merkle
@@ -2895,7 +2895,7 @@ def test_tr_tree_depth_is_bounded() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         parse(_nested_tree(taproot.MAX_TREE_DEPTH + 1))
 
-    # what used to be a RecursionError, well past the interpreter's limit
+    # far past the bound, and past the interpreter's recursion limit
     with pytest.raises(BTClibValueError, match=err_msg):
         parse(_nested_tree(5000))
 
