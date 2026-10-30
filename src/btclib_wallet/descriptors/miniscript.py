@@ -2160,10 +2160,11 @@ def _multisig_keys_as_core(text: str) -> list[str]:
 class _CoreFallbackError(BTClibValueError):
     """A fault on which Core's miniscript parser stops without naming a key.
 
-    An ``older()`` or ``after()`` number it refuses, or a multisig outside
-    its own context. Core's descriptor reader then names its own fallback,
-    which the descriptor reader here names too: inside ``wsh()`` and in a
-    ``tr()`` leaf. The standalone parser keeps this diagnostic.
+    An ``older()`` or ``after()`` number it refuses, a multisig outside
+    its own context, or a fragment that does not close. Core's descriptor
+    reader then names its own fallback, which the descriptor reader here
+    names too: inside ``wsh()`` and in a ``tr()`` leaf. The standalone
+    parser keeps this diagnostic.
     """
 
 
