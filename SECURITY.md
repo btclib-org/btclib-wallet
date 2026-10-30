@@ -245,7 +245,8 @@ used to teach and to prototype as much as to build.
     where its own `cfcheckpt` does not is dropped too. A filter also holds the
     scripts the block's inputs spend, which the block does not carry, so a
     disagreement that neither filter fails that way is a `FetchError`, and so is
-    a peer that does not answer. Where every peer lies alike, or there is no
+    a peer that does not answer. The first gives the index of the `cross_check`
+    peer in the disagreement. Where every peer lies alike, or there is no
     `cross_check` peer, the filter headers are the word of the peer that served
     them, and a peer that lies in them can hide a block that pays the wallet. A
     peer can hold back the network's newer blocks and serve blocks of its own on

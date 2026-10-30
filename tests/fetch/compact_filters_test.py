@@ -1290,6 +1290,16 @@ def test_a_disagreement_the_block_cannot_settle_is_a_fetch_error() -> None:
     assert other.closed == 1
 
 
+def test_a_disagreement_the_block_cannot_settle_names_the_cross_check_peer() -> None:
+    """The `FetchError` gives the peer's index in `cross_check`."""
+    honest, other = ScriptedPeer(CHAIN), liar(3, swap=False, extra=EXTRA)
+    fetcher, _ = build(cross_check=[honest, other])
+    err_msg = r"^cross_check\[1\] and transport disagree on the filter of block 3,"
+    with pytest.raises(FetchError, match=err_msg):
+        fetcher.scan_blocks([WALLET])
+    assert fetcher.cross_check == [honest, other]
+
+
 def test_a_filter_that_does_not_hash_to_its_peers_filter_header_is_wrong() -> None:
     """A peer whose filter disowns the filter header it served is dropped."""
     other = liar(3, swap=False, extra=EXTRA)
