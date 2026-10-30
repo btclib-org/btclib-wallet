@@ -4887,7 +4887,7 @@ def test_parse_takes_the_keys_the_test_networks_share() -> None:
         parse(f"pkh({TESTNET_XPUB}/0)", network)
 
 
-# The derivation entries Bitcoin Core v31.1 writes for an input spending each
+# The derivation entries Bitcoin Core v32.1 writes for an input spending each
 # descriptor: `utxoupdatepsbt <psbt> '["<descriptor>"]'` then `decodepsbt`,
 # offline on mainnet. Keyed by public key; a taproot entry is the origin and
 # the sorted leaf hashes, a BIP32 one the origin alone.
@@ -4897,6 +4897,7 @@ LEAF_MUSIG_AB = "357cc9cc4a0807df3e21d2ecf02cc94327fca8a2e4db17089921c03c4f50bbe
 LEAF_MUSIG_AC = "3259c499c6f47d0fa3e242e95189c8073675fe94e1df91d1d24aa9b9346619d9"
 LEAF_PK_A = "763e9da064b9dc0471fb0f3c8fa2c84b4b84d2ca992497c12d2274386795aa8e"
 LEAF_MULTI_A = "659f0f420f9f48f3830ce9df4f7942c9ec61c8386ecf029de6f9c5ccc50c6b02"
+LEAF_MULTI_A_AA = "14420d28818aa4c5fe0ee6d24652733b7a91e2214c80a3644a880102800945cb"
 AGGREGATE_AB = "3b46d262d2f610e9038b44beabdfe97ab5a0feb89870acc2264edfb7f63ec2ec"
 AGGREGATE_AC = "6e68b837de28101018371e7bf6e59b5852c9e39472794c28fd955c714b8174ba"
 MUSIG_X_A = "d2b36900396c9282fa14628566582f206a5dd0bcc8d5e892611806cafb0301f0"
@@ -5075,8 +5076,8 @@ CORE_DERIVATIONS = [
     pytest.param(
         f"wsh(multi(1,[aaaaaaaa/1h]{KEY_A},[bbbbbbbb/2h]{KEY_A}))",
         0,
-        # Core v31.1 prefixes the second origin to the first
-        {KEY_A: ("bbbbbbbb/2h/1h",)},
+        # Core v32.1 keeps the later origin, and this package the first
+        {KEY_A: ("bbbbbbbb/2h",)},
         {KEY_A: ("aaaaaaaa/1h",)},
         id="two-explicit-origins-first-wins",
     ),
@@ -5086,6 +5087,27 @@ CORE_DERIVATIONS = [
         {XONLY_A: ("aaaaaaaa/1h", [LEAF_PK_A]), XONLY_B: ("06afd46b", [])},
         {},
         id="two-explicit-taproot-origins-first-wins",
+    ),
+    pytest.param(
+        f"tr({KEY_B},multi_a(1,[aaaaaaaa/1h]{KEY_A},[bbbbbbbb/2h]{KEY_A}))",
+        0,
+        # Core v32.1 keeps the later origin, and this package the first
+        {
+            XONLY_A: ("bbbbbbbb/2h", [LEAF_MULTI_A_AA]),
+            XONLY_B: ("06afd46b", []),
+        },
+        {XONLY_A: ("aaaaaaaa/1h", [LEAF_MULTI_A_AA])},
+        id="two-explicit-origins-in-one-leaf",
+    ),
+    pytest.param(
+        f"tr({KEY_B},multi_a(1,{KEY_A},[aaaaaaaa/1h]{KEY_A}))",
+        0,
+        {
+            XONLY_A: ("aaaaaaaa/1h", [LEAF_MULTI_A_AA]),
+            XONLY_B: ("06afd46b", []),
+        },
+        {},
+        id="explicit-origin-second-in-one-leaf",
     ),
 ]
 

@@ -5,10 +5,8 @@
 """Bitcoin Core infers what `tests/descriptors/infer_test.py` records.
 
 That module holds `infer_descriptor` to the answers it records; this one
-holds the node to them, or, for a shape `PINNED_CORE` names, to the
-answer the pinned release gives instead, each with its issue.
-`scantxoutset` answers for a shape, once its scripts are paid, and
-`decodescript` for a script.
+holds the node to them. `scantxoutset` answers for a shape, once its
+scripts are paid, and `decodescript` for a script.
 
 Skipped unless `BTCLIB_INTEGRATION=1` and a `bitcoind` is available; the
 conftest beside this says which switch was off.
@@ -22,25 +20,9 @@ import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.tx import Tx, TxOut
 
-from tests.descriptors.infer_test import (
-    K1,
-    RANGED,
-    SCRIPTS,
-    SHAPES,
-    _descriptors,
-    _text,
-)
+from tests.descriptors.infer_test import RANGED, SCRIPTS, SHAPES, _descriptors, _text
 
 pytestmark = pytest.mark.integration
-
-# the shapes the pinned Core answers other than `SHAPES` records, with that
-# answer: v32.1 keeps a key's later origin where v31.1 stacks both
-# (btclib-org/btclib-wallet#616)
-PINNED_CORE = {
-    "a key spelled twice in a fragment": [
-        f"sh(multi(1,[bbbbbbbb/2]{K1},[bbbbbbbb/2]{K1}))#mmdkvqev"
-    ],
-}
 
 
 def test_core_infers_each_shape_as_recorded(node: BitcoinCoreRpcClient) -> None:
@@ -71,11 +53,11 @@ def test_core_infers_each_shape_as_recorded(node: BitcoinCoreRpcClient) -> None:
     # refuses some of these outputs
     node.call("generateblock", [address, [signed["hex"]]])
 
-    for shape, (template, expected) in SHAPES.items():
+    for template, expected in SHAPES.values():
         scan = {"desc": _text(template), "range": [0, 0]}
         found = node.call("scantxoutset", ["start", [scan]])
         assert sorted(unspent["desc"] for unspent in found["unspents"]) == sorted(
-            PINNED_CORE.get(shape, expected)
+            expected
         ), template
     scan = {"desc": _text(RANGED[0]), "range": [0, 1]}
     found = node.call("scantxoutset", ["start", [scan]])

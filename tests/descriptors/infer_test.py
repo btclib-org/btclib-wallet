@@ -4,14 +4,14 @@
 
 """Tests for `infer_descriptor`, held to Bitcoin Core's `InferDescriptor`.
 
-`SHAPES` and `SCRIPTS` are bitcoind v31.1.0's answers. A shape's are what
+`SHAPES` and `SCRIPTS` are bitcoind v32.1.0's answers. A shape's are what
 `scantxoutset` answers for the scripts its descriptor describes at index
 0, with the provider that descriptor's expansion fills. A script's are
 what `decodescript` answers, with an empty provider.
 `tests/integration/infer_test.py` asks the node again.
 
 The rest of the branches need a provider no descriptor expands to, and
-are held to Core's source at bitcoin/bitcoin@9be056a8a7 (the v31.1 tag),
+are held to Core's source at bitcoin/bitcoin@f0de87f040 (the v32.1 tag),
 `src/script/descriptor.cpp`.
 """
 
@@ -127,7 +127,11 @@ SHAPES = {
     ),
     "a key spelled twice in a fragment": (
         f"sh(multi(1,[aaaaaaaa/1]{K1},[bbbbbbbb/2]{K1}))",
-        [f"sh(multi(1,[bbbbbbbb/2/1]{K1},[bbbbbbbb/2/1]{K1}))#6u587xaj"],
+        [f"sh(multi(1,[bbbbbbbb/2]{K1},[bbbbbbbb/2]{K1}))#mmdkvqev"],
+    ),
+    "a key spelled twice in a fragment, once without an origin": (
+        f"sh(multi(1,[aaaaaaaa/1]{K1},{K1}))",
+        [f"sh(multi(1,[aaaaaaaa/1]{K1},[aaaaaaaa/1]{K1}))#8w5njmeu"],
     ),
     "a key spelled in two fragments": (
         f"tr(@0/0/*,{{pk([aaaaaaaa/9]{K1}),pk({K1})}})",
@@ -229,9 +233,9 @@ SHAPES = {
 # a shape whose answers depend on the keys of its whole range, which
 # `scantxoutset` scans here as [0, 1]: Core's answer for each index
 RANGED = (
-    "wsh(multi(1,[aaaaaaaa/5]@1/0/*,[bbbbbbbb/7]@1/0/1))",
+    "wsh(multi(1,[bbbbbbbb/7]@1/0/1,[aaaaaaaa/5]@1/0/*))",
     [
-        "wsh(multi(1,[aaaaaaaa/5/0/0]026abeb5a742db5163556f7d7ff7f06630232723b6daee52438a62751d91d11f4a,[bbbbbbbb/7/0/1]0272e19db0432e15aace6b7326ac1231f15650b92da19f6800fca592cb71cc00d6))#7yly7dx0",
+        "wsh(multi(1,[bbbbbbbb/7/0/1]0272e19db0432e15aace6b7326ac1231f15650b92da19f6800fca592cb71cc00d6,[aaaaaaaa/5/0/0]026abeb5a742db5163556f7d7ff7f06630232723b6daee52438a62751d91d11f4a))#uwme7h4h",
         "wsh(multi(1,[bbbbbbbb/7/0/1]0272e19db0432e15aace6b7326ac1231f15650b92da19f6800fca592cb71cc00d6,[bbbbbbbb/7/0/1]0272e19db0432e15aace6b7326ac1231f15650b92da19f6800fca592cb71cc00d6))#ac7fqtls",
     ],
 )
