@@ -1319,8 +1319,7 @@ with the keys the case lists.
 The files are taken at
 [`24a45463081e8e3a2f85dd0f4192af99d5d33275`](https://git.rust-bitcoin.org/rust-bitcoin/rust-psbt/commit/24a45463081e8e3a2f85dd0f4192af99d5d33275),
 the merge of the rust-psbt pull request that brought each path's `commit`
-below to `master`. There each case's data is under its `task`, and each
-psbt is given as base64 only.
+below to `master`.
 
 ### `tests/psbt/_data/rust-psbt/bip174.json`
 
