@@ -65,6 +65,16 @@ def test_a_leaf_that_runs_on_unclosed_is_core_s_fallback(descriptor: str) -> Non
         parse(descriptor)
 
 
+def test_a_brace_after_a_miniscript_fragment_is_core_s_fallback() -> None:
+    """Core: '<leaf>' is not a valid descriptor function.
+
+    Row 2 of issue btclib-org/btclib-wallet#610.
+    """
+    err_msg = r"^tr\(\) leaf is not a valid descriptor function$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(f"tr({_X},{{and_v(v:pk({_X}){{,pk({_X2})}}),pk({_X2})}})")
+
+
 def test_a_brace_closing_a_miniscript_key_is_core_s_fallback() -> None:
     """Core: A function is needed within P2WSH.
 
