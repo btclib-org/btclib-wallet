@@ -1316,14 +1316,20 @@ A Signer case asks for RFC6979 signatures without low-R grinding, which
 is how BIP174's example was signed: the test signs that way, and only
 with the keys the case lists.
 
+The files are taken at
+[`24a45463081e8e3a2f85dd0f4192af99d5d33275`](https://git.rust-bitcoin.org/rust-bitcoin/rust-psbt/commit/24a45463081e8e3a2f85dd0f4192af99d5d33275),
+the merge of the rust-psbt pull request that brought each path's `commit`
+below to `master`. There each case's data is under its `task`, and each
+psbt is given as base64 only.
+
 ### `tests/psbt/_data/rust-psbt/bip174.json`
 
 ```text
 repo    rust-bitcoin/rust-psbt
 path    tests/data/bip174.json
-commit  9a2cf0d9ec315fbb67bc25f32ae707fd6d34b6cc  2026-10-08
-blob    3b2cb5e8a1e74e9f6b92fb2f44d61f3c1c0d4fc8
-pulled  2026-10-22
+commit  7deb66de7f85d2b3e91b95526244729733f3fcc5  2026-10-28
+blob    517f50105e69199a109e2c2370dd95adda371c2b
+pulled  2026-10-30
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -1334,9 +1340,9 @@ Verdict: **identical**.
 ```text
 repo    rust-bitcoin/rust-psbt
 path    tests/data/bip370.json
-commit  dcb86c91c5754d3db1b23982bb94237077b8417c  2026-09-22
-blob    49ad61ec9830b24c5ffc617dfa2954b93d312310
-pulled  2026-10-22
+commit  0d0cf0ca54a278e12269c301b941ae4f9953d1c1  2026-10-28
+blob    be18ab846c9b82eaf719124da0a92d10b290cb25
+pulled  2026-10-30
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -1347,9 +1353,9 @@ Verdict: **identical**.
 ```text
 repo    rust-bitcoin/rust-psbt
 path    tests/data/bip371.json
-commit  c2e9ad3b8b607a7a734d9606eb507464f8412585  2026-10-22
-blob    3c3d15dcb2e865c61e9860d8807557041fdfc0d4
-pulled  2026-10-22
+commit  7dc79b8c843372f5e62a6d133f9449d6f17fa099  2026-10-28
+blob    78d1297045fe6bc7b0961ab4340429fd239a3630
+pulled  2026-10-30
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -1360,9 +1366,9 @@ Verdict: **identical**.
 ```text
 repo    rust-bitcoin/rust-psbt
 path    tests/data/bip375.json
-commit  caa994f9d6bb43b926ae97cd6466f10e70193e5d  2026-09-22
-blob    1e487710708bd94e5f93df605cf15f94eac82c75
-pulled  2026-10-22
+commit  0d0cf0ca54a278e12269c301b941ae4f9953d1c1  2026-10-28
+blob    8cbc75e09b8faca2e12abbb1a42f111abd02fdf5
+pulled  2026-10-30
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -1373,9 +1379,9 @@ Verdict: **identical**.
 ```text
 repo    rust-bitcoin/rust-psbt
 path    tests/data/fuzz.json
-commit  ebd55b3b7ed2ea4e16eec6c5e11870939e04ecea  2026-10-21
-blob    cd0ec113237416fe995d41ce323203a26f284e72
-pulled  2026-10-22
+commit  7deb66de7f85d2b3e91b95526244729733f3fcc5  2026-10-28
+blob    593cede82ba5ef7e12972627171a46f16b557451
+pulled  2026-10-30
 behind  0 revisions; that commit is the tip of the path
 ```
 
