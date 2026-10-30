@@ -4,7 +4,7 @@
 
 """The btclib fetcher backed by an Electrum server.
 
-`btclib.electrum` is the codec -- the JSON-RPC framing, the shapes of the
+`btclib_wallet.electrum` is the codec -- the JSON-RPC framing, the shapes of the
 methods this fetcher asks, and the merkle-branch check -- and holds
 no socket; this module is the `Fetcher` over it, taking a `transport` and
 turning each question into a request line and a line back into a btclib
@@ -52,16 +52,17 @@ other backends' word for it, and the reason this backend exists.
 
 from __future__ import annotations
 
-from btclib import electrum
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import Tx
 from btclib.utils import is_integer
 from typing_extensions import override
 
+from btclib_wallet import electrum
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -99,11 +100,11 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     `get_block_header` checks one, and each chained to the one before it.
 
     `get_tx_merkle` is `blockchain.transaction.get_merkle`, returning the
-    branch and position `btclib.electrum.MerkleProof` carries.
+    branch and position `btclib_wallet.electrum.MerkleProof` carries.
     `verify_tx` fetches the header at the height asked for with
     `get_block_header` -- the caller's own height, not the proof's
     unchecked `block_height` -- and checks the branch against it with
-    `btclib.electrum.verify_merkle_proof`, answering `False` for a
+    `btclib_wallet.electrum.verify_merkle_proof`, answering `False` for a
     malformed branch or a wrong position the way
     `btclib.block.merkle_proof.verify` does, and still raising for
     anything `get_block_header` itself refuses.
@@ -227,7 +228,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     def get_block_headers(self, start_height: int, count: int) -> list[BlockHeader]:
         """Return up to `count` consecutive headers from `start_height`.
 
-        `blockchain.block.headers`, through `btclib.electrum`'s
+        `blockchain.block.headers`, through `btclib_wallet.electrum`'s
         `block_headers_request` and `block_headers_response`, whose
         docstring says which answer shape is read and what it refuses. A
         server may answer fewer than asked, by its own maximum or by
@@ -282,7 +283,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         Electrum's own client compares (`electrum/interface.py`); the header
         is asked for instead because it makes the server produce eighty bytes
         that hash to the genesis rather than repeat a string, and because it
-        needs no codec function `btclib.electrum` does not already have.
+        needs no codec function `btclib_wallet.electrum` does not already have.
 
         Worth the call, because the failure it catches is silent, the
         same one `BitcoinCoreFetcher.assert_network`'s docstring names: a
@@ -297,7 +298,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         `EsploraFetcher.assert_network`'s docstring is where that is
         written down. This class takes no `signet_challenge` of its own,
         for the reason that class takes none: nothing among the methods
-        `btclib.electrum` speaks is a signet's challenge to compare
+        `btclib_wallet.electrum` speaks is a signet's challenge to compare
         against.
         """
         raw = self._raw_header_at(0)

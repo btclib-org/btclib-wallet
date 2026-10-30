@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient
-from btclib.exceptions import FetchError
 from btclib.p2p import GetData, Message
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport
 from tests.integration.conftest import (

@@ -64,7 +64,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from btclib.alias import Octets, String
 from btclib.ecc import bms
-from btclib.exceptions import BTClibValueError, SignerError
+from btclib.exceptions import BTClibValueError
 from btclib.key import PrvKeyData
 from btclib.script.taproot import output_prvkey_from_merkle_root
 from btclib.utils import assert_type, bytes_from_octets
@@ -92,6 +92,7 @@ from btclib_wallet.descriptors import (
     account_descriptors,
     wallet_policy_address,
 )
+from btclib_wallet.exceptions import SignerError
 from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,

@@ -49,7 +49,8 @@ The line between this package and btclib is Bitcoin Core's between
 `src/consensus` and `src/wallet`: what places a module here is everything
 from a seed to a signed, broadcast transaction, and every module with a
 counterparty outside the process — a socket, a subprocess, a node, a
-device — where the codec of a protocol stays btclib's and opens nothing.
+device — where the codec of a protocol opens nothing, and stays btclib's
+unless this package is its only user, as it is of Electrum's.
 
 What this package signs, it signs through `ecc.ecc`, so the
 dispatch to the libsecp256k1 bindings
@@ -182,16 +183,18 @@ and no address index.
 kept open across calls, and `TlsLineTransport` for the Electrum line
 protocol — and `fetch.peer_transport` is the seam of the p2p peer:
 `TcpPeerTransport` holds one TCP connection to it, plain and without
-authentication. The codec each backend speaks belongs to `btclib.p2p` or
-`btclib.electrum`, outside this package: importing `fetch` costs
-`urllib`, `ssl` and `socket`, never the reverse.
+authentication. The codec each backend speaks is `btclib.p2p` or
+`electrum.py`, outside `fetch/`: importing `fetch` costs `urllib`, `ssl`
+and `socket`, never the reverse.
 
-A fetcher raises btclib's `FetchError`, `HttpError` and `RpcError`.
-`bitcoin-core-rpc` declares classes of the same names that are not
-btclib's, and `fetcher.client_errors` is where every fetcher re-raises
-those as btclib's. `BitcoinCoreRpcClient` and `BitcoinCoreRestClient`
-are re-exported unchanged rather than wrapped, so calling them directly
-raises `bitcoin-core-rpc`'s own exceptions.
+`exceptions.py` declares the public classes this package raises and
+btclib does not, each derived from btclib's class of its kind. A fetcher
+raises its `FetchError`, `HttpError` and `RpcError`. `bitcoin-core-rpc`
+declares classes of the same names, and `fetcher.client_errors` is where
+every fetcher re-raises them as this package's. `BitcoinCoreRpcClient`
+and `BitcoinCoreRestClient` are re-exported unchanged rather than
+wrapped, so calling them directly raises `bitcoin-core-rpc`'s own
+exceptions.
 
 `bip21.py` and `bolt11.py`/`bolt9.py` sit above every layer named here:
 a BIP21 URI names an address, an amount and, through `lightning=`, a

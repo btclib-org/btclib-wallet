@@ -12,12 +12,12 @@ from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
     BTClibValueError,
-    FetchError,
 )
 from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxOut
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import (
     Fetcher,
     NetworkVerifyingFetcher,

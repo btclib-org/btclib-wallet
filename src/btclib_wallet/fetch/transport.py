@@ -33,21 +33,21 @@ a context manager; nothing here calls either on a caller's behalf.
 
 What does *not* come through unchanged is the exceptions. `http_request`
 raises the package's `FetchError` and `HttpError`, which are not the
-classes `btclib.exceptions` declares;
+classes `btclib_wallet.exceptions` declares;
 `btclib_wallet.fetch.fetcher.client_errors` is what translates them, and every
-call into this module from inside btclib is wrapped in it.
+call into this module from inside this package is wrapped in it.
 
 **`LineTransport` is not an alias of anything.** `bitcoin_core_rpc`'s own
-transport is HTTP, and the Electrum protocol `btclib.electrum` speaks is
-newline-delimited JSON-RPC over a raw TCP or TLS socket, which that
-package does not carry. `ElectrumFetcher` (`btclib_wallet.fetch.electrum`) takes
-one request line, already terminated by `btclib.electrum.encode_request`'s
-own newline, and a timeout in seconds, and returns the answering line
-with its delimiter consumed rather than included -- bytes on both sides,
-the shape `btclib.electrum`'s own framing already produces and reads, so
-the boundary needs no encoding step of its own, the same reason
-`HttpTransport` is bytes in and bytes out. A transport that cannot
-answer raises `bitcoin_core_rpc`'s own `FetchError` or a subclass of it,
+transport is HTTP, and the Electrum protocol `btclib_wallet.electrum` speaks is
+newline-delimited JSON-RPC over a raw TCP or TLS socket, which that package does
+not carry. `ElectrumFetcher` (`btclib_wallet.fetch.electrum`) takes one request
+line, already terminated by `btclib_wallet.electrum.encode_request`'s own
+newline, and a timeout in seconds, and returns the answering line with its
+delimiter consumed rather than included -- bytes on both sides, the shape
+`btclib_wallet.electrum`'s own framing already produces and reads, so the
+boundary needs no encoding step of its own, the same reason `HttpTransport` is
+bytes in and bytes out. A transport that cannot answer raises
+`bitcoin_core_rpc`'s own `FetchError` or a subclass of it,
 the vocabulary `HttpTransport` already raises through this same package;
 `btclib_wallet.fetch.fetcher.client_errors` is what translates it, at every
 `ElectrumFetcher` call the way it is at every other backend's.
@@ -234,7 +234,7 @@ class TlsLineTransport:
     refused connection, a handshake the certificate fails, a timeout, a
     connection closed before a whole line, a line over the limit -- is
     `bitcoin_core_rpc`'s `FetchError`, the contract `LineTransport` states,
-    which `ElectrumFetcher` translates into btclib's own.
+    which `ElectrumFetcher` translates into this package's own.
     """
 
     def __init__(

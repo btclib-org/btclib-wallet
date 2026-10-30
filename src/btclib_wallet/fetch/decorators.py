@@ -36,10 +36,11 @@ from typing import TypeVar
 
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibValueError, FetchError
+from btclib.exceptions import BTClibValueError
 from btclib.tx import Tx
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import Fetcher, tx_id_hex
 
 __all__ = ["CachingFetcher", "FallbackFetcher"]

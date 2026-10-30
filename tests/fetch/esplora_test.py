@@ -15,11 +15,12 @@ import json
 import traceback
 
 import pytest
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, HttpError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.balance import Balance
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport

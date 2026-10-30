@@ -45,8 +45,6 @@ import pytest
 from btclib.exceptions import (
     BTClibTypeError,
     BTClibValueError,
-    SignerError,
-    SignerNotFoundError,
 )
 from btclib.key import PubKeyData
 from btclib.network import NETWORKS
@@ -59,6 +57,7 @@ from btclib_wallet import hwi as hwi_module
 from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
 from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index, parse
+from btclib_wallet.exceptions import SignerError, SignerNotFoundError
 from btclib_wallet.hwi import (
     _HWI_CHAIN,
     DEFAULT_EXECUTABLE,

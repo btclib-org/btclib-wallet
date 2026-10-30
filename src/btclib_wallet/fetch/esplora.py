@@ -61,13 +61,14 @@ from urllib.parse import urlsplit
 
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, HttpError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.balance import Balance, script_pub_key_for_network
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
@@ -236,8 +237,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
         `client_errors` because `http_request` is `bitcoin_core_rpc`'s and
         raises that package's exceptions: a refused connection reaching a
-        caller as something no `except FetchError` of btclib's catches is
-        what it is there to prevent.
+        caller as something no `except FetchError` of this package's catches
+        is what it is there to prevent.
         """
         url = f"{self.base_url}{path}"
         headers = None if data is None else {"Content-Type": "text/plain"}
