@@ -68,6 +68,10 @@ The latest security review is dated 2026-09-30.
 [assurance case](./ASSURANCE_CASE.md), and
 [issue 169](https://github.com/btclib-org/btclib-wallet/issues/169) records it.
 
+The review's scope is the tree at commit `7d02fb4dc6ee`.
+[What changed since](https://github.com/btclib-org/btclib-wallet/compare/7d02fb4dc6ee43505a56402bca88915d39272fdd...main)
+is that commit's comparison with `main`.
+
 ## Supported versions
 
 Only the latest release is supported. Versions are calendar-based
