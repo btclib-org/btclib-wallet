@@ -1045,7 +1045,7 @@ def test_parse_reads_what_core_reads_before_the_brackets_and_the_rest() -> None:
             f"tr({xpub},{{pk({xpub}),pk({xpub}{{)}})",
             r"^not a descriptor expression: expected name\(arguments\)$",
         ),
-        (f"wsh(and_v(v:pk({xpub}}}),older(1)))", r"^unbalanced brackets in pk\(\)$"),
+        (f"wsh(and_v(v:pk({xpub}}}),older(1)))", "^A function is needed within P2WSH$"),
         (f"tr(musig({xpub}{{,{xpub})/x)", "musig\\(\\): invalid key expression"),
     ):
         with pytest.raises(BTClibValueError, match=message):
@@ -4581,7 +4581,7 @@ UNECHOED = [
     ),
     (
         f"wsh(and_v(v:pk({XPRV_ROOT}/0/*)x,older(1)))",
-        r"^unbalanced brackets in pk\(\)$",
+        "^A function is needed within P2WSH$",
     ),
     (
         f"wsh(thresh(1,pk({WIF}),a:and_v(v:pk({MUSIG_A_WIF}),1)x,a:pk({XPRV_ROOT})))",
@@ -4597,7 +4597,7 @@ UNECHOED = [
     ),
     (
         f"tr({XPRV_ROOT},and_v(v:pk({WIF}),pk({MUSIG_A_WIF})x))",
-        r"^unbalanced brackets in pk\(\)$",
+        r"^tr\(\) leaf is not a valid descriptor function$",
     ),
 ]
 

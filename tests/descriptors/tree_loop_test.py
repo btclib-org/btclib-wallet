@@ -2,14 +2,10 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""A tr() tree read leaf by leaf, as Bitcoin Core v31.1's ``tr()`` loop reads.
+"""A tr() tree read leaf by leaf, in the order `_parse_tree` gives.
 
-Issue btclib-org/btclib-wallet#610. Core takes each "{", cuts one leaf
-with ``Expr`` and reads it, then takes a "}" for each right subtree the
-leaf ends and a "," after a left one. A leaf that runs on into the
-tree's own "}" or "," is read before the tree, so its fault comes first.
-Every row was checked against ``getdescriptorinfo`` on an offline regtest
-bitcoind v31.1.0.
+Issue btclib-org/btclib-wallet#610. Every row was checked against
+``getdescriptorinfo`` on an offline regtest bitcoind v31.1.0.
 """
 
 import pytest
@@ -50,6 +46,32 @@ def test_a_leaf_that_runs_into_the_tree_is_read_first(
     """Core names the key of a leaf that takes in the tree's own brackets."""
     with pytest.raises(BTClibValueError, match=message):
         parse(descriptor)
+
+
+@pytest.mark.parametrize(
+    "descriptor",
+    [
+        f"tr({_X},{{pk({_X}),and_v(v:pk({_X}),older(1()}})",
+        f"tr({_X},{{and_v(v:pk({_X}),older(1(),pk({_X2})}})",
+        f"tr({_X},{{pk({_X}),and_v(v:pk({_X}),after(1()}})",
+        f"tr({_X},{{pk({_X}),and_v(v:pk({_X}),sha256({'00' * 32}()}})",
+        f"tr({_X},{{pk({_X2}),{{and_v(v:pk({_X}),older(1(),pk({_X})}}}})",
+    ],
+)
+def test_a_leaf_that_runs_on_unclosed_is_core_s_fallback(descriptor: str) -> None:
+    """Core: '<leaf>' is not a valid descriptor function."""
+    err_msg = r"^tr\(\) leaf is not a valid descriptor function$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        parse(descriptor)
+
+
+def test_a_brace_closing_a_miniscript_key_is_core_s_fallback() -> None:
+    """Core: A function is needed within P2WSH.
+
+    Issue btclib-org/btclib-wallet#582.
+    """
+    with pytest.raises(BTClibValueError, match="^A function is needed within P2WSH$"):
+        parse(f"wsh(and_v(v:pk({_K}),pk({_K2}}})))")
 
 
 @pytest.mark.parametrize(

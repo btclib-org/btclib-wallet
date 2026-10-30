@@ -2264,7 +2264,7 @@ def _read_leaf_fragment(
             _read_unclosed_multisig_keys(
                 expression[pos - len(name) :], context, prv_keys
             )
-        raise BTClibValueError(f"unbalanced brackets in {name}()")
+        raise _CoreFallbackError(f"unbalanced brackets in {name}()")
     built.append(
         _assert_typed(
             _read_leaf(name, expression[pos + 1 : end - 1], context, prv_keys)
