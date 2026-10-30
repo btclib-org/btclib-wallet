@@ -849,8 +849,10 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             if filter_.header(previous) != served or not _holds_all(filter_, scripts):
                 wrong.append(each)
         if not wrong:
-            err_msg = f"the peers disagree on the filter of block {height},"
-            err_msg += " and the block does not say which one is wrong"
+            index = self._peers.index(peer) - 1
+            err_msg = f"cross_check[{index}] and transport disagree on the filter"
+            err_msg += f" of block {height}, and the block does not say"
+            err_msg += " which one is wrong"
             raise FetchError(err_msg)
         if len(wrong) == len(self._peers):
             raise FetchError(f"every peer served a wrong filter of block {height}")
