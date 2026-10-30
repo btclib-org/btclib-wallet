@@ -54,9 +54,9 @@ permissions:
 # integration-bitcoind.yml's own copy gives; raising either is a commit,
 # with the new sha read from the same place
 env:
-  BITCOIND_VERSION: "31.1"
+  BITCOIND_VERSION: "32.1"
   BITCOIND_SHA256: >-
-    b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+    61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963
 
 # cancel superseded runs. Named literally rather than through
 # github.workflow, as everywhere else here: in a called workflow that

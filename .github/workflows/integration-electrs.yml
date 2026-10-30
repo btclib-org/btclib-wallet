@@ -52,9 +52,9 @@ permissions:
 env:
   # the release integration-bitcoind.yml pins, and the sha256 of its linux
   # tarball as the guix builders attested it in bitcoin-core/guix.sigs
-  BITCOIND_VERSION: "31.1"
+  BITCOIND_VERSION: "32.1"
   BITCOIND_SHA256: >-
-    b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+    61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963
   # the tip of Blockstream/electrs's new-index branch on 2026-10-05.
   # Raising it is a commit
   ELECTRS_COMMIT: dd09701e84dc88a2c58a1365f798222b66e13772
