@@ -68,22 +68,43 @@ __all__ = [
 ]
 
 # What a reply that is a number or a hash may weigh: the JSON envelope and a
-# value of a few dozen octets. `getrawtransaction` keeps the client's default,
-# which is sized for one block as hex.
+# value of a few dozen octets. `getrawtransaction` keeps the client's default
+# (`DEFAULT_MAX_BODY_SIZE`).
 _MAX_SMALL_REPLY = 1024
 
-# What a reply `get_history` reads that grows with the chain may weigh: five
-# octets per weight unit of the heaviest block. `getblock` at verbosity 3
-# renders about four, as measured on regtest against Core 31.1, the release
-# the integration job pins: for a block of taproot key-path spends, each input
-# rendered with the output it spends, and for a block of large witnesses, each
-# witness written twice as hex. `tests/integration/history_test.py` measures
-# the second again. A block that renders larger, such as one spending outputs
-# with long scripts, is refused as a `FetchError`. The same bound holds the
-# mempool's txids at `-maxmempool`'s default, measured at about 1,180 octets
-# of the node's memory and 67 of reply each, and the outputs a scan reports,
-# about 365 octets each.
+# What a block or a scan may weigh as `get_history` reads it: five octets per
+# weight unit of the heaviest block. `tests/integration/history_test.py` holds
+# `getblock` at verbosity 3, against the Core release the integration job
+# runs, under five octets per weight unit for a block of standard spends of
+# bare 1-of-3 multisig outputs of uncompressed keys with short signatures, and
+# between three and five for a block of large witnesses, each witness octet
+# written twice as hex. A block whose rendering passes the bound is refused
+# as a `FetchError`.
+#
+# Nothing in the node bounds a scan: it reports every unspent output the
+# scripts hold. The same test module holds a P2WPKH one, its share of the
+# envelope included, under 400 octets, so the bound admits at least 50,000 of
+# them, fewer for longer scripts, and a larger scan is refused as a
+# `FetchError`. The scan shares the block's bound rather than taking one of
+# its own, no limit of the node's being there to derive one from.
 _MAX_LARGE_REPLY = 5 * MAX_BLOCK_WEIGHT
+
+# A floor on the octets of the node's memory a mempool entry costs, as
+# `getmempoolinfo` counts them. `tests/integration/history_test.py` holds two
+# clusters at the limit of 64 at or above it: a chain of small entries, over
+# all of its entries, and the small children of one parent, over the children
+# alone. Shapes the tests do not build may cost less, and the floor is not
+# shown to hold for them.
+_MEMPOOL_ENTRY_USAGE = 800
+
+# What the mempool's txids may weigh at `-maxmempool`'s default of 300 MB,
+# which counts the node's memory and not the transactions' size: as many
+# entries as fit at the floor above, each txid 67 octets of reply, the 64 hex
+# digits with their quotes and comma. A bound of its own, since it passes the
+# block's, and raising the block's to it would loosen the bound on blocks and
+# scans for nothing. The reply of a node with a larger `-maxmempool` can pass
+# it, and is refused as a `FetchError`.
+_MAX_MEMPOOL_REPLY = 300_000_000 // _MEMPOOL_ENTRY_USAGE * 67
 
 # the modes `estimatesmartfee` takes, which Core matches without regard to
 # ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
@@ -189,8 +210,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         `status` and the `code` across.
 
         `max_body_size` is omitted rather than passed as None when a
-        caller does not narrow it, so the client's own default -- the
-        widest ordinary answer -- is what applies.
+        caller does not set it, so the client's own default applies.
         """
         bound = {} if max_body_size is None else {"max_body_size": max_body_size}
         with client_errors():
@@ -366,9 +386,13 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         Core keeps no index by script, so this reads what a script is in.
         The blocks are `getblock` at verbosity 3, which names the script of
         the output each input spends, walked down from the tip through
-        `previousblockhash`: the walk stays on the chain of the tip it
-        read first, whatever the node switches to meanwhile. A block with
-        no undo data, such as a pruned one, is a `FetchError`.
+        `previousblockhash`: the walk stays on the chain of the tip it read
+        first, whatever the node switches to meanwhile. A block with no undo
+        data, such as a pruned one, is a `FetchError`. So is a block whose
+        rendering passes `_MAX_LARGE_REPLY`: it stops every call whose
+        range spans it. A scan past that bound, and a mempool reply past
+        `_MAX_MEMPOOL_REPLY`, such as one from a node with a larger
+        `-maxmempool`, are each a `FetchError` too.
 
         The mempool is `getrawmempool`, then `getrawtransaction` for each
         transaction; one the node no longer has by then is skipped. A
@@ -450,7 +474,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
 
     def _history_mempool(self, elements: frozenset[bytes], tip_id: str) -> list[Tx]:
         """Return the mempool's transactions touching `elements`."""
-        reply = self._call("getrawmempool", None, max_body_size=_MAX_LARGE_REPLY)
+        reply = self._call("getrawmempool", None, max_body_size=_MAX_MEMPOOL_REPLY)
         with fetch_errors("getrawmempool"):
             if not isinstance(reply, list):
                 raise BTClibTypeError(f"not an array: {type(reply).__name__}")
