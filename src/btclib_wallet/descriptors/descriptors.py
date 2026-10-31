@@ -719,19 +719,18 @@ def _taproot_derivations(
 
     Where one key is spelled more than once, an explicit origin beats one
     `_derived_origin` makes up, and then a plain key's origin beats a
-    participant's. Otherwise the first spelling's origin is the entry's.
-    Bitcoin Core keeps the entry of the first fragment that spells the key,
-    even a made-up one, because ``std::map::merge`` keeps an entry already
-    there. Inside one fragment, an explicit origin replaces the entry
-    there, so of two explicit origins Core keeps the later one.
+    participant's. Where those ranks tie, the first spelling's origin is
+    the entry's, inside one fragment too, as in `Descriptor._hd_key_paths`.
+    Bitcoin Core keeps the entry `Descriptor.provider` keeps, which inside
+    one fragment is the later of two explicit origins.
 
-    Here, as in `Descriptor._hd_key_paths`, the first of two explicit
-    origins stays, inside one fragment too. Core's later one wins only as
-    a side effect of the ``insert_or_assign`` that bitcoin/bitcoin@b42f7fade0
-    put in `OriginPubkeyProvider::GetPubKey`. That commit's message,
-    comment and tests state only that an explicit origin replaces an
-    implicit one, and no test or document of Core's spells one key with
-    two different explicit origins.
+    Core's later one wins as a side effect of the ``insert_or_assign`` that
+    bitcoin/bitcoin@b42f7fade0 put in `OriginPubkeyProvider::GetPubKey`.
+    That commit fixes the origin a participant got from two different
+    explicit origins, but neither it nor its pull request says which should
+    win; its comment and tests cover only an explicit origin replacing an
+    implicit one. No test of Core's spells one key with two different
+    explicit origins.
     """
     origins: dict[bytes, tuple[tuple[bool, bool], BIP32KeyOrigin]] = {}
     hashes: dict[bytes, list[bytes]] = {}

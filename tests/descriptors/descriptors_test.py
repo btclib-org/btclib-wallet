@@ -4905,7 +4905,7 @@ MUSIG_X_B = "6557fdda1d5d43d79611f784780471f086d58e8126b8c40acb82272a7712e7f2"
 GROUP_AB = f"musig([d34db33f/0h]{KEY_A},[d34db33f/1h]{KEY_B})"
 GROUP_AC = f"musig([d34db33f/0h]{KEY_A},[d34db33f/2h]{KEY_C})"
 # each `departures` entry is one this package writes differently on purpose,
-# for the reasons `_taproot_derivations` gives
+# by the rules `_taproot_derivations` states
 CORE_DERIVATIONS = [
     pytest.param(
         f"tr({GROUP_AB},{{pk({KEY_C}),pk({GROUP_AC})}})",
