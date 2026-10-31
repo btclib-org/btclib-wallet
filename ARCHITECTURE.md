@@ -175,7 +175,7 @@ it answers in btclib's own types, `Tx`, `TxOut` and `BlockHeader`.
 `BitcoinCoreFetcher` over a full node's JSON-RPC, `BitcoinCoreRestFetcher`
 over the same node's unauthenticated `-rest` interface, `EsploraFetcher`
 over a block explorer's HTTP API, `ElectrumFetcher` over an Electrum
-server, `CompactFilterFetcher` over a peer's BIP157 filters — so calling
+server, `CompactFilterFetcher` over peers' BIP157 filters — so calling
 code takes a `Fetcher` and never branches on which one it got.
 `CompactFilterFetcher`'s docstrings say what it serves of `Fetcher` and what
 its `scan_blocks` does.

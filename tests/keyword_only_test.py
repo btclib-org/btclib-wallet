@@ -228,6 +228,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.fetch:CompactFilterFetcher.scan_blocks": ["max_blocks"],
     "btclib_wallet.fetch:CompactFilterFetcher.__init__": [
         "transport",
+        "cross_check",
         "verify_network",
         "timeout",
     ],

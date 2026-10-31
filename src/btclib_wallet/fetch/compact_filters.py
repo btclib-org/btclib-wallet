@@ -2,10 +2,11 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""A BIP157/158 light client: the blocks that touch a wallet, from one peer.
+"""A BIP157/158 light client: the blocks that touch a wallet, from its peers.
 
 `CompactFilterFetcher` asks a peer for the header chain and for the BIP157
-filter header of every block, then for the BIP158 filter of every block in
+filter header of every block, compares those filter headers with the ones
+its other peers serve, then asks for the BIP158 filter of every block in
 the range being scanned, and downloads only the blocks whose filter may
 hold one of the scripts it was given.
 
@@ -13,7 +14,7 @@ hold one of the scripts it was given.
 the filter; `PeerTransport` is the socket. This module is the protocol
 over them.
 
-**What is checked, what one peer can still do, and what the headers
+**What is checked, what its peers can still do, and what the headers
 presync costs a first synchronization** is stated once, in `SECURITY.md`,
 under *A backend is trusted, and not every backend alike*.
 
@@ -24,7 +25,9 @@ reached (`ProcessGetCFHeaders` and `ProcessGetCFilters` of
 index, and briefly after each new block. A reorganization whose fork
 point is a full `headers` message or more above the locator hash below it
 is not followed: the peer then sends a batch of headers already held, and
-the synchronization stops.
+the synchronization stops. A `cross_check` peer that does not hold the tip
+yet is disconnected by Bitcoin Core (`PrepareBlockFilterRequest` of
+`net_processing.cpp`), and the call fails.
 
 **What a filter client cannot serve.** `get_tx` raises `FetchError`: Bitcoin
 Core serves a transaction by id only from its mempool and from its latest
@@ -33,13 +36,14 @@ holds the transactions of the blocks it downloaded and no others.
 `get_tx_out` is the interface's derivation from `get_tx` and raises with
 it.
 
-**One peer, one thread.** The connection is opened by the first call and
-greeted with a `version` exchange; a `FetchError` closes it, and the next
-call opens it again and keeps the chain already held. Bitcoin Core drops
-a connection idle for its `TIMEOUT_INTERVAL` (`CConnman::InactivityCheck`
-of `net.cpp`), and the fetcher answers no ping between calls, so the
-first call after an idle stretch raises `FetchError` and the next one
-reconnects. Calls are not safe to make from two threads.
+**One thread.** A connection is opened by the first call that needs it
+and greeted with a `version` exchange; a `FetchError` closes every
+connection, and the next call opens them again and keeps the chain already
+held. Bitcoin Core drops a connection idle for its `TIMEOUT_INTERVAL`
+(`CConnman::InactivityCheck` of `net.cpp`), and the fetcher answers no
+ping between calls, so the first call after an idle stretch raises
+`FetchError` and the next one reconnects. Calls are not safe to make from
+two threads.
 
 **`verify_network`** is `assert_network`, whose docstring says what it asks.
 """
@@ -48,7 +52,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from copy import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -59,6 +63,7 @@ from typing import Self
 from btclib.alias import Octets
 from btclib.block.block import Block
 from btclib.block.block_context import BlockContext
+from btclib.block.block_filter import BASIC_FILTER_M, BasicBlockFilter
 from btclib.block.block_header import BlockHeader
 from btclib.block.genesis import genesis_block
 from btclib.block.header_context import (
@@ -73,12 +78,15 @@ from btclib.exceptions import (
     BTClibValueError,
     FetchError,
 )
+from btclib.hashes import siphash
 from btclib.network import NETWORKS
 from btclib.p2p import (
     BlockFilterType,
     BlockPayload,
+    CFCheckpt,
     CFHeaders,
     CFilter,
+    GetCFCheckpt,
     GetCFHeaders,
     GetCFilters,
     GetData,
@@ -103,6 +111,7 @@ from btclib.p2p.headers_sync import (
     anti_dos_work_threshold,
 )
 from btclib.p2p.limits import (
+    CFCHECKPT_INTERVAL,
     MAX_GETCFHEADERS_SIZE,
     MAX_GETCFILTERS_SIZE,
     MAX_HEADERS_RESULTS,
@@ -134,6 +143,8 @@ _BASIC = BlockFilterType.BASIC
 
 _NO_FILTER_HEADER = bytes(32)
 
+_OP_RETURN = 0x6A
+
 # the default max_blocks of scan_blocks, whose docstring says why; a block
 # is up to 4 MB
 _MAX_BLOCKS = 100
@@ -154,13 +165,86 @@ class _LowWorkSync:
     height: int
 
 
+class _SelfContradictionError(Exception):
+    """A peer whose `cfcheckpt` and `cfheaders` cannot both be true."""
+
+
+class _Peer:
+    """A connection to one peer: its transport, and whether it is greeted."""
+
+    def __init__(self, transport: PeerTransport) -> None:
+        """Wrap a transport not greeted yet."""
+        self.transport = transport
+        self.greeted = False
+
+
+def _assert_transport(transport: object) -> None:
+    """Refuse an object that is not a `PeerTransport`."""
+    if not all(
+        callable(getattr(transport, name, None))
+        for name in ("send", "receive", "close")
+    ):
+        raise BTClibTypeError(f"not a peer transport: {transport!r}")
+
+
+def _output_scripts(block: Block) -> set[bytes]:
+    """Return the output scripts of a block that its basic filter holds.
+
+    Every script but an empty one and one starting with `OP_RETURN`, as
+    Bitcoin Core's `BasicFilterElements` (`src/blockfilter.cpp`) takes them.
+    """
+    return {
+        out.script_pub_key.script
+        for tx in block.transactions
+        for out in tx.vout
+        if out.script_pub_key.script and out.script_pub_key.script[0] != _OP_RETURN
+    }
+
+
+def _holds_all(filter_: BasicBlockFilter, scripts: set[bytes]) -> bool:
+    """Return whether a filter may hold every one of `scripts`.
+
+    The filter is decoded once, and each script hashed into its range as
+    BIP158's `hash_to_range` does: SipHash-2-4, keyed by the first 16
+    bytes of the block hash in internal order, times the element count
+    times `BASIC_FILTER_M`, shifted right by 64. `match` decodes the
+    filter on each call, which over every output of a large block is
+    quadratic. btclib publishes `siphash` and the element hashes, and
+    keeps the key and the range private.
+    """
+    internal = filter_.block_hash[::-1]
+    k0 = int.from_bytes(internal[:8], byteorder="little")
+    k1 = int.from_bytes(internal[8:16], byteorder="little")
+    bound = filter_.element_count * BASIC_FILTER_M
+    held = set(filter_.element_hashes)
+    return all((siphash(k0, k1, script) * bound) >> 64 in held for script in scripts)
+
+
+def _close_transport(transport: PeerTransport) -> None:
+    """Close a transport, its failure translated as any other's."""
+    with client_errors():
+        transport.close()
+
+
+def _close_all(peers: list[_Peer]) -> None:
+    """Close every peer, in order, even where closing one fails.
+
+    Once every peer has been closed, the last failure is raised, any
+    earlier one chained to it.
+    """
+    with ExitStack() as stack:
+        for peer in reversed(peers):
+            peer.greeted = False
+            stack.callback(_close_transport, peer.transport)
+
+
 class CompactFilterFetcher(NetworkVerifyingFetcher):
     """The blocks that touch some scripts, found by BIP158 filters.
 
     `scan_blocks` is the reason to use it, and `sync` is the part of it
     that costs: the headers and the filter headers of the whole chain,
     kept for the life of the fetcher. `SECURITY.md` says what is checked
-    and what a single peer can still do.
+    and what its peers can still do.
 
     The `Fetcher` questions that a header chain answers are served from
     it, synchronized on each call: `get_block_count`, `get_best_block_id`
@@ -172,7 +256,15 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     package's decision. `TcpPeerTransport(host, port)` is the one shipped,
     and closes its connection when used as a context manager.
 
-    `timeout` is the seconds each exchange with the peer may take -- the
+    `cross_check` is more peers, none by default. Their filter headers are
+    compared with those `transport` served at every `sync` and
+    `scan_blocks`, as BIP157's *Client Operation* recommends, and
+    `SECURITY.md` says how a disagreement is settled. A peer that served
+    a wrong filter is closed and dropped: it leaves `cross_check`, or, if
+    it was `transport`, the first peer of `cross_check` becomes
+    `transport`.
+
+    `timeout` is the seconds each exchange with a peer may take -- the
     greeting, one request and all of its answers, or one block of a
     download -- and not a whole `scan_blocks`, which makes many.
     """
@@ -182,16 +274,23 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         network: str = "mainnet",
         *,
         transport: PeerTransport,
+        cross_check: Iterable[PeerTransport] = (),
         verify_network: bool = True,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         super().__init__(network, verify_network=verify_network)
-        if not all(
-            callable(getattr(transport, name, None))
-            for name in ("send", "receive", "close")
-        ):
-            raise BTClibTypeError(f"not a peer transport: {transport!r}")
-        self.transport = transport
+        if not isinstance(cross_check, Iterable):
+            err_msg = f"not an iterable of transports: {type(cross_check).__name__}"  # type: ignore[unreachable]
+            raise BTClibTypeError(err_msg)
+        transports = [transport, *cross_check]
+        for each in transports:
+            _assert_transport(each)
+        if len({id(each) for each in transports}) < len(transports):
+            raise BTClibValueError("a peer transport named twice")
+        # the peers, the first being the one that serves the chain, the
+        # filters and the blocks; and the one the next message goes to
+        self._peers = [_Peer(each) for each in transports]
+        self._speaker = self._peers[0]
         # checked here for a transport of the caller's that checks nothing
         self.timeout = valid_timeout(timeout)
         self._magic = magic_from_network(self.network)
@@ -209,7 +308,16 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         self._height_of = {genesis.hash: 0}
         # the filter header of each block, by height, as far as synchronized
         self._filter_headers: list[bytes] = []
-        self._greeted = False
+
+    @property
+    def transport(self) -> PeerTransport:
+        """Return the transport of the peer that serves the chain."""
+        return self._peers[0].transport
+
+    @property
+    def cross_check(self) -> list[PeerTransport]:
+        """Return the transports of the peers that check the filter headers."""
+        return [peer.transport for peer in self._peers[1:]]
 
     def __enter__(self) -> Self:
         """Return this fetcher."""
@@ -225,10 +333,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         self.close()
 
     def close(self) -> None:
-        """Close the connection to the peer, keeping the chain held."""
-        self._greeted = False
-        with client_errors():
-            self.transport.close()
+        """Close the connection to every peer, keeping the chain held."""
+        _close_all(self._peers)
 
     # the connection
 
@@ -251,13 +357,13 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         message = payload.to_message(self._magic)
         remaining = self._remaining(deadline)
         with client_errors():
-            self.transport.send(message, remaining)
+            self._speaker.transport.send(message, remaining)
 
     def _next(self, deadline: float) -> Message:
         """Return the next message of the peer, refusing another network's."""
         remaining = self._remaining(deadline)
         with client_errors():
-            message = self.transport.receive(remaining)
+            message = self._speaker.transport.receive(remaining)
         if message.magic != self._magic:
             err_msg = f"message start {message.magic.hex()} is not"
             err_msg += f" {self.network}'s {self._magic.hex()}"
@@ -312,23 +418,37 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 raise FetchError("the peer does not serve the whole chain")
             self._send(Verack(), deadline)
             have_version = True
-        self._greeted = True
+        self._speaker.greeted = True
+
+    def _use(self, peer: _Peer) -> None:
+        """Send the next messages to `peer`, greeting it first if need be."""
+        self._speaker = peer
+        if not peer.greeted:
+            self._greet()
 
     @contextmanager
     def _session(self) -> Iterator[None]:
-        """Greet the peer if it is not greeted, and drop it on a failure.
+        """Speak to the peer that serves the chain, closing all on a failure.
 
-        A `FetchError` can leave the stream in the middle of a message,
-        and a peer that sent a wrong answer is not asked again on the
-        same connection.
+        A `FetchError` can leave a stream in the middle of a message, and a
+        peer that sent a wrong answer is not asked again on the same
+        connection.
         """
         try:
-            if not self._greeted:
-                self._greet()
+            self._use(self._peers[0])
             yield
         except FetchError:
             self.close()
             raise
+
+    @contextmanager
+    def _speaking_to(self, peer: _Peer) -> Iterator[None]:
+        """Send the next messages to `peer`, and to the serving peer after."""
+        try:
+            self._use(peer)
+            yield
+        finally:
+            self._speaker = self._peers[0]
 
     # the header chain
 
@@ -630,30 +750,175 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
 
     # the filter headers and the filters
 
+    def _request_filter_headers(self, start: int, stop: int) -> tuple[bytes, ...]:
+        """Return the filter headers from `start` to `stop`, in one request.
+
+        They chain from the filter header held below `start`.
+        """
+        deadline = self._deadline()
+        self._send(GetCFHeaders(_BASIC, start, self._hashes[stop]), deadline)
+        message = self._receive((CFHeaders.command,), deadline)
+        with fetch_errors("cfheaders"):
+            reply = CFHeaders.parse(message.payload)
+        previous = self._filter_headers[start - 1] if start else _NO_FILTER_HEADER
+        if (
+            reply.filter_type != _BASIC
+            or reply.stop_hash != self._hashes[stop]
+            or reply.previous_filter_header != previous
+            or len(reply.filter_hashes) != stop - start + 1
+        ):
+            raise FetchError("cfheaders that do not answer the request")
+        return reply.filter_headers
+
     def _sync_filter_headers(self) -> None:
         """Ask for the filter header of every block that has none yet."""
         while len(self._filter_headers) < len(self._hashes):
             start = len(self._filter_headers)
             stop = min(start + MAX_GETCFHEADERS_SIZE, len(self._hashes)) - 1
-            deadline = self._deadline()
-            self._send(GetCFHeaders(_BASIC, start, self._hashes[stop]), deadline)
-            message = self._receive((CFHeaders.command,), deadline)
-            with fetch_errors("cfheaders"):
-                reply = CFHeaders.parse(message.payload)
-            previous = self._filter_headers[start - 1] if start else _NO_FILTER_HEADER
-            if (
-                reply.filter_type != _BASIC
-                or reply.stop_hash != self._hashes[stop]
-                or reply.previous_filter_header != previous
-                or len(reply.filter_hashes) != stop - start + 1
-            ):
-                raise FetchError("cfheaders that do not answer the request")
-            self._filter_headers.extend(reply.filter_headers)
+            self._filter_headers.extend(self._request_filter_headers(start, stop))
+
+    def _checkpoints(self, tip: int) -> tuple[bytes, ...]:
+        """Return the filter headers of every `CFCHECKPT_INTERVAL` blocks."""
+        deadline = self._deadline()
+        self._send(GetCFCheckpt(_BASIC, self._hashes[tip]), deadline)
+        message = self._receive((CFCheckpt.command,), deadline)
+        with fetch_errors("cfcheckpt"):
+            reply = CFCheckpt.parse(message.payload)
+        if (
+            reply.filter_type != _BASIC
+            or reply.stop_hash != self._hashes[tip]
+            or len(reply.filter_headers) != tip // CFCHECKPT_INTERVAL
+        ):
+            raise FetchError("cfcheckpt that does not answer the request")
+        return reply.filter_headers
+
+    def _first_difference(self, tip: int) -> tuple[int, bytes] | None:
+        """Return the first height, and filter header, that differ from ours.
+
+        None if the peer agrees up to the tip. Its checkpoints are compared
+        first, and then its filter headers from the last one it agrees on
+        to the first one it does not, or to the tip. Raises
+        `_SelfContradictionError` where its filter headers match ours at a
+        checkpoint height whose `cfcheckpt` entry does not.
+        """
+        start, stop, parted = 0, tip, False
+        for index, checkpoint in enumerate(self._checkpoints(tip), 1):
+            height = index * CFCHECKPT_INTERVAL
+            if checkpoint != self._filter_headers[height]:
+                stop, parted = height, True
+                break
+            start = height + 1
+        while start <= stop:
+            end = min(start + MAX_GETCFHEADERS_SIZE, stop + 1) - 1
+            headers = self._request_filter_headers(start, end)
+            for height, header in enumerate(headers, start):
+                if header != self._filter_headers[height]:
+                    return height, header
+            start = end + 1
+        if parted:
+            raise _SelfContradictionError
+        return None
+
+    def _request_filter(self, height: int) -> BasicBlockFilter:
+        """Return the filter of the block at `height`."""
+        deadline = self._deadline()
+        self._send(GetCFilters(_BASIC, height, self._hashes[height]), deadline)
+        message = self._receive((CFilter.command,), deadline)
+        with fetch_errors(f"cfilter {height}"):
+            reply = CFilter.parse(message.payload)
+            if reply.filter_type != _BASIC or reply.block_hash != self._hashes[height]:
+                raise BTClibValueError("not the filter asked for")
+            return reply.basic_filter
+
+    def _settle(self, height: int, peer: _Peer, header: bytes) -> None:
+        """Drop the peers that served a wrong filter at `height`.
+
+        `peer` served `header` there, and the serving peer the one held. A
+        filter is wrong where it does not hash to the filter header its
+        peer served, or leaves out an output script of the block. A block
+        does not carry the scripts its inputs spend, which its filter holds
+        too, so two filters that are not wrong that way are a `FetchError`.
+        """
+        serving = self._peers[0]
+        scripts = _output_scripts(self._settling_block(height, [serving, peer]))
+        previous = self._filter_headers[height - 1] if height else _NO_FILTER_HEADER
+        wrong = []
+        for each, served in ((serving, self._filter_headers[height]), (peer, header)):
+            with self._speaking_to(each):
+                filter_ = self._request_filter(height)
+            if filter_.header(previous) != served or not _holds_all(filter_, scripts):
+                wrong.append(each)
+        if not wrong:
+            index = self._peers.index(peer) - 1
+            err_msg = f"cross_check[{index}] and transport disagree on the filter"
+            err_msg += f" of block {height}, and the block does not say"
+            err_msg += " which one is wrong"
+            raise FetchError(err_msg)
+        if len(wrong) == len(self._peers):
+            raise FetchError(f"every peer served a wrong filter of block {height}")
+        # the chain held forgets the wrong peers before any of them is
+        # closed, so that a failure to close one leaves none of them in it
+        if serving in wrong:
+            del self._filter_headers[height:]
+        self._drop(wrong)
+
+    def _settling_block(self, height: int, peers: list[_Peer]) -> Block:
+        """Return the block at `height`, from the first of `peers` serving it.
+
+        `_blocks` checks it as every block it downloads, against the header
+        held and with `Block.assert_valid_contextual` at its height, so any
+        peer's copy will do. A peer that does not serve it is closed and the
+        next one asked: the peer that served the chain cannot hide the block
+        that would show its filter wrong.
+        """
+        for each in peers[:-1]:
+            try:
+                with self._speaking_to(each):
+                    return self._blocks([height])[height]
+            except FetchError:
+                # its stream may stop mid-message; what failed is the block
+                with suppress(FetchError):
+                    _close_all([each])
+        with self._speaking_to(peers[-1]):
+            return self._blocks([height])[height]
+
+    def _drop(self, peers: list[_Peer]) -> None:
+        """Forget peers that lied, then close them."""
+        for each in peers:
+            self._peers.remove(each)
+        _close_all(peers)
+
+    def _cross_check(self, tip: int) -> bool:
+        """Compare the filter headers held with those of every other peer.
+
+        Returns whether the peer that served them was dropped, which leaves
+        them held only below the height it was dropped for.
+        """
+        for peer in self._peers[1:]:
+            try:
+                with self._speaking_to(peer):
+                    found = self._first_difference(tip)
+            except _SelfContradictionError:
+                self._drop([peer])
+                continue
+            if found is not None:
+                serving = self._peers[0]
+                self._settle(found[0], peer, found[1])
+                if serving not in self._peers:
+                    return True
+        return False
 
     def _sync(self) -> int:
-        """Synchronize the headers and the filter headers, returning the tip."""
+        """Synchronize the headers and the filter headers, returning the tip.
+
+        The filter headers are compared with every other peer's, and asked
+        again of the next peer where the one that served them is dropped.
+        """
         tip = self._sync_headers()
         self._sync_filter_headers()
+        while self._cross_check(tip):
+            self._use(self._peers[0])
+            self._sync_filter_headers()
         return tip
 
     def _matching_heights(
@@ -702,7 +967,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         while wanted:
             message = self._receive((BlockPayload.command, NotFound.command), deadline)
             if message.command == NotFound.command:
-                raise FetchError("the peer does not hold a block its filter matched")
+                raise FetchError("the peer does not hold a block asked for")
             with fetch_errors("block"):
                 block = BlockPayload.parse(message.payload, check_validity=False).block
                 height = wanted.pop(block.header.hash, -1)
@@ -765,15 +1030,16 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         the outputs it spends. The scripts are `ScriptPubKey` objects or
         their octets.
 
-        `max_blocks` bounds the blocks one call downloads and holds: a
-        peer serving filters that match every block would otherwise
-        decide how much memory the call takes. Filters are read
-        `MAX_GETCFILTERS_SIZE` heights at a time, and the matching blocks
-        of each batch are downloaded before the next batch is read. The
-        call raises `FetchError` before downloading a batch whose matches
-        would pass the bound, by which time the earlier batches' blocks
-        are downloaded. A caller with more matches raises `max_blocks` or
-        scans in ranges.
+        `max_blocks` bounds the matching blocks one call downloads and holds: a
+        peer serving filters that match every block would otherwise decide how
+        much memory the call takes. The block that settles a disagreement
+        between peers is outside the bound, and `SECURITY.md` says how it is
+        downloaded. Filters are read `MAX_GETCFILTERS_SIZE` heights at a time,
+        and the matching blocks of each batch are downloaded before the next
+        batch is read. The call raises `FetchError` before downloading a batch
+        whose matches would pass the bound, by which time the earlier batches'
+        blocks are downloaded. A caller with more matches raises `max_blocks`
+        or scans in ranges.
         """
         if not is_integer(max_blocks):
             raise BTClibTypeError(

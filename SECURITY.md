@@ -170,19 +170,18 @@ used to teach and to prototype as much as to build.
 
 ## A backend is trusted, and not every backend alike
 
-- **Each `btclib_wallet.fetch` backend asks by default which chain it is
-    talking to**, through `verify_network`, and they do not ask the same
-    question. The Bitcoin Core backends talk to a node that validated the
-    chain it reports, and `signet_challenge` holds them to one signet;
-    `-rest` authenticates nobody who reaches it, so that endpoint is
-    trusted on whoever handed it over. `EsploraFetcher` and
-    `ElectrumFetcher` talk to a host that says it validated, and compare
-    the genesis block against the one the network names, which cannot
-    tell two signets apart. `CompactFilterFetcher` compares the parent of
-    the first block its peer serves with that genesis block too, and
-    refuses a message that does not start with the network's message start
-    bytes. For signet those are the default signet's, so a peer on a
-    signet of its own is refused.
+- **Each `btclib_wallet.fetch` backend asks by default which chain it is talking
+    to**, through `verify_network`, and they do not ask the same question. The
+    Bitcoin Core backends talk to a node that validated the chain it reports,
+    and `signet_challenge` holds them to one signet; `-rest` authenticates
+    nobody who reaches it, so that endpoint is trusted on whoever handed it
+    over. `EsploraFetcher` and `ElectrumFetcher` talk to a host that says it
+    validated, and compare the genesis block against the one the network names,
+    which cannot tell two signets apart. `CompactFilterFetcher` compares the
+    parent of the first block its `transport` peer serves with that genesis
+    block too, and refuses a message that does not start with the network's
+    message start bytes. For signet those are the default signet's, so a peer on
+    a signet of its own is refused.
 - **The answers a fetch makes are checked to different degrees.** A
     transaction's id is recomputed from the bytes that came back and
     refused unless it matches, and an output's amount is derived from
@@ -213,47 +212,63 @@ used to teach and to prototype as much as to build.
     is the trade the Esplora backend's fallback makes: it cannot say a
     transaction is confirmed. `TlsLineTransport` verifies the server's
     certificate and host name by default.
-- **`CompactFilterFetcher` checks the chain it follows and trusts one peer
-    for the rest.** Every header connects to the one before it, carries the
-    work its bits claim and carries the bits the retarget rules require
-    (`btclib.block.header_context.next_bits_required`). Its time is after
-    the median time past of its parent, no more than two
-    hours ahead of the clock, and where the network enforces BIP94 not far
-    behind its parent at a retarget. No chain with less work than the
-    network's `minimum_chain_work` is followed: a call that ends on one fails,
-    and a later synchronization completes it or drops it. Until a chain has
-    the minimum work, its headers are downloaded without being kept, as
-    Bitcoin Core's headers presync does: the memory is a bit for every few
-    hundred headers, and the longest chain the rules allow at the time of
-    the clock bounds those bits. The chain is then downloaded again, and a
-    header is kept only once enough later ones have matched the commitments
-    of the first download, or once the chain has the work the first download
-    needed. A peer can still make the fetcher download as
-    many low-work headers as it has mined, up to that bound. A header's
-    version is checked only in a block that is downloaded. A fork is
-    followed only if it ends with more work than the chain it displaces;
-    otherwise the chain held is put back if it has the minimum work, and
-    dropped if not. Every
+- **`CompactFilterFetcher` checks the chain it follows and trusts its peers for
+    the rest.** Every header connects to the one before it, carries the work its
+    bits claim and carries the bits the retarget rules require
+    (`btclib.block.header_context.next_bits_required`). Its time is after the
+    median time past of its parent, no more than two hours ahead of the clock,
+    and where the network enforces BIP94 not far behind its parent at a
+    retarget. No chain with less work than the network's `minimum_chain_work` is
+    followed: a call that ends on one fails, and a later synchronization
+    completes it or drops it. Until a chain has the minimum work, its headers
+    are downloaded without being kept, as Bitcoin Core's headers presync does:
+    the memory is a bit for every few hundred headers, and the longest chain the
+    rules allow at the time of the clock bounds those bits. The chain is then
+    downloaded again, and a header is kept only once enough later ones have
+    matched the commitments of the first download, or once the chain has the
+    work the first download needed. A peer can still make the fetcher download
+    as many low-work headers as it has mined, up to that bound. A header's
+    version is checked only in a block that is downloaded. A fork is followed
+    only if it ends with more work than the chain it displaces; otherwise the
+    chain held is put back if it has the minimum work, and dropped if not. Every
     `cfheaders` answers the request it came from and chains from the filter
     header held. Every `cfilter` is the filter of the block asked for and
-    hashes, chained to the filter header before it, to the filter header
-    held. Every block downloaded is one that was asked for, whose header is
-    the one in the chain and which passes `Block.assert_valid_structure`
-    (its merkle root and witness commitment among the checks) and
-    `Block.assert_valid_contextual` at its height. The filter
-    headers are the peer's word: BIP157 compares them with the checkpoints
-    of other peers, this fetcher has one, and a peer that lies in them can
-    hide a block that pays the wallet. A peer can hold back the network's
-    newer blocks and serve blocks of its own on the tip it showed, and
-    invent a payment in them; that costs the work of those blocks, not a
-    majority of the network's. On signet nothing checks the signature that
-    makes a block authoritative, so the work of those blocks is signet's low
-    difficulty. A block with a witness changed or removed is refused, one
-    with every witness removed included: its coinbase commits to witnesses
-    and carries no nonce for them. The peer also decides which blocks are
-    downloaded, up to the `max_blocks` of the call, and sees which they are;
-    it is given no script. Use a peer you trust, or run several fetchers and
-    compare.
+    hashes, chained to the filter header before it, to the filter header held.
+    Every block downloaded is one that was asked for, whose header is the one in
+    the chain and which passes `Block.assert_valid_structure` (its merkle root
+    and witness commitment among the checks) and `Block.assert_valid_contextual`
+    at its height. The filter headers are compared with those of each
+    `cross_check` peer: its `cfcheckpt` up to the tip, then its `cfheaders` from
+    the last checkpoint it agrees on to the first it does not, or to the tip. At
+    the first height where they differ, the block is downloaded, from the
+    `transport` peer or, where it does not serve it, from the other, and both
+    peers are asked for its filter. A peer whose filter does not hash to the
+    filter header it served, or leaves out one of the block's output scripts, is
+    dropped, unless that would drop every peer, which is a `FetchError`. A
+    `cross_check` peer whose `cfheaders` agree with ours at a checkpoint height
+    where its own `cfcheckpt` does not is dropped too. A filter also holds the
+    scripts the block's inputs spend, which the block does not carry, so a
+    disagreement that neither filter fails that way is a `FetchError`, and so is
+    a peer that does not answer. The `FetchError` of a disagreement gives the
+    `cross_check` peer's index in `cross_check` as the error leaves it. Where
+    every peer lies alike, or there is no `cross_check` peer, the filter headers
+    are the word of the peer that served them, and a peer that lies in them can
+    hide a block that pays the wallet. A peer can hold back the network's newer
+    blocks and serve blocks of its own on the tip it showed, and invent a
+    payment in them; that costs the work of those blocks, not a majority of the
+    network's. On signet nothing checks the signature that makes a block
+    authoritative, so the work of those blocks is signet's low difficulty. A
+    block with a witness changed or removed is refused, one with every witness
+    removed included: its coinbase commits to witnesses and carries no nonce for
+    them. The `transport` peer also decides which blocks a scan downloads, up to
+    the `max_blocks` of the call, and sees which they are; it is given no
+    script. Settling a disagreement keeps one block more, the one at the height
+    where two peers' filter headers part, and asks for it at most twice: of a
+    second peer where the first does not serve it. A `cross_check` peer sees the
+    tip and, where its filter headers part from the `transport` peer's, a
+    `cfilter` request at that height and perhaps a request for that block;
+    nothing it sees comes from the wallet's scripts. Use a peer you trust, or
+    cross-check it with peers run by others.
 - **An explorer learns every txid, outpoint and address you look up**,
     which is a good deal of what a wallet is. A public deployment is named
     as a constant and never as a default, so nothing here contacts anyone
