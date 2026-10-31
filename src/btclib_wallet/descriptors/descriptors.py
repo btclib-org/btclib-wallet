@@ -110,13 +110,6 @@ keys and scripts. `Descriptor.provider` is what a descriptor expanded at
 an index knows. `scantxoutset` infers with the providers of every index
 of its range, merged in order.
 
-`account_descriptors` is the other way in, for the one shape a wallet
-exports rather than reads: the receive and change descriptors of a BIP44
-account, built from an account xpub and the master fingerprint of the key
-it came from. The purpose says which of the four encodings the account
-means, which is `bip44`'s mapping and is taken from there rather than
-copied -- this module imports that one and `bip44` imports nothing back.
-
 `normalized` is the other direction Bitcoin Core has, its
 `ToNormalizedString`: the same descriptor with the xpub at each last
 hardened step and the hardened prefix moved into the key origin, so that
@@ -152,8 +145,6 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, ripemd160
 from btclib.key import PubKeyData
 from btclib.network import (
-    NETWORKS,
-    network_from_xkeyversion,
     normalized_network_name,
     validated_network_name,
 )
@@ -176,8 +167,6 @@ from ecc.hashes import tagged_hash
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
-    BIP32Key,
-    BIP32KeyData,
     _derive,
     _key_data_from_bip32_key,
     _xpub_from_xprv,
@@ -186,18 +175,9 @@ from btclib_wallet.bip32.bip32 import (
 from btclib_wallet.bip32.der_path import (
     _HARDENED_OFFSET,
     _HARDENING,
-    DerPath,
     _int_from_digits,
-    indexes_from_der_path,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.bip44 import (
-    BIP44ScriptType,
-    _assert_valid_account_path,
-    _assert_valid_coin_type,
-    _indexes_left_to_derive,
-    _script_type_from_purpose,
-)
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
@@ -250,7 +230,6 @@ __all__ = [
     "TrDescriptor",
     "WpkhDescriptor",
     "WshDescriptor",
-    "account_descriptors",
     "add_checksum",
     "at_index",
     "checksum",
@@ -3971,13 +3950,13 @@ def _paired_chain_digits(
     """Return the receive and change chain digits a paired suffix picks between.
 
     Each side is exactly one explicit, unhardened step before an
-    unhardened wildcard -- `account_descriptors`' own receive/change
-    shape, and the only trailing path BIP388's `/<M;N>/*` grammar allows
-    in front of one, whose own grammar spells `NUM` as "representing
-    unhardened derivations". The two digits are BIP388's own requirement
-    too: "two distinct decimal numbers", the receive and the change
-    descriptor naming the same account key at the same depth being no
-    policy at all.
+    unhardened wildcard -- `bip44.account_descriptors`' own
+    receive/change shape, and the only trailing path BIP388's `/<M;N>/*`
+    grammar allows in front of one, whose own grammar spells `NUM` as
+    "representing unhardened derivations". The two digits are BIP388's
+    own requirement too: "two distinct decimal numbers", the receive and
+    the change descriptor naming the same account key at the same depth
+    being no policy at all.
     """
     for key in (recv_key, chg_key):
         if (
@@ -4093,15 +4072,16 @@ def wallet_policy(
     `wallet_policy_descriptor` reads back.
 
     `change` is the account's change descriptor, `descriptor` its receive
-    one -- `account_descriptors`' own pair, or two built by hand the same
-    way. Given one, this writes BIP388's own `/<M;N>/*` (`/**` where the
-    pair is `<0;1>`), the shorthand its Test Vectors use throughout:
-    `descriptor` and `change` must share every function, threshold and
-    tree shape (`_skeleton` is the check), and must differ, key by key,
-    in nothing but one explicit, unhardened step in front of the wildcard
-    -- BIP389's own two-element multipath, read back out of two already
-    single-path descriptors rather than out of the `<a;b>` text
-    `multipath_descriptors` expands away before either one is parsed.
+    one -- `bip44.account_descriptors`' own pair, or two built by hand
+    the same way. Given one, this writes BIP388's own `/<M;N>/*` (`/**`
+    where the pair is `<0;1>`), the shorthand its Test Vectors use
+    throughout: `descriptor` and `change` must share every function,
+    threshold and tree shape (`_skeleton` is the check), and must differ,
+    key by key, in nothing but one explicit, unhardened step in front of
+    the wildcard -- BIP389's own two-element multipath, read back out of
+    two already single-path descriptors rather than out of the `<a;b>`
+    text `multipath_descriptors` expands away before either one is
+    parsed.
 
     Left at its default, `change` is None and `descriptor` is read alone:
     the only placeholder this writes then is the plain, unhardened `/*`
@@ -4283,150 +4263,3 @@ def wallet_policy_address(
     """
     descriptor = wallet_policy_descriptor(template, key_info, multipath_index, network)
     return descriptor.address(index)
-
-
-# BIP44's fourth level, the two chains every wallet keeps: 0 receives and
-# 1 is change, which is the only difference between the pair below
-_RECEIVE_CHAIN = 0
-_CHANGE_CHAIN = 1
-
-# what a standard account descriptor is, per script type: the fragment
-# built around one ranged key expression. Keyed by BIP44ScriptType, so
-# this table and `bip44`'s two are checked against each other -- a fifth
-# script type is a key mypy does not know.
-#
-# Lambdas because `network` is keyword-only on `Descriptor`, so a fragment
-# class cannot be the value directly, and because ``sh(wpkh())`` is two
-# fragments where the others are one
-_DESCRIPTOR_FROM_SCRIPT_TYPE: dict[
-    BIP44ScriptType, Callable[[KeyExpression, str], Descriptor]
-] = {
-    "p2pkh": lambda key, network: PkhDescriptor(key, network=network),
-    "p2wpkh-p2sh": lambda key, network: ShDescriptor(
-        WpkhDescriptor(key, network=network), network=network
-    ),
-    "p2wpkh": lambda key, network: WpkhDescriptor(key, network=network),
-    "p2tr": lambda key, network: TrDescriptor(key, network=network),
-}
-
-
-def _account_xpub(xkey: BIP32KeyData, indexes: list[int]) -> str:
-    """Return the account xpub, derived from the key if it is above it.
-
-    Neutered whatever was handed in, as `parse` neuters what it reads: a
-    descriptor holds no key that signs, and nothing below an account level
-    hardens, so the xpub computes every script the pair describes.
-
-    The version bytes are BIP32's, whichever the key arrived in. A SLIP132
-    ypub or zpub says which script type its keys are for, which is what the
-    descriptor function says: the two spellings would then be one claim
-    made twice, and a descriptor holding a zpub is one no other
-    implementation reads -- Bitcoin Core decodes the BIP32 versions and
-    nothing else. Same key, same scripts, one spelling of it.
-    """
-    network = NETWORKS[network_from_xkeyversion(xkey.version)]
-    version = network.bip32_prv if xkey.is_private else network.bip32_pub
-    # the private pair, `xkey` being validated already: the public
-    # `derive` would serialize to base58 for `xpub_from_xprv` to decode
-    # straight back, and each of the four steps would validate
-    derived = _derive(xkey, _indexes_left_to_derive(xkey, indexes), version)
-    account = _xpub_from_xprv(derived) if xkey.is_private else derived
-    return account.b58encode()
-
-
-def _account_fingerprint(
-    xkey: BIP32KeyData, master_fingerprint: Octets | None
-) -> bytes:
-    """Return the master fingerprint of the key origin, checking what it can.
-
-    Computed from the key only when the key *is* the master one, at depth
-    zero: the fingerprint of a key at any other depth is that key's, not
-    its master's, and a key origin naming it would send a signer looking
-    for a master key nobody has. So a key already below the root has to be
-    told, and where the caller says it too the two must agree -- one of
-    them would otherwise be silently preferred, and neither is more likely
-    to be right.
-    """
-    own = fingerprint(xkey.b58encode()) if xkey.depth == 0 else None
-    if master_fingerprint is None:
-        if own is None:
-            err_msg = "no master fingerprint: a key below the root cannot say"
-            err_msg += " which master key it came from"
-            raise BTClibValueError(err_msg)
-        return own
-    given = bytes_from_octets(master_fingerprint, 4)
-    if own is not None and own != given:
-        err_msg = f"master fingerprint {given.hex()} is not the key's own"
-        err_msg += f" {own.hex()}"
-        raise BTClibValueError(err_msg)
-    return given
-
-
-def account_descriptors(
-    xkey: BIP32Key,
-    der_path: DerPath,
-    master_fingerprint: Octets | None = None,
-    script_type: BIP44ScriptType | None = None,
-) -> tuple[Descriptor, Descriptor]:
-    """Return the receive and change descriptors of a BIP44 account.
-
-    der_path is the three-level account path,
-    m/purpose'/coin_type'/account', in any spelling `bip32.derive`
-    accepts; xkey is the extended key it starts from, which may be the
-    master key or any key already partway down it -- the account xpub
-    itself, typically, which is what a wallet exports and what a hardware
-    signer answers with.
-
-    The purpose selects the encoding, as it does for a BIP44 address: 44
-    is ``pkh()``, 49 ``sh(wpkh())``, 84 ``wpkh()``, 86 ``tr()``. A purpose
-    outside `bip44.SCRIPT_TYPE_FROM_PURPOSE` raises unless script_type
-    names one of those four, which then overrides the mapping for known
-    purposes too. The network is the extended key's own, and the coin type
-    has to agree with it.
-
-    Both chains come back because a wallet is both: BIP44 puts receiving
-    addresses under `/0` and change under `/1`, and a wallet that imported
-    one and not the other cannot recognize its own change -- which is a
-    lost output rather than a missing feature. They differ in that step
-    and in nothing else, the key origin and the wildcard being the same.
-
-    The master fingerprint is what the key origin needs and what an
-    extended key below the root cannot supply, so it is a parameter; where
-    xkey is the master key it is computed, and a value handed in beside it
-    has to match.
-
-    `add_checksum(str(descriptor))` is the text Bitcoin Core takes. The
-    BIP389 spelling of the pair -- one descriptor with a ``<0;1>`` step --
-    is text and not a parsed descriptor: `multipath_descriptors` expands
-    one and `parse` refuses one, so what this returns is the two.
-    """
-    xkey = _key_data_from_bip32_key(xkey)
-
-    indexes = indexes_from_der_path(der_path)
-    _assert_valid_account_path(indexes)
-    if script_type is None:
-        script_type = _script_type_from_purpose(indexes[0] - _HARDENED_OFFSET)
-    # the lookup and not an isinstance, for `bip44`'s reason: the table is
-    # the list of script types this module can build, so missing from it
-    # and unknown are one thing, and a Literal is a mypy fact rather than
-    # a runtime one
-    build = _DESCRIPTOR_FROM_SCRIPT_TYPE.get(script_type)
-    if build is None:
-        known = ", ".join(sorted(_DESCRIPTOR_FROM_SCRIPT_TYPE))
-        raise BTClibValueError(f"unknown script type: {script_type} not in ({known})")
-    _assert_valid_coin_type(indexes[1] - _HARDENED_OFFSET, xkey)
-
-    # the xpub first, and the fingerprint after it: a key that does not fit
-    # the path is about the two arguments the caller passed together, where
-    # a missing fingerprint is about a third
-    account_xpub = _account_xpub(xkey, indexes)
-    origin = BIP32KeyOrigin(_account_fingerprint(xkey, master_fingerprint), indexes)
-    network = network_from_xkeyversion(xkey.version)
-
-    def chain(index: int) -> Descriptor:
-        key = KeyExpression(
-            origin=origin, xkey=account_xpub, der_path=(index,), wildcard=0
-        )
-        return build(key, network)
-
-    return chain(_RECEIVE_CHAIN), chain(_CHANGE_CHAIN)

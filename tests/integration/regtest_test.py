@@ -7,9 +7,9 @@
 Every part of issue btclib-org/btclib#381's pure half meets its counterparty
 here, and the counterparty is the one that decides:
 
-- `descriptors.account_descriptors` builds the pair, and Bitcoin Core
-  imports it through `core_import.account_import_requests` — so Core's
-  own parser, checksum rule and range handling are what accept it;
+- `bip44.account_descriptors` builds the pair, and Bitcoin Core imports
+  it through `core_import.account_import_requests` — so Core's own
+  parser, checksum rule and range handling are what accept it;
 - and the range handling is the node's alone: `core_import.widened_range`
   claims Core widens a ranged import to its keypool and then refuses to be
   narrowed, which nothing but a node can confirm;

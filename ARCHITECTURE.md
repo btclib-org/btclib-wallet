@@ -81,7 +81,11 @@ submodule loads on first attribute access through the package's own
 - `slip132.py` and `bip44.py` turn an extended key into an address:
   SLIP132's key-version table for which curve and script type an xpub
   prefix names, BIP44's `m/purpose'/coin_type'/account'/change/index`
-  for which key a path derives.
+  for which key a path derives. `bip44.account_descriptors` builds the
+  receive and change descriptors of an account from that purpose, out of
+  `descriptors`' fragments, so `bip44` imports `descriptors`.
+  `descriptors` imports nothing of `bip44`: what a path means under BIP44
+  is no part of the descriptor language.
 - `bip38.py` and `minikey.py` spell a single private key that no seed
   derives: BIP38 encrypts it under a password with scrypt and AES, and a
   Casascius minikey is a short string whose `sha256` is the key itself.

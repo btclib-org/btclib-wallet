@@ -6,13 +6,13 @@
 
 https://github.com/bitcoin/bitcoin/blob/master/src/wallet/rpc/backup.cpp
 
-What a wallet does with the descriptors `descriptors.account_descriptors`
+What a wallet does with the descriptors `bip44.account_descriptors`
 builds: hand them to a node, which then watches every script they
 describe. A request is one json object per descriptor, and this module is
 the object -- no rpc call and no client, deliberately. The caller already
 has one, `bitcoin-core-rpc` being a package of its own that
-`btclib_wallet.fetch.bitcoin_core` builds on, and a second way to reach a node
-would be a second thing to keep working.
+`btclib_wallet.fetch.bitcoin_core` builds on, and a second way to reach a
+node would be a second thing to keep working.
 
 `import_request` is one object; `account_import_requests` is the pair a
 BIP44 account is, the receiving chain and the change chain marked
@@ -290,10 +290,10 @@ def account_import_requests(
 ) -> list[dict[str, Any]]:
     """Return the two requests a BIP44 account is imported with.
 
-    The pair `descriptors.account_descriptors` builds, with the second
-    marked `internal`: that mark is what keeps a wallet from reporting its
-    own change as incoming payments, and it is the one thing a caller
-    writing the two requests by hand gets wrong.
+    The pair `bip44.account_descriptors` builds, with the second marked
+    `internal`: that mark is what keeps a wallet from reporting its own
+    change as incoming payments, and it is the one thing a caller writing
+    the two requests by hand gets wrong.
 
     Both chains or neither: a wallet holding the receiving chain alone
     cannot recognize the change it makes itself, which is an output it

@@ -21,9 +21,8 @@ ways in put the labels there:
   branch 0. Named as `ScriptPubKey.from_address` is, and not `parse`: a
   `parse` classmethod in btclib reads octets out of a stream, and this
   reads a line of text;
-- `from_account`, which is `descriptors.account_descriptors`: an account
-  xpub and its master fingerprint in, the receive and change descriptors
-  out.
+- `from_account`, which is `bip44.account_descriptors`: an account xpub
+  and its master fingerprint in, the receive and change descriptors out.
 
 What this adds to a descriptor is the branch, the ledger of what has been
 handed out, and `position_of`; what it delegates is everything else, and
@@ -76,13 +75,12 @@ from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import BIP32Key
 from btclib_wallet.bip32.der_path import DerPath
-from btclib_wallet.bip44 import BIP44ScriptType
+from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
 from btclib_wallet.descriptors.descriptors import (
     ComboDescriptor,
     Descriptor,
     ShDescriptor,
     WshDescriptor,
-    account_descriptors,
     multipath_descriptors,
 )
 from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
@@ -211,7 +209,7 @@ class DescriptorWallet(RangedWallet):
     ) -> DescriptorWallet:
         """Return the wallet of a BIP44 account, both of its chains.
 
-        `descriptors.account_descriptors` is the whole of it, and every
+        `bip44.account_descriptors` is the whole of it, and every
         argument is that function's: the account path selects the
         encoding through its purpose, the master fingerprint is what the
         key origin needs, and the network is the extended key's own.

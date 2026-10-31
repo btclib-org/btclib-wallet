@@ -927,13 +927,13 @@ each line split by `shlex.split` before the one argparse. Not every
 chain it transcribes is one btclib sends: testnet4 goes out as `test`,
 and `btclib_wallet.hwi`'s `_HWI_CHAIN` says why.
 
-What the parser declares and `btclib_wallet.hwi` leaves alone, under the reason
-each is left alone for. `setup`, `wipe`, `restore`, `backup`,
+What the parser declares and `btclib_wallet.hwi` leaves alone, under the
+reason each is left alone for. `setup`, `wipe`, `restore`, `backup`,
 `promptpin`, `togglepassphrase` and `sendpin` are the device lifecycle,
-which issue btclib-org/btclib#381 keeps out of the signing surface deliberately.
-`getdescriptors`, `getkeypool` and `getmasterxpub` are what btclib
-computes for itself, on its own types, in
-`descriptors.account_descriptors` and `btclib_wallet.core_import`.
+which issue btclib-org/btclib#381 keeps out of the signing surface
+deliberately. `getdescriptors`, `getkeypool` and `getmasterxpub` are
+what btclib computes for itself, on its own types, in
+`bip44.account_descriptors` and `btclib_wallet.core_import`.
 `installudevrules` talks to no device -- it copies HWI's udev rules onto
 the host -- and it is the one subcommand of the pin above that the
 parser registers behind a platform guard,

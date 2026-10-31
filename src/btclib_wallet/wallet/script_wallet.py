@@ -88,9 +88,9 @@ script the position derives.
 An origin is a `KeyGroup` parameter because an account key cannot supply
 one: BIP174 carries the master fingerprint and the path from the master
 key down, and an extended key below the root records neither -- the same
-reason `descriptors.account_descriptors` takes the fingerprint beside the
-key. A group given no origin writes each key in `hd_key_paths` under its
-own fingerprint, as a descriptor does, and its descriptor carries no
+reason `bip44.account_descriptors` takes the fingerprint beside the key.
+A group given no origin writes each key in `hd_key_paths` under its own
+fingerprint, as a descriptor does, and its descriptor carries no
 `[fingerprint/path]`. The origins are read once, by `_key_origins`, for
 the psbt and for the descriptor.
 

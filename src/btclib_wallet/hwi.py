@@ -201,12 +201,12 @@ _POLL_INTERVAL = 0.05
 NO_CAPABILITIES = SignerCapabilities()
 
 # `--chain` decides the version bytes of the xpubs HWI answers with, so
-# this mapping is what makes `account_descriptors` agree with the device
-# about which chain the account is on. Every btclib network has a chain
-# here, which is what `bitcoin_core_rpc.chain_from_network` is for Core's
-# vocabulary -- and unlike that one this is not a bijection: testnet4
-# goes out as `test`, HWI's own `testnet4`, which its parser takes, being
-# the rejected alternative.
+# this mapping is what makes `bip44.account_descriptors` agree with the
+# device about which chain the account is on. Every btclib network has a
+# chain here, which is what `bitcoin_core_rpc.chain_from_network` is for
+# Core's vocabulary -- and unlike that one this is not a bijection:
+# testnet4 goes out as `test`, HWI's own `testnet4`, which its parser
+# takes, being the rejected alternative.
 #
 # Both decide the same bytes. In HWI 3.2.0 a chain is compared with
 # `Chain.MAIN` and with no other, `JadeClient.NETWORKS` excepted, so an

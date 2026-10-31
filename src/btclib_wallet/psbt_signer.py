@@ -24,8 +24,8 @@ to remember:
   and only then combines the two;
 - `export_account` builds the descriptors of an account from the
   fingerprint and the xpub a signer answers with, and
-  `descriptors.account_descriptors` is what refuses an xpub that is not
-  the account the path names;
+  `bip44.account_descriptors` is what refuses an xpub that is not the
+  account the path names;
 - `display_address` compares the address a device shows with the one the
   descriptor describes, which is the whole point of asking a device to
   show one;
@@ -85,11 +85,10 @@ from btclib_wallet.bip32.der_path import (
     str_from_der_path,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.bip44 import BIP44ScriptType
+from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
 from btclib_wallet.descriptors import (
     Descriptor,
     KeyExpression,
-    account_descriptors,
     wallet_policy_address,
 )
 from btclib_wallet.psbt.psbt import (
@@ -530,7 +529,7 @@ def export_account(
     """Return the receive and change descriptors of an account of a signer.
 
     Two questions to the signer and one composition:
-    `descriptors.account_descriptors` builds the pair from the master
+    `bip44.account_descriptors` builds the pair from the master
     fingerprint and the xpub at the account path, and is what refuses an
     xpub that is not the account the path names -- its depth and its own
     index say which account it is, and a purpose the mapping does not know

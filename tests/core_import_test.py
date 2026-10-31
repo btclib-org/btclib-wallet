@@ -30,6 +30,7 @@ from typing import Any
 import pytest
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 
+from btclib_wallet.bip44 import account_descriptors
 from btclib_wallet.core_import import (
     DEFAULT_RANGE,
     NOW,
@@ -41,7 +42,6 @@ from btclib_wallet.core_import import (
 )
 from btclib_wallet.descriptors import (
     Descriptor,
-    account_descriptors,
     add_checksum,
     from_address,
     parse,
