@@ -371,15 +371,17 @@ def test_get_history_refuses_a_malformed_answer(
 
 
 @pytest.mark.parametrize(
-    "method", ["getblock", "getrawmempool", "scantxoutset", "getbestblockhash"]
+    "method, bound",
+    [
+        ("getblock", bitcoin_core._MAX_LARGE_REPLY),
+        ("getrawmempool", bitcoin_core._MAX_MEMPOOL_REPLY),
+        ("scantxoutset", bitcoin_core._MAX_LARGE_REPLY),
+        ("getbestblockhash", bitcoin_core._MAX_SMALL_REPLY),
+        ("getrawtransaction", DEFAULT_MAX_BODY_SIZE),
+    ],
 )
-def test_a_reply_over_its_bound_is_refused(method: str) -> None:
+def test_a_reply_over_its_bound_is_refused(method: str, bound: int) -> None:
     """Each reply `get_history` reads is refused past the bound it carries."""
-    bound = (
-        bitcoin_core._MAX_SMALL_REPLY
-        if method == "getbestblockhash"
-        else bitcoin_core._MAX_LARGE_REPLY
-    )
     node = _chain()
     node.mempool = [_tx([OutPoint(SPEND.id, 0)], [OTHER])]
     padding = "0" * bound
@@ -401,7 +403,7 @@ def test_a_block_over_the_clients_default_is_read() -> None:
     assert [entry.tx.id for entry in history.txs] == [SPEND.id]
 
 
-def test_the_replies_that_grow_with_the_chain_carry_the_large_bound(
+def test_each_call_of_get_history_carries_its_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Which bound each call of `get_history` carries, by method."""
@@ -420,7 +422,7 @@ def test_the_replies_that_grow_with_the_chain_carry_the_large_bound(
     assert bounds == {
         "getbestblockhash": bitcoin_core._MAX_SMALL_REPLY,
         "getblock": bitcoin_core._MAX_LARGE_REPLY,
-        "getrawmempool": bitcoin_core._MAX_LARGE_REPLY,
+        "getrawmempool": bitcoin_core._MAX_MEMPOOL_REPLY,
         "getrawtransaction": None,
         "scantxoutset": bitcoin_core._MAX_LARGE_REPLY,
     }
