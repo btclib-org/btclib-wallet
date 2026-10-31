@@ -61,9 +61,9 @@ permissions:
 env:
   # the release integration-bitcoind.yml pins, and the sha256 of its linux
   # tarball as the guix builders attested it in bitcoin-core/guix.sigs
-  BITCOIND_VERSION: "31.1"
+  BITCOIND_VERSION: "32.1"
   BITCOIND_SHA256: >-
-    b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+    61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963
   # utreexod v0.6.0, and the sha256 of its linux-amd64 tarball from
   # manifest-20260623-01.txt. Raising it is a commit
   UTREEXOD_TARBALL: utreexod-linux-amd64-20260623-01.tar.gz

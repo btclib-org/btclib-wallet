@@ -103,9 +103,9 @@ jobs:
       # changed. integration-hwi.yml, integration-electrs.yml,
       # integration-floresta.yml and qa-assets.yml pin the same two values
       # for their own tests
-      bitcoind-version: "31.1"
+      bitcoind-version: "32.1"
       bitcoind-sha256: >-
-        b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+        61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963
       # tests/integration/conftest.py's own two switches
       integration-env-var: BTCLIB_INTEGRATION
       bitcoind-path-env-var: BTCLIB_BITCOIND

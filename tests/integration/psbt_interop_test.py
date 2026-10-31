@@ -214,7 +214,10 @@ def _core_gaps(original: Psbt, response: dict[str, Any]) -> list[str]:
 
 
 def _core_result(node: BitcoinCoreRpcClient, case: dict[str, Any]) -> dict[str, Any]:
-    """Keep the full response and distinguish Core's explicit v2 refusal."""
+    """Keep the full response and distinguish Core's explicit v2 refusal.
+
+    A v2 psbt that Core decodes is `unchecked`: its answer has no `tx`.
+    """
     try:
         response = node.call("decodepsbt", [case["base64"]])
     except FetchError as error:
@@ -229,6 +232,10 @@ def _core_result(node: BitcoinCoreRpcClient, case: dict[str, Any]) -> dict[str, 
             "error_type": type(error).__name__,
             "error": str(error),
         }
+    if case["version"] == 2:
+        # Core's answer for a v2 psbt has no `tx` to compare
+        # (btclib-org/btclib-wallet#617)
+        return {"status": "unchecked", "response": response}
     original = Psbt.b64decode(case["base64"])
     matches = response.get("tx", {}).get("txid") == original.tx.id.hex()
     gaps = _core_gaps(original, response)

@@ -115,9 +115,9 @@ jobs:
     env:
       # the release integration-bitcoind.yml pins, and the sha256 of its linux
       # tarball as the guix builders attested it in bitcoin-core/guix.sigs
-      BITCOIND_VERSION: "31.1"
+      BITCOIND_VERSION: "32.1"
       BITCOIND_SHA256: >-
-        b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+        61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963
       SCALA_CLI_VERSION: "1.18.0"
       SCALA_CLI_SHA256: >-
         eb41442f870bcae75aa5d6622ac96a173dae14fed59f71c97125eb21536bb060
