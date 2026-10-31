@@ -131,6 +131,10 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
     where the reason is argued -- `/getutxos` reads the UTXO set, so a
     spent output and one that never existed answer it identically -- and
     is not repeated here.
+
+    Not a `HistoryReader` yet: issue btclib-org/btclib-wallet#629 tracks
+    it as a step after `BitcoinCoreFetcher`, over `/block/<hash>.json`,
+    which names the output each input spends, and `/mempool/contents.json`.
     """
 
     def __init__(

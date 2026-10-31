@@ -23,8 +23,10 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, Rpc
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet.fetch import bitcoin_core
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.history import BlockRef, history_scripts
+from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
 from tests.fetch import chain_mismatch
 from tests.fetch.bitcoin_core_test import (
     RPC_PASSWORD,
@@ -366,3 +368,59 @@ def test_get_history_refuses_a_malformed_answer(
     node.mempool = [_tx([OutPoint(SPEND.id, 0)], [OTHER])]
     with pytest.raises(FetchError, match=match):
         _fetcher(_edited(node, method, change)).get_history([OURS], 1)
+
+
+@pytest.mark.parametrize(
+    "method", ["getblock", "getrawmempool", "scantxoutset", "getbestblockhash"]
+)
+def test_a_reply_over_its_bound_is_refused(method: str) -> None:
+    """Each reply `get_history` reads is refused past the bound it carries."""
+    bound = (
+        bitcoin_core._MAX_SMALL_REPLY
+        if method == "getbestblockhash"
+        else bitcoin_core._MAX_LARGE_REPLY
+    )
+    node = _chain()
+    node.mempool = [_tx([OutPoint(SPEND.id, 0)], [OTHER])]
+    padding = "0" * bound
+    node.edit = lambda m, _p, result: [result, padding] if m == method else result
+    with pytest.raises(FetchError, match=f"more than the max_body_size of {bound}"):
+        _fetcher(node).get_history([OURS], 1)
+
+
+def test_a_block_over_the_clients_default_is_read() -> None:
+    """A verbosity 3 block may weigh more than the client's default allows."""
+    node = _chain()
+    padding = "0" * DEFAULT_MAX_BODY_SIZE
+
+    def pad(method: str, _params: Any, result: Any) -> Any:
+        return _set(result, "padding", padding) if method == "getblock" else result
+
+    node.edit = pad
+    history = _fetcher(node).get_history([OURS], 3)
+    assert [entry.tx.id for entry in history.txs] == [SPEND.id]
+
+
+def test_the_replies_that_grow_with_the_chain_carry_the_large_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Which bound each call of `get_history` carries, by method."""
+    node = _chain()
+    node.mempool = [_tx([OutPoint(SPEND.id, 0)], [OTHER])]
+    fetcher = _fetcher(node)
+    bounds: dict[str, int | None] = {}
+    call = fetcher.client.call
+
+    def recording(method: str, params: Any, **kwargs: Any) -> Any:
+        bounds[method] = kwargs.get("max_body_size")
+        return call(method, params, **kwargs)
+
+    monkeypatch.setattr(fetcher.client, "call", recording)
+    fetcher.get_history([OURS], 1)
+    assert bounds == {
+        "getbestblockhash": bitcoin_core._MAX_SMALL_REPLY,
+        "getblock": bitcoin_core._MAX_LARGE_REPLY,
+        "getrawmempool": bitcoin_core._MAX_LARGE_REPLY,
+        "getrawtransaction": None,
+        "scantxoutset": bitcoin_core._MAX_LARGE_REPLY,
+    }
