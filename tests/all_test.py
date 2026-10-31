@@ -167,6 +167,7 @@ CHILD_MODULES = {
             "esplora",
             "fee_estimator",
             "fetcher",
+            "history",
             "peer_transport",
             "transport",
         ],
