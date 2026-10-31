@@ -58,7 +58,6 @@ from hypothesis import given
 from hypothesis import strategies as st
 from typing_extensions import override
 
-from btclib_wallet import slip132
 from btclib_wallet.bip32 import BIP32KeyOrigin, fingerprint
 from btclib_wallet.bip32.bip32 import (
     prv_keyinfo_from_xprv,
@@ -5150,12 +5149,7 @@ def test_a_key_expression_refuses_what_is_no_xpub(xkey: str) -> None:
 
 def test_what_a_key_expression_xkey_holds() -> None:
     """An xpub of any version btclib decodes, a placeholder, or nothing."""
-    xpubs = (
-        xpub_from_xprv(XPRV_ROOT),
-        TESTNET_XPUB,
-        xpub_from_xprv(slip132.p2wpkh_xkey(XPRV_ROOT)),
-        xpub_from_xprv(slip132.p2wpkh_p2sh_xkey(XPRV_ROOT)),
-    )
+    xpubs = (xpub_from_xprv(XPRV_ROOT), TESTNET_XPUB)
     placeholders = ("K", "@0", "@12", "@0/**", "@3/<2;3>/*", "musig(@0,@1)/**")
     for xkey in (*xpubs, *placeholders, ""):
         assert KeyExpression(xkey=xkey).xkey == xkey

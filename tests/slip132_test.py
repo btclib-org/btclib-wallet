@@ -15,6 +15,7 @@ from btclib.network import NETWORKS
 
 from btclib_wallet import slip132
 from btclib_wallet.bip32 import bip32
+from btclib_wallet.descriptors import KeyExpression
 from btclib_wallet.mnemonic import bip39
 from tests import replace_unchecked
 
@@ -320,3 +321,11 @@ def test_p2pkh_from_wif() -> None:
     err_msg = "not a private key"
     with pytest.raises(BTClibValueError, match=err_msg):
         bip32.prv_keyinfo_from_xprv(xpub)
+
+
+def test_a_key_expression_holds_a_slip132_xpub() -> None:
+    """`KeyExpression.xkey` holds a ypub and a zpub as written."""
+    rxprv = bip32.rootxprv_from_seed(b"\x00" * 32)
+    for xprv in (slip132.p2wpkh_xkey(rxprv), slip132.p2wpkh_p2sh_xkey(rxprv)):
+        xpub = bip32.xpub_from_xprv(xprv)
+        assert KeyExpression(xkey=xpub).xkey == xpub

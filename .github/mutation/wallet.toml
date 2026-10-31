@@ -3,9 +3,9 @@
 # beside it. What a wallet answers is an address somebody is about to be
 # paid at, and the failure this asks about is the one a test suite is
 # built to miss -- a gap index quietly reused, a branch swapped, a change
-# address answered where a receive one was asked for. Every line runs
-# under tests/wallet; whether the suite would notice a wrong one is this
-# profile's question (issue btclib-org/btclib#219).
+# address answered where a receive one was asked for. Whether
+# tests/wallet would notice a wrong line is this profile's question
+# (issue btclib-org/btclib#219).
 
 [cosmic-ray]
 # the package, `__init__.py` included, for the reason descriptors.toml
@@ -13,12 +13,10 @@
 # module from being left out in silence
 module-path = "src/btclib_wallet/wallet"
 
-# tests/wallet alone, and it is enough for a reason worth stating: the four
-# modules measure 100% under it -- `--cov=src/btclib_wallet/wallet` over this
-# command reports no missing line -- and the whole command costs half a second,
-# which is what makes this the cheapest profile in the directory to run to
-# completion. The descriptor a `DescriptorWallet` delegates to is mutated by
-# descriptors.toml from the other side of the same call
+# tests/wallet alone, the directory of these modules' tests:
+# `--cov=src/btclib_wallet/wallet` over this command lists the lines it leaves
+# to the rest of the suite. The descriptor a `DescriptorWallet` delegates to is
+# mutated by descriptors.toml from the other side of the same call
 test-command = "python -m pytest -x -q -n0 -p no:randomly tests/wallet"
 
 # seconds of wall clock, wide for the reason btclib's sig_hash.toml measures.

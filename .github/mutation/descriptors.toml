@@ -4,8 +4,8 @@
 # btclib-org/btclib#219 was opened, and the one whose answers a caller cannot
 # check by eye -- a miniscript satisfaction is a choice of branch, a set of type
 # properties and a witness whose size decides a fee, none of which a wrong bound
-# announces. Every line of the three modules runs under tests/descriptors; this
-# asks whether the suite would notice if one of them were wrong.
+# announces. This asks whether tests/descriptors would notice if a line of the
+# three modules were wrong.
 
 [cosmic-ray]
 # the package, `__init__.py` included: it is re-exports and a docstring, so
@@ -14,12 +14,10 @@
 # being left out in silence
 module-path = "src/btclib_wallet/descriptors"
 
-# tests/descriptors alone, which is what covers all three modules to 100% --
-# measured, `--cov=src/btclib_wallet/descriptors` over this command reports
-# every file complete -- in under four seconds. custody_wallet_test.py is in
-# that directory and is the wallet-shaped judgement of a descriptor, so the
-# scope does not need tests/wallet to reach what a wallet asks a descriptor for;
-# wallet.toml mutates the other side of that call.
+# tests/descriptors alone, the directory of these modules' tests:
+# `--cov=src/btclib_wallet/descriptors` over this command lists the lines it
+# leaves to the rest of the suite. wallet.toml mutates the wallet's side of what
+# a wallet asks a descriptor for.
 #
 # -n0 and -p no:randomly for the reasons btclib's sig_hash.toml gives: xdist's
 # worker per core is startup paid once per mutant, and with -x a shuffled

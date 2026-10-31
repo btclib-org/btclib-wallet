@@ -8,7 +8,7 @@ The script a template writes is asserted against the same script built by
 hand -- `derive_from_account`, a sort, `op_int`, `script.serialize` --
 because those four calls are what a caller had to write before this class
 existed, and what it must keep answering. The deployed wallet that made
-the case for it is pinned in `tests/descriptors/custody_wallet_test.py`,
+the case for it is pinned in `tests/wallet/custody_wallet_test.py`,
 against the mainnet addresses it holds coins at.
 
 The psbt half is asserted the same way: the key paths against the account
