@@ -5076,7 +5076,7 @@ CORE_DERIVATIONS = [
     pytest.param(
         f"wsh(multi(1,[aaaaaaaa/1h]{KEY_A},[bbbbbbbb/2h]{KEY_A}))",
         0,
-        # Core v32.1 keeps the later origin, and this package the first
+        # this package keeps the first explicit origin on purpose
         {KEY_A: ("bbbbbbbb/2h",)},
         {KEY_A: ("aaaaaaaa/1h",)},
         id="two-explicit-origins-first-wins",
@@ -5091,7 +5091,7 @@ CORE_DERIVATIONS = [
     pytest.param(
         f"tr({KEY_B},multi_a(1,[aaaaaaaa/1h]{KEY_A},[bbbbbbbb/2h]{KEY_A}))",
         0,
-        # Core v32.1 keeps the later origin, and this package the first
+        # this package keeps the first explicit origin on purpose
         {
             XONLY_A: ("bbbbbbbb/2h", [LEAF_MULTI_A_AA]),
             XONLY_B: ("06afd46b", []),

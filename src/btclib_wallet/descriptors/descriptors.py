@@ -721,8 +721,17 @@ def _taproot_derivations(
     `_derived_origin` makes up, and then a plain key's origin beats a
     participant's. Otherwise the first spelling's origin is the entry's.
     Bitcoin Core keeps the entry of the first fragment that spells the key,
-    even a made-up one. Inside one fragment, an explicit origin replaces the
-    entry there, so of two explicit origins Core keeps the later one.
+    even a made-up one, because ``std::map::merge`` keeps an entry already
+    there. Inside one fragment, an explicit origin replaces the entry
+    there, so of two explicit origins Core keeps the later one.
+
+    Here, as in `Descriptor._hd_key_paths`, the first of two explicit
+    origins stays, inside one fragment too. Core's later one wins only as
+    a side effect of the ``insert_or_assign`` that bitcoin/bitcoin@b42f7fade0
+    put in `OriginPubkeyProvider::GetPubKey`. That commit's message,
+    comment and tests state only that an explicit origin replaces an
+    implicit one, and no test or document of Core's spells one key with
+    two different explicit origins.
     """
     origins: dict[bytes, tuple[tuple[bool, bool], BIP32KeyOrigin]] = {}
     hashes: dict[bytes, list[bytes]] = {}
@@ -1196,7 +1205,8 @@ class Descriptor(ABC):
         A key without an origin gets the one `_derived_origin` makes up
         for it, as in Bitcoin Core. Where one key is spelled more than
         once, an explicit origin beats a made-up one, and otherwise the
-        first spelling's origin is the entry's.
+        first spelling's origin is the entry's. `_taproot_derivations`
+        says why the first of two explicit origins is kept.
         """
         hd_key_paths: dict[bytes, BIP32KeyOrigin] = {}
         explicit: set[bytes] = set()
