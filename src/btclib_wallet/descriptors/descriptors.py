@@ -728,9 +728,8 @@ def _taproot_derivations(
     bitcoin/bitcoin@b42f7fade0 put in `OriginPubkeyProvider::GetPubKey`.
     That commit fixes the origin a participant got from two different
     explicit origins, but neither it nor its pull request says which should
-    win; its comment and tests cover only an explicit origin replacing an
-    implicit one. No test of Core's spells one key with two different
-    explicit origins.
+    win, and no test of Core's spells one key with two different explicit
+    origins.
     """
     origins: dict[bytes, tuple[tuple[bool, bool], BIP32KeyOrigin]] = {}
     hashes: dict[bytes, list[bytes]] = {}
@@ -2795,9 +2794,9 @@ def _expanded_key(
 ) -> None:
     """Add a key and its origin to one fragment's entries, as Core does.
 
-    A ``musig()`` adds its participants, then the aggregate. A key with an
-    origin of its own replaces the entry already there, which is Core's
-    `OriginPubkeyProvider::GetPubKey`; a key without one keeps it.
+    A ``musig()`` adds its participants, then the aggregate. A key spelled
+    twice in one fragment gets the entry `Descriptor.provider` describes,
+    which is Core's `OriginPubkeyProvider::GetPubKey`.
     """
     if key.participants:
         for participant in key.participants:
