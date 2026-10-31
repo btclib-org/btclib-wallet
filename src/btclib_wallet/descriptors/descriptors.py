@@ -74,8 +74,8 @@ A parsed descriptor holds no key that signs. `parse` neuters an xprv to
 the xpub the `KeyExpression` then carries, and hands the private spelling
 back through the `prv_keys` mapping a caller passes in -- Bitcoin Core's
 `Parse(desc, out, error)`, whose descriptor keeps no reference to the
-`FlatSigningProvider` it filled. Expansion takes the mapping back for the
-one thing an xpub cannot do, a hardened step, which is why
+`FlatSigningProvider` it filled. Expanding a descriptor takes the mapping
+back for the one thing an xpub cannot do, a hardened step, which is why
 `script_pub_keys`, `satisfy`, `expansion` and the rest all end in an
 optional `prv_keys`. A WIF is not in that mapping: it was already reduced
 to its public key on the way in, this module deriving nothing from it and
