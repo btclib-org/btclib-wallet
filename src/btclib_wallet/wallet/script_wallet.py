@@ -144,15 +144,15 @@ from typing_extensions import override
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
-    _key_data_from_bip32_key,
     derive_from_account_,
     fingerprint,
+    key_data_from_bip32_key,
     pub_keyinfo_from_xkey,
     xpub_from_xprv,
 )
 from btclib_wallet.bip32.der_path import str_from_index_int
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors.descriptors import Descriptor, _derived_origin
+from btclib_wallet.descriptors.descriptors import Descriptor, derived_origin
 from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
 from btclib_wallet.descriptors.key_expression import KeyExpression
 from btclib_wallet.descriptors.miniscript import P2WSH, Miniscript
@@ -406,7 +406,7 @@ class KeyGroup:
     ) -> None:
         _assert_group_arguments(threshold, keys, verify, origins)
 
-        self.keys = tuple(_key_data_from_bip32_key(key) for key in keys)
+        self.keys = tuple(key_data_from_bip32_key(key) for key in keys)
         # one per key, so that the pairing is positional and stays so
         # through the account order, which sorts the keys and not this
         self.origins: tuple[BIP32KeyOrigin | None, ...] = (
@@ -642,7 +642,7 @@ class ScriptWallet(RangedWallet):
                 expression = self._key_expression(key, branch, origins)
                 hd_key_paths.setdefault(
                     self._derived_sec(key, branch, index),
-                    _derived_origin(expression, index),
+                    derived_origin(expression, index),
                 )
         return hd_key_paths
 

@@ -81,7 +81,6 @@ from ecc.curves import bytes_from_point, bytes_from_prv_key_int, mult
 
 from btclib_wallet import bip38, bip322, core_import, slip132
 from btclib_wallet.bip32.bip32 import (
-    _PythonPubKeyTweakChain,
     derive,
     derive_from_account,
     derive_from_account_,
@@ -286,16 +285,6 @@ _KINDS = (
         "compressed",
         bip38.new_key_pair,
         {"int_code": _INT_CODE, "encrypt_block": _block_cipher},
-    ),
-    # the one that is a bound method: a chain holds the point it steps,
-    # so the instance is built here and btclib's `bytes_from_point` is
-    # the check this one reaches. A refused call must not step it, which
-    # is why the serialization happens before the step rather than after
-    _Case(
-        "btclib_wallet.bip32.bip32._PythonPubKeyTweakChain.tweak_add",
-        "compressed",
-        _PythonPubKeyTweakChain(_SEC).tweak_add,
-        {"tweak": _PRV_KEY.to_bytes(32, byteorder="big", signed=False)},
     ),
     # the psbt boundary: which integer encoding, and which transaction
     _Case(
@@ -698,16 +687,18 @@ def _bool_parameters() -> set[tuple[str, str]]:
     called says nothing, and `include_witness` is spelled both ways.
 
     A method counts and a private function does not, as in
-    `curve_parameter_test.py`; and a function nested in another is a
-    closure rather than API -- `Miniscript.to_script`'s `up` takes a
-    `verify` that no caller can pass.
+    `curve_parameter_test.py`. A method of a private class does not count
+    either. A function nested in another is a closure rather than API --
+    `Miniscript.to_script`'s `up` takes a `verify` that no caller can
+    pass.
     """
     found: set[tuple[str, str]] = set()
 
     def walk(node: ast.Module | ast.ClassDef, module: str, prefix: str) -> None:
         for child in node.body:
             if isinstance(child, ast.ClassDef):
-                walk(child, module, f"{prefix}{child.name}.")
+                if not child.name.startswith("_"):
+                    walk(child, module, f"{prefix}{child.name}.")
             elif isinstance(child, ast.FunctionDef):
                 dotted = f"{module}.{prefix}{child.name}"
                 found.update((dotted, flag) for flag in _flags_of(child))
@@ -772,7 +763,7 @@ def test_every_bool_parameter_is_classified() -> None:
 
 
 def test_the_walk_reaches_what_it_claims() -> None:
-    """The shapes it must find, and the four it must not.
+    """The shapes it must find, and the ones it must not.
 
     A walk that found nothing would pass the test above.
     """
@@ -785,7 +776,12 @@ def test_the_walk_reaches_what_it_claims() -> None:
 
     # the convention with a file of its own
     assert not [pair for pair in found if pair[1] == "check_validity"]
-    # a private function, a closure, and a parameter of another type
+    # a private function, a method of a private class, a closure, and a
+    # parameter of another type
     assert ("btclib_wallet.psbt.psbt._tx_in", "zeroed_sequence") not in found
+    assert (
+        "btclib_wallet.bip32.bip32._PythonPubKeyTweakChain.tweak_add",
+        "compressed",
+    ) not in found
     assert ("btclib_wallet.descriptors.miniscript.up", "verify") not in found
     assert ("btclib_wallet.bip32.bip32.derive", "der_path") not in found

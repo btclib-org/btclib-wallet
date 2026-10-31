@@ -71,6 +71,7 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
+from btclib.utils import assert_type
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import BIP32Key
@@ -84,7 +85,7 @@ from btclib_wallet.descriptors.descriptors import (
     multipath_descriptors,
 )
 from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
-from btclib_wallet.descriptors.key_expression import PrvKeys, _assert_prv_keys
+from btclib_wallet.descriptors.key_expression import PrvKeys
 from btclib_wallet.descriptors.miniscript import SpendContext
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet.wallet import _LAST_INDEX, RangedWallet
@@ -126,7 +127,7 @@ class DescriptorWallet(RangedWallet):
         descriptors: Descriptor | Mapping[int, Descriptor] | Sequence[Descriptor],
         prv_keys: PrvKeys | None = None,
     ) -> None:
-        _assert_prv_keys(prv_keys)
+        assert_type(prv_keys, (Mapping, type(None)), "prv_keys")
         # a string is the mistake worth naming: `Sequence` admits one, so
         # a descriptor's text would become one branch per character
         # rather than an error. `Octets` is honoured inside btclib and
@@ -219,7 +220,7 @@ class DescriptorWallet(RangedWallet):
         descriptor carries: the text to hand to Bitcoin Core, the key
         origins a hardware signer wants, and the psbt Updaters.
         """
-        _assert_prv_keys(prv_keys)
+        assert_type(prv_keys, (Mapping, type(None)), "prv_keys")
         return cls(
             list(account_descriptors(xkey, der_path, master_fingerprint, script_type)),
             prv_keys,

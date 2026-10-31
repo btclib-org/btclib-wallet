@@ -26,6 +26,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
 __all__ = [
+    "HARDENED_OFFSET",
     "DerPath",
     "bytes_from_der_path",
     "hardenings_from_der_path",
@@ -70,15 +71,15 @@ def _int_from_digits(digits: str, what: str) -> int:
     return int(significant or "0")
 
 
-# the offset a hardened index carries: BIP32 splits the 2**32 indexes in
-# half at 2**31, so an index is hardened when it reaches this value, and
-# what a path spells before the hardening symbol is what is left under it.
-# The symbol and the offset are one fact in its two spellings, which is
-# why they sit together -- and why bip32, mnemonic.electrum and bip44
-# import this rather than write the literal again: a hardened test is the
-# same test wherever it appears, and a literal repeated is a set of places
-# to read before believing they agree
-_HARDENED_OFFSET = 0x80000000
+# The hardening symbol and this offset are one fact in two spellings,
+# which is why a module testing for a hardened index imports this rather
+# than writing the literal again: a hardened test is the same test wherever
+# it appears, and a literal repeated is a set of places to read before
+# believing they agree
+#: The offset a hardened index carries. BIP32 splits the 2**32 indexes in
+#: half at 2**31, so an index is hardened when it reaches this value, and
+#: what a path spells before the hardening symbol is what is left under it.
+HARDENED_OFFSET = 0x80000000
 
 
 def _index_and_hardening_from_str(s: str, *, bip380_enforced: bool) -> tuple[int, str]:
@@ -103,9 +104,9 @@ def _index_and_hardening_from_str(s: str, *, bip380_enforced: bool) -> tuple[int
     if not _INDEX.fullmatch(number):
         raise BTClibValueError("invalid derivation index: not ASCII decimal digits")
     index = _int_from_digits(number, "derivation index")
-    if index >= _HARDENED_OFFSET:
+    if index >= HARDENED_OFFSET:
         raise BTClibValueError("invalid index: not below 2**31")
-    return index + (_HARDENED_OFFSET if hardening else 0), hardening
+    return index + (HARDENED_OFFSET if hardening else 0), hardening
 
 
 def _assert_valid_index(i: int) -> None:
@@ -160,9 +161,9 @@ def str_from_index_int(i: int, hardening: str = _HARDENING) -> str:
     # wants "1". Accepting a deliberate integer subclass, which is what
     # `is_integer` is for, means answering with the number it is
     index = int(i)
-    if index < _HARDENED_OFFSET:
+    if index < HARDENED_OFFSET:
         return str(index)
-    return str(index - _HARDENED_OFFSET) + hardening
+    return str(index - HARDENED_OFFSET) + hardening
 
 
 def _pairs_from_der_path_str(

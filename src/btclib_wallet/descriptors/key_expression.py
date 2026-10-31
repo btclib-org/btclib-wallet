@@ -53,8 +53,8 @@ from btclib_wallet.bip32.bip32 import (
     xpub_from_xprv,
 )
 from btclib_wallet.bip32.der_path import (
-    _HARDENED_OFFSET,
     _HARDENING,
+    HARDENED_OFFSET,
     hardenings_from_der_path,
     indexes_from_der_path,
     str_from_der_path,
@@ -109,7 +109,7 @@ def _assert_index_range(index: int) -> None:
     if not is_integer(index):
         err_msg = f"invalid derivation index type: {type(index).__name__}"
         raise BTClibTypeError(err_msg)
-    if not 0 <= index < _HARDENED_OFFSET:
+    if not 0 <= index < HARDENED_OFFSET:
         raise BTClibValueError(f"invalid derivation index: {index}")
 
 
@@ -943,7 +943,7 @@ def _assert_key_characters(rest: str, *, extended: bool) -> None:
 def _split_wildcard(steps: list[str]) -> tuple[list[str], int | None, str]:
     """Split the final `/*` step off a path: its offset, and its symbol."""
     if steps and steps[-1] in _WILDCARDS:
-        offset = 0 if steps[-1] == "*" else _HARDENED_OFFSET
+        offset = 0 if steps[-1] == "*" else HARDENED_OFFSET
         return steps[:-1], offset, steps[-1][1:]
     return steps, None, ""
 
@@ -1034,7 +1034,7 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, int]:
     except BTClibValueError as e:
         raise BTClibValueError(f"musig(): {e}") from e
     der_path = _path_indexes(steps)
-    if any(index >= _HARDENED_OFFSET for index in der_path):
+    if any(index >= HARDENED_OFFSET for index in der_path):
         raise BTClibValueError(_HARDENED_MUSIG_STEP)
     return tuple(der_path), wildcard, length
 
