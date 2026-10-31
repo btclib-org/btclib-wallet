@@ -253,7 +253,10 @@ def test_a_mempool_entry_costs_the_node_at_least_the_floor(
     `OP_TRUE` and pay one, 85 octets, and the cluster's usage over its
     entries is held at or above the floor. A fan-out is a parent paying 63
     such outputs and the 63 children spending them, and the children's
-    usage, read after the parent's, over 63 is held at or above it.
+    usage, read after the parent's, over 63 is held at or above it. The
+    node runs at `-maxmempool`'s default, which `getmempoolinfo` reports
+    as `maxmempool`, and that is held equal to `_DEFAULT_MAX_MEMPOOL`, the
+    figure `_MAX_MEMPOOL_REPLY` is derived from.
     """
     miner = wallets[0]
     miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
@@ -278,6 +281,7 @@ def test_a_mempool_entry_costs_the_node_at_least_the_floor(
         for prev_out in children:
             spend([prev_out], 1, 1_000)
     after = node.call("getmempoolinfo")
+    assert after["maxmempool"] == bitcoin_core._DEFAULT_MAX_MEMPOOL
 
     entries = after["size"] - before["size"]
     assert entries == (64 if shape == "chain" else 63)

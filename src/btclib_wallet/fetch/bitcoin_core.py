@@ -97,14 +97,20 @@ _MAX_LARGE_REPLY = 5 * MAX_BLOCK_WEIGHT
 # shown to hold for them.
 _MEMPOOL_ENTRY_USAGE = 800
 
-# What the mempool's txids may weigh at `-maxmempool`'s default of 300 MB,
-# which counts the node's memory and not the transactions' size: as many
-# entries as fit at the floor above, each txid 67 octets of reply, the 64 hex
-# digits with their quotes and comma. A bound of its own, since it passes the
-# block's, and raising the block's to it would loosen the bound on blocks and
-# scans for nothing. The reply of a node with a larger `-maxmempool` can pass
-# it, and is refused as a `FetchError`.
-_MAX_MEMPOOL_REPLY = 300_000_000 // _MEMPOOL_ENTRY_USAGE * 67
+# `-maxmempool`'s default in octets: Core's `DEFAULT_MAX_MEMPOOL_SIZE_MB`, 300,
+# counted in units of 1,000,000 (src/kernel/mempool_options.h).
+# `tests/integration/history_test.py` holds it equal to the `maxmempool` that
+# `getmempoolinfo` reports for a node run at the default.
+_DEFAULT_MAX_MEMPOOL = 300_000_000
+
+# What the mempool's txids may weigh at `-maxmempool`'s default, which counts
+# the node's memory and not the transactions' size: as many entries as fit at
+# the floor above, each txid 67 octets of reply, the 64 hex digits with their
+# quotes and comma. A bound of its own, since it passes the block's, and
+# raising the block's to it would loosen the bound on blocks and scans for
+# nothing. The reply of a node with a larger `-maxmempool` can pass it, and is
+# refused as a `FetchError`.
+_MAX_MEMPOOL_REPLY = _DEFAULT_MAX_MEMPOOL // _MEMPOOL_ENTRY_USAGE * 67
 
 # the modes `estimatesmartfee` takes, which Core matches without regard to
 # ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
