@@ -14,10 +14,15 @@ the history is read from the node's blocks, mempool and utxo set.
 from __future__ import annotations
 
 import pytest
-from bitcoin_core_rpc import BitcoinCoreRpcClient
+from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError
+from btclib.consensus import MAX_BLOCK_WEIGHT
+from btclib.script import ScriptPubKey, Witness, serialize
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet.fetch import bitcoin_core
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.history import ScriptHistory
+from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
 
 pytestmark = pytest.mark.integration
 
@@ -97,3 +102,56 @@ def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
     assert _ids(history) == [(spend, None)]
     history = fetcher.get_history([script], start)
     assert _ids(history) == [(payment, start + 1), (spend, None)]
+
+
+def test_a_block_of_large_witnesses_renders_within_the_bound(
+    node: BitcoinCoreRpcClient,
+    wallets: tuple[BitcoinCoreRpcClient, BitcoinCoreRpcClient],
+) -> None:
+    """`getblock` at verbosity 3 writes each witness octet twice as hex.
+
+    Spends of a p2wsh script that drops 99 pushes of 520 octets fill a
+    block with witness. Its rendering weighs more than three octets per
+    weight unit and less than five: more than the client's default, and
+    within the bound `get_history` reads blocks with.
+    """
+    miner = wallets[0]
+    address = miner.call("getnewaddress")
+    miner.call("generatetoaddress", [101, address])
+    script = serialize(["OP_2DROP"] * 49 + ["OP_DROP", "OP_1"])
+    p2wsh = ScriptPubKey.p2wsh(script, "regtest")
+    funding = []
+    # a block every ten payments, so that no chain of unconfirmed change
+    # outgrows what the mempool accepts
+    for _ in range(7):
+        funding += [
+            miner.call("sendtoaddress", [p2wsh.address, "0.01"]) for _ in range(10)
+        ]
+        miner.call("generatetoaddress", [1, address])
+    vin = []
+    for tx_id in funding:
+        tx = Tx.parse(node.call("getrawtransaction", [tx_id]))
+        vout = next(
+            i
+            for i, out in enumerate(tx.vout)
+            if out.script_pub_key.script == p2wsh.script
+        )
+        stack = [bytes([i]) * 520 for i in range(99)]
+        vin.append(
+            TxIn(OutPoint(tx.id, vout), b"", 0xFFFFFFFF, Witness([*stack, script]))
+        )
+    payee = ScriptPubKey.from_address(address)
+    spend = Tx(2, 0, vin, [TxOut(len(vin) * 1_000_000 - 2_000_000, payee)])
+    raw = spend.serialize(include_witness=True).hex()
+    block = node.call("generateblock", [address, [raw]])["hash"]
+    weight = node.call("getblock", [block, 1])["weight"]
+
+    assert 3 * weight > DEFAULT_MAX_BODY_SIZE
+    with pytest.raises(FetchError, match="more than the max_body_size"):
+        node.call("getblock", [block, 3], max_body_size=3 * weight)
+    node.call("getblock", [block, 3], max_body_size=5 * weight)
+    assert bitcoin_core._MAX_LARGE_REPLY == 5 * MAX_BLOCK_WEIGHT
+
+    height = node.call("getblock", [block, 1])["height"]
+    history = BitcoinCoreFetcher(node, "regtest").get_history([p2wsh], height)
+    assert [entry.tx.id for entry in history.txs] == [spend.id]

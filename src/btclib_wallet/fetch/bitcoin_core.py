@@ -33,6 +33,7 @@ from bitcoin_core_rpc import (
 )
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
+from btclib.consensus import MAX_BLOCK_WEIGHT
 from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, RpcError
 from btclib.fee import FeeRate
 from btclib.script import ScriptPubKey
@@ -67,15 +68,22 @@ __all__ = [
 ]
 
 # What a reply that is a number or a hash may weigh: the JSON envelope and a
-# value of a few dozen octets. `getrawtransaction` is the one answer here that
-# is not small, and it keeps the client's default.
+# value of a few dozen octets. `getrawtransaction` keeps the client's default,
+# which is sized for one block as hex.
 _MAX_SMALL_REPLY = 1024
 
-# A ceiling on the replies `get_history` reads that grow with the chain or
-# the mempool: a block rendered with every input's previous output, the
-# mempool's txids, the unspent outputs of the scripts. Not a measured size:
-# a bound, so that a reply without end is refused rather than read.
-_MAX_LARGE_REPLY = 256 * 1024 * 1024
+# What a reply `get_history` reads that grows with the chain may weigh: five
+# octets per weight unit of the heaviest block. `getblock` at verbosity 3
+# renders about four, as measured on regtest against Core 31.1, the release
+# the integration job pins: for a block of taproot key-path spends, each input
+# rendered with the output it spends, and for a block of large witnesses, each
+# witness written twice as hex. `tests/integration/history_test.py` measures
+# the second again. A block that renders larger, such as one spending outputs
+# with long scripts, is refused as a `FetchError`. The same bound holds the
+# mempool's txids at `-maxmempool`'s default, measured at about 1,180 octets
+# of the node's memory and 67 of reply each, and the outputs a scan reports,
+# about 365 octets each.
+_MAX_LARGE_REPLY = 5 * MAX_BLOCK_WEIGHT
 
 # the modes `estimatesmartfee` takes, which Core matches without regard to
 # ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
@@ -369,7 +377,10 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         answer, and those the mempool's own transactions pay to them.
 
         Core runs one `scantxoutset` at a time, so a call while another
-        scan runs on the node raises `RpcError` with code -8.
+        scan runs on the node raises `RpcError` with code -8. The scan
+        runs under the client's timeout, and one the timeout cuts short
+        goes on in the node until it ends: a call made meanwhile meets
+        that -8 too.
 
         `getbestblockhash` is asked again last. A tip that moved is a
         `FetchError`, and so is a `scantxoutset` read at another tip: a

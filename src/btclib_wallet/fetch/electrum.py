@@ -117,7 +117,9 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     derivation from `get_tx`. The protocol answers a script hash's
     history and its unspent outputs, `blockchain.scripthash.get_history`
     and `.listunspent`, but `ElectrumFetcher` asks neither, and is no
-    `HistoryReader`.
+    `HistoryReader` yet: issue btclib-org/btclib-wallet#629 tracks it as a
+    step after `BitcoinCoreFetcher`. The history names a height and no
+    block, so each confirmed entry also needs the header at its height.
     """
 
     def __init__(
