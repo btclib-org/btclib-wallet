@@ -217,8 +217,13 @@ an Electrum server or a p2p peer for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and holds the layering
 inside the package: its `_ALLOWED_UNITS` names, for `bip32/`, `psbt/`
 and each unit `psbt/` reaches, the only other units of the package it
-may import. `tests/fuzz_test.py` holds every parser named here to one
-contract: it fails the way the library says it fails, whatever it is
-handed, never with a bare `IndexError` or `OverflowError` a caller's
-`except BTClibValueError` does not catch. The harnesses under `fuzz/`
-drive the extended-key, descriptor, PSBT and BIP322 parsers beyond that.
+may import. `bip32/` and `descriptors/` are what btclib-org/.github#1811
+moves to a package of their own, so the tests, fuzz harnesses and
+scripts that move with them import nothing that stays but the test
+helpers a split copies. `tests/imports_test.py` holds that, and
+`tests/moving_imports_test.py` for the files the sdist does not carry.
+`tests/fuzz_test.py` holds every parser named here to one contract: it
+fails the way the library says it fails, whatever it is handed, never
+with a bare `IndexError` or `OverflowError` a caller's `except
+BTClibValueError` does not catch. The harnesses under `fuzz/` drive the
+extended-key, descriptor, PSBT and BIP322 parsers beyond that.
