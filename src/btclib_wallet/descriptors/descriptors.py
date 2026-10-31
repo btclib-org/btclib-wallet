@@ -2796,7 +2796,7 @@ def _expanded_key(
 
     A ``musig()`` adds its participants, then the aggregate. A key spelled
     twice in one fragment gets the entry `Descriptor.provider` describes,
-    which is Core's `OriginPubkeyProvider::GetPubKey`.
+    as Core's key providers do.
     """
     if key.participants:
         for participant in key.participants:
