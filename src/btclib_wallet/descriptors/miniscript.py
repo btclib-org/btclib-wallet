@@ -1871,6 +1871,26 @@ def _expression_end(text: str, pos: int, *, stop_at_close: bool) -> int:
     return len(text)
 
 
+def _leaf_end(text: str, pos: int) -> int:
+    """Return the index one past a key, hash or timelock fragment.
+
+    Where Core's ``Expr`` ends it, which counts a brace as a bracket: in
+    ``pk(K){,pk(K2))`` the key is ``K){,pk(K2)``, so the key is what is
+    refused. A multisig is cut by ``_expression_end`` instead, Core
+    reading its keys up to the next comma.
+    """
+    depth = 0
+    for i in range(pos, len(text)):
+        char = text[i]
+        if char in "({":
+            depth += 1
+        elif char in ")}" and depth:
+            depth -= 1
+        elif char in ",)}" and not depth:
+            return i
+    return len(text)
+
+
 class _Built(list[Miniscript]):
     """The fragments a parse has finished, refused once their sum is too large.
 
@@ -2219,7 +2239,10 @@ def _read_leaf_fragment(
     if name in {"multi", "multi_a"} and name != own:
         # Core refuses a multisig outside its own context before any key
         raise _CoreFallbackError(_multisig_context_fault(name))
-    end = _expression_end(expression, pos, stop_at_close=name == own)
+    if name == own:
+        end = _expression_end(expression, pos, stop_at_close=True)
+    else:
+        end = _leaf_end(expression, pos)
     if expression[end - 1 : end] != ")":
         if name in {"multi", "multi_a"}:
             _read_unclosed_multisig_keys(
