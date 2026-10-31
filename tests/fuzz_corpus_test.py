@@ -915,7 +915,8 @@ def _psbt_vectors() -> tuple[tuple[str, bytes], ...]:
     rust_psbt = _PSBT_DATA / "rust-psbt" / "bip174.json"
     cases = json.loads(rust_psbt.read_text(encoding="utf-8"))["cases"]
     (case,) = (c for c in cases if c["description"].startswith("Workflow A (step 7)"))
-    psbts.append(("Workflow A (step 7)", bytes.fromhex(case["expected"]["hex"])))
+    expected = case["task"]["finalize"]["expected"]["base64"]
+    psbts.append(("Workflow A (step 7)", base64.b64decode(expected)))
     return tuple(psbts)
 
 
