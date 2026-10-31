@@ -618,10 +618,9 @@ def test_get_block_header_verifies_the_chain_once_like_the_others() -> None:
 def test_a_small_reply_carries_a_small_limit() -> None:
     """A height and a tip hash are bounded by what they are.
 
-    `call` defaults to the widest answer a fetcher asks for, a raw
-    transaction as hex inside a json envelope, because it is public and
-    takes any method -- `getblock` on a large block is a legitimate call.
-    The answers that are a number and a hash say so instead.
+    `BitcoinCoreRpcClient.call` is public and takes any method, so it
+    keeps the client's default, `DEFAULT_MAX_BODY_SIZE`. The answers that
+    are a number and a hash narrow it.
     """
     oversized = b'{"result":' + b"9" * 1100 + b',"error":null,"id":"x"}'
     with pytest.raises(FetchError, match="more than the max_body_size of 1024"):
@@ -633,9 +632,8 @@ def test_a_small_reply_carries_a_small_limit() -> None:
         TIP_HEIGHT
     )
 
-    # and `call` itself keeps the wide default, being public and taking
-    # any method: `getblock` on a large block is a legitimate call. The
-    # timeout defaults to the client's, which is what None means here
+    # and `BitcoinCoreRpcClient.call` itself keeps the client's default.
+    # The timeout defaults to the client's, which is what None means here
     defaults = BitcoinCoreRpcClient.call.__kwdefaults__
     assert defaults is not None
     assert defaults["max_body_size"] == DEFAULT_MAX_BODY_SIZE

@@ -159,8 +159,8 @@ time ends* and *A backend is trusted, and not every backend alike*:
 - the operating system, the interpreter, or the HWI binary or hardware
   device this package's caller names
 
-Nor is the network transport a caller's own `Fetcher`, `Broadcaster`,
-`FeeEstimator` or `BalanceReader` substitute opens: `tests/fetch/`
+Nor is the network transport a caller's own `Fetcher`, or its own
+implementation of another protocol of `fetch`, opens: `tests/fetch/`
 exercises the ones this package ships, and a caller's own implementation is
 the caller's to secure.
 

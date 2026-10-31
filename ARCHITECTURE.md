@@ -179,10 +179,11 @@ server, `CompactFilterFetcher` over a peer's BIP157 filters — so calling
 code takes a `Fetcher` and never branches on which one it got.
 `CompactFilterFetcher`'s docstrings say what it serves of `Fetcher` and what
 its `scan_blocks` does.
-`Broadcaster`, `FeeEstimator` and `BalanceReader` are further protocols
-a backend may or may not satisfy: `BitcoinCoreRestFetcher` answers none,
-Core's `-rest` interface being read-only and carrying no fee estimation
-and no address index.
+`Broadcaster`, `FeeEstimator`, `BalanceReader` and `HistoryReader` are
+further protocols a backend may or may not satisfy:
+`BitcoinCoreRestFetcher` answers none of them. Core's `-rest` interface
+is read-only and carries no fee estimation and no address index, and
+the fetcher does not read a script's history.
 `fetch.transport` is the client seam — one HTTP connection per call, one
 kept open across calls, and `TlsLineTransport` for the Electrum line
 protocol — and `fetch.peer_transport` is the seam of the p2p peer:

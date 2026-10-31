@@ -90,6 +90,13 @@ btclib_wallet.fetch.fetcher module
    :members:
    :show-inheritance:
 
+btclib_wallet.fetch.history module
+----------------------------------
+
+.. automodule:: btclib_wallet.fetch.history
+   :members:
+   :show-inheritance:
+
 btclib_wallet.fetch.peer_transport module
 -----------------------------------------
 

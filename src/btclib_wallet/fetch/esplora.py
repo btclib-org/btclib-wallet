@@ -200,6 +200,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
     Also a `BalanceReader`: `get_balance` is `GET /address/<address>`,
     which answers json too.
+
+    Not a `HistoryReader` yet: issue btclib-org/btclib-wallet#629 tracks
+    it as a step after `BitcoinCoreFetcher`.
     """
 
     def __init__(
