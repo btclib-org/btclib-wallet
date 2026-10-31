@@ -88,6 +88,7 @@ from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
 from btclib_wallet.descriptors.key_expression import PrvKeys
 from btclib_wallet.descriptors.miniscript import SpendContext
 from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.wallet.wallet import _LAST_INDEX, RangedWallet
 
 __all__ = [
@@ -336,13 +337,13 @@ class DescriptorWallet(RangedWallet):
     ) -> Psbt:
         """Return the psbt with an input told what this position is.
 
-        `Descriptor.update_psbt_input`, which is BIP174's Updater: the
-        scripts and the key origins of the position, for signers to fill
-        in and `psbt.finalize` to assemble.
+        `psbt.update_psbt_input`, which is BIP174's Updater: the scripts
+        and the key origins of the position, for signers to fill in and
+        `psbt.finalize` to assemble.
         """
         self._assert_position(branch, index)
-        return self._descriptors[branch].update_psbt_input(
-            psbt, vin_i, index, self.prv_keys
+        return update_psbt_input(
+            self._descriptors[branch], psbt, vin_i, index, self.prv_keys
         )
 
     def update_psbt_output(
@@ -350,13 +351,13 @@ class DescriptorWallet(RangedWallet):
     ) -> Psbt:
         """Return the psbt with an output told what this position is.
 
-        `Descriptor.update_psbt_output`, which refuses unless the output
-        being paid is the very script this position derives: marking an
-        output as the wallet's own is a claim about where money goes, and
-        the whole script is the only evidence for it. `position_of` is
-        the same claim asked as a question.
+        `psbt.update_psbt_output`, which refuses unless the output being
+        paid is the very script this position derives: marking an output
+        as the wallet's own is a claim about where money goes, and the
+        whole script is the only evidence for it. `position_of` is the
+        same claim asked as a question.
         """
         self._assert_position(branch, index)
-        return self._descriptors[branch].update_psbt_output(
-            psbt, vout_i, index, self.prv_keys
+        return update_psbt_output(
+            self._descriptors[branch], psbt, vout_i, index, self.prv_keys
         )

@@ -22,6 +22,7 @@ module-path = [
     "src/btclib_wallet/psbt/psbt_out.py",
     "src/btclib_wallet/psbt/psbt_utils.py",
     "src/btclib_wallet/psbt/psbt_size.py",
+    "src/btclib_wallet/psbt/psbt_updater.py",
     "src/btclib_wallet/psbt/__init__.py",
 ]
 

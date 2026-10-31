@@ -182,6 +182,7 @@ CHILD_MODULES = {
             "psbt_in",
             "psbt_out",
             "psbt_size",
+            "psbt_updater",
             "psbt_utils",
             "psbt_view",
         ],
@@ -317,12 +318,17 @@ def test_psbt_exports_the_format_not_its_plumbing() -> None:
         "finalize",
         "frost",
         "join",
+        "miniscript_sizer",
+        "miniscript_solver",
         "musig2",
         "new_signers",
         "prevouts",
+        "satisfaction_sizer",
         "sign",
         "silent_payments",
         "taproot_sig_hash",
+        "update_psbt_input",
+        "update_psbt_output",
     ]
 
     # BIP373 is a role, so the module is the name, as ecc.ecc.musig2 is

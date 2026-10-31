@@ -55,6 +55,7 @@ from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import NetworkVerifyingFetcher
 from btclib_wallet.fetch.transport import LineTransport, TlsLineTransport
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 
 # how long the node is given to answer its first rpc call: a regtest
 # bitcoind is up in well under a second on any machine that can run this
@@ -259,8 +260,8 @@ def spending_psbt(
     )
     psbt = Psbt.from_tx(tx)
     psbt.inputs[0].non_witness_utxo = prev_tx
-    psbt = receive.update_psbt_input(psbt, 0, 0)
-    return change.update_psbt_output(psbt, 1, 0)
+    psbt = update_psbt_input(receive, psbt, 0, 0)
+    return update_psbt_output(change, psbt, 1, 0)
 
 
 def broadcast(node: BitcoinCoreRpcClient, psbt: Psbt) -> str:

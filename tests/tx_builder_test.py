@@ -40,6 +40,7 @@ from btclib_wallet.descriptors import Descriptor
 from btclib_wallet.psbt.psbt import extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import SIG_SIZE
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.psbt_signer import SoftwareSigner, export_account, request_signatures
 from btclib_wallet.tx_builder import DEFAULT_MAX_FEE, DEFAULT_MAX_FEE_RATE, build_psbt
 
@@ -722,8 +723,8 @@ def test_what_was_built_is_signed_spends_and_pays_the_rate(purpose: int) -> None
     estimate = built.psbt.vsize_estimate()
     assert built.change_index is not None
 
-    psbt = receive.update_psbt_input(built.psbt, 0, 0)
-    psbt = change.update_psbt_output(psbt, built.change_index, 0)
+    psbt = update_psbt_input(receive, built.psbt, 0, 0)
+    psbt = update_psbt_output(change, psbt, built.change_index, 0)
     tx = extract_tx(finalize(request_signatures(signer, psbt)))
 
     verify_transaction([prev_out], tx)

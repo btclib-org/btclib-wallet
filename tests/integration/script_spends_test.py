@@ -24,12 +24,12 @@ from btclib_wallet.descriptors import (
     Descriptor,
     SpendContext,
     TrDescriptor,
-    miniscript_solver,
     parse,
 )
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
-from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
+from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize, miniscript_solver
 from btclib_wallet.psbt.psbt_size import SCHNORR_SIG_SIZE, SIG_SIZE
+from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.silent_payments import NUMS_H
 from btclib_wallet.tx_builder import build_psbt
@@ -89,7 +89,7 @@ def _signed_spend(
     )
     request.inputs[0].non_witness_utxo = funding
     request.inputs[0].witness_utxo = prevout
-    request = descriptor.update_psbt_input(request, 0)
+    request = update_psbt_input(descriptor, request, 0)
     # The chosen descriptor branch supplies the size the generic builder
     # cannot infer from a script-path or miniscript input alone.
     keys = descriptor.key_expressions

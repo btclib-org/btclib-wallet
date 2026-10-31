@@ -74,6 +74,7 @@ from btclib_wallet.psbt import silent_payments
 from btclib_wallet.psbt.psbt import Psbt, ecdsa_sig_hash
 from btclib_wallet.psbt.psbt_in import PsbtIn, ValidSigHashType
 from btclib_wallet.psbt.psbt_out import PsbtOut
+from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
     MessageSigner,
@@ -462,7 +463,7 @@ def account_psbt(device: HwiSigner) -> tuple[Psbt, Descriptor]:
         )
     )
     psbt.inputs[0].non_witness_utxo = prev_tx
-    return receive.update_psbt_input(psbt, 0, 0), receive
+    return update_psbt_input(receive, psbt, 0, 0), receive
 
 
 def test_a_psbt_goes_out_and_comes_back_checked(hwi: list[str]) -> None:

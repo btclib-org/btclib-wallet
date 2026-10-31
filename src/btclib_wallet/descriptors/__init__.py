@@ -14,7 +14,7 @@ none after:
   written as a tree of fragments rather than as a function, and the
   non-malleable witness that satisfies one;
 - `descriptors` is the rest of BIP380 to BIP390: the checksum, the
-  functions, the scripts each describes, and the psbt each fills.
+  functions, the scripts each describes, and what each tells a psbt.
 
 `miniscript` is named beside the flat surface because a caller reaches it
 by name -- `miniscript.parse`, `miniscript.from_script` and the
@@ -31,6 +31,7 @@ from btclib_wallet.descriptors.descriptors import (
     Descriptor,
     DescriptorLeaf,
     DescriptorTree,
+    Expansion,
     MiniscriptDescriptor,
     MultiA,
     MultiDescriptor,
@@ -49,12 +50,9 @@ from btclib_wallet.descriptors.descriptors import (
     derived_origin,
     from_address,
     infer_descriptor,
-    miniscript_sizer,
-    miniscript_solver,
     multipath_descriptors,
     normalized,
     parse,
-    satisfaction_sizer,
     strip_checksum,
     wallet_policy,
     wallet_policy_address,
@@ -69,6 +67,7 @@ __all__ = [
     "Descriptor",
     "DescriptorLeaf",
     "DescriptorTree",
+    "Expansion",
     "KeyExpression",
     "Miniscript",
     "MiniscriptDescriptor",
@@ -92,12 +91,9 @@ __all__ = [
     "from_address",
     "infer_descriptor",
     "miniscript",
-    "miniscript_sizer",
-    "miniscript_solver",
     "multipath_descriptors",
     "normalized",
     "parse",
-    "satisfaction_sizer",
     "strip_checksum",
     "wallet_policy",
     "wallet_policy_address",

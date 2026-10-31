@@ -20,6 +20,12 @@ writes proprietary records under a btclib identifier, which no other
 wallet reads. Its module docstring states that and what happens to those
 records when a BIP does assign the bytes.
 
+`update_psbt_input` and `update_psbt_output` are the Updater, for the
+script a descriptor describes. `miniscript_solver` is a solver for
+`finalize`, and `miniscript_sizer` and `satisfaction_sizer` are sizers for
+`estimated_input_sizes`, for an input whose witness script is a BIP379
+miniscript.
+
 `PsbtView` is the same psbt read a map at a time out of a stream, for a
 signer with less memory than the psbt takes (issue btclib-org/btclib#647). It is
 beside `Psbt` and not another way to spell it: it reads, where every role above
@@ -72,6 +78,7 @@ from btclib_wallet.psbt.psbt import (
     extract_tx,
     finalize,
     join,
+    miniscript_solver,
     new_signers,
     prevouts,
     sign,
@@ -79,7 +86,13 @@ from btclib_wallet.psbt.psbt import (
 )
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
-from btclib_wallet.psbt.psbt_size import SolutionSizer, estimated_input_sizes
+from btclib_wallet.psbt.psbt_size import (
+    SolutionSizer,
+    estimated_input_sizes,
+    miniscript_sizer,
+    satisfaction_sizer,
+)
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.psbt.psbt_view import PsbtView
 
 __all__ = [
@@ -99,10 +112,15 @@ __all__ = [
     "finalize",
     "frost",
     "join",
+    "miniscript_sizer",
+    "miniscript_solver",
     "musig2",
     "new_signers",
     "prevouts",
+    "satisfaction_sizer",
     "sign",
     "silent_payments",
     "taproot_sig_hash",
+    "update_psbt_input",
+    "update_psbt_output",
 ]

@@ -43,9 +43,9 @@ field of the map that arrives rather than an argument this function
 would have to grow. The outputs are `TxOut` and not `PsbtOut` because
 the asymmetry is real: the input map is *read*, every byte a signature
 will take being computed from it, where nothing computed here reads an
-output map -- what a wallet writes into one, `descriptors`'
-`update_psbt_output` on the change output at `change_index` included, is
-written after this returns and changes no size.
+output map -- what a wallet writes into one, `psbt.update_psbt_output`
+on the change output at `change_index` included, is written after this
+returns and changes no size.
 
 Explicitly not here, both of them boundaries this library draws
 elsewhere too:

@@ -19,7 +19,6 @@ from btclib.network import NETWORKS
 from btclib_wallet.bip32 import xpub_from_xprv
 from btclib_wallet.bip32.bip32 import rootxprv_from_seed
 from btclib_wallet.descriptors import KeyExpression, parse
-from btclib_wallet.psbt import Psbt
 
 TPRV = rootxprv_from_seed("0f" * 16, NETWORKS["testnet"].bip32_prv)
 XPUB = xpub_from_xprv(TPRV)
@@ -93,7 +92,6 @@ def test_public_index_methods_refuse_a_non_integer(index: Any, *, ranged: bool) 
     """Refuse non-integer indexes before deriving or comparing bounds."""
     expression = f"{XPUB}/*" if ranged else _key(XPUB)[0].sec(network="testnet").hex()
     descriptor = parse(f"tr({expression})", "testnet")
-    psbt = Psbt(1, [], [], 2, {})
     calls = [
         getattr(descriptor, name)
         for name in (
@@ -104,6 +102,7 @@ def test_public_index_methods_refuse_a_non_integer(index: Any, *, ranged: bool) 
             "addresses",
             "provider",
             "expand",
+            "expansion",
             "taproot_merkle_root",
             "taproot_leaf_scripts",
             "taproot_tree",
@@ -112,8 +111,6 @@ def test_public_index_methods_refuse_a_non_integer(index: Any, *, ranged: bool) 
     calls.extend(
         [
             lambda index: descriptor.satisfy({}, index),
-            lambda index: descriptor.update_psbt_input(psbt, 0, index),
-            lambda index: descriptor.update_psbt_output(psbt, 0, index),
             descriptor.key_expressions[0].sec,
         ]
     )

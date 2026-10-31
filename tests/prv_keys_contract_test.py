@@ -16,8 +16,7 @@ is the walk: every public callable of every module's `__all__` with a
 `PrvKeys` parameter must be a row, so a new entry cannot escape. The
 second passes each row a string and expects a `BTClibTypeError` naming
 `prv_keys`. Where a callee would raise the same error, the row does not
-show that the callable's own check is there; the `update_psbt_*` rows,
-fed `None` for the psbt, do.
+show that the callable's own check is there.
 """
 
 from __future__ import annotations
@@ -42,6 +41,7 @@ from btclib_wallet.descriptors import (
 from btclib_wallet.descriptors import normalized as normalized_descriptor
 from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.descriptors.miniscript import parse as parse_miniscript
+from btclib_wallet.psbt import Psbt, update_psbt_input, update_psbt_output
 from btclib_wallet.wallet import DescriptorWallet
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed(b"\x01" * 32))
@@ -49,8 +49,11 @@ _DESCRIPTOR = parse_descriptor(f"tr({_XPUB}/1h,pk({_XPUB}/2))")
 _TR = cast(TrDescriptor, _DESCRIPTOR)
 _KEY = _DESCRIPTOR.key_expressions[0]
 _MINISCRIPT = parse_miniscript(f"pk({_XPUB}/3)")
-# stands where a psbt or a key would: none is read before `prv_keys` is
+# stands where a key would: none is read before `prv_keys` is
 _NOTHING: Any = None
+# a psbt with no input and no output: the updaters ask the descriptor
+# about `prv_keys` before they look for the map
+_EMPTY_PSBT = Psbt(1, [], [], 2, {})
 
 
 def _walk() -> set[str]:
@@ -94,12 +97,7 @@ _ROWS: dict[str, Callable[[], object]] = {
     "Descriptor.expand": _call(_DESCRIPTOR.expand, 0),
     "Descriptor.satisfy": _call(_DESCRIPTOR.satisfy, {}, 0),
     "Descriptor.index_of": _call(_DESCRIPTOR.index_of, b"\x51", -1),
-    "Descriptor.update_psbt_input": _call(
-        _DESCRIPTOR.update_psbt_input, _NOTHING, 0, 0
-    ),
-    "Descriptor.update_psbt_output": _call(
-        _DESCRIPTOR.update_psbt_output, _NOTHING, 0, 0
-    ),
+    "Descriptor.expansion": _call(_DESCRIPTOR.expansion, 0),
     "TrDescriptor.taproot_leaf_scripts": _call(_TR.taproot_leaf_scripts, 0),
     "TrDescriptor.taproot_merkle_root": _call(_TR.taproot_merkle_root, 0),
     "TrDescriptor.taproot_tree": _call(_TR.taproot_tree, 0),
@@ -113,6 +111,8 @@ _ROWS: dict[str, Callable[[], object]] = {
     "Miniscript.insane_sub": _call(_MINISCRIPT.insane_sub),
     "Miniscript.satisfy": _call(_MINISCRIPT.satisfy, None, None, 0, "mainnet"),
     "normalized": _call(normalized_descriptor, _DESCRIPTOR),
+    "update_psbt_input": _call(update_psbt_input, _DESCRIPTOR, _EMPTY_PSBT, 0, 0),
+    "update_psbt_output": _call(update_psbt_output, _DESCRIPTOR, _EMPTY_PSBT, 0, 0),
     "DescriptorWallet.__init__": _call(DescriptorWallet, _DESCRIPTOR),
     "DescriptorWallet.from_account": _call(
         DescriptorWallet.from_account, _NOTHING, _NOTHING

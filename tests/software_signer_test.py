@@ -27,6 +27,7 @@ from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.core_import import account_import_requests
 from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 from btclib_wallet.psbt.psbt import Psbt, finalize
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
     MessageSigner,
@@ -67,8 +68,8 @@ def spending(
     )
     psbt = Psbt.from_tx(tx)
     psbt.inputs[0].non_witness_utxo = prev_tx
-    psbt = receive.update_psbt_input(psbt, 0, index)
-    psbt = change.update_psbt_output(psbt, 1, index)
+    psbt = update_psbt_input(receive, psbt, 0, index)
+    psbt = update_psbt_output(change, psbt, 1, index)
     return psbt, [prev_out]
 
 
@@ -164,7 +165,7 @@ def test_the_signer_never_signs_the_legacy_sighash_single_constant() -> None:
     psbt = Psbt.from_tx(tx)
     for i, prev_tx in enumerate(prev_txs):
         psbt.inputs[i].non_witness_utxo = prev_tx
-        psbt = receive.update_psbt_input(psbt, i, i)
+        psbt = update_psbt_input(receive, psbt, i, i)
     psbt.inputs[1].sig_hash_type = 3  # SINGLE
 
     with pytest.raises(BTClibValueError, match="signs the constant 1"):

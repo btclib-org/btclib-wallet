@@ -46,6 +46,13 @@ btclib\_wallet.psbt.psbt\_size module
    :members:
    :show-inheritance:
 
+btclib\_wallet.psbt.psbt\_updater module
+----------------------------------------
+
+.. automodule:: btclib_wallet.psbt.psbt_updater
+   :members:
+   :show-inheritance:
+
 btclib\_wallet.psbt.psbt\_utils module
 --------------------------------------
 

@@ -661,7 +661,7 @@ class ScriptWallet(RangedWallet):
         saying what satisfies this script.
 
         A copy, the psbt handed in being left alone, and the fields of the
-        copy written in place, as `Descriptor.update_psbt_input` does.
+        copy written in place, as `psbt.update_psbt_input` does.
 
         The origins are every key of the template's, as for an output:
         which of them a spend will use is what the satisfaction decides,
