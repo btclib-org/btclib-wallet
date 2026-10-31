@@ -192,7 +192,8 @@ used to teach and to prototype as much as to build.
     it is the header at the height asked for. A height rests on the
     backend's word except from `CompactFilterFetcher`, and so does the
     tip hash except from `ElectrumFetcher` and `CompactFilterFetcher`.
-    An address's balance rests on the backend's word too.
+    An address's balance rests on the backend's word too, and so does a
+    script's history, the ids of the transactions it lists excepted.
     The work each network's limit stands for, in bits, is:
 
     ```shell

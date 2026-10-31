@@ -251,6 +251,8 @@ def test_a_range_and_the_scripts_are_checked_before_the_peer_is_asked() -> None:
         fetcher.scan_blocks([WALLET], 0, "5")  # type: ignore[arg-type]
     with pytest.raises(BTClibValueError, match="no scripts"):
         fetcher.scan_blocks([])
+    with pytest.raises(BTClibValueError, match="an empty script"):
+        fetcher.scan_blocks([WALLET, b""])
     with pytest.raises(BTClibTypeError, match="not an iterable of scripts: bytes"):
         fetcher.scan_blocks(WALLET)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="not an iterable of scripts: str"):

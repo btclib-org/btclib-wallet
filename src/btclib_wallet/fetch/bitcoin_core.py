@@ -19,22 +19,24 @@ own exceptions are promised, and `_call` below is the line that makes it
 true.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
 from bitcoin_core_rpc import (
     COOKIE_USER,
     DEFAULT_DATADIR,
     BitcoinCoreRpcClient,
+    RPCErrorCode,
     chain_from_network,
     cookie_auth,
     magic_from_signet_challenge,
 )
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError
+from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, RpcError
 from btclib.fee import FeeRate
-from btclib.tx import Tx
+from btclib.script import ScriptPubKey
+from btclib.tx import OutPoint, Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
@@ -47,6 +49,12 @@ from btclib_wallet.fetch.fetcher import (
     fetch_errors,
     tx_from_raw,
     tx_id_hex,
+)
+from btclib_wallet.fetch.history import (
+    BlockRef,
+    HistoryTx,
+    ScriptHistory,
+    history_scripts,
 )
 
 __all__ = [
@@ -62,6 +70,12 @@ __all__ = [
 # value of a few dozen octets. `getrawtransaction` is the one answer here that
 # is not small, and it keeps the client's default.
 _MAX_SMALL_REPLY = 1024
+
+# A ceiling on the replies `get_history` reads that grow with the chain or
+# the mempool: a block rendered with every input's previous output, the
+# mempool's txids, the unspent outputs of the scripts. Not a measured size:
+# a bound, so that a reply without end is refused rather than read.
+_MAX_LARGE_REPLY = 256 * 1024 * 1024
 
 # the modes `estimatesmartfee` takes, which Core matches without regard to
 # ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
@@ -79,6 +93,9 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
 
     Also a `FeeEstimator`: `estimate_fee` sends `estimatesmartfee`, which
     `-rest` has no equivalent of either -- fee estimation is RPC only.
+
+    Also a `HistoryReader`: `get_history` reads the blocks and the
+    mempool, and asks nothing of the node's wallet.
 
     The client is a constructor argument rather than a set of connection
     arguments repeated here: one class owns the endpoint and credentials,
@@ -332,3 +349,172 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 raise BTClibTypeError(f"invalid blocks: {blocks!r}")
             rate = FeeRate.from_btc_per_kvbyte(feerate, round_up=True)
             return FeeQuote(rate=rate, target=cast(int, blocks))
+
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        """Return the history of `scripts`, from `start` to the tip.
+
+        Core keeps no index by script, so this reads what a script is in.
+        The blocks are `getblock` at verbosity 3, which names the script of
+        the output each input spends, walked down from the tip through
+        `previousblockhash`: the walk stays on the chain of the tip it
+        read first, whatever the node switches to meanwhile. A block with
+        no undo data, such as a pruned one, is a `FetchError`.
+
+        The mempool is `getrawmempool`, then `getrawtransaction` for each
+        transaction; one the node no longer has by then is skipped. A
+        mempool input names an output and not its script, so the outputs
+        it may spend are those the scripts hold unspent, `scantxoutset`'s
+        answer, and those the mempool's own transactions pay to them.
+
+        Core runs one `scantxoutset` at a time, so a call while another
+        scan runs on the node raises `RpcError` with code -8.
+
+        `getbestblockhash` is asked again last. A tip that moved is a
+        `FetchError`, and so is a `scantxoutset` read at another tip: a
+        transaction mined meanwhile would be in no block read and is
+        reported from the mempool, or not at all.
+
+        The cost is a call per block from `start_height` up and a call per
+        mempool transaction, and `scantxoutset`, asked where the mempool
+        holds any, reads the whole utxo set.
+        """
+        elements = history_scripts(scripts)
+        first = block_header_height(start_height)
+        self._verify_once()
+        tip_id = self._best_block_hex()
+        blocks: list[tuple[BlockRef, list[Tx]]] = []
+        block_hex, height = tip_id, None
+        while True:
+            ref, txs, parent = self._history_block(block_hex, height, elements)
+            if height is None:
+                first = min(first, ref.height)
+            blocks.append((ref, txs))
+            if ref.height == first:
+                break
+            block_hex, height = parent, ref.height - 1
+        confirmed = [HistoryTx(tx, ref) for ref, txs in reversed(blocks) for tx in txs]
+        unconfirmed = [
+            HistoryTx(tx, None) for tx in self._history_mempool(elements, tip_id)
+        ]
+        if self._best_block_hex() != tip_id:
+            raise FetchError("the tip moved while the history was read")
+        return ScriptHistory(
+            start=blocks[-1][0],
+            tip=blocks[0][0],
+            txs=(*confirmed, *unconfirmed),
+        )
+
+    def _best_block_hex(self) -> str:
+        """Return the hash of the node's best chain tip, as hex."""
+        with fetch_errors("getbestblockhash"):
+            reply = self._call("getbestblockhash", None, max_body_size=_MAX_SMALL_REPLY)
+            return bytes_from_octets(reply, 32).hex()
+
+    def _history_block(
+        self, block_hex: str, height: int | None, elements: frozenset[bytes]
+    ) -> tuple[BlockRef, list[Tx], str]:
+        """Return a block, its transactions touching `elements`, and its parent.
+
+        `height` is the one the walk expects, or `None` for the tip. The
+        parent is `""` for the genesis block.
+        """
+        reply = self._call("getblock", [block_hex, 3], max_body_size=_MAX_LARGE_REPLY)
+        with fetch_errors(f"getblock {block_hex}"):
+            answered = _member(reply, "hash")
+            if answered != block_hex:
+                raise BTClibValueError(f"the answer is block {answered}")
+            answered = _member(reply, "height")
+            if not is_integer(answered) or (height is not None and answered != height):
+                raise BTClibValueError(f"the answer is at height {answered}")
+            txs = [
+                tx_from_raw(_member(entry, "hex"), _member(entry, "txid"), self.network)
+                for entry in _member(reply, "tx")
+                if _touches(entry, elements)
+            ]
+            parent = str(reply.get("previousblockhash", ""))
+            ref = BlockRef(cast(int, answered), bytes_from_octets(block_hex, 32))
+        return ref, txs, parent
+
+    def _history_mempool(self, elements: frozenset[bytes], tip_id: str) -> list[Tx]:
+        """Return the mempool's transactions touching `elements`."""
+        reply = self._call("getrawmempool", None, max_body_size=_MAX_LARGE_REPLY)
+        with fetch_errors("getrawmempool"):
+            if not isinstance(reply, list):
+                raise BTClibTypeError(f"not an array: {type(reply).__name__}")
+            tx_ids = [tx_id_hex(tx_id) for tx_id in reply]
+        mempool: list[Tx] = []
+        for tx_id in tx_ids:
+            try:
+                raw = self._call("getrawtransaction", [tx_id], max_body_size=None)
+            except RpcError as e:
+                if e.code != RPCErrorCode.INVALID_ADDRESS_OR_KEY:
+                    raise
+                continue
+            mempool.append(tx_from_raw(raw, tx_id, self.network))
+        if not mempool:
+            return []
+        ours = {
+            OutPoint(tx.id, vout)
+            for tx in mempool
+            for vout, tx_out in enumerate(tx.vout)
+            if tx_out.script_pub_key.script in elements
+        }
+        ours |= self._history_unspent(elements, tip_id)
+        return [
+            tx
+            for tx in mempool
+            if any(tx_out.script_pub_key.script in elements for tx_out in tx.vout)
+            or any(tx_in.prev_out in ours for tx_in in tx.vin)
+        ]
+
+    def _history_unspent(
+        self, elements: frozenset[bytes], tip_id: str
+    ) -> set[OutPoint]:
+        """Return the outputs `elements` hold unspent at the tip `tip_id`."""
+        descriptors = [f"raw({script.hex()})" for script in sorted(elements)]
+        reply = self._call(
+            "scantxoutset", ["start", descriptors], max_body_size=_MAX_LARGE_REPLY
+        )
+        with fetch_errors("scantxoutset"):
+            if _member(reply, "success") is not True:
+                raise BTClibValueError("the scan did not complete")
+            answered = _member(reply, "bestblock")
+            if answered != tip_id:
+                raise BTClibValueError(f"read at {answered}, not at {tip_id}")
+            return {
+                OutPoint(_member(utxo, "txid"), _member(utxo, "vout"))
+                for utxo in _member(reply, "unspents")
+            }
+
+
+def _member(reply: Any, name: str) -> Any:
+    """Return one member of a json object, refusing what is not one.
+
+    `TypeError` for a missing member as for a reply that is no object,
+    which `fetch_errors` reads as the node's own failure, as
+    `bitcoin_core_rest._field` does.
+    """
+    if not isinstance(reply, dict) or name not in reply:
+        raise TypeError(f"no {name!r} member")
+    return reply[name]
+
+
+def _touches(entry: Any, elements: frozenset[bytes]) -> bool:
+    """Answer whether a transaction `getblock` renders touches `elements`.
+
+    A coinbase input spends nothing; any other input without `prevout` is
+    in a block whose undo data the node does not have.
+    """
+    for tx_out in _member(entry, "vout"):
+        script = _member(_member(tx_out, "scriptPubKey"), "hex")
+        if bytes.fromhex(script) in elements:
+            return True
+    for tx_in in _member(entry, "vin"):
+        if "coinbase" in tx_in:
+            continue
+        script = _member(_member(_member(tx_in, "prevout"), "scriptPubKey"), "hex")
+        if bytes.fromhex(script) in elements:
+            return True
+    return False

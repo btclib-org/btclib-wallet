@@ -110,7 +110,7 @@ from btclib.p2p.limits import (
 )
 from btclib.script import ScriptPubKey
 from btclib.tx import Tx
-from btclib.utils import bytes_from_octets, is_integer, is_octets
+from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet.fetch.fetcher import (
@@ -121,6 +121,7 @@ from btclib_wallet.fetch.fetcher import (
     tx_for_network,
     tx_id_hex,
 )
+from btclib_wallet.fetch.history import history_scripts
 from btclib_wallet.fetch.peer_transport import PeerTransport
 from btclib_wallet.fetch.transport import DEFAULT_TIMEOUT, valid_timeout
 
@@ -166,6 +167,13 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     it, synchronized on each call: `get_block_count`, `get_best_block_id`
     and `get_block_header`. The module docstring says why `get_tx` and
     `get_tx_out` raise.
+
+    Not a `HistoryReader`, which lists the mempool too: the fetcher greets
+    its peer with `relay=False`, so no transaction is announced to it,
+    and Bitcoin Core answers a BIP35 `mempool` request only where it
+    serves bloom filters, off by default (`DEFAULT_PEERBLOOMFILTERS` of
+    `net_processing.h`), or the peer has the `mempool` permission
+    (`ProcessMessage` of `net_processing.cpp`).
 
     `transport` is required, keyword-only, and has no default, as it is
     for `ElectrumFetcher`: which peer sees this client is not this
@@ -657,7 +665,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         return tip
 
     def _matching_heights(
-        self, start: int, stop: int, elements: list[bytes]
+        self, start: int, stop: int, elements: frozenset[bytes]
     ) -> list[int]:
         """Return the heights from `start` to `stop` that may hold an element.
 
@@ -781,7 +789,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             )
         if max_blocks < 1:
             raise BTClibValueError(f"invalid max_blocks: {max_blocks}")
-        elements = _elements_from_scripts(scripts)
+        elements = history_scripts(scripts)
         first = block_header_height(start_height)
         last = None if stop_height is None else block_header_height(stop_height)
         if last is not None and last < first:
@@ -861,20 +869,3 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             err_msg += f" {batch[0].previous_block_hash.hex()}, not the genesis"
             err_msg += f" {expected.hex()} this {self.network} fetcher was built for"
             raise BTClibValueError(err_msg)
-
-
-def _elements_from_scripts(scripts: Iterable[Octets | ScriptPubKey]) -> list[bytes]:
-    """Return the octets of each script, refusing none and a lone script."""
-    # every Octets is itself iterable, and one script passed for a list of
-    # them would be read as a list of one-octet scripts
-    if is_octets(scripts) or isinstance(scripts, ScriptPubKey):
-        raise BTClibTypeError(f"not an iterable of scripts: {type(scripts).__name__}")
-    if not isinstance(scripts, Iterable):
-        raise BTClibTypeError(f"not an iterable of scripts: {type(scripts).__name__}")
-    elements = [
-        script.script if isinstance(script, ScriptPubKey) else bytes_from_octets(script)
-        for script in scripts
-    ]
-    if not elements:
-        raise BTClibValueError("no scripts to look for")
-    return elements

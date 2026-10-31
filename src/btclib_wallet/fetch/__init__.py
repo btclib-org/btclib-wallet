@@ -40,6 +40,12 @@ need not be the target asked for.
 address's balance.** `EsploraFetcher` satisfies it, and `Balance` is what a
 call returns: the confirmed satoshis and the mempool's signed change to them.
 
+**`HistoryReader` is a fourth `Protocol`, for a backend that lists the
+transactions touching some scripts**, confirmed and in the mempool, with
+the chain they were read on. `BitcoinCoreFetcher` satisfies it, and
+`ScriptHistory` is what a call returns, each transaction a `HistoryTx`
+and each block a `BlockRef`.
+
 **It adds no dependency.** The standard library is the whole of every
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`
 for the Electrum protocol's line, `socket` for the p2p stream. The HTTP
@@ -86,7 +92,8 @@ what raises if there is nothing to connect to.
 
 **What is exported, and what is not.** The fetchers, the interface they
 implement, `Broadcaster` and `FeeEstimator` beside it with `FeeQuote`,
-`BalanceReader` with `Balance`,
+`BalanceReader` with `Balance`, `HistoryReader` with `ScriptHistory`,
+`HistoryTx` and `BlockRef`,
 the clients a Bitcoin Core node is reached through --
 `BitcoinCoreRpcClient` for the JSON-RPC server, `BitcoinCoreRestClient`
 for `-rest` -- and the transport seam:
@@ -138,6 +145,12 @@ from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.fee_estimator import FeeEstimator, FeeQuote
 from btclib_wallet.fetch.fetcher import Fetcher
+from btclib_wallet.fetch.history import (
+    BlockRef,
+    HistoryReader,
+    HistoryTx,
+    ScriptHistory,
+)
 from btclib_wallet.fetch.peer_transport import PeerTransport, TcpPeerTransport
 from btclib_wallet.fetch.transport import (
     DEFAULT_TIMEOUT,
@@ -157,6 +170,7 @@ __all__ = [
     "BitcoinCoreRestClient",
     "BitcoinCoreRestFetcher",
     "BitcoinCoreRpcClient",
+    "BlockRef",
     "Broadcaster",
     "CachingFetcher",
     "CompactFilterFetcher",
@@ -166,9 +180,12 @@ __all__ = [
     "FeeEstimator",
     "FeeQuote",
     "Fetcher",
+    "HistoryReader",
+    "HistoryTx",
     "HttpTransport",
     "LineTransport",
     "PeerTransport",
+    "ScriptHistory",
     "SessionTransport",
     "TcpPeerTransport",
     "TlsLineTransport",

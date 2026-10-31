@@ -116,10 +116,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     `get_tx_out` is not overridden, and stays the `Fetcher` base's
     derivation from `get_tx`. The protocol answers a script hash's
     history and its unspent outputs, `blockchain.scripthash.get_history`
-    and `.listunspent`, but `ElectrumFetcher` does not ask either
-    question: every `Fetcher` question is keyed on an identifier the
-    caller already holds -- a txid, a height, nothing -- and a script is
-    not one.
+    and `.listunspent`, but `ElectrumFetcher` asks neither, and is no
+    `HistoryReader`.
     """
 
     def __init__(
