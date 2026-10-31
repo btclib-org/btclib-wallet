@@ -187,8 +187,8 @@ def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
 _ALLOWED_UNITS = {
     "_fee": frozenset(),
     "bip32": frozenset(),
-    "bip44": frozenset({"bip32"}),
-    "descriptors": frozenset({"bip32", "bip44"}),
+    "bip44": frozenset({"bip32", "descriptors"}),
+    "descriptors": frozenset({"bip32"}),
     "psbt": frozenset({"_fee", "bip32", "descriptors", "silent_payments"}),
     "silent_payments": frozenset(),
 }
@@ -299,6 +299,11 @@ def _plant(src: Path, relative: str, line: str) -> None:
             {"psbt"},
         ),
         (
+            "btclib_wallet/descriptors/descriptors.py",
+            "from ..bip44 import account_descriptors",
+            {"bip44"},
+        ),
+        (
             "btclib_wallet/bip32/__init__.py",
             "from btclib_wallet.bip44 import purpose",
             {"bip44"},
@@ -327,7 +332,10 @@ def test_the_layer_scan_finds_a_planted_import(
         ("btclib_wallet/psbt/psbt.py", "from btclib_wallet.psbt.psbt_in import x"),
         ("btclib_wallet/bip32/bip32.py", "from .der_path import DerPath"),
         ("btclib_wallet/bip32/bip32.py", "from btclib.bip32 import x"),
-        ("btclib_wallet/descriptors/descriptors.py", "from ..bip44 import purpose"),
+        (
+            "btclib_wallet/descriptors/descriptors.py",
+            "from ..bip32 import BIP32KeyOrigin",
+        ),
     ],
 )
 def test_the_layer_scan_admits_the_allowed_imports(

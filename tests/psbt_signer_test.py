@@ -74,7 +74,6 @@ XPRV_ROOT = (
     "xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRR"
     "uL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu"
 )
-
 ACCOUNT = "m/84h/0h/0h"
 # another extended key, for a musig() group of two
 XPUB_OTHER = "xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL"

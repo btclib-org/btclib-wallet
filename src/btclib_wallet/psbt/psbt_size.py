@@ -254,7 +254,7 @@ def _assert_input_types(psbt_in: PsbtIn, tx_in: TxIn) -> None:
     Both are read for their fields, so a value of another type is an
     AttributeError about a field name rather than a refusal. Every
     `SolutionSizer` takes the same pair and owes its callers the same
-    check, so the two sizers below ask this one.
+    check, so the sizers below ask this one.
     """
     assert_type(psbt_in, PsbtIn, "psbt_in")
     assert_type(tx_in, TxIn, "tx_in")
