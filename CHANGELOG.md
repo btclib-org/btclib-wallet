@@ -24,6 +24,75 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.10.31
+
+### `update_psbt_input` and `update_psbt_output` are functions of `psbt`
+
+They take the descriptor as their first argument, in place of a method on
+every descriptor class. `Descriptor.expansion` returns the fields they
+write (issue #620).
+
+### `miniscript_sizer`, `satisfaction_sizer` and `miniscript_solver` move to `psbt`
+
+From `descriptors` (issue #620).
+
+### `account_descriptors` moves from `descriptors` to `bip44`
+
+`descriptors` no longer imports `bip44` (issue #620).
+
+### The wallet imports no private name of bip32 or descriptors
+
+`HARDENED_OFFSET`, `key_data_from_bip32_key` and
+`descriptors.derived_origin` are new public names (issue #620).
+
+### A test holds bip32 and descriptors to their boundary
+
+`tests/imports_test.py` and `tests/moving_imports_test.py` check what the
+files that move with the two units import. The wallet and slip132 cases
+leave `tests/descriptors` (closes #620).
+
+### `parse` cuts a key, timelock or hash fragment at a brace as Core's `Expr` does
+
+Applies in `wsh()` and a `tr()` leaf, and changes the refusal of a `{` in
+or after the fragment (closes #607).
+
+### `SECURITY.md` links what changed since the security review
+
+(issue btclib-org/.github#1795).
+
+### An account-only `SoftwareSigner` is tested on a taproot psbt
+
+That of bitcoindevkit/bdk_wallet#610. Tests only (closes #580).
+
+### `REVIEWING.md`'s own part opens its questions with .github's sentence
+
+(issue btclib-org/.github#1919).
+
+### `uv.lock` takes btclib 2026.10.28
+
+With ecc 2026.10.28, and the strategies pin moves with it (closes #597).
+
+### The btclib pin is compared with the committed `uv.lock`
+
+Not with the lock a deps-oldest or deps-latest run resolved (closes #602).
+
+### The keyword-only record holds only the sites `btclib_wallet` defines
+
+(closes #600).
+
+### The presync peer's silence is removed through `monkeypatch`
+
+Which pytest 9.2.0's undo requires (closes #592).
+
+### The integration workflows pin bitcoind 32.1
+
+In place of 31.1 (closes #589).
+
+### The calls of btclib-org/.github name the commit of its tag `v2026.10.29`
+
+With setup-uv 10.3.2 and setup-python 7.1.0, and coverage 7.17.0 and
+uv-build 0.13.5 in `uv.lock`.
+
 ## v2026.10.29
 
 ### BIP322 finds a taproot annex inconclusive

@@ -9,6 +9,72 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.10.31
+
+- **A descriptor no longer writes itself into a psbt: `update_psbt_input`
+  and `update_psbt_output` are functions of `btclib_wallet.psbt`**
+  ([ISS 620](https://github.com/btclib-org/btclib-wallet/issues/620)).
+  `descriptor.update_psbt_input(psbt, vin_i, index, prv_keys)` becomes
+  `update_psbt_input(descriptor, psbt, vin_i, index, prv_keys)`, and the
+  same for `update_psbt_output`, on every descriptor class: `Descriptor`,
+  `PkDescriptor`, `PkhDescriptor`, `WpkhDescriptor`, `ShDescriptor`,
+  `WshDescriptor`, `MiniscriptDescriptor`, `MultiDescriptor`,
+  `ComboDescriptor`, `AddrDescriptor`, `RawDescriptor`, `TrDescriptor` and
+  `RawTrDescriptor`. The new
+  `Descriptor.expansion(index, prv_keys)` returns the `Expansion` they
+  write. The checks run in this order: the types of the descriptor, the
+  psbt and the map index, each a `BTClibTypeError`, a map index that is
+  not an `int` (a `bool`, or an integer of another type such as numpy's
+  `int64`) included; `prv_keys` and the derivation index; the descriptor's
+  refusal (`combo()`, `addr()` and `raw()`, or a hardened step without its
+  private key); then the map-index range and the paid script. At
+  v2026.10.29 `prv_keys` and the derivation index came first, then the
+  map-index range, then a hardened step without its private key, the paid
+  script, and `combo()`, `addr()` and `raw()`. Nothing checked the map
+  index's type: a `bool` or a numpy integer in range was taken as that
+  map, and another type raised a `TypeError`, or a `BTClibValueError` out
+  of range, at or just after the range check. A psbt that is not a `Psbt`
+  raised an `AttributeError` at the same check.
+  `DescriptorWallet.update_psbt_input` and `update_psbt_output` call these
+  functions and change the same way, after their own position check. Act
+  on it if you call a descriptor's `update_psbt_input` or
+  `update_psbt_output`: import the function from `btclib_wallet.psbt` and
+  pass the descriptor first. Act on it if you pass a map index that is not
+  an `int`: pass an `int`. Act on it if you catch the `BTClibValueError` of
+  a `float` map index, or the `AttributeError` of a psbt that is not a
+  `Psbt`: catch `BTClibTypeError`.
+- **`miniscript_sizer`, `satisfaction_sizer` and `miniscript_solver` move
+  from `btclib_wallet.descriptors` to `btclib_wallet.psbt`**
+  ([ISS 620](https://github.com/btclib-org/btclib-wallet/issues/620)).
+  Act on it if you import them: import them from `btclib_wallet.psbt`.
+- **`account_descriptors` moves from `btclib_wallet.descriptors` to
+  `btclib_wallet.bip44`**
+  ([ISS 620](https://github.com/btclib-org/btclib-wallet/issues/620)).
+  Act on it if you import it: import it from `btclib_wallet.bip44`.
+- **A `{` in or after a key, timelock or hash fragment changes the
+  refusal** ([ISS 607](https://github.com/btclib-org/btclib-wallet/issues/607)).
+  In `wsh()` and in a `tr()` leaf, `parse` cuts such a fragment as Core's
+  `Expr` does, counting `{` as a bracket. The `BTClibValueError` it raises
+  is the key's own refusal for a key fragment, such as
+  `not a key expression` or `invalid key expression`, where it was
+  `unbalanced brackets in <fragment>()` or `invalid key expression`. For
+  `older()` and `after()` it is `A function is needed within P2WSH` in
+  `wsh()` and `tr() leaf is not a valid descriptor function` in a `tr()`
+  leaf, and for a hash fragment `invalid <fragment>() hash: hex expected`,
+  where each was `unbalanced brackets in <fragment>()`. Act on it if you
+  match any of these refusals: match the new message.
+- **`KeyGroup.keys` holds the same keys**
+  ([ISS 620](https://github.com/btclib-org/btclib-wallet/issues/620)).
+  `KeyGroup` builds them with `key_data_from_bip32_key`, the public name
+  of the helper it called before, whose code is unchanged. Nothing to act
+  on.
+
+These are the wallet's side of bip32 and descriptors leaving for a
+package of their own (btclib-org/.github#1811): the next releases import
+them from `bip32-descriptors`.
+
+`CHANGELOG.md`'s own `v2026.10.31` section has the rest.
+
 ## v2026.10.29
 
 - **BIP322 finds a proof inconclusive where a taproot input carries an
