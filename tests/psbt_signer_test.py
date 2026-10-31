@@ -51,6 +51,7 @@ from btclib_wallet.psbt import silent_payments
 from btclib_wallet.psbt.psbt import Psbt, sign
 from btclib_wallet.psbt.psbt_in import PsbtIn, ValidSigHashType
 from btclib_wallet.psbt.psbt_out import PsbtOut
+from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
     MessageSigner,
@@ -176,7 +177,7 @@ def account_psbt(signer: _Signer, index: int = 0) -> tuple[Psbt, Descriptor]:
         Tx(vin=[TxIn(OutPoint(prev_tx.id, 0))], vout=[TxOut(9_000, script_pub_key)])
     )
     psbt.inputs[0].non_witness_utxo = prev_tx
-    return receive.update_psbt_input(psbt, 0, index), receive
+    return update_psbt_input(receive, psbt, 0, index), receive
 
 
 def test_the_protocols_are_what_a_signer_is_asked_for() -> None:
@@ -486,7 +487,7 @@ def test_a_signer_holding_none_of_the_keys_adds_nothing() -> None:
         Tx(vin=[TxIn(OutPoint(prev_tx.id, 0))], vout=[TxOut(9_000, script_pub_key)])
     )
     taproot_psbt.inputs[0].witness_utxo = TxOut(10_000, script_pub_key)
-    taproot_psbt = taproot.update_psbt_input(taproot_psbt, 0)
+    taproot_psbt = update_psbt_input(taproot, taproot_psbt, 0)
 
     assert not signer.capabilities.taproot
     signed = request_signatures(signer, taproot_psbt)

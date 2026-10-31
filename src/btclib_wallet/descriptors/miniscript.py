@@ -2995,7 +2995,7 @@ class SpendContext:
     and not "bytes or hex", where the signatures of `satisfy` take either,
     because these come from a psbt rather than from a keyboard. A psbt
     carries them because BIP174 gave them fields, which is what lets
-    `descriptors.miniscript_solver` build a context out of one.
+    `psbt.miniscript_solver` build a context out of one.
 
     `sequence` is the input's own, `locktime` the transaction's, and
     `version` matters for the same reason it matters to the interpreter:

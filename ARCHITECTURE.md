@@ -95,16 +95,17 @@ submodule loads on first attribute access through the package's own
 - `descriptors/` reads BIP380's output-descriptor grammar —
   `descriptors.key_expression` for the KEY expressions and
   `descriptors.miniscript` for BIP379's SCRIPT language, a tree of
-  fragments a descriptor's own module composes into the scripts and the
-  psbt fields an account produces — and hands back what a wallet needs to
-  watch somebody else's keys, never a private one of its own.
+  fragments a descriptor's own module composes into the scripts an
+  account produces and the `Expansion` a psbt's Updater writes — and
+  hands back what a wallet needs to watch somebody else's keys, never a
+  private one of its own.
 - `psbt/` is BIP174 and BIP370: the three maps a psbt is made of, the
-  Combiner, the Finalizer and the Extractor, and the size estimation a
-  fee rate is applied to. `psbt.musig2`, `psbt.frost` and
-  `psbt.silent_payments` are the later BIPs' own roles over the fields
-  each adds — BIP373, BIP445 and BIP375 respectively — `frost`'s own
-  fields being proprietary records under a btclib identifier until a BIP
-  assigns them the bytes.
+  Updater over a descriptor, the Combiner, the Finalizer and the
+  Extractor, and the size estimation a fee rate is applied to.
+  `psbt.musig2`, `psbt.frost` and `psbt.silent_payments` are the later
+  BIPs' own roles over the fields each adds — BIP373, BIP445 and BIP375
+  respectively — `frost`'s own fields being proprietary records under a
+  btclib identifier until a BIP assigns them the bytes.
 - `tx_or_psbt.py` decodes hex or base64 itself, ASCII whitespace removed,
   sniffs BIP174's five-byte magic and dispatches to `Tx.parse` or
   `Psbt.parse` accordingly, so a caller
@@ -211,13 +212,13 @@ the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
 — the wallets that remember what they have handed out, the one contract
 an external signer answers to, the transactions and signatures of a
-discreet log contract, and the clients that reach a node, an
-explorer, an Electrum server or a p2p peer for what the chain currently holds.
+discreet log contract, and the clients that reach a node, an explorer,
+an Electrum server or a p2p peer for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and holds the layering
-inside the package: `bip32/`, `_fee` and `silent_payments` import nothing
-else of it, and `psbt/` imports only those three. `tests/fuzz_test.py`
-holds every parser named here to one contract: it fails the way the
-library says it fails, whatever it is handed, never with a bare
-`IndexError` or `OverflowError` a caller's `except BTClibValueError` does
-not catch. The harnesses under `fuzz/` drive the extended-key, descriptor,
-PSBT and BIP322 parsers beyond that.
+inside the package: its `_ALLOWED_UNITS` names, for `bip32/`, `psbt/`
+and each unit `psbt/` reaches, the only other units of the package it
+may import. `tests/fuzz_test.py` holds every parser named here to one
+contract: it fails the way the library says it fails, whatever it is
+handed, never with a bare `IndexError` or `OverflowError` a caller's
+`except BTClibValueError` does not catch. The harnesses under `fuzz/`
+drive the extended-key, descriptor, PSBT and BIP322 parsers beyond that.

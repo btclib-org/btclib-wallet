@@ -45,6 +45,7 @@ from btclib_wallet.bip32.bip32 import BIP32KeyData, derive_from_account
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import KeyExpression, add_checksum, parse
 from btclib_wallet.psbt.psbt import Psbt
+from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.wallet import DescriptorWallet, KeyGroup, ScriptWallet
 from btclib_wallet.wallet import script_wallet as script_wallet_module
 from tests import replace_unchecked
@@ -563,7 +564,7 @@ def test_a_group_given_no_origin_writes_the_descriptors_made_up_one() -> None:
     assert psbt_in.hd_key_paths
     assert (
         psbt_in.hd_key_paths
-        == descriptor.update_psbt_input(psbt, 0, 2).inputs[0].hd_key_paths
+        == update_psbt_input(descriptor, psbt, 0, 2).inputs[0].hd_key_paths
     )
     for xpub in _XPUBS:
         origin = psbt_in.hd_key_paths[_derived(xpub, 1, 2)]
@@ -611,7 +612,7 @@ def test_of_two_origins_of_one_key_the_first_is_written_everywhere() -> None:
         psbt = _psbt_spending(wallet.script_pub_key(1, 2))
         paths = wallet.update_psbt_input(psbt, 0, 1, 2).inputs[0].hd_key_paths
         descriptor = wallet.descriptor(1)
-        assert paths == descriptor.update_psbt_input(psbt, 0, 2).inputs[0].hd_key_paths
+        assert paths == update_psbt_input(descriptor, psbt, 0, 2).inputs[0].hd_key_paths
         (origin,) = paths.values()
         want = origins[0]
         assert origin.description == f"{want.description}/1/2"

@@ -60,14 +60,19 @@ from typing import Any
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
-from btclib.tx import TxOut
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet import slip132
 from btclib_wallet.bip32.bip32 import rootxprv_from_seed, xpub_from_xprv
-from btclib_wallet.descriptors.descriptors import miniscript_sizer, satisfaction_sizer
+from btclib_wallet.descriptors import parse
 from btclib_wallet.psbt.psbt import Psbt, assert_signatures_only
 from btclib_wallet.psbt.psbt_in import PsbtIn
-from btclib_wallet.psbt.psbt_size import estimated_input_sizes
+from btclib_wallet.psbt.psbt_size import (
+    estimated_input_sizes,
+    miniscript_sizer,
+    satisfaction_sizer,
+)
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.tx_builder import build_psbt
 from btclib_wallet.wallet.script_wallet import KeyGroup
 from tests.psbt import psbt_cases
@@ -102,6 +107,17 @@ _TX_OUT = TxOut(1_000, _SIGNED.tx.vout[0].script_pub_key)
 # the input's own keys, which is the caller a satisfaction sizer is for:
 # it sizes the branch these will take, so the quorum has to be theirs
 _SIGNER_KEYS = list(_PSBT_IN.hd_key_paths)
+
+# a descriptor of one script, a psbt paying it at output 0, and a
+# descriptor of four scripts, which no Updater can write into one map
+_DESCRIPTOR = parse(f"wpkh({_XPUB}/0)")
+_PAYING = Psbt.from_tx(
+    Tx(
+        vin=[TxIn(OutPoint(b"\x01" * 32, 0))],
+        vout=[TxOut(1_000, _DESCRIPTOR.script_pub_key())],
+    )
+)
+_COMBO = parse(f"combo({_XPUB}/0)")
 
 # a value of a declared type that no valid input carries
 _WRONG_KEY_VALUE = "not a key"
@@ -206,12 +222,29 @@ _CASES = (
         },
         optional=frozenset({3}),
     ),
+    # the Updater's two halves: a descriptor of four scripts, a map index
+    # the psbt has not got, and an index an unranged descriptor has no
+    # script at are each the wrong value of the type declared
+    _Case(
+        "psbt_updater.update_psbt_input",
+        update_psbt_input,
+        (_DESCRIPTOR, _REQUEST, 0, 0, None),
+        {0: _COMBO, 2: len(_REQUEST.inputs), 3: 1},
+        optional=frozenset({4}),
+    ),
+    _Case(
+        "psbt_updater.update_psbt_output",
+        update_psbt_output,
+        (_DESCRIPTOR, _PAYING, 0, 0, None),
+        {0: _COMBO, 2: 1, 3: 1},
+        optional=frozenset({4}),
+    ),
     # the two SolutionSizers, which take the same pair and owe a caller the
     # same check. Neither has a wrong *value*: "not mine" is what a sizer
     # answers with None, so nothing of the declared type is refused
-    _Case("descriptors.miniscript_sizer", miniscript_sizer, (_PSBT_IN, _TX_IN), {}),
+    _Case("psbt_size.miniscript_sizer", miniscript_sizer, (_PSBT_IN, _TX_IN), {}),
     _Case(
-        "descriptors.satisfaction_sizer(...)",
+        "psbt_size.satisfaction_sizer(...)",
         satisfaction_sizer(_SIGNER_KEYS),
         (_PSBT_IN, _TX_IN),
         {},

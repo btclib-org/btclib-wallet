@@ -89,6 +89,7 @@ from btclib_wallet.bip32 import (
     decode_hd_key_paths,
     encode_to_bip32_derivs,
 )
+from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt.psbt_size import SolutionSizer, estimated_input_sizes
@@ -148,6 +149,7 @@ __all__ = [
     "finalize",
     "join",
     "leaf_script",
+    "miniscript_solver",
     "new_signers",
     "prevouts",
     "sign",
@@ -3711,10 +3713,8 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     from the signatures and the script, which is the satisfaction of a
     multisig and a guess for anything else, so a caller with a script of
     their own has to be able to answer over it rather than after it.
-    `descriptors.miniscript_solver` is that answer wherever the witness
-    script is a BIP379 miniscript, and it is a solver rather than a branch
-    of this function for a reason of layering: `descriptors` imports this
-    module and nothing here imports back.
+    `miniscript_solver` is that answer wherever the witness script is a
+    BIP379 miniscript.
 
     What the solver does not take over is the bookkeeping: what is kept
     and dropped at serialization, and the verification of whatever
@@ -3750,6 +3750,71 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
         psbt_in.final_script_sig = script_sig
         psbt_in.final_script_witness = witness
     return psbt
+
+
+def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
+    """Spend a psbt input whose witness script is a miniscript.
+
+    An `InputSolver`, which is what `finalize` takes for the inputs whose
+    spend is the caller's to know, and a miniscript is one of them. A
+    caller passes it::
+
+        final = finalize(unsigned, solver=miniscript_solver)
+
+    Everything it needs is in the psbt. The witness script is read back
+    into the expression it is -- which is what `miniscript.from_script`
+    is for, and what makes a signer able to spend a script nobody handed
+    it a descriptor for -- and the satisfaction reads the input's own
+    fields: the signatures of `partial_sigs`, the four preimage mappings
+    BIP174 gave fields to, and the lock times of the transaction the psbt
+    is building. A ``pk_h()`` names its key by a hash160, so the keys the
+    input knows are offered for that lookup.
+
+    None where the input is not this solver's business: no witness script,
+    or one that is not a miniscript, both of which `finalize` then answers
+    for as it did before. Where the script *is* a miniscript and the
+    signatures do not satisfy it, the refusal is the satisfier's and says
+    so -- a witness built from a guess would be worse, being one the
+    network refuses after the transaction is broadcast rather than one
+    this refuses while it is built.
+    """
+    # the guard `update_psbt_input` carries, for the same reason: an
+    # IndexError out of a public function is not an answer, and a
+    # negative index would quietly solve the input at the other end --
+    # with a witness this one's script does not satisfy
+    if not 0 <= vin_i < len(psbt.inputs):
+        raise BTClibValueError(f"invalid input index: {vin_i}")
+    psbt_in = psbt.inputs[vin_i]
+    if not psbt_in.witness_script:
+        return None
+    # a pk_h() holds the hash of its key and not the key, so the keys the
+    # input carries are what can be recognized: the ones that signed, and
+    # the ones an origin names
+    known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
+    try:
+        node = miniscript.from_script(
+            psbt_in.witness_script,
+            miniscript.P2WSH,
+            {hash160(key): key for key in known},
+        )
+    # not a miniscript, which is not an error: it is the answer "not mine"
+    except BTClibValueError:
+        return None
+    tx = psbt.tx
+    spend = miniscript.SpendContext(
+        sha256_preimages=psbt_in.sha256_preimages,
+        hash256_preimages=psbt_in.hash256_preimages,
+        ripemd160_preimages=psbt_in.ripemd160_preimages,
+        hash160_preimages=psbt_in.hash160_preimages,
+        locktime=tx.lock_time,
+        sequence=tx.vin[vin_i].sequence,
+        version=tx.version,
+    )
+    stack = node.satisfy(cast("Mapping[Octets, Octets]", psbt_in.partial_sigs), spend)
+    # the redeem script of a wrapped p2wsh, and the empty script_sig BIP141
+    # requires of a native one
+    script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []
+    return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
 
 
 def extract_tx(

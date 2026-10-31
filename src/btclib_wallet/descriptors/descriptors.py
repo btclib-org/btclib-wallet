@@ -20,17 +20,14 @@ the signatures are a parameter rather than something this module makes.
 `psbt.finalize` does have one and does check, and builds the same
 bytes from a psbt carrying the same signatures.
 
-`update_psbt_input` and `update_psbt_output` are the third answer, and
-the one for a spend the signers do not make all at once: BIP174's Updater,
-writing the scripts and the key origins into a psbt, for signers to fill
-in at their own pace and `psbt.finalize` to assemble. The output half is
-also what tells change from a payment, and it makes that claim only where
-the descriptor derives the very script being paid -- `index_of` is the
-same question asked the other way round, and neither answers from a key
-origin whose fingerprint happens to match. This module imports `psbt` for
-all of it and nothing there imports back, which is the direction of the
-layering: a psbt is a transaction being built, and a descriptor is what a
-wallet knows about the outputs it holds.
+`expansion` is the third answer, and the one for a spend the signers do
+not make all at once: the scripts and the key origins BIP174's Updater
+writes into a psbt, for signers to fill in at their own pace and
+`psbt.finalize` to assemble. `psbt.update_psbt_input` and
+`psbt.update_psbt_output` are that Updater, and read the `Expansion`
+this returns. This module imports nothing of `psbt`, which is the
+direction of the layering: a psbt is a transaction being built, and a
+descriptor is what a wallet knows about the outputs it holds.
 
 BIP380: https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki
 
@@ -68,13 +65,6 @@ chooses among branches, and the choice reads hash preimages and the lock
 times the transaction being built will carry. Every other fragment ignores
 it, having neither a branch to choose nor a preimage to look up.
 
-`miniscript_solver` is the same satisfaction reached from the other side,
-where there is a psbt and no descriptor: an `InputSolver` for
-`psbt.finalize`, which reads the witness script back into the expression
-it is and satisfies it from the input's own fields. It lives here rather
-than in `psbt` because of the direction above -- this module imports that
-one -- and a caller passes it: `finalize(psbt, solver=miniscript_solver)`.
-
 `parse` refuses every ``<a;b>`` step, even one Bitcoin Core accepts, and
 what reaches a `Descriptor` is one path per key. `multipath_descriptors`
 expands the steps and hands each result to `parse`, so that one reader
@@ -86,8 +76,7 @@ back through the `prv_keys` mapping a caller passes in -- Bitcoin Core's
 `Parse(desc, out, error)`, whose descriptor keeps no reference to the
 `FlatSigningProvider` it filled. Expansion takes the mapping back for the
 one thing an xpub cannot do, a hardened step, which is why
-`script_pub_keys`, `satisfy`, the two `update_psbt` halves and the rest
-all end in an
+`script_pub_keys`, `satisfy`, `expansion` and the rest all end in an
 optional `prv_keys`. A WIF is not in that mapping: it was already reduced
 to its public key on the way in, this module deriving nothing from it and
 signing nothing with it.
@@ -136,7 +125,6 @@ import operator
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, NoReturn, cast
 
@@ -160,8 +148,7 @@ from btclib.script.taproot import (
     tree_helper,
 )
 from btclib.script.witness import Witness
-from btclib.tx.tx_in import TxIn
-from btclib.utils import assert_type, bytes_from_octets, is_integer, is_octets
+from btclib.utils import assert_type, bytes_from_octets, is_integer
 from ecc.ecc.ssa import point_from_bip340pub_key_var
 from ecc.hashes import tagged_hash
 from typing_extensions import override
@@ -207,10 +194,6 @@ from btclib_wallet.descriptors.miniscript import (
 )
 from btclib_wallet.descriptors.miniscript import from_script as _miniscript_from_script
 from btclib_wallet.descriptors.miniscript import parse as _parse_miniscript
-from btclib_wallet.psbt.psbt import Psbt
-from btclib_wallet.psbt.psbt_in import PsbtIn
-from btclib_wallet.psbt.psbt_out import PsbtOut
-from btclib_wallet.psbt.psbt_size import SIG_SIZE, SolutionSizer, _assert_input_types
 
 __all__ = [
     "AddrDescriptor",
@@ -218,6 +201,7 @@ __all__ = [
     "Descriptor",
     "DescriptorLeaf",
     "DescriptorTree",
+    "Expansion",
     "MiniscriptDescriptor",
     "MultiA",
     "MultiDescriptor",
@@ -236,12 +220,9 @@ __all__ = [
     "derived_origin",
     "from_address",
     "infer_descriptor",
-    "miniscript_sizer",
-    "miniscript_solver",
     "multipath_descriptors",
     "normalized",
     "parse",
-    "satisfaction_sizer",
     "strip_checksum",
     "wallet_policy",
     "wallet_policy_address",
@@ -835,6 +816,50 @@ class Provider:
         )
 
 
+@dataclass(frozen=True)
+class Expansion:
+    """What a descriptor expanded at an index tells a psbt's Updater.
+
+    `Descriptor.expansion` builds it, and BIP174's Updater writes it into a
+    psbt: each field is named after the field of an input or an output map
+    it fills, and holds what that field takes. `Provider` is the expansion
+    `infer_descriptor` reads instead.
+
+    `hd_key_paths` maps the SEC public key of each key to the origin it
+    derives from. It is empty for a ``tr()`` and a ``rawtr()``, whose keys
+    BIP371 files by their x-only form in `taproot_hd_key_paths`, each with
+    the tapleaf hash of every leaf it is in. `redeem_script` is the script
+    a ``sh()`` embeds and `witness_script` the one a ``wsh()`` embeds,
+    empty where nothing does.
+
+    `taproot_internal_key`, `taproot_merkle_root`, `taproot_leaf_scripts`
+    and `taproot_tree` are a ``tr()``'s: its x-only internal key, the root
+    its output key commits to, every leaf script with its leaf version
+    keyed by the control block that proves it, and every leaf with its
+    depth, as BIP371's PSBT_OUT_TAP_TREE lists them. A ``tr(KEY)`` has an
+    empty root and an empty tree, so the two are None for every other
+    descriptor, a ``rawtr()`` included, whose internal key is empty.
+    `musig2_participant_pub_keys` maps each ``musig()`` aggregate key to
+    its participants, BIP373's field.
+    """
+
+    hd_key_paths: Mapping[bytes, BIP32KeyOrigin] = field(default_factory=dict)
+    redeem_script: bytes = b""
+    witness_script: bytes = b""
+    taproot_internal_key: bytes = b""
+    taproot_merkle_root: bytes | None = None
+    taproot_leaf_scripts: Mapping[bytes, tuple[bytes, int]] = field(
+        default_factory=dict
+    )
+    taproot_tree: list[tuple[int, int, bytes]] | None = None
+    taproot_hd_key_paths: Mapping[bytes, tuple[list[bytes], BIP32KeyOrigin]] = field(
+        default_factory=dict
+    )
+    musig2_participant_pub_keys: Mapping[bytes, list[bytes]] = field(
+        default_factory=dict
+    )
+
+
 @dataclass(frozen=True, kw_only=True)
 class Descriptor(ABC):
     """A parsed output descriptor: the scripts it describes, on demand.
@@ -1132,133 +1157,34 @@ class Descriptor(ABC):
                 return index
         return None
 
-    def update_psbt_input(
-        self,
-        psbt: Psbt,
-        vin_i: int,
-        index: int = 0,
-        prv_keys: PrvKeys | None = None,
-    ) -> Psbt:
-        """Return the psbt with input `vin_i` told what the descriptor knows.
+    def expansion(self, index: int = 0, prv_keys: PrvKeys | None = None) -> Expansion:
+        """Return what the descriptor expanded at `index` tells a psbt.
 
-        BIP174's Updater, for the one input this descriptor describes:
-        the redeem script of a ``sh()``, the witness script of a
-        ``wsh()``, the internal key, merkle root and leaf scripts of a
-        ``tr()``, and the origin of every key -- which is what a hardware
+        What BIP174's Updater writes into a psbt for this descriptor's
+        script: the redeem script of a ``sh()``, the witness script of a
+        ``wsh()``, the internal key, merkle root, leaf scripts and tree of
+        a ``tr()``, and the origin of every key -- which is what a hardware
         signer needs, and what `KeyExpression.origin` is kept for.
-        `psbt.finalize` then assembles the same bytes `satisfy` does, from
-        the signatures the signers filled in at their own pace: that
-        pipeline is what a psbt is for, and what `satisfy` cannot answer,
-        refusing a partial satisfaction rather than returning bytes that do
-        not spend.
+        `Expansion` says which field holds what.
 
-        A copy, the psbt handed in being left alone, and the fields of
-        the copy mutated in place: `finalize` is the same
-        construction, and BIP174's roles read as steps that update a
-        psbt rather than as functions that return a field at a time.
-
-        What is not filled is what a descriptor does not know: the utxo,
-        the sighash type, the signatures. Nor is the script checked
-        against the output being spent -- an input may not carry it yet,
-        and `Psbt.assert_signable` asks that question for every input at
-        once, being the role after this one.
+        What it does not hold is what a descriptor does not know: the
+        utxo, the sighash type, the signatures. ``combo()``, ``addr()``
+        and ``raw()`` refuse, each saying why.
         """
         _assert_prv_keys(prv_keys)
         self._assert_index(index)
-        # an IndexError out of a public method is not an answer, and a
-        # negative index would quietly update the input at the other end
-        if not 0 <= vin_i < len(psbt.inputs):
-            raise BTClibValueError(f"invalid input index: {vin_i}")
-        psbt = deepcopy(psbt)
-        self._update(psbt.inputs[vin_i], index, prv_keys)
-        psbt.assert_valid()
-        return psbt
+        with _derived_once(prv_keys):
+            return self._expansion(index, prv_keys)
 
-    def update_psbt_output(
-        self,
-        psbt: Psbt,
-        vout_i: int,
-        index: int = 0,
-        prv_keys: PrvKeys | None = None,
-    ) -> Psbt:
-        """Return the psbt with output `vout_i` told what the descriptor knows.
-
-        The Updater's other half, and what makes an output recognizable as
-        the wallet's own: the redeem script of a ``sh()``, the witness
-        script of a ``wsh()``, the internal key and the whole script tree
-        of a ``tr()``, and the origin of every key. A
-        signing device reads them to tell change from a payment -- it can
-        derive the script itself and see that the money comes back -- and
-        a wallet reading a psbt somebody else built reads them for the same
-        reason.
-
-        Unlike the input half, the script *is* checked: the output being
-        paid is in the psbt already, so this refuses unless the descriptor
-        derives exactly that script at `index`. Marking an output as one's
-        own is a claim about where money goes, and the only evidence for it
-        is the whole script -- never a key origin whose four-byte
-        fingerprint matches, which is what `index_of` is for and what it
-        says.
-
-        The output tree is BIP371's PSBT_OUT_TAP_TREE and not the leaf
-        script an input carries: an output has no leaf being spent, so what
-        it publishes is every leaf, each with its depth, which is what lets
-        a reader rebuild the tree and check the output key for itself.
-        """
-        _assert_prv_keys(prv_keys)
-        self._assert_index(index)
-        # an IndexError out of a public method is not an answer, and a
-        # negative index would quietly update the output at the other end
-        if not 0 <= vout_i < len(psbt.outputs):
-            raise BTClibValueError(f"invalid output index: {vout_i}")
-        paid = psbt.tx.vout[vout_i].script_pub_key.script
-        if all(
-            script.script != paid for script in self.script_pub_keys(index, prv_keys)
-        ):
-            err_msg = f"output {vout_i} pays to {paid.hex()}, which is not the"
-            err_msg += f" script this descriptor describes at index {index}"
-            raise BTClibValueError(err_msg)
-        psbt = deepcopy(psbt)
-        self._update_out(psbt.outputs[vout_i], index, prv_keys)
-        psbt.assert_valid()
-        return psbt
-
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Fill the key origins, which is what every fragment knows.
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
+        """Return the key origins, which is what every fragment knows.
 
         And the whole of what ``pk()``, ``pkh()``, ``wpkh()`` and
         ``multi()`` know: their script is the script_pub_key, which the
         psbt has from the utxo rather than from here. The fragments that
         embed one of those add their scripts to this.
-
-        One method for an input and an output, because BIP174 gives the
-        two maps the same fields wherever they mean the same thing: a
-        redeem script, a witness script and a key origin say what they say
-        whether the psbt is spending the script or paying to it. Only a
-        ``tr()`` differs, an input carrying the leaf it spends and an
-        output the whole tree, and that is where the two methods below
-        part company.
-
-        The mapping is added to and not replaced: BIP174 keys it by
-        public key, so a psbt already carrying another signer's key keeps
-        it, and this descriptor's entry wins for a key held by both.
         """
-        psbt_map.hd_key_paths = {
-            **psbt_map.hd_key_paths,
-            **self._hd_key_paths(index, prv_keys),
-        }
-
-    def _update(self, psbt_in: PsbtIn, index: int, prv_keys: PrvKeys | None) -> None:
-        """Fill what an input of this descriptor's script carries."""
-        self._update_map(psbt_in, index, prv_keys)
-
-    def _update_out(
-        self, psbt_out: PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Fill what an output paying to this descriptor's script carries."""
-        self._update_map(psbt_out, index, prv_keys)
+        return Expansion(hd_key_paths=self._hd_key_paths(index, prv_keys))
 
     def _hd_key_paths(
         self, index: int, prv_keys: PrvKeys | None
@@ -1451,18 +1377,18 @@ class ShDescriptor(Descriptor):
         return script_sig + serialize(cast(ScriptList, [redeem_script])), witness
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Fill the redeem script, and let the argument fill its own fields.
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
+        """Add the redeem script to what the argument expands to.
 
         Delegated rather than dispatched on: the argument of a
         ``sh(wsh())`` is what knows there is a witness script below the
-        redeem script, and it is the same method that fills it for a
+        redeem script, and it is the same method that adds it for a
         native ``wsh()``.
         """
-        self.inner._update_map(psbt_map, index, prv_keys)
-        psbt_map.redeem_script = self.inner.redeem_script(index, prv_keys)
+        return replace(
+            self.inner._expansion(index, prv_keys),
+            redeem_script=self.inner.redeem_script(index, prv_keys),
+        )
 
 
 @dataclass(frozen=True)
@@ -1504,17 +1430,17 @@ class WshDescriptor(Descriptor):
         return b"", Witness([*stack, self.inner.redeem_script(index, prv_keys)])
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Fill the witness script; the redeem script is ``sh()``'s to fill.
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
+        """Add the witness script; the redeem script is ``sh()``'s to add.
 
         Which is the whole difference between a native ``wsh()`` and a
         wrapped one, in the psbt as in the spend: the same witness script,
         and a redeem script only where something wraps it.
         """
-        self.inner._update_map(psbt_map, index, prv_keys)
-        psbt_map.witness_script = self.inner.redeem_script(index, prv_keys)
+        return replace(
+            self.inner._expansion(index, prv_keys),
+            witness_script=self.inner.redeem_script(index, prv_keys),
+        )
 
 
 @dataclass(frozen=True)
@@ -1706,9 +1632,7 @@ class ComboDescriptor(Descriptor):
         raise BTClibValueError(err_msg)
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
         """Refuse: the four scripts are updated into an input differently.
 
         One of them is p2sh and wants a redeem script, the other three
@@ -1759,14 +1683,12 @@ class AddrDescriptor(Descriptor):
         raise BTClibValueError("addr() cannot be satisfied: it holds no key")
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
         """Refuse: there is nothing of an address to write into an input.
 
         No key, so no origin; no script below the address, so no redeem or
-        witness script. Returning the input untouched would be an Updater
-        that ran and a caller told it had been updated.
+        witness script. An empty expansion would be an Updater that ran and
+        a caller told it had been updated.
         """
         raise BTClibValueError("addr() cannot update a psbt: it holds no key")
 
@@ -1809,9 +1731,7 @@ class RawDescriptor(Descriptor):
         raise BTClibValueError("raw() cannot be satisfied: it holds no key")
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
         """Refuse, for the reason ``addr()`` does: bytes hold no key origin.
 
         Those bytes may be the script an input spends, and they are then
@@ -2028,63 +1948,31 @@ class TrDescriptor(Descriptor):
         return [(depth, _TAPSCRIPT_LEAF_VERSION, script) for depth, script in scripts]
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Fill the taproot fields an input and an output share.
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
+        """Return the taproot fields, and no 33-byte key origin.
 
-        This replaces the base method rather than adding to it: a taproot
-        key origin belongs in `taproot_hd_key_paths`, keyed by the x-only
-        key, and a 33-byte entry in `hd_key_paths` beside it would be the
-        same key twice in two spellings, for a signer that signs with
+        A taproot key origin belongs in `taproot_hd_key_paths`, keyed by the
+        x-only key, and a 33-byte entry in `hd_key_paths` beside it would be
+        the same key twice in two spellings, for a signer that signs with
         neither.
 
-        The participant list of BIP373 goes here too where a key of the
+        The participant list of BIP373 is here too where a key of the
         descriptor is a ``musig()``: it tells a signer that one of the keys
         it holds is in the group, which is as true of an output being paid
         as of an input being spent.
         """
-        psbt_map.taproot_internal_key = self.internal_key.sec(
-            index, self.network, prv_keys
-        )[1:]
-        psbt_map.taproot_hd_key_paths = {
-            **psbt_map.taproot_hd_key_paths,
-            **self._taproot_hd_key_paths(index, prv_keys),
-        }
-        psbt_map.musig2_participant_pub_keys = {
-            **psbt_map.musig2_participant_pub_keys,
-            **_musig2_participants(self.key_expressions, index, self.network, prv_keys),
-        }
-
-    @override
-    def _update(self, psbt_in: PsbtIn, index: int, prv_keys: PrvKeys | None) -> None:
-        """Add what an input carries: the merkle root and the leaf scripts.
-
-        A control block is the field an Updater is needed for rather than
-        convenient -- it holds the merkle path from its leaf to the root,
-        which is the whole tree seen from that leaf -- and the merkle root
-        is what a verifier tweaks the internal key with.
-        """
-        self._update_map(psbt_in, index, prv_keys)
-        psbt_in.taproot_merkle_root = self.taproot_merkle_root(index, prv_keys)
-        psbt_in.taproot_leaf_scripts = {
-            **psbt_in.taproot_leaf_scripts,
-            **self.taproot_leaf_scripts(index, prv_keys),
-        }
-
-    @override
-    def _update_out(
-        self, psbt_out: PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Add what an output carries: the tree, every leaf of it at once.
-
-        BIP371 gives an output PSBT_OUT_TAP_TREE and no merkle root: the
-        root is computed from the tree and would be the same fact twice,
-        where the tree is what a reader needs to compute the output key and
-        find out that this output is one it can spend.
-        """
-        self._update_map(psbt_out, index, prv_keys)
-        psbt_out.taproot_tree = self.taproot_tree(index, prv_keys)
+        return Expansion(
+            taproot_internal_key=self.internal_key.sec(index, self.network, prv_keys)[
+                1:
+            ],
+            taproot_merkle_root=self.taproot_merkle_root(index, prv_keys),
+            taproot_leaf_scripts=self.taproot_leaf_scripts(index, prv_keys),
+            taproot_tree=self.taproot_tree(index, prv_keys),
+            taproot_hd_key_paths=self._taproot_hd_key_paths(index, prv_keys),
+            musig2_participant_pub_keys=_musig2_participants(
+                self.key_expressions, index, self.network, prv_keys
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -2151,10 +2039,8 @@ class RawTrDescriptor(Descriptor):
         return b"", Witness([signature])
 
     @override
-    def _update_map(
-        self, psbt_map: PsbtIn | PsbtOut, index: int, prv_keys: PrvKeys | None
-    ) -> None:
-        """Fill the one taproot field a ``rawtr()`` has anything to say in.
+    def _expansion(self, index: int, prv_keys: PrvKeys | None) -> Expansion:
+        """Return the one taproot field a ``rawtr()`` has anything to say in.
 
         BIP371's PSBT_IN_TAP_BIP32_DERIVATION, keyed by the x-only key,
         which is the origin of the key the script holds. The other three
@@ -2167,20 +2053,20 @@ class RawTrDescriptor(Descriptor):
         rather than tweaking a key it should not: an input with no
         internal key is one that role skips.
 
-        BIP373's participant list is written beside it where the key is a
+        BIP373's participant list is beside it where the key is a
         ``musig()``, as it is under a ``tr()``: an aggregate key that is
         the output key itself is the first of the four ways BIP373 has of
         reaching what is spent.
         """
         keys = self.key_expressions
-        psbt_map.taproot_hd_key_paths = {
-            **psbt_map.taproot_hd_key_paths,
-            **_taproot_derivations(keys, {}, index, self.network, prv_keys),
-        }
-        psbt_map.musig2_participant_pub_keys = {
-            **psbt_map.musig2_participant_pub_keys,
-            **_musig2_participants(keys, index, self.network, prv_keys),
-        }
+        return Expansion(
+            taproot_hd_key_paths=_taproot_derivations(
+                keys, {}, index, self.network, prv_keys
+            ),
+            musig2_participant_pub_keys=_musig2_participants(
+                keys, index, self.network, prv_keys
+            ),
+        )
 
 
 def _assert_position(name: str, context: str, allowed: tuple[str, ...]) -> None:
@@ -3541,196 +3427,6 @@ def infer_descriptor(
     network = validated_network_name(network)
     inferred = _inferred(script, _TOP, _Known.of(provider), network)
     return add_checksum(str(inferred))
-
-
-def miniscript_sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
-    """Size the spend of a psbt input whose witness script is a miniscript.
-
-    A `SolutionSizer`, which is what `psbt_size.estimated_input_sizes` takes
-    for the inputs whose spend it cannot read -- and it lives here for
-    `miniscript_solver`'s reason, the layering: `descriptors` imports `psbt`
-    and nothing there imports back. A caller passes it::
-
-        script_sig, witness = estimated_input_sizes(
-            psbt_in, tx_in, sizer=miniscript_sizer
-        )
-
-    The witness of a p2wsh spend is the satisfaction and then the witness
-    script, so that is the list: `Miniscript.max_witness_stack` and the
-    script's own length. It needs no signature and no preimage, an estimate
-    being made before either exists -- the size of a signature is the
-    context's, and BIP379 fixes a preimage at 32 bytes.
-
-    None where the input is not this sizer's business: no witness script,
-    one that is no miniscript, or one no witness can satisfy at all. The
-    caller then answers as it did before, which for the last of those is a
-    refusal: a script nobody can spend has no spend to estimate.
-    """
-    # `tx_in` is unread here and checked anyway: the pair is what a
-    # `SolutionSizer` declares, so the guarantee is the signature's rather
-    # than this body's, and the sizer beside this one does read it
-    _assert_input_types(psbt_in, tx_in)
-    if not psbt_in.witness_script:
-        return None
-    known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
-    try:
-        node = _miniscript_from_script(
-            psbt_in.witness_script,
-            miniscript.P2WSH,
-            {hash160(key): key for key in known},
-        )
-    # not a miniscript, which is the answer "not mine" and not an error
-    except BTClibValueError:
-        return None
-    stack = node.max_witness_stack
-    if stack is None:
-        return None
-    return [*stack, len(psbt_in.witness_script)]
-
-
-def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
-    """Return a `SolutionSizer` for the satisfaction these keys will build.
-
-    `miniscript_sizer` answers "how large could this get", every branch
-    open and every signature assumed -- right where a caller does not yet
-    know which branch a spend will take, and an overpay where it does. A
-    quorum with a timelocked recovery quorum behind the same address is
-    exactly that second caller: which of the two a transaction takes is
-    decided before anything is estimated, the recovery spend being a
-    separate operation with its own inputs and its own signatures.
-
-    `Miniscript.satisfy` already answers the narrower question -- given
-    which keys will sign, which branch and how large -- so this is that
-    answer as a `SolutionSizer`, beside `miniscript_sizer` and not a mode
-    of it::
-
-        witness = estimated_input_sizes(
-            psbt_in, tx_in, sizer=satisfaction_sizer(recovery_keys)
-        )
-
-    `satisfy` never checks a signature against anything, so a filler one
-    of `psbt_size.SIG_SIZE` bytes for each key does exactly what a real
-    one would for sizing, and none of them has to exist yet, any more
-    than the ones `miniscript_sizer` assumes do. The preimages are the
-    psbt input's own, and the sequence is the input being sized, so an
-    ``older()`` branch is measured against what this spend actually
-    carries. An ``after()`` branch is not, `locktime` being the
-    transaction's and not this call's to read -- it is answered as unmet,
-    and a script whose only open branch needs one refuses rather than
-    guesses.
-
-    None for that refusal and the two `miniscript_sizer` already answers
-    with it: no witness script, or one that is no miniscript. A caller
-    then falls back exactly as it would for any other sizer answering
-    "not mine".
-    """
-    # an Octets is itself iterable, so `Iterable[Octets]` accepts one as
-    # far as the annotation goes: one key handed where the list was meant
-    # is as many keys as it has octets, and each of them invalid
-    if is_octets(keys):
-        raise BTClibTypeError(f"invalid keys type: {type(keys).__name__}")
-    if not isinstance(keys, Iterable):
-        raise BTClibTypeError(f"invalid keys type: {type(keys).__name__}")
-    signer_keys = tuple(bytes_from_octets(key) for key in keys)
-
-    def sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
-        _assert_input_types(psbt_in, tx_in)
-        if not psbt_in.witness_script:
-            return None
-        known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths, *signer_keys)
-        try:
-            node = _miniscript_from_script(
-                psbt_in.witness_script,
-                miniscript.P2WSH,
-                {hash160(key): key for key in known},
-            )
-        # not a miniscript, which is the answer "not mine" and not an error
-        except BTClibValueError:
-            return None
-        signatures = dict.fromkeys(signer_keys, bytes(SIG_SIZE))
-        spend = SpendContext(
-            sha256_preimages=psbt_in.sha256_preimages,
-            hash256_preimages=psbt_in.hash256_preimages,
-            ripemd160_preimages=psbt_in.ripemd160_preimages,
-            hash160_preimages=psbt_in.hash160_preimages,
-            sequence=tx_in.sequence,
-        )
-        try:
-            stack = node.satisfy(cast("Mapping[Octets, Octets]", signatures), spend)
-        # these keys build no satisfaction, or only a malleable one
-        except BTClibValueError:
-            return None
-        return [*(len(element) for element in stack), len(psbt_in.witness_script)]
-
-    return sizer
-
-
-def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
-    """Spend a psbt input whose witness script is a miniscript.
-
-    An `InputSolver`, which is what `psbt.finalize` takes for the inputs
-    whose spend is the caller's to know -- and a miniscript is one of
-    them, for a reason of layering rather than of design: `descriptors`
-    imports `psbt` and nothing there imports back, so the finalizer cannot
-    reach the language that reads its witness script. Passing this is what
-    closes that circle from the outside::
-
-        final = psbt.finalize(unsigned, solver=miniscript_solver)
-
-    Everything it needs is in the psbt. The witness script is read back
-    into the expression it is -- which is what `miniscript.from_script`
-    is for, and what makes a signer able to spend a script nobody handed
-    it a descriptor for -- and the satisfaction reads the input's own
-    fields: the signatures of `partial_sigs`, the four preimage mappings
-    BIP174 gave fields to, and the lock times of the transaction the psbt
-    is building. A ``pk_h()`` names its key by a hash160, so the keys the
-    input knows are offered for that lookup.
-
-    None where the input is not this solver's business: no witness script,
-    or one that is not a miniscript, both of which `finalize` then answers
-    for as it did before. Where the script *is* a miniscript and the
-    signatures do not satisfy it, the refusal is the satisfier's and says
-    so -- a witness built from a guess would be worse, being one the
-    network refuses after the transaction is broadcast rather than one
-    this refuses while it is built.
-    """
-    # the guard `update_psbt_input` carries, for the same reason: an
-    # IndexError out of a public function is not an answer, and a
-    # negative index would quietly solve the input at the other end --
-    # with a witness this one's script does not satisfy
-    if not 0 <= vin_i < len(psbt.inputs):
-        raise BTClibValueError(f"invalid input index: {vin_i}")
-    psbt_in = psbt.inputs[vin_i]
-    if not psbt_in.witness_script:
-        return None
-    # a pk_h() holds the hash of its key and not the key, so the keys the
-    # input carries are what can be recognized: the ones that signed, and
-    # the ones an origin names
-    known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
-    try:
-        node = _miniscript_from_script(
-            psbt_in.witness_script,
-            miniscript.P2WSH,
-            {hash160(key): key for key in known},
-        )
-    # not a miniscript, which is not an error: it is the answer "not mine"
-    except BTClibValueError:
-        return None
-    tx = psbt.tx
-    spend = SpendContext(
-        sha256_preimages=psbt_in.sha256_preimages,
-        hash256_preimages=psbt_in.hash256_preimages,
-        ripemd160_preimages=psbt_in.ripemd160_preimages,
-        hash160_preimages=psbt_in.hash160_preimages,
-        locktime=tx.lock_time,
-        sequence=tx.vin[vin_i].sequence,
-        version=tx.version,
-    )
-    stack = node.satisfy(cast("Mapping[Octets, Octets]", psbt_in.partial_sigs), spend)
-    # the redeem script of a wrapped p2wsh, and the empty script_sig BIP141
-    # requires of a native one
-    script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []
-    return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
 
 
 def multipath_descriptors(descriptor: str, network: str | None = None) -> list[str]:
