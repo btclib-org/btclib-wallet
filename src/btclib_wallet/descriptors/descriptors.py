@@ -74,8 +74,8 @@ A parsed descriptor holds no key that signs. `parse` neuters an xprv to
 the xpub the `KeyExpression` then carries, and hands the private spelling
 back through the `prv_keys` mapping a caller passes in -- Bitcoin Core's
 `Parse(desc, out, error)`, whose descriptor keeps no reference to the
-`FlatSigningProvider` it filled. Expansion takes the mapping back for the
-one thing an xpub cannot do, a hardened step, which is why
+`FlatSigningProvider` it filled. Expanding a descriptor takes the mapping
+back for the one thing an xpub cannot do, a hardened step, which is why
 `script_pub_keys`, `satisfy`, `expansion` and the rest all end in an
 optional `prv_keys`. A WIF is not in that mapping: it was already reduced
 to its public key on the way in, this module deriving nothing from it and
@@ -3662,13 +3662,12 @@ def _paired_chain_digits(
     """Return the receive and change chain digits a paired suffix picks between.
 
     Each side is exactly one explicit, unhardened step before an
-    unhardened wildcard -- `bip44.account_descriptors`' own
-    receive/change shape, and the only trailing path BIP388's `/<M;N>/*`
-    grammar allows in front of one, whose own grammar spells `NUM` as
-    "representing unhardened derivations". The two digits are BIP388's
-    own requirement too: "two distinct decimal numbers", the receive and
-    the change descriptor naming the same account key at the same depth
-    being no policy at all.
+    unhardened wildcard -- the change and index levels of a BIP44 path,
+    and the only trailing path BIP388's `/<M;N>/*` grammar allows in front
+    of one, whose own grammar spells `NUM` as "representing unhardened
+    derivations". The two digits are BIP388's own requirement too: "two
+    distinct decimal numbers", the receive and the change descriptor
+    naming the same account key at the same depth being no policy at all.
     """
     for key in (recv_key, chg_key):
         if (
@@ -3784,16 +3783,15 @@ def wallet_policy(
     `wallet_policy_descriptor` reads back.
 
     `change` is the account's change descriptor, `descriptor` its receive
-    one -- `bip44.account_descriptors`' own pair, or two built by hand
-    the same way. Given one, this writes BIP388's own `/<M;N>/*` (`/**`
-    where the pair is `<0;1>`), the shorthand its Test Vectors use
-    throughout: `descriptor` and `change` must share every function,
-    threshold and tree shape (`_skeleton` is the check), and must differ,
-    key by key, in nothing but one explicit, unhardened step in front of
-    the wildcard -- BIP389's own two-element multipath, read back out of
-    two already single-path descriptors rather than out of the `<a;b>`
-    text `multipath_descriptors` expands away before either one is
-    parsed.
+    one -- for a BIP44 account, its ``/1/*`` and ``/0/*`` chains. Given
+    one, this writes BIP388's own `/<M;N>/*` (`/**` where the pair is
+    `<0;1>`), the shorthand its Test Vectors use throughout: `descriptor`
+    and `change` must share every function, threshold and tree shape
+    (`_skeleton` is the check), and must differ, key by key, in nothing
+    but one explicit, unhardened step in front of the wildcard -- BIP389's
+    own two-element multipath, read back out of two already single-path
+    descriptors rather than out of the `<a;b>` text
+    `multipath_descriptors` expands away before either one is parsed.
 
     Left at its default, `change` is None and `descriptor` is read alone:
     the only placeholder this writes then is the plain, unhardened `/*`

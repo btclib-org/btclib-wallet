@@ -115,8 +115,8 @@ def signed_psbt(
 ) -> tuple[Psbt, list[TxOut]]:
     """Return a psbt spending a p2wsh miniscript, signed by `keys`.
 
-    The Updater's work is the descriptor's: the witness script and the
-    preimages go in the input, which is where the solver reads them from.
+    What an Updater would write is set by hand: the witness script and the
+    preimages, which the solver reads from the input.
     """
     script = node.script()
     prevout = TxOut(50_000, ScriptPubKey.p2wsh(script))

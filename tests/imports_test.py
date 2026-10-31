@@ -18,7 +18,9 @@ against a copy nobody maintains here.
 
 And `bip32` and `psbt` import only the units below them, and so do the
 units `psbt` uses, so that each can be split into a distribution of its
-own by moving files.
+own by moving files. The files that move with `bip32` and `descriptors`
+import nothing of the package but those two units, and nothing of the
+suite but each other and the helpers a split copies.
 """
 
 from __future__ import annotations
@@ -204,32 +206,38 @@ def _units_imported_by(path: Path, package: str) -> set[str]:
     btclib_wallet` alone is reported as the root. Imports inside a function
     are found too, `ast.walk` visiting every node.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     units: set[str] = set()
+    for module, aliases in _imports_of(path, package):
+        parts = module.split(".")
+        if parts[0] != "btclib_wallet":
+            continue
+        if len(parts) > 1:
+            units.add(parts[1])
+        elif aliases:
+            units.update(aliases)
+        else:
+            units.add("btclib_wallet")
+    return units
+
+
+def _imports_of(path: Path, package: str) -> Iterator[tuple[str, list[str]]]:
+    """Yield each module one source file imports, and the names it takes.
+
+    An `import` takes none, and `_units_imported_by` says what `package`
+    is.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
-        modules: list[tuple[str, list[str]]]
         if isinstance(node, ast.Import):
-            modules = [(alias.name, []) for alias in node.names]
+            for alias in node.names:
+                yield alias.name, []
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             if node.level:
                 parts = package.split(".")
                 base = ".".join(parts[: len(parts) - node.level + 1])
                 module = f"{base}.{module}" if module else base
-            modules = [(module, [alias.name for alias in node.names])]
-        else:
-            continue
-        for module, aliases in modules:
-            parts = module.split(".")
-            if parts[0] != "btclib_wallet":
-                continue
-            if len(parts) > 1:
-                units.add(parts[1])
-            elif aliases:
-                units.update(aliases)
-            else:
-                units.add("btclib_wallet")
-    return units
+            yield module, [alias.name for alias in node.names]
 
 
 def _package_of(path: Path, src: Path) -> str:
@@ -351,6 +359,169 @@ def test_bip32_and_psbt_import_only_the_units_below_them() -> None:
     So each can move to a distribution of its own.
     """
     assert _layer_violations(Path(btclib_wallet.__path__[0]).parent) == {}
+
+
+# the units that move with their tests, and what of the suite a file that
+# moves with them may import: the tests of those units, and the helpers a
+# split copies, among them the names of `tests/__init__.py` those files use
+_MOVING_UNITS = ("bip32", "descriptors")
+_COPIED_HELPERS = (
+    *(f"tests.{unit}" for unit in _MOVING_UNITS),
+    "tests.NOT_STRIPPED",
+    "tests.chained_text",
+    "tests.conftest.JsonGolden",
+    "tests.exception_family_test.TYPE_ERRORS",
+    "tests.exception_family_test.VALUE_ERRORS",
+    "tests.load",
+    "tests.needs_bindings",
+    "tests.no_bindings",
+    "tests.no_bindings_anywhere",
+    "tests.replace_unchecked",
+    "tests.secret_free",
+    "tests.vector_id",
+)
+# the files that move with `bip32` and `descriptors` and that the sdist
+# carries; `tests/moving_imports_test.py` holds the others
+_MOVING_FILES = ("tests/bip32", "tests/descriptors", "tests/integration/infer_test.py")
+
+
+def _moving_file_violations(root: Path, moving: tuple[str, ...]) -> dict[str, set[str]]:
+    """Return, per file under `root` that moves, what it may not import.
+
+    `moving` names files and directories relative to `root`, a directory
+    standing for every `*.py` below it. A unit of `btclib_wallet` is
+    reported by its name, and a name of the suite by its dotted path below
+    `tests`: `from tests import load` reaches `tests.load`.
+    """
+    violations: dict[str, set[str]] = {}
+    for entry in moving:
+        top = root / entry
+        for path in [top] if top.suffix == ".py" else sorted(top.rglob("*.py")):
+            package = _package_of(path, root)
+            suite = {
+                f"{module}.{alias}" if alias else module
+                for module, aliases in _imports_of(path, package)
+                if module.split(".")[0] == "tests"
+                for alias in aliases or [""]
+            }
+            forbidden = (_units_imported_by(path, package) - set(_MOVING_UNITS)) | {
+                name
+                for name in suite
+                if not any(
+                    name == a or name.startswith(f"{a}.") for a in _COPIED_HELPERS
+                )
+            }
+            if forbidden:
+                violations[path.relative_to(root).as_posix()] = forbidden
+    return violations
+
+
+@pytest.mark.parametrize(
+    "relative, line, forbidden",
+    [
+        (
+            "tests/descriptors/x_test.py",
+            "from btclib_wallet.psbt import Psbt",
+            {"psbt"},
+        ),
+        ("tests/descriptors/x_test.py", "from btclib_wallet import bip44", {"bip44"}),
+        ("tests/bip32/x_test.py", "import btclib_wallet", {"btclib_wallet"}),
+        (
+            "tests/bip32/x_test.py",
+            "def f():\n    from btclib_wallet.wallet import Wallet",
+            {"wallet"},
+        ),
+        (
+            "tests/descriptors/x_test.py",
+            "from tests.strategies import psbt",
+            {"tests.strategies.psbt"},
+        ),
+        (
+            "tests/descriptors/x_test.py",
+            "from tests import strategies",
+            {"tests.strategies"},
+        ),
+        ("tests/descriptors/x_test.py", "from .. import conftest", {"tests.conftest"}),
+        (
+            "tests/bip32/x_test.py",
+            "from tests.conftest import tmp_golden",
+            {"tests.conftest.tmp_golden"},
+        ),
+        (
+            "tests/bip32/x_test.py",
+            "from tests import module_names",
+            {"tests.module_names"},
+        ),
+        ("tests/bip32/x_test.py", "from tests import _private", {"tests._private"}),
+        (
+            "tests/bip32/x_test.py",
+            "import tests.exception_family_test",
+            {"tests.exception_family_test"},
+        ),
+        (
+            "tests/bip32/x_test.py",
+            "from tests.exception_family_test import EXCEPTIONS",
+            {"tests.exception_family_test.EXCEPTIONS"},
+        ),
+        ("tests/bip32/x_test.py", "import tests", {"tests"}),
+        (
+            "tests/integration/infer_test.py",
+            "from btclib_wallet.wallet import Wallet",
+            {"wallet"},
+        ),
+    ],
+)
+def test_the_moving_file_scan_finds_a_planted_import(
+    tmp_path: Path, relative: str, line: str, forbidden: set[str]
+) -> None:
+    """`_moving_file_violations` reports each spelling of an import that stays.
+
+    The real files have none, so only this test exercises a report. The
+    files `_MOVING_FILES` names one by one are planted empty first, since
+    a missing one is an error rather than nothing to report.
+    """
+    _plant(tmp_path, "tests/integration/infer_test.py", "")
+    _plant(tmp_path, relative, line)
+    assert _moving_file_violations(tmp_path, _MOVING_FILES) == {relative: forbidden}
+
+
+@pytest.mark.parametrize(
+    "relative, line",
+    [
+        ("tests/descriptors/x_test.py", "from btclib_wallet.bip32 import derive"),
+        ("tests/bip32/x_test.py", "from btclib_wallet import descriptors"),
+        ("tests/bip32/x_test.py", "from btclib.psbt import Psbt"),
+        ("tests/bip32/x_test.py", "from tests import load"),
+        ("tests/bip32/x_test.py", "from tests.conftest import JsonGolden"),
+        (
+            "tests/bip32/x_test.py",
+            "from tests.exception_family_test import VALUE_ERRORS",
+        ),
+        ("tests/bip32/x_test.py", "from ..secret_free import assert_secret_free"),
+        ("tests/descriptors/x_test.py", "from . import infer_test"),
+        (
+            "tests/integration/infer_test.py",
+            "from tests.descriptors.infer_test import _text",
+        ),
+    ],
+)
+def test_the_moving_file_scan_admits_the_allowed_imports(
+    tmp_path: Path, relative: str, line: str
+) -> None:
+    """`_moving_file_violations` admits the moving units and the helpers."""
+    _plant(tmp_path, "tests/integration/infer_test.py", "")
+    _plant(tmp_path, relative, line)
+    assert _moving_file_violations(tmp_path, _MOVING_FILES) == {}
+
+
+def test_the_files_moving_with_bip32_and_descriptors_import_only_what_moves() -> None:
+    """Keep the files that move with `bip32` and `descriptors` to what moves.
+
+    An `ast` walk rather than a `git grep`, since the suite also runs from
+    an unpacked sdist, where there is no `.git`.
+    """
+    root = Path(__file__).resolve().parents[1]
+    assert _moving_file_violations(root, _MOVING_FILES) == {}
 
 
 def test_btclib_imports_nothing_of_btclib_wallet() -> None:
