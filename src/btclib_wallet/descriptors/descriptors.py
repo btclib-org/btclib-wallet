@@ -2180,6 +2180,21 @@ def _refuse_unclosed_tree(
     raise BTClibValueError("unbalanced braces")
 
 
+def _read_branches(
+    branches: list[str], prv_keys: dict[str, str], depth: int
+) -> DescriptorTree:
+    """Return the two subtrees of a branch, each `depth` braces deep.
+
+    Core reads the first subtree, and the second after a comma, before it
+    finds the count wrong, so a fault inside one of them comes first.
+    """
+    subtrees = [_parse_tree(branch, prv_keys, depth) for branch in branches[:2]]
+    if len(branches) != 2:
+        err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
+        raise BTClibValueError(err_msg)
+    return subtrees[0], subtrees[1]
+
+
 def _parse_tree(
     expression: str, prv_keys: dict[str, str], depth: int
 ) -> DescriptorTree:
@@ -2200,17 +2215,10 @@ def _parse_tree(
     if expression.startswith("{"):
         if not expression.endswith("}"):
             _refuse_unclosed_tree(expression, prv_keys, depth)
-
-        def read_branches(branches: list[str]) -> DescriptorTree:
-            if len(branches) != 2:
-                err_msg = f"a tr() branch takes two subtrees, {len(branches)} given"
-                raise BTClibValueError(err_msg)
-            return (
-                _parse_tree(branches[0], prv_keys, depth + 1),
-                _parse_tree(branches[1], prv_keys, depth + 1),
-            )
-
-        return _read_split(expression[1:-1], read_branches)
+        return _read_split(
+            expression[1:-1],
+            lambda branches: _read_branches(branches, prv_keys, depth + 1),
+        )
     name = expression.partition("(")[0]
     # An unterminated multi_a falls through to miniscript, as Core does.
     if name in _TREE_FUNCTIONS and (name != "multi_a" or expression.endswith(")")):
