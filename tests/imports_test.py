@@ -187,7 +187,6 @@ def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
 _ALLOWED_UNITS = {
     "_fee": frozenset(),
     "bip32": frozenset(),
-    "bip44": frozenset({"bip32", "descriptors"}),
     "descriptors": frozenset({"bip32"}),
     "psbt": frozenset({"_fee", "bip32", "descriptors", "silent_payments"}),
     "silent_payments": frozenset(),

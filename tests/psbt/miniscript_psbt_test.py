@@ -47,7 +47,7 @@ from btclib_wallet.psbt.psbt_updater import update_psbt_output
 from tests import vector_id
 
 # Core's own test keys: the public keys of the private keys 1 to 255, which
-# is what its `TestData` generates and what the vectors above name
+# is what its `TestData` generates
 KEYS = [PrvKeyData(i).pub.sec.hex() for i in range(1, 256)]
 
 
@@ -91,9 +91,7 @@ def test_a_ranged_miniscript_descriptor_fills_a_psbt() -> None:
     assert psbt_out.hd_key_paths
 
 
-# Core's TestData, which is what its vectors are named from: the private
-# keys 1 to 255, and the four digests of each key's own 32 bytes -- every
-# hash fragment in the vectors commits to one of those arrays
+# Core's `TestData`: the private keys 1 to 255, each its index in 32 bytes
 PRV_KEYS = [31 * b"\x00" + bytes([i]) for i in range(1, 256)]
 
 
