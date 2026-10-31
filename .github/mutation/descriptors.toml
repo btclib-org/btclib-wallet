@@ -5,7 +5,7 @@
 # check by eye -- a miniscript satisfaction is a choice of branch, a set of type
 # properties and a witness whose size decides a fee, none of which a wrong bound
 # announces. This asks whether tests/descriptors would notice if a line of the
-# three modules were wrong.
+# package's modules were wrong.
 
 [cosmic-ray]
 # the package, `__init__.py` included: it is re-exports and a docstring, so
