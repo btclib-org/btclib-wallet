@@ -16,6 +16,7 @@ from btclib_wallet.bip32.bip32 import (
     derive_from_account_range,
     derive_from_account_range_,
     fingerprint,
+    key_data_from_bip32_key,
     point_from_xpub,
     prv_keyinfo_from_xprv,
     pub_key_derivation_tweaks,
@@ -27,6 +28,7 @@ from btclib_wallet.bip32.bip32 import (
     xpub_from_xprv_,
 )
 from btclib_wallet.bip32.der_path import (
+    HARDENED_OFFSET,
     bytes_from_der_path,
     hardenings_from_der_path,
     indexes_from_der_path,
@@ -45,6 +47,7 @@ from btclib_wallet.bip32.key_origin import (
 
 __all__ = [
     "BIP328_CHAIN_CODE",
+    "HARDENED_OFFSET",
     "BIP32Key",
     "BIP32KeyData",
     "BIP32KeyOrigin",
@@ -65,6 +68,7 @@ __all__ = [
     "hardenings_from_der_path",
     "indexes_from_der_path",
     "int_from_index_str",
+    "key_data_from_bip32_key",
     "point_from_xpub",
     "prv_keyinfo_from_xprv",
     "pub_key_derivation_tweaks",

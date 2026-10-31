@@ -20,7 +20,7 @@ from ecc.curves.curve import mult, secp256k1
 from ecc.curves.sec_point import bytes_from_point, scalar_from_prv_key
 
 from btclib_wallet.bip32 import derive, rootxprv_from_seed
-from btclib_wallet.bip32.der_path import _HARDENED_OFFSET
+from btclib_wallet.bip32.der_path import HARDENED_OFFSET
 
 # under TYPE_CHECKING, so that the alias annotates the signatures below
 # without this module binding a name of bip39_slip39's
@@ -61,7 +61,7 @@ def mxprv_from_mnemonic(
         return rootxprv_from_seed(seed, xversion)
     xversion = network_from_name(network).slip132_p2wpkh_prv
     rootxprv = rootxprv_from_seed(seed, xversion)
-    return derive(rootxprv, _HARDENED_OFFSET)  # "m/0h"
+    return derive(rootxprv, HARDENED_OFFSET)  # "m/0h"
 
 
 def old_master_pub_key_from_mnemonic(

@@ -57,14 +57,14 @@ from typing_extensions import override
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
-    _key_data_from_bip32_key,
     derive_,
     derive_from_account_,
+    key_data_from_bip32_key,
     prv_keyinfo_from_xprv,
     pub_keyinfo_from_xkey,
 )
 from btclib_wallet.bip32.der_path import (
-    _HARDENED_OFFSET,
+    HARDENED_OFFSET,
     DerPath,
     indexes_from_der_path,
     str_from_der_path,
@@ -268,7 +268,7 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
         der_path: DerPath = _DEFAULT_ACCOUNT,
         script_type: BIP44ScriptType | None = None,
     ) -> None:
-        xkey = _key_data_from_bip32_key(xkey)
+        xkey = key_data_from_bip32_key(xkey)
 
         indexes = indexes_from_der_path(der_path)
         if len(indexes) != _ACCOUNT_LEVELS:
@@ -280,13 +280,13 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
         # account no BIP84 wallet has, and reading 84 out of it would
         # answer that account with p2wpkh addresses as if they were the
         # ones a BIP84 wallet watches
-        if any(index < _HARDENED_OFFSET for index in indexes):
+        if any(index < HARDENED_OFFSET for index in indexes):
             err_msg = "invalid account path: all three levels must be hardened"
             raise BTClibValueError(err_msg)
 
         super().__init__(
             script_type=(
-                _script_type_from_purpose(indexes[0] - _HARDENED_OFFSET)
+                _script_type_from_purpose(indexes[0] - HARDENED_OFFSET)
                 if script_type is None
                 else script_type
             ),

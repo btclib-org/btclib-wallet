@@ -693,7 +693,7 @@ def test_the_private_name_scan_finds_each_spelling() -> None:
         "import bip39_slip39.bip39\n"
         "bip39_slip39.slip39._feistel\n"
         "bip39_slip39.bip39.seed_from_mnemonic\n"
-        "from btclib_wallet.bip32.der_path import _HARDENED_OFFSET\n"
+        "from btclib_wallet.bip32.der_path import _HARDENING\n"
     )
     assert _private_bip39_slip39_names_in(source) == {
         "_normalize",
