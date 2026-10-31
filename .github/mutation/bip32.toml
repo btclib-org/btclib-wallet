@@ -94,7 +94,7 @@ exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]
 # `<= 0`) closed with a negative case, no existing vector using a
 # negative depth or index:
 #
-# - `is_hardened`'s `>= _HARDENED_OFFSET` weakened to `==`, and the same
+# - `is_hardened`'s `>= HARDENED_OFFSET` weakened to `==`, and the same
 #   expression inside `__pub_key_path_derivation` and
 #   `_derive_from_account`'s branch and address_index checks: every
 #   existing hardened index in the test vectors (`0h`, `44h`) lands

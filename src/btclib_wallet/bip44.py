@@ -54,14 +54,14 @@ from btclib.utils import bytes_from_octets
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
-    _derive,
-    _key_data_from_bip32_key,
-    _xpub_from_xprv,
+    derive_,
     fingerprint,
+    key_data_from_bip32_key,
     pub_keyinfo_from_xkey,
+    xpub_from_xprv,
 )
 from btclib_wallet.bip32.der_path import (
-    _HARDENED_OFFSET,
+    HARDENED_OFFSET,
     DerPath,
     indexes_from_der_path,
     str_from_index_int,
@@ -181,11 +181,11 @@ def _assert_valid_path(indexes: list[int]) -> None:
         err_msg = f"invalid BIP44 path: {len(indexes)} levels instead of {_LEVELS}"
         raise BTClibValueError(err_msg)
 
-    if any(index < _HARDENED_OFFSET for index in indexes[:_ACCOUNT_LEVELS]):
+    if any(index < HARDENED_OFFSET for index in indexes[:_ACCOUNT_LEVELS]):
         err_msg = "invalid BIP44 path: purpose, coin type and account must be hardened"
         raise BTClibValueError(err_msg)
 
-    if any(index >= _HARDENED_OFFSET for index in indexes[_ACCOUNT_LEVELS:]):
+    if any(index >= HARDENED_OFFSET for index in indexes[_ACCOUNT_LEVELS:]):
         err_msg = "invalid BIP44 path: change and address index must not be hardened"
         raise BTClibValueError(err_msg)
 
@@ -208,7 +208,7 @@ def _assert_valid_account_path(indexes: list[int]) -> None:
         err_msg += f" instead of {_ACCOUNT_LEVELS}"
         raise BTClibValueError(err_msg)
 
-    if any(index < _HARDENED_OFFSET for index in indexes):
+    if any(index < HARDENED_OFFSET for index in indexes):
         err_msg = "invalid BIP44 account path: purpose, coin type and account"
         err_msg += " must be hardened"
         raise BTClibValueError(err_msg)
@@ -322,13 +322,13 @@ def address_from_der_path(
     with it, 0 for mainnet and 1 for any test network, or the path and
     the key are describing different chains and neither wins.
     """
-    xkey = _key_data_from_bip32_key(xkey)
+    xkey = key_data_from_bip32_key(xkey)
 
     indexes = indexes_from_der_path(der_path)
     _assert_valid_path(indexes)
 
     if script_type is None:
-        script_type = _script_type_from_purpose(indexes[0] - _HARDENED_OFFSET)
+        script_type = _script_type_from_purpose(indexes[0] - HARDENED_OFFSET)
     # the lookup and not an isinstance: the table is the list of encodings
     # this module has, so missing from it and unknown are one thing. The
     # check survives BIP44ScriptType typing the argument because a Literal
@@ -341,13 +341,14 @@ def address_from_der_path(
         err_msg = f"unknown script type: {script_type} not in ({known})"
         raise BTClibValueError(err_msg)
 
-    _assert_valid_coin_type(indexes[1] - _HARDENED_OFFSET, xkey)
+    _assert_valid_coin_type(indexes[1] - HARDENED_OFFSET, xkey)
 
-    # the derived key stays decoded: an extended key is not what an
-    # address builder takes (issue btclib-org/btclib#1188), so what the encoder
-    # is handed is its public key, and the public `derive` would serialize this
-    # one here for `pub_keyinfo_from_xkey` to decode straight back
-    key = _derive(xkey, _indexes_left_to_derive(xkey, indexes), None)
+    # `derive_` and not `derive`, so that the derived key stays decoded: an
+    # extended key is not what an address builder takes (issue
+    # btclib-org/btclib#1188), so what the encoder is handed is its public
+    # key, and `derive` would serialize this one here for
+    # `pub_keyinfo_from_xkey` to decode straight back
+    key = derive_(xkey, _indexes_left_to_derive(xkey, indexes))
     network = network_from_xkeyversion(xkey.version)
     # check_validity=False: `pub_keyinfo_from_xkey` answers the SEC
     # octets of an extended key it has parsed, and `network` is the name
@@ -400,12 +401,10 @@ def _account_xpub(xkey: BIP32KeyData, indexes: list[int]) -> str:
     """
     network = NETWORKS[network_from_xkeyversion(xkey.version)]
     version = network.bip32_prv if xkey.is_private else network.bip32_pub
-    # the private pair, `xkey` being validated already: the public
-    # `derive` would serialize to base58 for `xpub_from_xprv` to decode
-    # straight back, and each of the four steps would validate
-    derived = _derive(xkey, _indexes_left_to_derive(xkey, indexes), version)
-    account = _xpub_from_xprv(derived) if xkey.is_private else derived
-    return account.b58encode()
+    # `derive_`, which answers the key: `derive` would serialize to base58
+    # for `xpub_from_xprv` to decode straight back
+    derived = derive_(xkey, _indexes_left_to_derive(xkey, indexes), version)
+    return xpub_from_xprv(derived) if xkey.is_private else derived.b58encode()
 
 
 def _account_fingerprint(
@@ -475,18 +474,18 @@ def account_descriptors(
     `descriptors.multipath_descriptors` expands one and `descriptors.parse`
     refuses one, so what this returns is the two.
     """
-    xkey = _key_data_from_bip32_key(xkey)
+    xkey = key_data_from_bip32_key(xkey)
 
     indexes = indexes_from_der_path(der_path)
     _assert_valid_account_path(indexes)
     if script_type is None:
-        script_type = _script_type_from_purpose(indexes[0] - _HARDENED_OFFSET)
+        script_type = _script_type_from_purpose(indexes[0] - HARDENED_OFFSET)
     # the lookup and not an isinstance, for `address_from_der_path`'s reason
     build = _DESCRIPTOR_FROM_SCRIPT_TYPE.get(script_type)
     if build is None:
         known = ", ".join(sorted(_DESCRIPTOR_FROM_SCRIPT_TYPE))
         raise BTClibValueError(f"unknown script type: {script_type} not in ({known})")
-    _assert_valid_coin_type(indexes[1] - _HARDENED_OFFSET, xkey)
+    _assert_valid_coin_type(indexes[1] - HARDENED_OFFSET, xkey)
 
     # the xpub first, and the fingerprint after it: a key that does not fit
     # the path is about the two arguments the caller passed together, where

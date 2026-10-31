@@ -364,7 +364,7 @@ is a `BTClibTypeError` even where the function answers a `bool`: the
 deferred to a private twin that does not validate, and that twin is what
 the package composes internally. `btclib_wallet.bip32` is the shape to
 copy: `derive` validates and calls `_derive`, which does not, and
-`_key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
+`key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
 becomes a validated `BIP32KeyData`.
 
 **A refusal of ecc's own leaves as that package's class.** Under

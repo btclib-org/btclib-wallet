@@ -745,7 +745,7 @@ def test_derive_from_account() -> None:
     # relies on being exactly 65535
     assert derive_from_account(mxpub, 0, 0xFFFF)
 
-    # strictly above the offset, not only at it: `>= _HARDENED_OFFSET`
+    # strictly above the offset, not only at it: `>= HARDENED_OFFSET`
     # weakened to `==` would refuse only the exact boundary above, the
     # one 0x80000000 case already covers
     err_msg = "invalid private derivation at branch level"
@@ -1077,10 +1077,12 @@ def test_the_chain_contract_no_derivation_here_asks_for() -> None:
     implementations, and a contract with no caller is a comment unless
     something asserts it.
 
-    The flag by its answer and not by its type. `bytes_from_point`
-    refuses a `compressed` that is not a bool, which is the check
-    `bool_parameter_test` reaches, and a body that ignored the flag
-    altogether would pass that one unchanged.
+    The flag by its answer, and by its type. `bytes_from_point` refuses
+    a `compressed` that is not a bool. `bool_parameter_test` holds the
+    public flags to that and skips this private class, so the refusal is
+    asserted here. A body that refused a non-bool and then ignored the
+    flag would pass the type check unchanged, which is why the answer is
+    asserted too.
 
     The refusal by what the chain holds afterwards.
     `_PythonPubKeyTweakChain` serializes before it steps, so a call that
@@ -1106,8 +1108,10 @@ def test_the_chain_contract_no_derivation_here_asks_for() -> None:
     )
 
     chain = _PythonPubKeyTweakChain(key)
-    with pytest.raises(TYPE_ERRORS, match="invalid compressed type"):
-        chain.tweak_add(tweak, compressed="yes")  # type: ignore[arg-type]
+    # `bool_parameter_test`'s wrong values for a kind
+    for wrong in ("no", 0, 1, None):
+        with pytest.raises(TYPE_ERRORS, match="invalid compressed type"):
+            chain.tweak_add(tweak, compressed=wrong)  # type: ignore[arg-type]
     assert chain.tweak_add(tweak) == compressed
 
 
@@ -1361,7 +1365,7 @@ def test_is_root_is_all_three_fields_and_not_just_one() -> None:
 def test_is_hardened_is_not_narrowed_to_the_boundary_alone() -> None:
     """An index strictly above the offset is hardened too, not just it.
 
-    `self.index >= _HARDENED_OFFSET` weakened to `==` would call every
+    `self.index >= HARDENED_OFFSET` weakened to `==` would call every
     non-root path in the test vectors hardened all the same, since every
     one of them lands exactly on the offset (`0h`, `44h`); nothing there
     ever derives past it.
@@ -1382,7 +1386,7 @@ def test_is_hardened_is_not_narrowed_to_the_boundary_alone() -> None:
 def test_hardened_public_derivation_is_refused_above_the_offset_too() -> None:
     """A hardened index above the offset is refused, not just the exact one.
 
-    `any(index >= _HARDENED_OFFSET ...)` weakened to `==` in
+    `any(index >= HARDENED_OFFSET ...)` weakened to `==` in
     `__pub_key_path_derivation` would refuse only the exact boundary
     `derive(xpub, 0x80000000)` already covers, letting an ordinary
     hardened index above it reach a private-only derivation instead.
@@ -1725,7 +1729,7 @@ def test_bip328_synthetic_xpub(
 
 
 def test_cracking_refuses_a_child_its_own_assert_valid_refuses() -> None:
-    """Both arguments through `_key_data_from_bip32_key`.
+    """Both arguments through `key_data_from_bip32_key`.
 
     Issue btclib-org/btclib#693.
 

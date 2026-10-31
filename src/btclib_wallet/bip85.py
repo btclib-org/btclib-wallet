@@ -63,11 +63,11 @@ from ecc.curves import scalar_from_prv_key
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
-    _derive,
-    _key_data_from_bip32_key,
+    derive_,
+    key_data_from_bip32_key,
 )
 from btclib_wallet.bip32.der_path import (
-    _HARDENED_OFFSET,
+    HARDENED_OFFSET,
     DerPath,
     indexes_from_der_path,
     str_from_index_int,
@@ -191,13 +191,13 @@ def _assert_valid_der_path(indexes: list[int]) -> None:
         err_msg = f"too few bip85 path levels: {len(indexes)}"
         err_msg += f" instead of {_MIN_INDEXES} or more"
         raise BTClibValueError(err_msg)
-    if indexes[0] != _PURPOSE + _HARDENED_OFFSET:
+    if indexes[0] != _PURPOSE + HARDENED_OFFSET:
         # the level as a path step and not as the index it is: an
         # unhardened 83696968 and a hardened one are 2**31 apart as
         # numbers and one apostrophe apart in what the caller wrote
         err_msg = f"not a bip85 derivation path: {str_from_index_int(indexes[0])}"
         raise BTClibValueError(err_msg)
-    if any(index < _HARDENED_OFFSET for index in indexes):
+    if any(index < HARDENED_OFFSET for index in indexes):
         raise BTClibValueError("unhardened bip85 derivation path")
 
 
@@ -208,7 +208,7 @@ def _entropy_from_der_path(root_key: BIP32KeyData, der_path: DerPath) -> bytes:
     # a public root key is refused by the derivation itself, every index
     # being hardened; the leading 0x00 of the private one is dropped,
     # BIP85 hashing the 32 bytes of the key and not the 33 of the field
-    xkey = _derive(root_key, indexes, None)
+    xkey = derive_(root_key, indexes)
     return hmac.new(_HMAC_KEY, xkey.key[1:], "sha512").digest()
 
 
@@ -228,7 +228,7 @@ def entropy_from_der_path(root_key: BIP32Key, der_path: DerPath) -> bytes:
     is a different one, so entropy derived from it is reproducible only
     from that same key.
     """
-    return _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
+    return _entropy_from_der_path(key_data_from_bip32_key(root_key), der_path)
 
 
 class BIP85DRNG:
@@ -301,7 +301,7 @@ def mnemonic_from_root_key(
         raise BTClibValueError(err_msg)
 
     der_path = f"m/{_PURPOSE}h/39h/{_LANGUAGE_INDEXES[lang]}h/{words}h/{index}h"
-    entropy = _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
+    entropy = _entropy_from_der_path(key_data_from_bip32_key(root_key), der_path)
     return bip39_slip39.bip39.mnemonic_from_entropy(
         entropy[: _ENTROPY_BYTES[words]], lang
     )
@@ -315,7 +315,7 @@ def wif_from_root_key(root_key: BIP32Key, index: int = 0) -> str:
     Core wallet takes. The network is the root key's own, as the WIF
     prefix has to name one.
     """
-    xkey = _key_data_from_bip32_key(root_key)
+    xkey = key_data_from_bip32_key(root_key)
     entropy = _entropy_from_der_path(xkey, f"m/{_PURPOSE}h/2h/{index}h")
     network = network_from_xkeyversion(xkey.version)
     # a scalar of zero or beyond the curve order is refused here, which
@@ -340,7 +340,7 @@ def xprv_from_root_key(root_key: BIP32Key, index: int = 0) -> str:
     type *that* tree is derived for, and the tree this key roots is a new
     one no such claim has been made about.
     """
-    xkey = _key_data_from_bip32_key(root_key)
+    xkey = key_data_from_bip32_key(root_key)
     entropy = _entropy_from_der_path(xkey, f"m/{_PURPOSE}h/32h/{index}h")
     network = network_from_xkeyversion(xkey.version)
     derived = BIP32KeyData(
@@ -383,7 +383,7 @@ def nsec_from_root_key(root_key: BIP32Key, identity: int, account_index: int) ->
     if account_index < _MIN_NOSTR_INDEX:
         raise BTClibValueError(f"invalid nostr account index: {account_index}")
 
-    xkey = _key_data_from_bip32_key(root_key)
+    xkey = key_data_from_bip32_key(root_key)
     der_path = f"m/{_PURPOSE}h/128002h/{identity}h/{account_index}h"
     entropy = _entropy_from_der_path(xkey, der_path)
     # the hard failure the docstring above documents, raised before the
@@ -410,7 +410,7 @@ def bytes_entropy_from_root_key(
         raise BTClibValueError(err_msg)
 
     der_path = f"m/{_PURPOSE}h/128169h/{num_bytes}h/{index}h"
-    entropy = _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
+    entropy = _entropy_from_der_path(key_data_from_bip32_key(root_key), der_path)
     return entropy[:num_bytes]
 
 
@@ -431,7 +431,7 @@ def base64_password_from_root_key(
         raise BTClibValueError(err_msg)
 
     der_path = f"m/{_PURPOSE}h/707764h/{pwd_len}h/{index}h"
-    entropy = _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
+    entropy = _entropy_from_der_path(key_data_from_bip32_key(root_key), der_path)
     return b64encode(entropy).decode("ascii")[:pwd_len]
 
 
@@ -454,7 +454,7 @@ def base85_password_from_root_key(
         raise BTClibValueError(err_msg)
 
     der_path = f"m/{_PURPOSE}h/707785h/{pwd_len}h/{index}h"
-    entropy = _entropy_from_der_path(_key_data_from_bip32_key(root_key), der_path)
+    entropy = _entropy_from_der_path(key_data_from_bip32_key(root_key), der_path)
     return b85encode(entropy).decode("ascii")[:pwd_len]
 
 

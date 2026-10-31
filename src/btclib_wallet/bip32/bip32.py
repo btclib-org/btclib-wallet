@@ -66,7 +66,7 @@ from ecc.curves import (
 from typing_extensions import override
 
 from btclib_wallet.bip32.der_path import (
-    _HARDENED_OFFSET,
+    HARDENED_OFFSET,
     DerPath,
     indexes_from_der_path,
 )
@@ -92,6 +92,7 @@ __all__ = [
     "derive_from_account_range",
     "derive_from_account_range_",
     "fingerprint",
+    "key_data_from_bip32_key",
     "point_from_xpub",
     "prv_keyinfo_from_xprv",
     "pub_key_derivation_tweaks",
@@ -275,7 +276,7 @@ class BIP32KeyData:
     @property
     def is_hardened(self) -> bool:
         """Answer whether the index is in the hardened range."""
-        return self.index >= _HARDENED_OFFSET
+        return self.index >= HARDENED_OFFSET
 
     @property
     def is_root(self) -> bool:
@@ -492,7 +493,7 @@ def rootxprv_from_seed(
 BIP32Key = BIP32KeyData | String
 
 
-def _key_data_from_bip32_key(xkey: BIP32Key) -> BIP32KeyData:
+def key_data_from_bip32_key(xkey: BIP32Key) -> BIP32KeyData:
     """Return the key as a valid BIP32KeyData, however it was spelled.
 
     What a public function taking a `BIP32Key` owes the private ones it
@@ -500,7 +501,7 @@ def _key_data_from_bip32_key(xkey: BIP32Key) -> BIP32KeyData:
     and here. The private functions below then validate nothing, which
     is what the leading underscore says of them -- so a caller reaching
     past one of these wrappers owes its callee the same guarantee this
-    provides.
+    provides. A `BIP32KeyData` comes back as the same object.
 
     The key is validated as it stands, before `_derive` changes its
     depth: the depth-zero rule is a statement about the index and the
@@ -546,7 +547,7 @@ def xpub_from_xprv_(xprv: BIP32Key) -> BIP32KeyData:
     the trailing underscore is `rootxprv_from_seed_`'s, and says the same
     thing.
     """
-    xkey = _xpub_from_xprv(_key_data_from_bip32_key(xprv))
+    xkey = _xpub_from_xprv(key_data_from_bip32_key(xprv))
     # the output check the text spelling got from `b58encode`, which is
     # what `serialize` inside it does: `_xpub_from_xprv` builds with
     # `check_validity=False`, so this is the one validation of the key
@@ -587,7 +588,7 @@ def fingerprint(xkey: BIP32Key) -> bytes:
     neutering is `_xpub_from_xprv`'s, so the two spellings share the
     derivation rather than agreeing by coincidence.
     """
-    xkey_data = _key_data_from_bip32_key(xkey)
+    xkey_data = key_data_from_bip32_key(xkey)
     if xkey_data.is_private:
         xkey_data = _xpub_from_xprv(xkey_data)
     return hash160(xkey_data.key)[:4]
@@ -612,7 +613,7 @@ def prv_keyinfo_from_xprv(
     if compressed is not None:
         assert_type(compressed, bool, "compressed")
 
-    xprv_data = _key_data_from_bip32_key(xprv)
+    xprv_data = key_data_from_bip32_key(xprv)
 
     # a BIP32 key is always compressed, so a caller asking for
     # uncompressed is asking about another format. This follows the
@@ -658,7 +659,7 @@ def pub_keyinfo_from_xpub(
     if compressed is not None:
         assert_type(compressed, bool, "compressed")
 
-    xpub_data = _key_data_from_bip32_key(xpub)
+    xpub_data = key_data_from_bip32_key(xpub)
 
     # `prv_keyinfo_from_xprv`'s refusal above, on the public half, and
     # after the decode for the reason stated there
@@ -722,7 +723,7 @@ def pub_keyinfo_from_xkey(
     No `compressed`: a BIP32 key is always compressed, so the only value
     that argument could carry is the one the key already states.
     """
-    xkey_data = _key_data_from_bip32_key(xkey)
+    xkey_data = key_data_from_bip32_key(xkey)
     if xkey_data.is_private:
         xkey_data = _xpub_from_xprv(xkey_data)
     return _pub_keyinfo_from_xpub(xkey_data, network)
@@ -736,7 +737,7 @@ def point_from_xpub(xpub: BIP32Key, ec: Curve = secp256k1) -> Point:
     the key is not of is told which of the two disagrees.
     """
     assert_type(ec, Curve, "ec")
-    xpub_data = _key_data_from_bip32_key(xpub)
+    xpub_data = key_data_from_bip32_key(xpub)
 
     if xpub_data.is_private:
         # never echo the key, which is private here:
@@ -821,7 +822,7 @@ def _invalid_child(index: int, reason: str) -> BTClibValueError:
 def __prv_key_derivation(xkey: _BIP32KeyData, index: int, pub_key: bytes) -> None:
     xb = (
         xkey.key
-        if index >= _HARDENED_OFFSET
+        if index >= HARDENED_OFFSET
         else pub_key or bytes_from_prv_key_int(xkey.prv_key_int)
     )
     xb += index.to_bytes(4, byteorder="big", signed=False)
@@ -1040,7 +1041,7 @@ def pub_key_derivation_tweaks(
     key = bytes_from_octets(pub_key, secp256k1.p_size + 1)
     code = bytes_from_octets(chain_code, 32)
     indexes = indexes_from_der_path(der_path)
-    if any(index >= _HARDENED_OFFSET for index in indexes):
+    if any(index >= HARDENED_OFFSET for index in indexes):
         raise BTClibValueError("invalid hardened derivation from public key")
 
     # one parse for the whole path rather than one per index: each step
@@ -1125,7 +1126,7 @@ def __pub_key_path_derivation(xkey: _BIP32KeyData, indexes: list[int]) -> None:
     before any of it is walked: half a derivation would leave the caller
     holding a key at neither end of the path.
     """
-    if any(index >= _HARDENED_OFFSET for index in indexes):
+    if any(index >= HARDENED_OFFSET for index in indexes):
         raise BTClibValueError("invalid hardened derivation from public key")
     chain = _pub_key_tweak_chain(xkey.key)
     for index in indexes[:-1]:
@@ -1218,7 +1219,7 @@ def derive_(
 
     The path and the version are `derive`'s, and so is what they accept.
     """
-    derived = _derive(_key_data_from_bip32_key(xkey), der_path, forced_version)
+    derived = _derive(key_data_from_bip32_key(xkey), der_path, forced_version)
     # the output check the wrapper is entitled to, and the only validation
     # of the derived key: `derive` calls `b58encode(check_validity=False)`,
     # skipping the check `serialize` would otherwise run, so this is where
@@ -1267,7 +1268,7 @@ def _assert_valid_branch(
     # function runs first at every call site and on the same `max_index`
     if not is_integer(max_index):
         raise BTClibTypeError(f"non-integer max_index: {max_index}")
-    if branch >= _HARDENED_OFFSET:
+    if branch >= HARDENED_OFFSET:
         raise BTClibValueError("invalid private derivation at branch level")
     if branch > max_index:
         err_msg = f"invalid branch number: {branch} is higher than {max_index}."
@@ -1284,7 +1285,7 @@ def _assert_valid_address_index(address_index: int, max_index: int) -> None:
     # could never be reached and the coverage floor is what catches that
     if not is_integer(address_index):
         raise BTClibTypeError(f"non-integer address index: {address_index}")
-    if address_index >= _HARDENED_OFFSET:
+    if address_index >= HARDENED_OFFSET:
         raise BTClibValueError("invalid private derivation at address index level")
     if address_index > max_index:
         err_msg = f"invalid address index: {address_index} is higher than {max_index}."
@@ -1320,7 +1321,7 @@ def derive_from_account_(
     built from the key rather than from its text.
     """
     derived = _derive_from_account(
-        _key_data_from_bip32_key(mxkey),
+        key_data_from_bip32_key(mxkey),
         branch,
         address_index,
         branches_0_1_only,
@@ -1369,7 +1370,7 @@ def derive_from_account_range_(
     question nobody asked -- and is *walked* only where there is an
     index to put on it.
     """
-    account = _key_data_from_bip32_key(mxkey)
+    account = key_data_from_bip32_key(mxkey)
     _assert_valid_branch(account, branch, branches_0_1_only, max_index)
     for address_index in address_indexes:
         _assert_valid_address_index(address_index, max_index)
@@ -1442,11 +1443,11 @@ def crack_prv_key_var(parent_xpub: BIP32Key, child_xprv: BIP32Key) -> str:
     # weakness, so an answer it gives for a child its own assert_valid
     # refuses is a wrong lesson. Frozen, so aliased rather than copied --
     # there is nothing in it for a copy to protect any more
-    p = _key_data_from_bip32_key(parent_xpub)
+    p = key_data_from_bip32_key(parent_xpub)
 
     if p.key[0] not in {2, 3}:
         raise BTClibValueError(_err_msg("parent", "not a public", p))
-    c = _key_data_from_bip32_key(child_xprv)
+    c = key_data_from_bip32_key(child_xprv)
 
     if c.key[0] != 0:
         raise BTClibValueError(_err_msg("child", "not a private", c))

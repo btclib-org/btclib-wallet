@@ -168,13 +168,13 @@ from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
     _derive,
-    _key_data_from_bip32_key,
     _xpub_from_xprv,
     fingerprint,
+    key_data_from_bip32_key,
 )
 from btclib_wallet.bip32.der_path import (
-    _HARDENED_OFFSET,
     _HARDENING,
+    HARDENED_OFFSET,
     _int_from_digits,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
@@ -233,6 +233,7 @@ __all__ = [
     "add_checksum",
     "at_index",
     "checksum",
+    "derived_origin",
     "from_address",
     "infer_descriptor",
     "miniscript_sizer",
@@ -647,6 +648,20 @@ def _required_signature(signatures: Mapping[bytes, bytes], sec: bytes) -> bytes:
 
 
 def _derived_origin(key: KeyExpression, index: int) -> BIP32KeyOrigin:
+    """`derived_origin`, with nothing checked."""
+    der_path = [*key.der_path]
+    if key.wildcard is not None:
+        der_path.append(key.wildcard + index)
+    if key.origin is not None:
+        return BIP32KeyOrigin(
+            key.origin.master_fingerprint, [*key.origin.der_path, *der_path]
+        )
+    if key.pub_key is not None:
+        return BIP32KeyOrigin(hash160(key.pub_key)[:4], der_path)
+    return BIP32KeyOrigin(fingerprint(key.xkey), der_path)
+
+
+def derived_origin(key: KeyExpression, index: int = 0) -> BIP32KeyOrigin:
     """Return the origin of the key at `index`.
 
     `KeyExpression.origin` is the path down to the extended key the
@@ -659,17 +674,18 @@ def _derived_origin(key: KeyExpression, index: int) -> BIP32KeyOrigin:
     `ConstPubkeyProvider` and `BIP32PubkeyProvider`: a fixed key under
     the first four bytes of its hash160 with an empty path, an extended key
     under its own fingerprint with the derivation.
+
+    An index outside 0 to 2**31 - 1 is refused, whether the key is ranged
+    or not, as `KeyExpression.sec` refuses it. So is a ``musig()`` key:
+    BIP373 gives an aggregate the fingerprint of BIP328's synthetic xpub,
+    and computing the aggregate takes the network and the ``prv_keys``
+    that `KeyExpression.aggregate` takes, which this function does not.
     """
-    der_path = [*key.der_path]
-    if key.wildcard is not None:
-        der_path.append(key.wildcard + index)
-    if key.origin is not None:
-        return BIP32KeyOrigin(
-            key.origin.master_fingerprint, [*key.origin.der_path, *der_path]
-        )
-    if key.pub_key is not None:
-        return BIP32KeyOrigin(hash160(key.pub_key)[:4], der_path)
-    return BIP32KeyOrigin(fingerprint(key.xkey), der_path)
+    assert_type(key, KeyExpression, "key")
+    _assert_index_range(index)
+    if key.is_aggregate:
+        raise BTClibValueError("no origin of its own for an aggregate key")
+    return _derived_origin(key, index)
 
 
 def _aggregate_origin(
@@ -2734,9 +2750,9 @@ def _normalized_key(key: KeyExpression, prv_keys: PrvKeys | None) -> KeyExpressi
             ),
             hardening=_HARDENING,
         )
-    if key.pub_key is not None or key.wildcard == _HARDENED_OFFSET:
+    if key.pub_key is not None or key.wildcard == HARDENED_OFFSET:
         return replace(key, hardening=_HARDENING)
-    hardened = [i for i, step in enumerate(key.der_path) if step >= _HARDENED_OFFSET]
+    hardened = [i for i, step in enumerate(key.der_path) if step >= HARDENED_OFFSET]
     if not hardened:
         return replace(key, hardening=_HARDENING)
 
@@ -2756,7 +2772,7 @@ def _normalized_key(key: KeyExpression, prv_keys: PrvKeys | None) -> KeyExpressi
         # validates it; the base58 round trip the public pair would make
         # between the two steps does not
         xkey=_xpub_from_xprv(
-            _derive(_key_data_from_bip32_key(xprv), prefix, None)
+            _derive(key_data_from_bip32_key(xprv), prefix, None)
         ).b58encode(),
         der_path=key.der_path[last:],
         hardening=_HARDENING,
@@ -3962,7 +3978,7 @@ def _paired_chain_digits(
         if (
             len(key.der_path) != 1
             or key.wildcard != 0
-            or key.der_path[0] >= _HARDENED_OFFSET
+            or key.der_path[0] >= HARDENED_OFFSET
         ):
             err_msg = f"not a receive/change chain step before the wildcard: {key}"
             raise BTClibValueError(err_msg)
