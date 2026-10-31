@@ -212,7 +212,7 @@ def as_regtest(descriptor: Descriptor) -> Descriptor:
 
     Version bytes cannot say which test chain a key is for -- btclib's
     test networks share them, which `bip44` documents where it refuses to
-    guess -- so `account_descriptors` answers with the first,
+    guess -- so `bip44.account_descriptors` answers with the first,
     testnet, and its addresses are `tb1`. The scripts are the same
     scripts; what differs is the human encoding, and regtest spells it
     `bcrt1`. Reading the text back with the network named is how a caller

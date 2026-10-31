@@ -78,7 +78,7 @@ def test_the_chains_can_be_given_three_ways() -> None:
     """A mapping, a sequence, and one descriptor on its own.
 
     The sequence is the chains in order, which is what
-    `descriptors.account_descriptors` returns and how BIP389 expands; the
+    `bip44.account_descriptors` returns and how BIP389 expands; the
     mapping is for a caller whose labels are not 0 and 1, and one
     descriptor alone is the wallet of a single chain -- what a caller
     watching only receiving addresses has, and not an error.
@@ -113,7 +113,7 @@ def test_the_multipath_spelling_is_one_line_for_the_whole_wallet() -> None:
 
 
 def test_an_account_xpub_is_the_wallet_its_purpose_says() -> None:
-    """`from_account` is `descriptors.account_descriptors`, as a wallet.
+    """`from_account` is `bip44.account_descriptors`, as a wallet.
 
     Every argument is that function's, and the addresses are the ones the
     same account answers as a `BIP32KeyWallet`: the purpose selects the

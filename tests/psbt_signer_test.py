@@ -497,9 +497,9 @@ def test_a_signer_holding_none_of_the_keys_adds_nothing() -> None:
 def test_an_account_is_exported_from_two_answers() -> None:
     """The fingerprint and the xpub at the path, composed into the pair.
 
-    And the pair is the one `descriptors.account_descriptors` builds from
-    the same two facts, which is what says this is a composition rather
-    than a second implementation.
+    And the pair is the one `bip44.account_descriptors` builds from the
+    same two facts, which is what says this is a composition rather than
+    a second implementation.
     """
     signer = _Signer()
     receive, change = export_account(signer, ACCOUNT)
