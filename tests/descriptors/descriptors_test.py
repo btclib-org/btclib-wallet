@@ -5148,7 +5148,7 @@ def test_a_key_expression_refuses_what_is_no_xpub(xkey: str) -> None:
 
 
 def test_what_a_key_expression_xkey_holds() -> None:
-    """An xpub of any version btclib decodes, a placeholder, or nothing."""
+    """A mainnet or testnet xpub, a placeholder, or nothing."""
     xpubs = (xpub_from_xprv(XPRV_ROOT), TESTNET_XPUB)
     placeholders = ("K", "@0", "@12", "@0/**", "@3/<2;3>/*", "musig(@0,@1)/**")
     for xkey in (*xpubs, *placeholders, ""):
