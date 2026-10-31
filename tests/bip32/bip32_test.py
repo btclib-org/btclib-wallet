@@ -1068,21 +1068,38 @@ def test_the_py_arm_answers_what_the_primitive_answers(
 
 @needs_bindings
 def test_the_chain_contract_no_derivation_here_asks_for() -> None:
-    """`compressed`, and what a call that raised leaves the chain holding.
+    """`compressed` by its answer, which no derivation here asks for.
 
     Two halves of `tweak_add` that neither derivation reaches: both pass
     `compressed=True` as a literal, and the only refusal a path can
     provoke is the sum at infinity above. The union alias makes them a
     contract even so, mypy checking one call against both
     implementations, and a contract with no caller is a comment unless
-    something asserts it.
+    something asserts it. The refusal of a non-bool is the test below,
+    which needs no bindings; a body that refused a non-bool and then
+    ignored the flag would pass that one unchanged, which is why the
+    answer is asserted here.
+    """
+    key = bytes_from_prv_key_int(7)
+    tweak = (3).to_bytes(32, byteorder="big", signed=False)
 
-    The flag by its answer, and by its type. `bytes_from_point` refuses
-    a `compressed` that is not a bool. `bool_parameter_test` holds the
-    public flags to that and skips this private class, so the refusal is
-    asserted here. A body that refused a non-bool and then ignored the
-    flag would pass the type check unchanged, which is why the answer is
-    asserted too.
+    compressed = _PythonPubKeyTweakChain(key).tweak_add(tweak)
+    uncompressed = _PythonPubKeyTweakChain(key).tweak_add(tweak, compressed=False)
+    assert uncompressed[0] == 0x04
+    assert bytes_from_point(point_from_octets_var(uncompressed)) == compressed
+    assert (
+        libsecp256k1_keys.PubkeyTweakChain(key).tweak_add(tweak, compressed=False)
+        == uncompressed
+    )
+
+
+def test_the_python_chain_refuses_a_non_bool_compressed() -> None:
+    """A non-bool `compressed` is refused, and the chain does not step.
+
+    `bytes_from_point` refuses a `compressed` that is not a bool.
+    `bool_parameter_test` holds the public flags to that and skips this
+    private class, so the refusal is asserted here, with no bindings
+    mark: the run without them is the one where this chain serves.
 
     The refusal by what the chain holds afterwards.
     `_PythonPubKeyTweakChain` serializes before it steps, so a call that
@@ -1097,18 +1114,11 @@ def test_the_chain_contract_no_derivation_here_asks_for() -> None:
     """
     key = bytes_from_prv_key_int(7)
     tweak = (3).to_bytes(32, byteorder="big", signed=False)
-
     compressed = _PythonPubKeyTweakChain(key).tweak_add(tweak)
-    uncompressed = _PythonPubKeyTweakChain(key).tweak_add(tweak, compressed=False)
-    assert uncompressed[0] == 0x04
-    assert bytes_from_point(point_from_octets_var(uncompressed)) == compressed
-    assert (
-        libsecp256k1_keys.PubkeyTweakChain(key).tweak_add(tweak, compressed=False)
-        == uncompressed
-    )
 
     chain = _PythonPubKeyTweakChain(key)
-    # `bool_parameter_test`'s wrong values for a kind
+    # no bool type: a truthy string, the two integers `bool` inherits
+    # from, and None, which a flag defaulting to True does not take
     for wrong in ("no", 0, 1, None):
         with pytest.raises(TYPE_ERRORS, match="invalid compressed type"):
             chain.tweak_add(tweak, compressed=wrong)  # type: ignore[arg-type]
