@@ -9,6 +9,80 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.2
+
+- **The wallet raises its own `FetchError`, `HttpError`, `RpcError`,
+  `SignerError`, `SignerNotFoundError`, `InconclusiveError` and
+  `NoDescriptorError`, declared in `btclib_wallet.exceptions`**
+  (issue btclib-org/btclib#2709). It raised btclib's classes of the same
+  names, from `btclib.exceptions`. Each derives from the same btclib class
+  as before, `BTClibRuntimeError` or `BTClibValueError`, so
+  `except BTClibException` still catches it. Act on it if you catch one of
+  them imported from `btclib.exceptions`: import it from
+  `btclib_wallet.exceptions`. `TcpPeerTransport` still raises
+  `bitcoin_core_rpc.FetchError`, as it did before; `CompactFilterFetcher`
+  raises the wallet's.
+- **The Electrum codec is `btclib_wallet.electrum`** (issue
+  btclib-org/btclib#2709). `ElectrumFetcher` uses it in place of
+  `btclib.electrum`, so `get_tx_merkle` returns a
+  `btclib_wallet.electrum.MerkleProof`. Act on it if you import
+  `btclib.electrum`, or check that proof's type against btclib's class:
+  use `btclib_wallet.electrum`.
+- **`CompactFilterFetcher` checks the filter headers it is served against
+  more peers** ([ISS 352](https://github.com/btclib-org/btclib-wallet/issues/352)).
+  It takes them as `cross_check`, none by default, and compares their
+  `cfcheckpt` and `cfheaders` with those `transport` serves, as BIP157's
+  *Client Operation* recommends. At the first disagreement it downloads
+  the block, and drops a peer whose filter does not match its own header
+  or leaves out one of the block's output scripts. Where two filters
+  differ only in the scripts the block's inputs spend, the call fails with
+  `FetchError`, naming that peer's index in `cross_check`, and drops no
+  peer. `transport` is a read-only property, the peer that serves the
+  chain: when that peer is dropped, the first peer of `cross_check` takes
+  its place. Act on it if you assign `transport`: build a new fetcher.
+  `TcpPeerTransport.close` raises a failed socket close as
+  `bitcoin_core_rpc.FetchError`, as its `send` and `receive` raise theirs,
+  where it raised the `OSError`. Act on it if you catch that `OSError`:
+  catch `bitcoin_core_rpc.FetchError`.
+- **`HistoryReader` lists the transactions that pay to or spend from some
+  scripts** ([ISS 629](https://github.com/btclib-org/btclib-wallet/issues/629)).
+  It is a protocol of `btclib_wallet.fetch`, beside `Broadcaster`,
+  `FeeEstimator` and `BalanceReader`. `BitcoinCoreFetcher` implements it
+  as `get_history`, without the node's wallet; the other fetchers do not.
+  `CompactFilterFetcher.scan_blocks` refuses an empty script with
+  `BTClibValueError`, `an empty script to look for`, where it looked for
+  it. Act on it if you pass an empty script: leave it out.
+- **`scan_outputs` and `scan_transaction_outputs` refuse a malformed
+  label** ([ISS 474](https://github.com/btclib-org/btclib-wallet/issues/474)).
+  A label that is not 33 bytes, a label tweak that is not 32 bytes in
+  [1, n-1], and labels that are not a mapping are refused with
+  `BTClibValueError` or `BTClibTypeError`, whether or not the label
+  matches. `scan_outputs`, and `scan_transaction_outputs` without the
+  `secp256k1` extra, ignored an unmatched one and raised `AttributeError`
+  for labels that are not a mapping. With the extra,
+  `scan_transaction_outputs` refused them already, raising a plain
+  `TypeError` where it raises `BTClibTypeError`, a `TypeError` too.
+  `scan_transaction_outputs` runs the Python scan with at most three
+  labels or at least ten outputs per label, and otherwise calls the
+  bindings where they serve; `scan_outputs` always runs the Python scan.
+  Act on it if you pass labels of your own making: pass `label_lookup`'s
+  map.
+- **A `tr()` branch with any count of subtrees but two reports a fault
+  in the subtrees read before the count**
+  ([ISS 608](https://github.com/btclib-org/btclib-wallet/issues/608)).
+  `parse` reads the first subtree, and the second where a comma follows
+  the first, before it refuses the count, as Core does. A bad key or leaf
+  among them raises its own refusal, such as `invalid key expression` or
+  `tr() leaf is not a valid descriptor function`, where it raised
+  `a tr() branch takes two subtrees, <n> given`. Act on it if you match
+  that refusal: match the new message.
+
+btclib's `main` no longer declares the seven exceptions or
+`btclib.electrum`, and its next release waits for this one, the first
+that does not import them from btclib (issue btclib-org/btclib#2709).
+
+`CHANGELOG.md`'s own `v2026.11.2` section has the rest.
+
 ## v2026.10.31
 
 - **A descriptor no longer writes itself into a psbt: `update_psbt_input`

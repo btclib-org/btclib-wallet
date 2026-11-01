@@ -24,6 +24,49 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.2
+
+### The wallet declares its own errors and the Electrum codec
+
+As `btclib_wallet.exceptions` and `btclib_wallet.electrum`. The
+integration-electrs and -floresta workflows run on a change to either
+(issue btclib-org/btclib#2709).
+
+### `CompactFilterFetcher` cross-checks filter headers across peers
+
+The peers of `cross_check`, at `cfcheckpt` and `cfheaders`, as BIP157's
+*Client Operation* recommends. `transport` is a read-only property
+(closes #352).
+
+### `HistoryReader` lists the transactions touching some scripts
+
+A protocol of `btclib_wallet.fetch`, which `BitcoinCoreFetcher` implements
+over RPC. `scan_blocks` refuses an empty script (issue #629).
+
+### `scan_transaction_outputs` scans in Python for few labels
+
+With at most three labels, or at least ten outputs per label, and with
+the bindings otherwise, where they serve. Both scans refuse a malformed
+label (issue #474).
+
+### `parse` reads a `tr()` branch's subtrees before its count
+
+As Core does (closes #608).
+
+### The psbt interop test compares a v2 PSBT field by field
+
+By `decodepsbt`'s names at Core v32.1, which decodes a v2 PSBT. A refusal
+from Core counts as a disagreement. Tests only (closes #617).
+
+### rust-psbt's vectors are read from each case's task, as base64
+
+The files under `tests/psbt/_data/rust-psbt/` are rust-psbt 24a45463's.
+Tests only (closes #544).
+
+### `prv_keys_contract_test` walks only the package's own routines
+
+So it passes on Python 3.11 and 3.12. Tests only (issue #647).
+
 ## v2026.10.31
 
 ### `update_psbt_input` and `update_psbt_output` are functions of `psbt`
