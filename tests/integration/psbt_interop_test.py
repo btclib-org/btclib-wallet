@@ -23,7 +23,7 @@ from typing import Any
 
 import hypothesis
 import pytest
-from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError, RpcError
+from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError
 from hypothesis import given, seed, settings
 
 from btclib_wallet.psbt import Psbt
@@ -133,8 +133,8 @@ _CORE_OUTPUT = {
     "unknown": "proprietary",
     "musig2_participant_pub_keys": "musig2_participant_pubkeys",
 }
-# The fields of a v0 PSBT that the unsigned transaction carries, which
-# the txid comparison already covers.
+# The fields the txid comparison covers in a v0 PSBT, and which
+# `_core_v2_mismatches` compares one by one in a v2 PSBT.
 _IN_TRANSACTION = {
     "previous_tx_id",
     "output_index",
@@ -149,6 +149,7 @@ _GLOBAL_TRANSACTION = {
     "inputs",
     "outputs",
     "fallback_lock_time",
+    "tx_modifiable",
 }
 
 
@@ -213,32 +214,100 @@ def _core_gaps(original: Psbt, response: dict[str, Any]) -> list[str]:
     return gaps
 
 
-def _core_result(node: BitcoinCoreRpcClient, case: dict[str, Any]) -> dict[str, Any]:
-    """Keep the full response and distinguish Core's explicit v2 refusal.
+def _value_mismatches(
+    label: str, expected: dict[str, object], core: dict[str, Any]
+) -> list[str]:
+    """Name each field whose value in Core's answer differs, None for absent."""
+    return [
+        f"{label}.{name}: Core decodes {core.get(name)!r}, expected {value!r}"
+        for name, value in expected.items()
+        if core.get(name) != value
+    ]
 
-    A v2 psbt that Core decodes is `unchecked`: its answer has no `tx`.
+
+def _core_v2_mismatches(original: Psbt, response: dict[str, Any]) -> list[str]:
+    """Return each v2 field whose value Core decodes differently, empty if none.
+
+    The psbt's version and the fields BIP370 adds in place of the unsigned
+    transaction, by decodepsbt's names in src/rpc/rawtransaction.cpp of
+    Bitcoin Core. `tx_modifiable` is compared as Core's three flags, its
+    bits 0, 1 and 2, which are the only bits decodepsbt reports.
+    """
+    flags = original.tx_modifiable
+    mismatches = _value_mismatches(
+        "global",
+        {
+            "psbt_version": original.version,
+            "tx_version": original.tx_version,
+            "fallback_locktime": original.fallback_lock_time,
+            "input_count": len(original.inputs),
+            "output_count": len(original.outputs),
+            "inputs_modifiable": None if flags is None else bool(flags & 1),
+            "outputs_modifiable": None if flags is None else bool(flags & 2),
+            "has_sighash_single": None if flags is None else bool(flags & 4),
+        },
+        response,
+    )
+    inputs = response.get("inputs", [])
+    if len(inputs) == len(original.inputs):
+        for index, (held, core) in enumerate(zip(original.inputs, inputs, strict=True)):
+            mismatches += _value_mismatches(
+                f"inputs[{index}]",
+                {
+                    "previous_txid": held.previous_tx_id.hex(),
+                    "previous_vout": held.output_index,
+                    "sequence": held.sequence,
+                    "time_locktime": held.required_time_lock_time,
+                    "height_locktime": held.required_height_lock_time,
+                },
+                core,
+            )
+    outputs = response.get("outputs", [])
+    if len(outputs) == len(original.outputs):
+        for index, (item, core) in enumerate(
+            zip(original.outputs, outputs, strict=True)
+        ):
+            amount, script = item.amount, item.script_pub_key
+            mismatches += _value_mismatches(
+                f"outputs[{index}]",
+                {
+                    # Core's amount is in bitcoin, read as a Decimal
+                    "amount": None if amount is None else Decimal(amount).scaleb(-8),
+                    "script": None if script is None else script.hex(),
+                },
+                {
+                    "amount": core.get("amount"),
+                    "script": core.get("script", {}).get("hex"),
+                },
+            )
+    return mismatches
+
+
+def _core_result(node: BitcoinCoreRpcClient, case: dict[str, Any]) -> dict[str, Any]:
+    """Keep the full response and compare it with the psbt's own fields.
+
+    A v0 psbt is compared by its unsigned transaction's txid, and a v2 one
+    field by field, Core's answer for it having no `tx`.
     """
     try:
         response = node.call("decodepsbt", [case["base64"]])
     except FetchError as error:
-        capability = (
-            case["version"] == 2
-            and isinstance(error, RpcError)
-            and error.code == -22
-            and "Unsupported version number" in str(error)
-        )
         return {
-            "status": "capability" if capability else "disagreement",
+            "status": "disagreement",
             "error_type": type(error).__name__,
             "error": str(error),
         }
-    if case["version"] == 2:
-        # Core's answer for a v2 psbt has no `tx` to compare
-        # (btclib-org/btclib-wallet#617)
-        return {"status": "unchecked", "response": response}
     original = Psbt.b64decode(case["base64"])
-    matches = response.get("tx", {}).get("txid") == original.tx.id.hex()
     gaps = _core_gaps(original, response)
+    if case["version"] == 2:
+        mismatches = _core_v2_mismatches(original, response)
+        return {
+            "status": "accepted" if not mismatches and not gaps else "disagreement",
+            "response": response,
+            "core_mismatches": mismatches,
+            "core_gaps": gaps,
+        }
+    matches = response.get("tx", {}).get("txid") == original.tx.id.hex()
     return {
         "status": "accepted" if matches and not gaps else "disagreement",
         "response": response,
