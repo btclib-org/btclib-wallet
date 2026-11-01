@@ -12,11 +12,12 @@ the one in `input_validation_test.py`, a malformed argument leaving as a
 arguments need a descriptor, a key or a psbt.
 
 So the callables are found here and driven from a table. The first test
-is the walk: every public callable of every module's `__all__` with a
-`PrvKeys` parameter must be a row, so a new entry cannot escape. The
-second passes each row a string and expects a `BTClibTypeError` naming
-`prv_keys`. Where a callee would raise the same error, the row does not
-show that the callable's own check is there.
+is the walk: every public callable of every module's `__all__` that
+this package defines and that takes a `PrvKeys` parameter must be a
+row, so a new entry cannot escape. The second passes each row a string
+and expects a `BTClibTypeError` naming `prv_keys`. Where a callee would
+raise the same error, the row does not show that the callable's own
+check is there.
 """
 
 from __future__ import annotations
@@ -56,6 +57,18 @@ _NOTHING: Any = None
 _EMPTY_PSBT = Psbt(1, [], [], 2, {})
 
 
+def _defined_here(function: Any) -> bool:
+    """Whether `btclib_wallet` defines the routine, not a dependency.
+
+    `PrvKeys` is this package's, so a routine a class inherits from
+    elsewhere takes none. Its signature may not even be readable: before
+    Python 3.13, `inspect.signature` refuses builtins an exception class
+    inherits, such as `add_note`.
+    """
+    module_name = getattr(function, "__module__", None) or ""
+    return module_name.partition(".")[0] == "btclib_wallet"
+
+
 def _walk() -> set[str]:
     """Return `Class.method` of each public callable with a `prv_keys`."""
     found: set[str] = set()
@@ -77,7 +90,8 @@ def _walk() -> set[str]:
             found.update(
                 function.__qualname__
                 for function in callables
-                if "prv_keys" in inspect.signature(function).parameters
+                if _defined_here(function)
+                and "prv_keys" in inspect.signature(function).parameters
                 and "PrvKeys" in str(inspect.signature(function).parameters["prv_keys"])
             )
     return found
