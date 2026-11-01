@@ -40,10 +40,12 @@ class FakeSocket:
         *,
         error: Exception | None = None,
         send_error: Exception | None = None,
+        close_error: Exception | None = None,
     ) -> None:
         self.chunks = chunks
         self.error = error
         self.send_error = send_error
+        self.close_error = close_error
         self.written = bytearray()
         self.timeouts: list[float] = []
         self.closed = 0
@@ -70,8 +72,10 @@ class FakeSocket:
         self.written += data
 
     def close(self) -> None:
-        """Count the closes."""
+        """Count the closes, or fail after counting."""
         self.closed += 1
+        if self.close_error is not None:
+            raise self.close_error
 
 
 def set_clock(monkeypatch: pytest.MonkeyPatch, clock: Callable[[], float]) -> None:
@@ -350,4 +354,34 @@ def test_a_context_exit_passes_the_exception_on(
     transport = peer()
     with pytest.raises(RuntimeError, match="body"), transport:
         raise RuntimeError("body")
+    assert not transport.is_open
+
+
+def test_a_socket_that_fails_to_close_is_a_fetch_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The connection is dropped all the same; a second close does nothing."""
+    fake = FakeSocket([], close_error=OSError("bad descriptor"))
+    connect_to(monkeypatch, fake)
+    transport = peer()
+    transport.send(MESSAGE, 5)
+    with pytest.raises(FetchError, match="closing peer.example:18444: bad descriptor"):
+        transport.close()
+    assert not transport.is_open
+    transport.close()
+    assert fake.closed == 1
+
+
+def test_a_failure_to_close_after_a_failed_write_reports_the_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The error raised is the one that broke the connection."""
+    fake = FakeSocket(
+        [], send_error=BrokenPipeError("gone"), close_error=OSError("bad descriptor")
+    )
+    connect_to(monkeypatch, fake)
+    transport = peer()
+    with pytest.raises(FetchError, match="no connection to peer.example:18444: gone"):
+        transport.send(MESSAGE, 5)
+    assert fake.closed == 1
     assert not transport.is_open
