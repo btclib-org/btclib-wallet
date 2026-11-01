@@ -12,11 +12,12 @@ the one in `input_validation_test.py`, a malformed argument leaving as a
 arguments need a descriptor, a key or a psbt.
 
 So the callables are found here and driven from a table. The first test
-is the walk: every public callable of every module's `__all__` with a
-`PrvKeys` parameter must be a row, so a new entry cannot escape. The
-second passes each row a string and expects a `BTClibTypeError` naming
-`prv_keys`. Where a callee would raise the same error, the row does not
-show that the callable's own check is there.
+is the walk: every public callable of every module's `__all__` that
+this package defines and that takes a `PrvKeys` parameter must be a
+row, so a new entry cannot escape. The second passes each row a string
+and expects a `BTClibTypeError` naming `prv_keys`. Where a callee would
+raise the same error, the row does not show that the callable's own
+check is there.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.descriptors.miniscript import parse as parse_miniscript
 from btclib_wallet.psbt import Psbt, update_psbt_input, update_psbt_output
 from btclib_wallet.wallet import DescriptorWallet
+from tests import defined_here
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed(b"\x01" * 32))
 _DESCRIPTOR = parse_descriptor(f"tr({_XPUB}/1h,pk({_XPUB}/2))")
@@ -57,7 +59,14 @@ _EMPTY_PSBT = Psbt(1, [], [], 2, {})
 
 
 def _walk() -> set[str]:
-    """Return `Class.method` of each public callable with a `prv_keys`."""
+    """Return `Class.method` of each public callable with a `prv_keys`.
+
+    A routine `btclib_wallet` does not define is skipped. `PrvKeys` is
+    this package's, so a routine a class inherits from elsewhere takes
+    none. Its signature may not even be readable: before Python 3.13,
+    `inspect.signature` refuses builtins an exception class inherits,
+    such as `add_note`.
+    """
     found: set[str] = set()
     for info in pkgutil.walk_packages(btclib_wallet.__path__, "btclib_wallet."):
         module = importlib.import_module(info.name)
@@ -77,7 +86,8 @@ def _walk() -> set[str]:
             found.update(
                 function.__qualname__
                 for function in callables
-                if "prv_keys" in inspect.signature(function).parameters
+                if defined_here(function)
+                and "prv_keys" in inspect.signature(function).parameters
                 and "PrvKeys" in str(inspect.signature(function).parameters["prv_keys"])
             )
     return found
