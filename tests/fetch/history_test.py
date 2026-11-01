@@ -19,10 +19,11 @@ from urllib.request import Request
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient, RPCErrorCode
-from btclib.exceptions import BTClibTypeError, BTClibValueError, FetchError, RpcError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch import bitcoin_core
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.history import BlockRef, history_scripts
