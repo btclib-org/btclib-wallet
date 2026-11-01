@@ -23,9 +23,10 @@ from decimal import Decimal
 
 import pytest
 from btclib.amount import sats_from_btc
-from btclib.exceptions import BTClibValueError, FetchError, HttpError
+from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import NetworkVerifyingFetcher

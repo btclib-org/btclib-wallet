@@ -18,10 +18,11 @@ from __future__ import annotations
 import pytest
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import BTClibValueError, FetchError
+from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint, Tx
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.decorators import CachingFetcher, FallbackFetcher
 from btclib_wallet.fetch.fetcher import Fetcher
 from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT, TIP_ID, TX_ID, recorded_body

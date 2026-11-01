@@ -37,8 +37,7 @@ import os
 import sys
 import time
 
-from btclib.exceptions import SignerError
-
+from btclib_wallet.exceptions import SignerError
 from btclib_wallet.hwi import HwiDevice, enumerate_devices
 
 

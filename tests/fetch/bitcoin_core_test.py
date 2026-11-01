@@ -40,15 +40,13 @@ from bitcoin_core_rpc import (
 from btclib.exceptions import (
     BTClibTypeError,
     BTClibValueError,
-    FetchError,
-    HttpError,
-    RpcError,
 )
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 from typing_extensions import override
 
+from btclib_wallet.exceptions import FetchError, HttpError, RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
 from tests.fetch import (
@@ -642,8 +640,8 @@ def test_a_small_reply_carries_a_small_limit() -> None:
     assert defaults["request_timeout"] is None
 
 
-def test_a_status_from_the_client_arrives_as_btclibs_http_error() -> None:
-    """The package raises its own `HttpError`; a fetcher raises btclib's.
+def test_a_status_from_the_client_arrives_as_this_packages_http_error() -> None:
+    """The client raises its own `HttpError`; a fetcher raises this package's.
 
     Both classes carry a `status` and neither is the other, so what this
     pins is the translation `client_errors` performs: the type a caller

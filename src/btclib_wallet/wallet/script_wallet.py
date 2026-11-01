@@ -133,7 +133,6 @@ from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
     BTClibValueError,
-    NoDescriptorError,
 )
 from btclib.script.limits import MAX_SCRIPT_ELEMENT_SIZE, MAX_SCRIPT_SIZE
 from btclib.script.script import op_int, serialize
@@ -157,6 +156,7 @@ from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
 from btclib_wallet.descriptors.key_expression import KeyExpression
 from btclib_wallet.descriptors.miniscript import P2WSH, Miniscript
 from btclib_wallet.descriptors.miniscript import from_script as _miniscript_from_script
+from btclib_wallet.exceptions import NoDescriptorError
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut

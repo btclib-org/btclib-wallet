@@ -81,6 +81,20 @@ btclib\_wallet.core\_import module
    :members:
    :show-inheritance:
 
+btclib\_wallet.electrum module
+------------------------------
+
+.. automodule:: btclib_wallet.electrum
+   :members:
+   :show-inheritance:
+
+btclib\_wallet.exceptions module
+--------------------------------
+
+.. automodule:: btclib_wallet.exceptions
+   :members:
+   :show-inheritance:
+
 btclib\_wallet.hwi module
 -------------------------
 

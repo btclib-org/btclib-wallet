@@ -24,8 +24,8 @@ from typing import Any
 
 import pytest
 from btclib.block.block_header import BlockHeader
-from btclib.exceptions import FetchError
 
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.decorators import CachingFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from tests.integration.conftest import (

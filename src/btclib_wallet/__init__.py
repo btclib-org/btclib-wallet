@@ -59,6 +59,8 @@ __all__ = [
     "core_import",
     "descriptors",
     "dlc",
+    "electrum",
+    "exceptions",
     "fetch",
     "hwi",
     "minikey",
