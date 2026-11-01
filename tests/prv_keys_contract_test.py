@@ -44,6 +44,7 @@ from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.descriptors.miniscript import parse as parse_miniscript
 from btclib_wallet.psbt import Psbt, update_psbt_input, update_psbt_output
 from btclib_wallet.wallet import DescriptorWallet
+from tests import defined_here
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed(b"\x01" * 32))
 _DESCRIPTOR = parse_descriptor(f"tr({_XPUB}/1h,pk({_XPUB}/2))")
@@ -57,20 +58,15 @@ _NOTHING: Any = None
 _EMPTY_PSBT = Psbt(1, [], [], 2, {})
 
 
-def _defined_here(function: Any) -> bool:
-    """Whether `btclib_wallet` defines the routine, not a dependency.
-
-    `PrvKeys` is this package's, so a routine a class inherits from
-    elsewhere takes none. Its signature may not even be readable: before
-    Python 3.13, `inspect.signature` refuses builtins an exception class
-    inherits, such as `add_note`.
-    """
-    module_name = getattr(function, "__module__", None) or ""
-    return module_name.partition(".")[0] == "btclib_wallet"
-
-
 def _walk() -> set[str]:
-    """Return `Class.method` of each public callable with a `prv_keys`."""
+    """Return `Class.method` of each public callable with a `prv_keys`.
+
+    A routine `btclib_wallet` does not define is skipped. `PrvKeys` is
+    this package's, so a routine a class inherits from elsewhere takes
+    none. Its signature may not even be readable: before Python 3.13,
+    `inspect.signature` refuses builtins an exception class inherits,
+    such as `add_note`.
+    """
     found: set[str] = set()
     for info in pkgutil.walk_packages(btclib_wallet.__path__, "btclib_wallet."):
         module = importlib.import_module(info.name)
@@ -90,7 +86,7 @@ def _walk() -> set[str]:
             found.update(
                 function.__qualname__
                 for function in callables
-                if _defined_here(function)
+                if defined_here(function)
                 and "prv_keys" in inspect.signature(function).parameters
                 and "PrvKeys" in str(inspect.signature(function).parameters["prv_keys"])
             )

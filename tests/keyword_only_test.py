@@ -54,6 +54,7 @@ from typing import Any
 
 import pytest
 
+from tests import defined_here
 from tests.all_test import library_modules
 
 # Walked from `btclib_wallet`, on the commit this file is part of: every
@@ -360,12 +361,6 @@ def _kwonly_names(signature: inspect.Signature) -> list[str]:
     ]
 
 
-def _defined_here(function: Any) -> bool:
-    """Whether `btclib_wallet` defines the function, not a dependency."""
-    module_name = getattr(function, "__module__", None) or ""
-    return module_name.partition(".")[0] == "btclib_wallet"
-
-
 def _class_sites(
     module: Any, name: str, cls: type, seen_ids: set[int]
 ) -> dict[str, list[str]]:
@@ -388,7 +383,7 @@ def _class_sites(
         if not (inspect.isfunction(bound) or inspect.ismethod(bound)):
             continue  # a property or a plain class attribute
         target = bound.__func__ if inspect.ismethod(bound) else bound
-        if id(target) in seen_ids or not _defined_here(target):
+        if id(target) in seen_ids or not defined_here(target):
             continue
         seen_ids.add(id(target))
         kwonly = _kwonly_names(inspect.signature(bound))
@@ -415,7 +410,7 @@ def _live_keyword_only() -> dict[str, list[str]]:
             if inspect.isclass(obj):
                 found.update(_class_sites(module, name, obj, seen_ids))
             elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
-                if id(obj) in seen_ids or not _defined_here(obj):
+                if id(obj) in seen_ids or not defined_here(obj):
                     continue
                 seen_ids.add(id(obj))
                 kwonly = _kwonly_names(inspect.signature(obj))

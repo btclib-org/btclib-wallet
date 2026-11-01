@@ -106,6 +106,17 @@ def module_names() -> list[str]:
     ]
 
 
+def defined_here(obj: Any) -> bool:
+    """Whether `btclib_wallet` defines the object, as its `__module__` says.
+
+    Here rather than in each walk that skips what a dependency or a
+    builtin defines, so that the walks agree on which objects those are.
+    A builtin method has no `__module__`, and is not defined here.
+    """
+    module_name = getattr(obj, "__module__", None) or ""
+    return module_name.partition(".")[0] == "btclib_wallet"
+
+
 def public_classes_with(method_name: str) -> set[str]:
     """Return each public class offering that method, with its module.
 
@@ -128,8 +139,7 @@ def public_classes_with(method_name: str) -> set[str]:
         for obj in vars(module).values():
             if not isinstance(obj, type):
                 continue
-            module_of = getattr(obj, "__module__", "")
-            if module_of.split(".")[0] != "btclib_wallet":
+            if not defined_here(obj):
                 continue
             if obj.__qualname__.startswith("_"):
                 continue
