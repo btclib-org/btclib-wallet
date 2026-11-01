@@ -9,10 +9,6 @@ JSON under `tests/data/`, each naming a task and what the task must
 produce. Its runner, `tests/vectors/mod.rs`, is what says what a task
 asks, and each test below asks btclib-wallet the same question.
 `tests/_data/README.md` pins the files.
-
-A psbt to parse sits in `supplementary.psbts` in most cases, and in
-`expected` in the cases of `bip371.json` and in the valid ones of
-`bip174.json`. Both are read here.
 """
 
 from collections.abc import Iterator
@@ -72,79 +68,68 @@ _BIP375_INVALID = {
 }
 
 
-def _all_cases() -> Iterator[tuple[str, int, dict[str, Any]]]:
+def _all_cases() -> Iterator[tuple[str, int, str, str, dict[str, Any]]]:
+    """Yield each case's file, index, description, task and task data.
+
+    A case's `task` object has one key, the task's name, holding what the
+    task reads and what it must produce: the psbts in `psbts`, or in
+    `psbt` for a role taking one, and the psbt the task produces in
+    `expected`. A psbt is read from its base64, the only encoding the
+    files give.
+    """
     for fname in FILES:
         for index, case in enumerate(
             load("psbt", "_data", "rust-psbt", fname)["cases"], 1
         ):
-            yield fname, index, case
+            ((task, data),) = case["task"].items()
+            yield fname, index, case["description"], task, data
 
 
 def cases(task: str) -> list[Any]:
-    """Return the cases of one task, from every file, named by file and case."""
+    """Return the data of one task, from every file, named by file and case."""
     return [
-        pytest.param(
-            case,
-            id=vector_id(index, fname, case["description"]),
-        )
-        for fname, index, case in _all_cases()
-        if case["supplementary"]["task"] == task
+        pytest.param(data, id=vector_id(index, fname, description))
+        for fname, index, description, name, data in _all_cases()
+        if name == task
     ]
 
 
-def _encodings(case: dict[str, Any]) -> list[dict[str, str]]:
-    """Every psbt a (fail_)deserialize case gives, wherever it gives it."""
-    found = list(case["supplementary"].get("psbts") or [])
-    if case.get("expected"):
-        found.append(case["expected"])
-    return found
+def _psbt(encoding: dict[str, str]) -> Psbt:
+    return Psbt.b64decode(encoding["base64"])
 
 
 def _inputs(case: dict[str, Any]) -> list[Psbt]:
-    return [
-        Psbt.parse(bytes.fromhex(encoding["hex"]))
-        for encoding in case["supplementary"]["psbts"]
-    ]
+    return [_psbt(encoding) for encoding in case["psbts"]]
 
 
 def _input(case: dict[str, Any]) -> Psbt:
-    (psbt,) = _inputs(case)
-    return psbt
+    return _psbt(case["psbt"])
 
 
 def _expected(case: dict[str, Any]) -> Psbt:
-    return Psbt.parse(bytes.fromhex(case["expected"]["hex"]))
+    return _psbt(case["expected"])
 
 
 def test_every_task_is_replayed() -> None:
     """A task this module has no test for is a case nothing runs."""
-    tasks = {case["supplementary"]["task"] for _, _, case in _all_cases()}
+    tasks = {task for _, _, _, task, _ in _all_cases()}
     assert tasks == TASKS
 
 
 @pytest.mark.parametrize("case", cases("deserialize"))
 def test_deserialize(case: dict[str, Any]) -> None:
-    """Each valid psbt is read, the same from hex as from base64."""
-    encodings = _encodings(case)
-    assert encodings
-    for encoding in encodings:
-        psbt = Psbt.b64decode(encoding["base64"])
-        if encoding["hex"]:
-            assert Psbt.parse(bytes.fromhex(encoding["hex"])) == psbt
+    """Each valid psbt is read, and read back from what it serializes to."""
+    psbts = _inputs(case)
+    assert psbts
+    for psbt in psbts:
         assert Psbt.parse(psbt.serialize()) == psbt
 
 
 def _refused(encoding: dict[str, str]) -> bool:
-    """Whether the codec refuses a psbt, the same from hex as from base64.
-
-    The hex is empty in the cases of `bip375.json`, and not read there.
-    """
+    """Whether the codec refuses a psbt."""
     try:
-        Psbt.b64decode(encoding["base64"])
+        _psbt(encoding)
     except VALUE_ERRORS:
-        if encoding["hex"]:
-            with pytest.raises(VALUE_ERRORS):
-                Psbt.parse(bytes.fromhex(encoding["hex"]))
         return True
     return False
 
@@ -159,33 +144,31 @@ def test_fail_deserialize(case: dict[str, Any]) -> None:
     BIP375's own invalid ones, whose refusal `silent_payments_test.py`
     asserts.
     """
-    encodings = _encodings(case)
-    assert encodings
-    for encoding in encodings:
+    assert case["psbts"]
+    for encoding in case["psbts"]:
         assert _refused(encoding) or encoding["base64"] in _BIP375_INVALID
 
 
 @pytest.mark.parametrize("case", cases("create"))
 def test_create(case: dict[str, Any]) -> None:
     """The Creator: version 2, lock time 0, every sequence final."""
-    supplementary = case["supplementary"]
     tx_ins = []
-    for outpoint in supplementary["inputs"]:
+    for outpoint in case["inputs"]:
         tx_id, vout = outpoint.split(":")
         tx_ins.append(TxIn(OutPoint(tx_id, int(vout)), b"", 0xFFFFFFFF))
     tx_outs = [
         TxOut(output["value"], ScriptPubKey(output["script_pubkey"]))
-        for output in supplementary["outputs"]
+        for output in case["outputs"]
     ]
     psbt = Psbt.from_tx(Tx(2, 0, tx_ins, tx_outs))
-    assert psbt.serialize().hex() == case["expected"]["hex"]
+    assert psbt.b64encode() == case["expected"]["base64"]
 
 
-def _master(supplementary: dict[str, Any]) -> str:
+def _master(case: dict[str, Any]) -> str:
     """Return the case's xprv, checked against the seed it is derived from."""
-    xprv: str = supplementary["xpriv"]
-    if supplementary.get("seed"):
-        seed = prv_key_data_from_wif(supplementary["seed"]).q.to_bytes(32, "big")
+    xprv: str = case["xpriv"]
+    if case.get("seed"):
+        seed = prv_key_data_from_wif(case["seed"]).q.to_bytes(32, "big")
         assert rootxprv_from_seed(seed, NETWORKS["testnet"].bip32_prv) == xprv
     return xprv
 
@@ -205,10 +188,9 @@ def test_update(case: dict[str, Any]) -> None:
     and installs the output it spends as the witness utxo or the whole
     transaction as the non-witness utxo, as rust-psbt's runner does.
     """
-    supplementary = case["supplementary"]
     psbt = _input(case)
-    master_fingerprint = fingerprint(_master(supplementary))
-    for update in supplementary.get("input_updates", []):
+    master_fingerprint = fingerprint(_master(case))
+    for update in case.get("input_updates", []):
         prev_tx = Tx.parse(bytes.fromhex(update["previous_tx"]))
         psbt_in = next(p for p in psbt.inputs if p.previous_tx_id == prev_tx.id)
         assert psbt_in.output_index is not None
@@ -224,13 +206,13 @@ def test_update(case: dict[str, Any]) -> None:
             update.get("bip32_derivation", []), master_fingerprint
         )
     for psbt_out, update in zip(
-        psbt.outputs, supplementary.get("output_updates", []), strict=False
+        psbt.outputs, case.get("output_updates", []), strict=False
     ):
         psbt_out.hd_key_paths |= _origins(
             update.get("bip32_derivation", []), master_fingerprint
         )
-    if supplementary.get("sighash"):
-        assert supplementary["sighash"] == "SIGHASH_ALL"
+    if case.get("sighash"):
+        assert case["sighash"] == "SIGHASH_ALL"
         for psbt_in in psbt.inputs:
             psbt_in.sig_hash_type = 1
     psbt.assert_valid()
@@ -245,11 +227,11 @@ class _KeyManager(SoftwareSigner):
     BIP174's own signers did.
     """
 
-    def __init__(self, supplementary: dict[str, Any]) -> None:
-        xprv = _master(supplementary)
+    def __init__(self, case: dict[str, Any]) -> None:
+        xprv = _master(case)
         super().__init__(xprv)
         self.prv_keys: dict[bytes, int] = {}
-        for item in supplementary["private_keys"]:
+        for item in case["private_keys"]:
             prv_key = prv_key_data_from_wif(item["key"])
             assert prv_keyinfo_from_xprv(derive(xprv, item["path"]))[0] == prv_key.q
             self.prv_keys[prv_key.pub.sec] = prv_key.q
@@ -271,7 +253,7 @@ def test_trusted_sign(case: dict[str, Any]) -> None:
     """The Signer, taking each input's witness utxo on trust."""
     signed, _ = sign(
         _input(case),
-        _KeyManager(case["supplementary"]),
+        _KeyManager(case),
         require_non_witness_utxo=False,
     )
     assert signed == _expected(case)
@@ -280,17 +262,15 @@ def test_trusted_sign(case: dict[str, Any]) -> None:
 @pytest.mark.parametrize("case", cases("strict_sign"))
 def test_strict_sign(case: dict[str, Any]) -> None:
     """The Signer, asking every input for the transaction it spends from."""
-    signed, _ = sign(_input(case), _KeyManager(case["supplementary"]))
+    signed, _ = sign(_input(case), _KeyManager(case))
     assert signed == _expected(case)
 
 
 @pytest.mark.parametrize("case", cases("fail_sign"))
 def test_fail_sign(case: dict[str, Any]) -> None:
     """BIP174's signer checks: refused before any key is asked."""
-    psbt = _input(case)
-    assert psbt == Psbt.b64decode(case["supplementary"]["psbts"][0]["base64"])
     with pytest.raises(VALUE_ERRORS):
-        psbt.assert_signable(require_non_witness_utxo=False)
+        _input(case).assert_signable(require_non_witness_utxo=False)
 
 
 @pytest.mark.parametrize("case", cases("fail_strict_sign"))
@@ -321,24 +301,22 @@ def test_finalize(case: dict[str, Any]) -> None:
 def test_extract(case: dict[str, Any]) -> None:
     """The Transaction Extractor, byte for byte."""
     tx = extract_tx(_input(case))
-    assert tx.serialize(include_witness=True).hex() == case["supplementary"]["tx"]
+    assert tx.serialize(include_witness=True).hex() == case["tx"]
 
 
 @pytest.mark.parametrize("case", cases("determine_lock_time"))
 def test_determine_lock_time(case: dict[str, Any]) -> None:
     """BIP370's lock time algorithm, over every psbt the case gives."""
-    for encoding in case["supplementary"]["psbts"]:
-        psbt = Psbt.parse(bytes.fromhex(encoding["hex"]))
-        assert psbt == Psbt.b64decode(encoding["base64"])
-        assert psbt.lock_time == case["supplementary"]["expected_lock_time"]
+    for psbt in _inputs(case):
+        assert psbt.lock_time == case["expected_lock_time"]
 
 
 @pytest.mark.parametrize("case", cases("fail_determine_lock_time"))
 def test_fail_determine_lock_time(case: dict[str, Any]) -> None:
     """No lock time satisfies every input: the psbt is refused for it."""
-    for encoding in case["supplementary"]["psbts"]:
+    for encoding in case["psbts"]:
         with pytest.raises(VALUE_ERRORS, match="no lock time satisfies every input"):
-            Psbt.parse(bytes.fromhex(encoding["hex"]))
+            _psbt(encoding)
         psbt = Psbt.b64decode(encoding["base64"], check_validity=False)
         with pytest.raises(VALUE_ERRORS, match="no lock time satisfies every input"):
             psbt.assert_valid()
