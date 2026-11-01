@@ -116,8 +116,8 @@ than to a caller of the ones shipped here --
 says which layer it is reaching into.
 
 `FetchError`, `HttpError` and `RpcError` are not here because no exception
-is: `btclib_wallet.exceptions` holds them, beside this package's other public
-exceptions.
+is: `btclib_wallet.exceptions` holds them, beside `btclib_wallet`'s other
+public exceptions.
 
 **`CachingFetcher` and `FallbackFetcher` answer the same interface from
 another `Fetcher`, not from a network.** Neither is a backend: both
