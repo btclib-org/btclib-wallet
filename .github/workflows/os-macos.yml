@@ -2,7 +2,7 @@
 name: os-macos
 
 # the macOS part of the platform sweep: the suite, with the dependencies held
-# at the lock, on every interpreter the package claims and on the images
+# at the lock, on every interpreter the package claims and on the image
 # listed below. The gate runs one image and one interpreter, for the
 # reason section 10 of the organization's standard gives: the plan's
 # ceiling on concurrent jobs, which REPOSITORY.md's "Plan-gated settings"
@@ -21,7 +21,7 @@ name: os-macos
 # be published. The suite job, its interpreter set-up and its --no-cov are
 # btclib-org/.github's reusable-os-suite.yml, called at a tagged commit
 # (section 10 of btclib-org/.github's README.md); what stays here is the
-# schedule, the images and the interpreters
+# schedule, the image and the interpreters
 
 on:
   schedule:
@@ -55,8 +55,9 @@ jobs:
   suite-macos:
     uses: btclib-org/.github/.github/workflows/reusable-os-suite.yml@ed616d71c43cd4c8bded40d1182befccd99e6ee7 # v2026.10.29
     with:
-      # two images of the family, one per architecture it ships runners for
-      runners: '["macos-26-intel", "macos-latest"]'
+      # arm64 alone: section 10 of the organization's standard supports no
+      # x86_64 macOS
+      runners: '["macos-latest"]'
       # every interpreter the classifiers name, the free-threaded build of
       # the two newest, and PyPy: section 1 of the organization's standard
       # has a library cover every interpreter still in support
