@@ -551,7 +551,7 @@ requires-dist = [
     { name = "btclib", specifier = ">=2026.10.24" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", specifier = ">=2026.10.24" },
     { name = "btclib-secp256k1", marker = "extra == 'secp256k1'", specifier = ">=0.8.0.10" },
-    { name = "ecc", specifier = ">=2026.10.23" },
+    { name = "ecc", specifier = ">=2026.11.2" },
     { name = "typing-extensions", specifier = ">=4.10" },
 ]
 provides-extras = ["secp256k1"]
@@ -1179,14 +1179,14 @@ wheels = [
 
 [[package]]
 name = "ecc"
-version = "2026.10.28"
+version = "2026.11.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/dd/62441bc3c7e4cfb4dd0a9f3aa03e30d107aa68e2c57ee584c669731b1675/ecc-2026.10.28.tar.gz", hash = "sha256:78a4768200a16badd922e28f04423f5f152defdd9fa55cfae8fcc65ecc28ebca", size = 2082102, upload-time = "2026-10-28T03:01:48.797Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/09/88/4dd26fbb6596c0a92c2770aaaa817a73e7050a9cc3002f90027170679d1c/ecc-2026.11.2.tar.gz", hash = "sha256:e93c7273145b1ac0f4ed6e6ac0a58e9dce3c4095812b24e76f633e900772aae2", size = 2113335, upload-time = "2026-11-01T21:53:02.929Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/95/0e949e277bf8e64502b30036d8a9ad86bb2d8b4ad91bc4d13865b61c6d04/ecc-2026.10.28-py3-none-any.whl", hash = "sha256:9e933dd6128dc5fc76c3f69f9edc47bda7fcc9df9b8e29bf9f0c8ed2f843d460", size = 300598, upload-time = "2026-10-28T03:01:47.356Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/01/06db79636cecb98b4a4159e591220635f561fc42b6cf49ee1f428f3dad9c/ecc-2026.11.2-py3-none-any.whl", hash = "sha256:e8182f801cced9f451fcbb52c5748f19b7038b041e8e7808d5fe8e546592bfcf", size = 310694, upload-time = "2026-11-01T21:53:01.019Z" },
 ]
 
 [package.optional-dependencies]

@@ -41,9 +41,10 @@ dependencies = [
     # `ecc.exceptions`. The floor is the release this tree is tested
     # against: the `deps-oldest` workflow resolves the lowest direct
     # versions and runs the suite on them. Its `secp256k1` extra is past
-    # GHSA-8h6f-34jj-7p6c. The bindings stay requested through
-    # `btclib[secp256k1]` below
-    "ecc>=2026.10.23",
+    # GHSA-8h6f-34jj-7p6c, and it exports `curves.add`, the sum of
+    # secret points `silent_payments.output_key` needs. The bindings stay
+    # requested through `btclib[secp256k1]` below
+    "ecc>=2026.11.2",
     # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
     # `bip85` and the four seed-to-key functions under
     # `btclib_wallet.mnemonic` build on. The floor is its first release
