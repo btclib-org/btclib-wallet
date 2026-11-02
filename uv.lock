@@ -339,11 +339,11 @@ wheels = [
 
 [[package]]
 name = "bip39-slip39"
-version = "2026.10.24"
+version = "2026.11.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/24/48/099fbb7140a4be456c9f5b428243c2a5cf0ad22dc263a3d4c912b9bae7a5/bip39_slip39-2026.10.24.tar.gz", hash = "sha256:b3a265350a8524a1b2ed6a01a887c415d48d4a2af7393d7f39ad9e60e7c6c545", size = 826259, upload-time = "2026-10-24T09:48:18.054Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/13/760b6ee1e759afd631acb0a7d2e7141c3296fa33911fa58841e2f3f314ec/bip39_slip39-2026.11.2.tar.gz", hash = "sha256:17a2f18fb0d03dd947728974bfc372df307a7213b0ceff8b8f2840a7544d2cd6", size = 830796, upload-time = "2026-11-02T09:31:17.512Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/b2/494dc8700b381ddc7e491223eeb0d706fb70b5ac3aa143383d0b04bc4225/bip39_slip39-2026.10.24-py3-none-any.whl", hash = "sha256:dc0cdb66ce64c9e62b0688bcc5cd27e629c14ba377fe1f2978d85862461a7074", size = 168536, upload-time = "2026-10-24T09:48:16.254Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/71/0ff93c5847a21caf7c7814592e7ad402e4567f670377ad96dcdb867a095e/bip39_slip39-2026.11.2-py3-none-any.whl", hash = "sha256:d406ef1a01688cf32400537efb75bcf26c321b5cc927b3046dea6857af546f18", size = 168693, upload-time = "2026-11-02T09:31:15.556Z" },
 ]
 
 [[package]]
@@ -546,7 +546,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bip39-slip39", specifier = ">=2026.10.24" },
+    { name = "bip39-slip39", specifier = ">=2026.11.2" },
     { name = "bitcoin-core-rpc", specifier = ">=2026.9.3" },
     { name = "btclib", specifier = ">=2026.10.24" },
     { name = "btclib", extras = ["secp256k1"], marker = "extra == 'secp256k1'", specifier = ">=2026.10.24" },

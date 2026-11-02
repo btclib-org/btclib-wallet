@@ -112,6 +112,9 @@ def test_vectors(
 #    the master public key its watch-only half is built from.
 # 3. tests/test_storage_upgrade.py: a real pre-2.0 wallet file, holding
 #    the hex seed and the "master_public_key" beside it.
+# 4. tests/test_wallet_vertical.py, test_electrum_seed_old_odd_length_hex:
+#    a mnemonic whose hex seed has 33 characters, and the master public
+#    key of its wallet.
 OLD_MNEMONIC = "powerful random nobody notice nothing important anyway look away hidden message over"
 OLD_MASTER_PUB_KEY = (
     "e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df"
@@ -130,6 +133,12 @@ OLD_VECTORS = [
         "756d1fe6ded28d43d4fea902a9695feb785447514d6e6c3bdf369f7c3432fdde"
         "4409e4efbffbcf10084d57c5a98d1f34d20ac1f133bdb64fa02abf4f7bde1dfb",
         id="storage-upgrade",
+    ),
+    pytest.param(
+        "early given garden bond decay curtain companion random storm chair learn lust",
+        "8ecdca16d021e997c2d01fc14d95de1ef4baf28ee2425e67646a769f45f2d817"
+        "4ecf5e930b600b969dec9e0ceecc01e5cd2b7aea7d70bf2b37ee9a849f90254f",
+        id="odd-length-hex",
     ),
 ]
 

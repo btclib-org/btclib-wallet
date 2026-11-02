@@ -47,8 +47,10 @@ dependencies = [
     "ecc>=2026.11.2",
     # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
     # `bip85` and the four seed-to-key functions under
-    # `btclib_wallet.mnemonic` build on. The floor is its first release
-    "bip39-slip39>=2026.10.24",
+    # `btclib_wallet.mnemonic` build on. The floor is the release whose
+    # `electrum.old_master_prv_key_from_mnemonic` derives a key from a
+    # pre-2.0 mnemonic whose hex seed has an odd number of characters
+    "bip39-slip39>=2026.11.2",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
