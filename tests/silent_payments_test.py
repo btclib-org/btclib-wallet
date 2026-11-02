@@ -35,6 +35,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
+from ecc import curves
 from ecc.curves import bytes_from_point, mult, secp256k1
 from ecc.ecc import ssa
 
@@ -1000,15 +1001,16 @@ def test_output_keys_matches_across_arms(
 ) -> None:
     """The delegated and the Python arm answer the same set of outputs.
 
-    `output_keys`'s own dispatch is `is_libsecp256k1_serving()`,
-    imported into this module's own namespace the way `dsa` and
-    `ssa` import theirs, so a vector is run twice with the predicate
-    patched between the two -- the same shape `dsa_test.py`'s own
-    cross-arm tests use. `test_sending_vectors` already carries every
-    other assertion this file makes about a vector, including the two
-    refusals (a zero private-key sum, more than K_MAX recipients sharing
-    a scan key), which is why this asks only whether the two arms refuse
-    together or agree on the answer.
+    `output_keys`'s own dispatch is `_DELEGATE_OUTPUT_KEYS`, switched on
+    here, and `is_libsecp256k1_serving()`, imported into this module's
+    own namespace the way `dsa` and `ssa` import theirs, so a vector is
+    run twice with the predicate patched between the two -- the same
+    shape `dsa_test.py`'s own cross-arm tests use.
+    `test_sending_vectors` already carries every other assertion this
+    file makes about a vector, including the two refusals (a zero
+    private-key sum, more than K_MAX recipients sharing a scan key),
+    which is why this asks only whether the two arms refuse together or
+    agree on the answer.
     """
     given, expected = test["given"], test["expected"]
     prv_keys = [
@@ -1023,6 +1025,7 @@ def test_output_keys_matches_across_arms(
 
     def _keys(*, delegated: bool) -> list[bytes] | None:
         with monkeypatch.context() as arm:
+            arm.setattr(silent_payments, "_DELEGATE_OUTPUT_KEYS", True)
             if not delegated:
                 arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
             try:
@@ -1069,6 +1072,7 @@ def test_output_keys_interleaved_groups_match_across_arms(
     x_labelled = silent_payments.labeled_address_from_keys(x_scan, mult(x_spend), 1)
     addresses = [x_address, y_address, x_labelled]
 
+    monkeypatch.setattr(silent_payments, "_DELEGATE_OUTPUT_KEYS", True)
     delegated = silent_payments.output_keys(prv_keys, outpoints, addresses)
     with monkeypatch.context() as no_bindings:
         no_bindings.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
@@ -1115,6 +1119,7 @@ def test_output_keys_come_back_in_address_order(
         expected.append(silent_payments.output_key(secret, B_m, k))
 
     with monkeypatch.context() as arm:
+        arm.setattr(silent_payments, "_DELEGATE_OUTPUT_KEYS", True)
         if not delegated:
             arm.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
         keys = silent_payments.output_keys(prv_keys, outpoints, addresses)
@@ -1218,6 +1223,7 @@ def test_output_keys_wraps_a_delegated_refusal(monkeypatch: pytest.MonkeyPatch) 
     def _refuse(*_args: object, **_kwargs: object) -> list[bytes]:
         raise ValueError("silent payment output creation failed")
 
+    monkeypatch.setattr(silent_payments, "_DELEGATE_OUTPUT_KEYS", True)
     monkeypatch.setattr(libsecp256k1_silentpayments, "create_outputs", _refuse)
     script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
     outpoints = [OutPoint("00" * 31 + "01", 0)]
@@ -1225,6 +1231,47 @@ def test_output_keys_wraps_a_delegated_refusal(monkeypatch: pytest.MonkeyPatch) 
         silent_payments.output_keys(
             [(_B_SCAN_PRV, script_pub_key)], outpoints, [_address()]
         )
+
+
+def test_output_key_adds_with_add_not_tweak_add_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`output_key` sums t_k*G and B_m with ecc's `add` (issue #591).
+
+    The name `output_key` calls is ecc's own `add`, called once with
+    `mult(t_k)`, B_m and secp256k1, and the key is the one it answers
+    unpatched. `tweak_add_var`, variable time in t_k, is never called:
+    t_k links an output to its recipient's address.
+    """
+    secret, B_m = mult(_B_SCAN_PRV), mult(_B_SPEND_PRV)
+    t_k = silent_payments._output_tweak(secret, 0)
+    expected = silent_payments.output_key(secret, B_m, 0)
+    assert vars(silent_payments)["add"] is curves.add
+
+    calls: list[tuple[object, ...]] = []
+
+    def _record(*args: Any) -> Any:
+        calls.append(args)
+        return curves.add(*args)
+
+    def _refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError  # pragma: no cover -- never reached
+
+    monkeypatch.setattr(silent_payments, "add", _record)
+    monkeypatch.setattr(silent_payments, "tweak_add_var", _refuse)
+    assert silent_payments.output_key(secret, B_m, 0) == expected
+    assert calls == [(mult(t_k), B_m, secp256k1)]
+
+
+@needs_bindings
+def test_output_keys_does_not_delegate_yet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`create_outputs` is not asked while `_DELEGATE_OUTPUT_KEYS` is False."""
+
+    def _refuse(*_args: object, **_kwargs: object) -> list[bytes]:
+        raise AssertionError  # pragma: no cover -- never reached
+
+    monkeypatch.setattr(libsecp256k1_silentpayments, "create_outputs", _refuse)
+    assert len(_pay([_address()])) == 1
 
 
 @needs_bindings

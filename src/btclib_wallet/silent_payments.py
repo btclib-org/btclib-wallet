@@ -41,10 +41,10 @@ The pieces, bottom-up:
 - `shared_secret` is the multiplication both parties do, from either end.
 - `output_keys` is the sender's whole operation, and `scan_outputs` the
   recipient's -- for a caller holding a light client's `tweak`, per
-  BIP352's Appendix A; `scan_transaction_outputs` is the same recipient's
-  operation for a caller holding the transaction itself, outpoints and
-  input public keys, which is what lets it reach the bindings the way
-  `output_keys` does.
+  BIP352's Appendix A; `scan_transaction_outputs` is the same
+  recipient's operation for a caller holding the transaction itself,
+  outpoints and input public keys, which is what lets it hand the whole
+  scan to the bindings.
 - `label_tweak`, `labeled_address_from_keys` and `label_lookup` are the
   optional third piece: one published address per purpose, all sharing
   one scan key, at the cost of an addition per label or a subtraction
@@ -83,6 +83,7 @@ from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_stri
 from ecc.curves import (
     PubKey,
     TweakChain,
+    add,
     bytes_from_point,
     is_libsecp256k1_serving,
     mult,
@@ -650,9 +651,22 @@ def output_key(secret: PubKey, B_m: PubKey, k: int) -> bytes:
 
     `k` is the recipient's position in its group, which is what stops two
     payments to one scan key landing on one output.
+
+    t_k is a secret: whoever learns it computes B_m = P_k - t_k*G from
+    the public output and links it to the recipient's address. So t_k*G
+    is `mult` and the sum is `add`, not `tweak_add_var`, which is
+    variable time on both arms (issue #591). On the libsecp256k1
+    bindings both are constant-time calls; the Python arm is not
+    constant time, as ecc's SECURITY.md says.
     """
     t_k = _output_tweak(point_from_pub_key(secret), k)
-    return _x_only(tweak_add_var(point_from_pub_key(B_m), t_k, secp256k1))
+    return _x_only(add(mult(t_k), point_from_pub_key(B_m), secp256k1))
+
+
+# False until a btclib-secp256k1 release includes
+# bitcoin-core/secp256k1#1970: libsecp256k1 0.8.0's `create_outputs`
+# builds each output with the variable-time `secp256k1_ecmult` (issue #591)
+_DELEGATE_OUTPUT_KEYS = False
 
 
 def _delegated_output_keys(
@@ -744,14 +758,15 @@ def output_keys(
     the difference of the two published addresses, which is the recipient
     named in public.
 
-    Where the bindings serve secp256k1 -- BIP352 has no other curve to
-    ask them for -- this is `silentpayments.create_outputs`'s own
-    derivation rather than the Python arithmetic below: one keypair build
-    per taproot input and one shared-secret multiplication per recipient
-    group inside libsecp256k1, in place of `mult` and `mult_pub_key`
-    here. `a` and `h` are computed either way, for the refusal a zero
-    private-key sum or an empty outpoint sequence already has a specific
-    message for -- see `_delegated_output_keys`.
+    Where `_DELEGATE_OUTPUT_KEYS` is True and the bindings serve
+    secp256k1 -- BIP352 has no other curve to ask them for -- this is
+    `silentpayments.create_outputs`'s own derivation rather than the
+    Python arithmetic below: one keypair build per taproot input and one
+    shared-secret multiplication per recipient group inside
+    libsecp256k1, in place of `mult` and `mult_pub_key` here. `a` and
+    `h` are computed either way, for the refusal a zero private-key sum
+    or an empty outpoint sequence already has a specific message for --
+    see `_delegated_output_keys`.
     """
     hrp = _hrp_from_network(network)
     a = prv_key_sum(prv_keys)
@@ -779,7 +794,7 @@ def output_keys(
         return []
 
     grouped: list[bytes] = []
-    if is_libsecp256k1_serving():
+    if _DELEGATE_OUTPUT_KEYS and is_libsecp256k1_serving():
         grouped = _delegated_output_keys(prv_keys, outpoints, groups)
     else:
         for B_scan, B_m_values in groups.items():

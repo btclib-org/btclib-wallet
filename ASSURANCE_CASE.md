@@ -302,14 +302,15 @@ describes.
   `btclib.p2p` and `btclib_wallet.electrum`, for the reason above.
 
 **Where this package reaches past ecc's own dispatch, it says so.**
-`bip32/bip32.py` and `silent_payments.py` are the two modules calling the
-libsecp256k1 bindings directly rather than through ecc's general
+`bip32/bip32.py` and `silent_payments.py` are the two modules calling
+the libsecp256k1 bindings directly rather than through ecc's general
 dispatch. Each call is one fixed operation behind
 `is_libsecp256k1_serving`, not a copy of the dispatch logic:
 `prvkey_tweak_add` and `PubkeyTweakChain` in `bip32.py`;
 `create_outputs`, `prevouts_summary` and `scan_outputs` in
-`silent_payments.py`. That keeps the one place a caller has to read for
-"does this call reach the bindings" to
+`silent_payments.py`, where `create_outputs` is switched off while
+`_DELEGATE_OUTPUT_KEYS` is False (issue #591). That keeps the one place
+a caller has to read for "does this call reach the bindings" to
 `ecc.curves.curve._libsecp256k1_serves` plus these two modules.
 
 ## Common implementation weaknesses

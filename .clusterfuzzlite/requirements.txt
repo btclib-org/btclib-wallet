@@ -12,9 +12,9 @@ btclib==2026.10.28 \
     --hash=sha256:82bb3907da76137db202a736e40f4a327192310247cfe3939e81c54addb1e2e5 \
     --hash=sha256:d7c725ab186cbe6a8dc68ce2af85c9c9694d504d56060e98a6eb3c9ba585a0fc
     # via btclib-wallet
-ecc==2026.10.28 \
-    --hash=sha256:78a4768200a16badd922e28f04423f5f152defdd9fa55cfae8fcc65ecc28ebca \
-    --hash=sha256:9e933dd6128dc5fc76c3f69f9edc47bda7fcc9df9b8e29bf9f0c8ed2f843d460
+ecc==2026.11.2 \
+    --hash=sha256:e8182f801cced9f451fcbb52c5748f19b7038b041e8e7808d5fe8e546592bfcf \
+    --hash=sha256:e93c7273145b1ac0f4ed6e6ac0a58e9dce3c4095812b24e76f633e900772aae2
     # via
     #   btclib
     #   btclib-wallet
