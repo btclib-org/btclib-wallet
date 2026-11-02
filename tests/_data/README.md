@@ -2007,11 +2007,16 @@ itself, and each of these is a value published by spesmilo/electrum:
   `test_sending_offline_old_electrum_seed_online_mpk`, both in
   `tests/test_wallet_vertical.py`;
 - the hex seed and `master_public_key` of the pre-2.0 wallet file in
-  `tests/test_storage_upgrade.py`.
+  `tests/test_storage_upgrade.py`;
+- the mnemonic and master public key of
+  `test_electrum_seed_old_odd_length_hex` in
+  `tests/test_wallet_vertical.py`, at
+  `fc31115ef76b7a8969cf5292bfe3440e5e67a2c0`.
 
 The word-list they run over is bip39_slip39's, and pinned there.
 
-Pulled 2018-06-11; the pre-2.0 values 2026-08-02.
+Pulled 2018-06-11; the pre-2.0 values 2026-08-02, the odd-length one
+2026-11-02.
 
 ### `tests/psbt/_data/btclib_test_vectors.json`
 
