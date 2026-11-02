@@ -560,19 +560,22 @@ result.
 
    On a tag `Publish to TestPyPI` is `skipped`, its trigger being the
    dispatch, and `public-api` is red for a break `RELEASE_NOTES.md` does not
-   name, being the griffe step above run again. Every other job reads
-   `success`, the ones behind `public-api` included: each of them opens
-   its `if:` with `always()` and names the results it does require, so a
-   red `public-api` costs the release nothing, and a `skipped` among them
-   is a defect in `release.yml` rather than a red to look past. A
-   rehearsal is the mirror image, `Publish to PyPI` skipped and with it
-   whatever is guarded on its success, and `documented` skipped on its
-   own account, its guard being the push. `gh run rerun` does not reach a
-   skipped job, `--failed` rerunning `failure` and `--job` refusing a skip
-   outright, so what recovers one is doing by hand what it would have
-   done: for `github-release` the script "If something goes wrong" gives,
-   for `published` a dispatch of `pypi-install.yml`, which installs what
-   the index serves at the time.
+   name, being the griffe step above run again. `Run the lint workflow /
+   lint / Dependency review` and `Run the lint workflow / lint / Sign-off`
+   are `skipped` on every run, as they run only on a `pull_request`; a
+   tagged commit had both checks on its own pull request. Every other job
+   reads `success`, the ones behind `public-api` included: each of them
+   opens its `if:` with `always()` and names the results it does require, so
+   a red `public-api` costs the release nothing, and a `skipped` among them
+   is a defect in `release.yml` rather than a red to look past. A rehearsal
+   is the mirror image, `Publish to PyPI` skipped and with it whatever is
+   guarded on its success, and `documented` skipped on its own account, its
+   guard being the push. `gh run rerun` does not reach a skipped job,
+   `--failed` rerunning `failure` and `--job` refusing a skip outright, so
+   what recovers one is doing by hand what it would have done: for
+   `github-release` the script "If something goes wrong" gives, for
+   `published` a dispatch of `pypi-install.yml`, which installs what the
+   index serves at the time.
 
 1. Install what was just published, in an environment of its own rather
    than one that may already hold it, and run something with it:
