@@ -1240,13 +1240,14 @@ def test_output_key_adds_with_add_not_tweak_add_var(
 
     The name `output_key` calls is ecc's own `add`, called once with
     `mult(t_k)`, B_m and secp256k1, and the key is the one it answers
-    unpatched. `tweak_add_var`, variable time in t_k, is never called:
+    unpatched. `tweak_add_var`, variable time in t_k, is not imported:
     t_k links an output to its recipient's address.
     """
     secret, B_m = mult(_B_SCAN_PRV), mult(_B_SPEND_PRV)
     t_k = silent_payments._output_tweak(secret, 0)
     expected = silent_payments.output_key(secret, B_m, 0)
     assert vars(silent_payments)["add"] is curves.add
+    assert "tweak_add_var" not in vars(silent_payments)
 
     calls: list[tuple[object, ...]] = []
 
@@ -1254,11 +1255,7 @@ def test_output_key_adds_with_add_not_tweak_add_var(
         calls.append(args)
         return curves.add(*args)
 
-    def _refuse(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError  # pragma: no cover -- never reached
-
     monkeypatch.setattr(silent_payments, "add", _record)
-    monkeypatch.setattr(silent_payments, "tweak_add_var", _refuse)
     assert silent_payments.output_key(secret, B_m, 0) == expected
     assert calls == [(mult(t_k), B_m, secp256k1)]
 
@@ -1285,6 +1282,44 @@ def test_output_key_multiplies_with_mult(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(silent_payments, "mult", _record)
     assert silent_payments.output_key(secret, B_m, 0) == expected
     assert calls == [(t_k,)]
+
+
+@pytest.mark.parametrize("m", [0, 1])
+def test_labeled_address_from_keys_uses_mult_and_add(
+    monkeypatch: pytest.MonkeyPatch, m: int
+) -> None:
+    """`labeled_address_from_keys` labels with `mult` and `add` (issue #640).
+
+    The label tweak is derived from the scan private key. The names the
+    function calls are ecc's own `mult` and `add`: `mult` once with the
+    tweak alone, beside the scan key's own multiplication, and `add` once
+    with the tweak's product, B_spend and secp256k1. The address is the
+    one it answers unpatched. A variable-time call under either name
+    gives the same address, so no vector catches it.
+    """
+    B_spend = mult(_B_SPEND_PRV)
+    t = silent_payments.label_tweak(_B_SCAN_PRV, m)
+    expected = silent_payments.labeled_address_from_keys(_B_SCAN_PRV, B_spend, m)
+    assert vars(silent_payments)["mult"] is curves.mult
+    assert vars(silent_payments)["add"] is curves.add
+
+    mult_calls: list[tuple[object, ...]] = []
+    add_calls: list[tuple[object, ...]] = []
+
+    def _mult(*args: Any) -> Any:
+        mult_calls.append(args)
+        return curves.mult(*args)
+
+    def _add(*args: Any) -> Any:
+        add_calls.append(args)
+        return curves.add(*args)
+
+    monkeypatch.setattr(silent_payments, "mult", _mult)
+    monkeypatch.setattr(silent_payments, "add", _add)
+    address = silent_payments.labeled_address_from_keys(_B_SCAN_PRV, B_spend, m)
+    assert address == expected
+    assert mult_calls == [(_B_SCAN_PRV,), (t,)]
+    assert add_calls == [(mult(t), B_spend, secp256k1)]
 
 
 @needs_bindings

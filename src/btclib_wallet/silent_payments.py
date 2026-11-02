@@ -94,7 +94,6 @@ from ecc.curves import (
     scalar_from_prv_key,
     secp256k1,
     sum_var,
-    tweak_add_var,
 )
 from ecc.ecc.ssa import point_from_bip340pub_key_var
 from ecc.hashes import tagged_hash
@@ -373,9 +372,14 @@ def labeled_address_from_keys(
     sending wallet pays to itself; BIP352 asks a scanner to check it
     always, which is what makes that convention safe to rely on when
     recovering a wallet from a seed alone.
+
+    The label tweak is derived from the scan private key, so its multiple
+    of G is `mult` and the sum is `add`, not `tweak_add_var`: `output_key`
+    says what each arm of those calls promises (issue #640). The sum is a
+    secret too for m = 0, the label BIP352 says a wallet never hands out.
     """
     B_scan = mult(scalar_from_prv_key(b_scan))
-    B_m = tweak_add_var(point_from_pub_key(B_spend), label_tweak(b_scan, m), secp256k1)
+    B_m = add(mult(label_tweak(b_scan, m)), point_from_pub_key(B_spend), secp256k1)
     return address_from_keys(B_scan, B_m, network)
 
 
@@ -853,6 +857,7 @@ def _labelled(output: bytes, P_k: Point, labels: Mapping[bytes, bytes]) -> int |
 
     minus_P_k = secp256k1.negate(P_k)
     for point in (candidate, secp256k1.negate(candidate)):
+        # variable time in P_k, which a scan may be: `_scan` says why
         label_point = sum_var([point, minus_P_k], secp256k1)
         # infinity cannot happen here: it would mean the output equals
         # P_k up to parity, which the x-only comparison already caught
@@ -884,6 +889,8 @@ def _label_added(
     """
     best: tuple[int, bytes, bytes] | None = None
     for label_point, tweak in label_points:
+        # variable time in P_k and the label, which a scan may be: `_scan`
+        # says why
         P_km = sum_var([P_k, label_point], secp256k1)
         if P_km[1] == 0:
             # P_k is the negative of the label: infinity, the point that
@@ -988,6 +995,8 @@ def _lifted_labels(
     lifted = []
     for label, tweak in label_map.items():
         try:
+            # variable time in the label, which a scan may be: `_scan` says
+            # why
             lifted.append((point_from_octets_var(label, secp256k1), tweak))
         except (TypeError, ValueError):
             continue
@@ -1051,6 +1060,17 @@ def _scan(
     a lift and two (`_label_added` and `_labelled` are the two), and the
     number of additions grows with the labels and that of subtractions
     with the outputs.
+
+    The scan is variable time in values derived from the scan key: the
+    `TweakChain` step to P_k, and the sums and the label lift of
+    `_labelled`, `_label_added` and `_lifted_labels`. It may be, because
+    the scan branches on whether an output matched, which times it far
+    more than the arithmetic does. libsecp256k1's own scan computes P_k
+    and subtracts it from each output with variable-time calls, and its
+    maintainers gave that ground for a variable-time scan
+    (https://github.com/bitcoin-core/secp256k1/pull/1914#issuecomment-5534772080).
+    Creating a label is not a scan, which is why
+    `labeled_address_from_keys` uses `mult` and `add`.
     """
     label_map = {} if labels is None else labels
     chain = TweakChain(point_from_pub_key(B_spend), secp256k1)
