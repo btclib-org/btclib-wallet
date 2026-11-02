@@ -1263,6 +1263,30 @@ def test_output_key_adds_with_add_not_tweak_add_var(
     assert calls == [(mult(t_k), B_m, secp256k1)]
 
 
+def test_output_key_multiplies_with_mult(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`output_key` computes t_k*G with ecc's `mult` (issue #591).
+
+    The name `output_key` calls is ecc's own `mult`, called once with t_k
+    alone, and the key is the one it answers unpatched. A wrapper or a
+    variable-time multiplication under that name gives the same keys, so
+    no vector catches it.
+    """
+    secret, B_m = mult(_B_SCAN_PRV), mult(_B_SPEND_PRV)
+    t_k = silent_payments._output_tweak(secret, 0)
+    expected = silent_payments.output_key(secret, B_m, 0)
+    assert vars(silent_payments)["mult"] is curves.mult
+
+    calls: list[tuple[object, ...]] = []
+
+    def _record(*args: Any) -> Any:
+        calls.append(args)
+        return curves.mult(*args)
+
+    monkeypatch.setattr(silent_payments, "mult", _record)
+    assert silent_payments.output_key(secret, B_m, 0) == expected
+    assert calls == [(t_k,)]
+
+
 @needs_bindings
 def test_output_keys_does_not_delegate_yet(monkeypatch: pytest.MonkeyPatch) -> None:
     """`create_outputs` is not asked while `_DELEGATE_OUTPUT_KEYS` is False."""
