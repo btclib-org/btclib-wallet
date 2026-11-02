@@ -397,10 +397,9 @@ result.
 1. Run each dependent's suite with this release in place of its PyPI
    version, whether or not the notes declare a break. Section 12 of the
    [organization standard](https://github.com/btclib-org/.github#12-releasing)
-   has the rule. The dependents of `btclib-wallet` are
-   `bitcoin-node-tests`, `btclib-benchmarks` and `btclib-node`.
-   Re-derive them with the loop in that section before each release
-   rather than carry this list.
+   defines a dependent: an org tree whose `main` requires the released
+   package. Find the dependents before each release in each org tree's
+   `pyproject.toml`.
 
    From a throwaway checkout of each dependent's default branch, with the
    sha of the release pull request's head for `<sha>`, before it merges:

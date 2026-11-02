@@ -23,12 +23,12 @@ same shape; it departs from btclib's in nothing but this paragraph and
 the spelling of issue numbers. btclib-secp256k1 carries a copy under
 this same name, over its own tests/README.md, whose entries are each
 pinned to a commit under a heading owning one fenced block, and
-bitcoin-node-tests another, over its TF2.md. What the copies share is owed to
-the others in the same campaign: the parsing, the `gh` calls, a field's
-spelling, the arguments this takes. What answers to one ledger's own
-shape is not, and the collapsing of identical skip lines below is that
--- a heading owning several blocks being a shape that README does not
-carry.
+functional-tests another, over its TF2.md. What the copies share is owed
+to the others in the same campaign: the parsing, the `gh` calls, a
+field's spelling, the arguments this takes. What answers to one ledger's
+own shape is not, and the collapsing of identical skip lines below is
+that -- a heading owning several blocks being a shape that README does
+not carry.
 
 Two byte comparisons run over every entry that names a file in its
 heading and records a `blob` or an `ours` line, whatever its `behind`.
@@ -66,9 +66,8 @@ commit despite the name. Without it the call resolves against the
 default branch alone and answers an empty list for a path that lives
 only on the named one, which is reported as a path the default branch
 never held regardless of whether the pin is current
-(btclib-org/btclib#2160). A `ref` line is what lets such a pin be
-checked at its own branch's tip rather than carried as `behind` for want
-of one.
+(btclib-org/btclib#2160). A `ref` line is what lets such a pin be checked
+at its own branch's tip rather than carried as `behind` for want of one.
 
 Shapes a ledger can carry that this script does not attempt: an entry
 with no `commit` at all (chain data self-identified by hash, files
@@ -105,6 +104,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,6 +113,39 @@ from pathlib import Path
 # a partial executable path relying on PATH's own search order rather
 # than naming what actually runs
 _GH = shutil.which("gh") or "gh"
+
+# gh's stderr for a server error. A secondary rate limit is not
+# retried: GitHub asks to wait as long as its retry-after header says,
+# which gh's stderr does not carry, or at least a minute.
+_TRANSIENT = re.compile(r"HTTP 5\d\d")
+_ATTEMPTS = 3
+
+
+def _gh_output(*args: str) -> str:
+    """Return the stdout of a `gh` call, printing gh's stderr where it fails.
+
+    A call failing with a server error is made `_ATTEMPTS` times at
+    most, waiting longer before each retry; the last error, or any
+    other, is raised.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return subprocess.run(  # noqa: S603
+                [_GH, *args],
+                capture_output=True,
+                check=True,
+                encoding="utf-8",
+            ).stdout
+        except subprocess.CalledProcessError as error:
+            print(
+                f"gh {' '.join(args)} failed: {error.stderr.strip()}", file=sys.stderr
+            )
+            if attempt == _ATTEMPTS or not _TRANSIENT.search(error.stderr):
+                raise
+            time.sleep(5 * attempt)
+
 
 # a ledger entry's own ### heading, so a drift report -- and the
 # skipped-entry list -- can name the entry rather than only its upstream
@@ -142,14 +175,14 @@ _LOCAL = re.compile(r"^`([^`*<>]+)`$")
 class Entry:
     """One pin this script can re-check: a single blob, a live commit.
 
-    `ref` is the branch (or tag, or sha) GitHub's "commits touching a path"
-    API should walk instead of the repository's own default branch -- absent
-    for every pin standing on a default branch, which is most of them, and
-    present for one standing on a fork's own pull-request branch, which the
-    API cannot otherwise find at all (btclib-org/btclib#2160): asking it
-    with no `ref` answers an empty list for that path regardless of whether
-    the pin is current, which is reported as a path the default branch never
-    held.
+    `ref` is the branch (or tag, or sha) GitHub's "commits touching a
+    path" API should walk instead of the repository's own default
+    branch -- absent for every pin standing on a default branch, which
+    is most of them, and present for one standing on a fork's own
+    pull-request branch, which the API cannot otherwise find at all
+    (btclib-org/btclib#2160): asking it with no `ref` answers an empty
+    list for that path regardless of whether the pin is current, which is
+    reported as a path the default branch never held.
     """
 
     heading: str
@@ -298,7 +331,6 @@ def _latest_commit(
     matches it without this function naming the branch.
     """
     args = [
-        _GH,
         "api",
         "--method",
         "GET",
@@ -310,13 +342,7 @@ def _latest_commit(
     ]
     if ref is not None:
         args.extend(("-f", f"sha={ref}"))
-    result = subprocess.run(  # noqa: S603
-        args,
-        capture_output=True,
-        check=True,
-        encoding="utf-8",
-    )
-    commits = json.loads(result.stdout)
+    commits = json.loads(_gh_output(*args))
     if not commits:
         return None
     commit = commits[0]
@@ -400,13 +426,8 @@ def _upstream_blob(repo: str, path: str, commit: str) -> str | None:
     """
     directory, _, name = path.rpartition("/")
     tree = f"{commit}:{directory}" if directory else commit
-    result = subprocess.run(  # noqa: S603
-        [_GH, "api", "--method", "GET", f"repos/{repo}/git/trees/{tree}"],
-        capture_output=True,
-        check=True,
-        encoding="utf-8",
-    )
-    for item in json.loads(result.stdout)["tree"]:
+    answer = _gh_output("api", "--method", "GET", f"repos/{repo}/git/trees/{tree}")
+    for item in json.loads(answer)["tree"]:
         if item["path"] == name:
             sha: str = item["sha"]
             return sha
@@ -487,9 +508,8 @@ def _issue_body(ledger_path: Path, drifted: list[Drift], skipped: list[str]) -> 
 
 
 def _open_issue_number(title: str) -> str | None:
-    result = subprocess.run(  # noqa: S603
-        [
-            _GH,
+    issues = json.loads(
+        _gh_output(
             "issue",
             "list",
             "--state",
@@ -498,12 +518,8 @@ def _open_issue_number(title: str) -> str | None:
             f'"{title}" in:title',
             "--json",
             "number",
-        ],
-        capture_output=True,
-        check=True,
-        encoding="utf-8",
+        )
     )
-    issues = json.loads(result.stdout)
     return str(issues[0]["number"]) if issues else None
 
 
