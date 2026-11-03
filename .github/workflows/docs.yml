@@ -61,4 +61,4 @@ jobs:
   # needs no submodule checked out and asks nothing of its built pages
   # beyond what the callee asks, so both inputs are left at their defaults
   docs:
-    uses: btclib-org/.github/.github/workflows/reusable-docs.yml@ed616d71c43cd4c8bded40d1182befccd99e6ee7 # v2026.10.29
+    uses: btclib-org/.github/.github/workflows/reusable-docs.yml@7b85b373d1957dcfc1a648a21dd7233954ef410b # v2026.11.2

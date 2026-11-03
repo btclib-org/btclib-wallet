@@ -72,7 +72,7 @@ jobs:
       contents: read
       pull-requests: write # posting the review, and the reply to a mention
       id-token: write # the OIDC token the action mints at its own startup
-    uses: btclib-org/.github/.github/workflows/reusable-claude-review.yml@ed616d71c43cd4c8bded40d1182befccd99e6ee7 # v2026.10.29
+    uses: btclib-org/.github/.github/workflows/reusable-claude-review.yml@7b85b373d1957dcfc1a648a21dd7233954ef410b # v2026.11.2
     with:
       # this tree's own paragraph, landing where the callee inserts it
       extra-prompt: |
