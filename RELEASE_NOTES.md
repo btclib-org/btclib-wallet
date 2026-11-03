@@ -9,6 +9,41 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.3
+
+- **The silent-payment sender and a labelled address no longer add a
+  secret tweak to a point with `tweak_add_var`**
+  ([ISS 591](https://github.com/btclib-org/btclib-wallet/issues/591),
+  [ISS 640](https://github.com/btclib-org/btclib-wallet/issues/640)).
+  `output_key` computes t_k*G with `mult` and adds B_m with
+  `ecc.curves.add`, and `labeled_address_from_keys` does the same with
+  the label tweak and B_spend. On the bindings the libsecp256k1 call
+  behind each is constant time, where `tweak_add_var` ran the
+  variable-time `secp256k1_ecmult`. `output_keys` calls `output_key` for
+  each output, where the bindings served it through
+  `silentpayments.create_outputs`, which libsecp256k1 0.8.0 builds with
+  `secp256k1_ecmult` too. The BIP352 vectors give the same keys and
+  addresses. Act on it if you send silent payments or hand out labelled
+  addresses: install `btclib-wallet[secp256k1]`, since ecc's Python
+  arithmetic is not constant time either way.
+- **ecc 2026.11.2 is the floor**, the first release exporting
+  `ecc.curves.add`. Act on it if you pin ecc below it: raise the pin.
+- **bip39-slip39 2026.11.2 is the floor**, so
+  `mnemonic.electrum.old_master_pub_key_from_mnemonic` derives a key
+  from a pre-2.0 Electrum mnemonic whose hex seed has an odd number of
+  characters, as Electrum does, where it refused it
+  ([ISS 655](https://github.com/btclib-org/btclib-wallet/issues/655)).
+  Act on it if you rely on that refusal: expect a key where you caught
+  it. Act on it if you pin bip39-slip39 below 2026.11.2: raise the pin.
+- **`mnemonic.electrum.old_master_pub_key_from_mnemonic` refuses a seed
+  written as hex with whitespace between pairs with a new message**,
+  "pre-2.0 electrum seed is not a hex string", where it said the seed
+  decodes to hex characters "which are not octets". The exception is
+  still bip39-slip39's `Bip39Slip39ValueError`. Act on it if you match
+  that message: match the new one.
+
+`CHANGELOG.md`'s own `v2026.11.3` section has the rest.
+
 ## v2026.11.2
 
 - **The wallet raises its own `FetchError`, `HttpError`, `RpcError`,
