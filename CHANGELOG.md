@@ -24,6 +24,50 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.3
+
+### The silent-payment output key is computed without `tweak_add_var`
+
+`output_key` computes t_k*G with `mult` and adds B_m with `curves.add`,
+and `output_keys` calls it in place of the bindings' `create_outputs`.
+The ecc floor moves to 2026.11.2 (issue #591).
+
+### A test holds silent payments to `curves.mult` for t_k*G
+
+Tests only (closes #656).
+
+### The silent-payment label address is computed with `mult` and `add`
+
+In `labeled_address_from_keys`, as in `output_key`. `_scan` says why the
+scan may stay variable time (closes #640).
+
+### bip39-slip39 2026.11.2 is the floor
+
+So a pre-2.0 Electrum mnemonic whose hex seed has an odd number of
+characters gives a key (closes #655).
+
+### `check_vendored_vectors.py` prints a failed gh call's stderr
+
+And retries a server error. RELEASING.md says how to find the dependents
+in place of listing them (closes #654, #660, #639).
+
+### macOS runs on arm64 alone
+
+`os-macos.yml` and `pypi-install.yml` run no x86_64 macOS image (issue
+btclib-org/.github#1982).
+
+### `RELEASING.md` names the lint jobs a release run skips
+
+(issue btclib-org/.github#1989).
+
+### `CONTRIBUTING.md`'s shared part is in line with btclib-org/.github
+
+### The calls of btclib-org/.github name the commit of its tag `v2026.11.2`
+
+`public-api` and `api-break` run `api_gaps.py` beside griffe, and `docs`
+runs `check_included_links.py` (issue btclib-org/.github#1988). The
+pre-commit hooks take ruff 0.17.3, pydoclint 0.12.0 and uv 0.13.6.
+
 ## v2026.11.2
 
 ### The wallet declares its own errors and the Electrum codec
