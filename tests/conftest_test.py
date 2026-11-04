@@ -833,9 +833,8 @@ def test_a_run_started_from_tests_says_it_is_ungated(tmp_path: Path) -> None:
         capture_output=True,
         encoding="utf-8",
         check=False,
-        # a child that hangs
-        # fails as this test rather than holding an xdist worker until
-        # the job's timeout-minutes, which the report would not name
+        # a child that hangs fails this test sooner than the suite's
+        # `timeout` in pyproject.toml would
         timeout=120,
     )
 
