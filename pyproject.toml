@@ -116,7 +116,7 @@ classifiers = [
 secp256k1 = ["btclib[secp256k1]>=2026.10.24", "btclib-secp256k1>=0.8.0.10"]
 
 [project.urls]
-homepage = "https://btclib-wallet.readthedocs.io/"
+homepage = "https://btclib.org/btclib-wallet/"
 documentation = "https://btclib-wallet.readthedocs.io/"
 download = "https://github.com/btclib-org/btclib-wallet/releases"
 changelog = "https://github.com/btclib-org/btclib-wallet/blob/main/RELEASE_NOTES.md"

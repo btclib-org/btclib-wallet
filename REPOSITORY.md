@@ -50,7 +50,8 @@ git push git@github.com:btclib-org/btclib-wallet.git main
 Then the switches section 11 turns off or on at the repository level, in
 one call — the projects board and the wiki off, the tracker on, squash as
 the only merge method with auto-merge, the head branch deleted on merge,
-and the squash commit's title and body:
+and the squash commit's title and body — together with the `.homepage`,
+section 3's page on btclib.org:
 
 ```shell
 gh api -X PATCH repos/btclib-org/btclib-wallet \
@@ -60,7 +61,7 @@ gh api -X PATCH repos/btclib-org/btclib-wallet \
   -F delete_branch_on_merge=true \
   -f squash_merge_commit_title=COMMIT_OR_PR_TITLE \
   -f squash_merge_commit_message=COMMIT_MESSAGES \
-  -f homepage=https://btclib-wallet.readthedocs.io/
+  -f homepage=https://btclib.org/btclib-wallet/
 ```
 
 Read back:
@@ -445,13 +446,14 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 # 404
 ```
 
-**The repository's `.homepage` names this tree's own documentation
-site**, set under *Creating the repository* and read back here rather
-than from `pyproject.toml`'s own copy of it:
+**The repository's `.homepage` is its page on btclib.org**, as
+section 3 has it, set under *Creating the repository* and read back
+here rather than from `pyproject.toml`'s own copy of it. Read at
+2026-11-05:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet --jq '.homepage'
-# https://btclib-wallet.readthedocs.io/
+# https://btclib.org/btclib-wallet/
 ```
 
 ## Read the Docs, which is btclib-wallet.readthedocs.io
