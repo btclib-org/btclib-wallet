@@ -99,23 +99,15 @@ repos:
         # the corpus, for the reason given on trailing-whitespace above
         exclude: ^fuzz/corpus/
       - id: check-case-conflict
-      # no check-executables-have-shebangs, by check-hooks-apply's own
-      # verdict: it selects on types [executable], nothing tracked here
-      # carries that bit, and a hook that matches no file is not a guard
-      # on the future but a line that reads as a rule while enforcing
-      # nothing. That is the whole reason the meta hooks are in this
-      # file, and overruling one of them would be an odd way to keep them
-      #
-      # its converse is on, and is the reason no source file here opens
-      # with "#!/usr/bin/env python3": a shebang is read by the kernel only
-      # when the file is exec'd directly, which needs the executable bit
-      # the hook above finds on nothing, and every script in the tree is
-      # invoked as "python .github/scripts/<name>.py". So such a line
-      # announces an interpreter nothing consults, and it costs this guard.
-      # Unlike the hook above, this one selects on types [text] and so
-      # matches every file whether or not any carries a shebang: what it
-      # enforces is the pair, and the day a file needs one it also needs
-      # chmod +x
+      # a file with the executable bit and no shebang does what its
+      # caller decides: execve refuses it ("Exec format error"), a shell
+      # runs it as a shell script, and libc's execvp hands it to sh.
+      # .clusterfuzzlite/build.sh carries the bit, and check-hooks-apply
+      # above fails this hook once no tracked file does
+      - id: check-executables-have-shebangs
+      # its converse: execve, which reads a shebang, refuses a file
+      # without the executable bit (EACCES), so execve never starts the
+      # interpreter a shebang on such a file names
       - id: check-shebang-scripts-are-executable
       # no byte order mark anywhere today, and the same kind of guard as
       # check-executables-have-shebangs: what it costs is one line, what

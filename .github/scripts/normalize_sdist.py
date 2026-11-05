@@ -32,11 +32,10 @@ What is *in* the archive is already deterministic; only the metadata of
 the members is rewritten here, and nothing else: `mtime` becomes
 `SOURCE_DATE_EPOCH`, ownership becomes root with no names, mode becomes
 `0o644` for a file and `0o755` for a directory -- nothing in the sdist
-needs the executable bit, no source file here opening with a shebang,
-which `.pre-commit-config.yaml` records as a decision rather than an
-accident -- and the gzip header carries the same timestamp instead of
-the moment it was compressed. The order of the members and every byte of
-their content are the archive's own.
+needs the executable bit, no source file here opening with a shebang --
+and the gzip header carries the same timestamp instead of the moment it
+was compressed. The order of the members and every byte of their
+content are the archive's own.
 
 `PAX_FORMAT` with the extended headers cleared, rather than
 `USTAR_FORMAT`: an integral timestamp needs no PAX record, so the two
