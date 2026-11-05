@@ -35,15 +35,32 @@ from btclib_wallet import electrum
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from tests.integration.conftest import (
+    _FLORESTA_SYNC_TIMEOUT,
+    _STARTUP_TIMEOUT,
     FlorestaStack,
     floresta_binaries,
     running_floresta_stack,
 )
 
-pytestmark = pytest.mark.integration
-
 # how long the server is given to scan for a script it was just asked about
 _SCAN_TIMEOUT = 60.0
+
+# Every test here asks for the module's `stack` and `payment`, so whichever
+# runs first on a worker pays their setup: 24.02 s at the slowest on CI
+# (integration-floresta.yml run 41940312092). Where each wait runs to its
+# deadline before the last one fails, the setup takes their sum: bitcoind's
+# start and florestad's certificate, two _STARTUP_TIMEOUT; florestad's
+# sync, its "starting running node" line, the stack's blocks and the
+# payment's block, four _FLORESTA_SYNC_TIMEOUT; and the payment's two
+# history scans, two _SCAN_TIMEOUT. Their sum passes the suite's `timeout`,
+# so the bound here is one sync wait more, for the calls between the waits
+# and the processes stopped on a failure. A retry on a taken port
+# (`start_on_free_ports`) repeats the waits and is not counted
+_SETUP_WAITS = 2 * _STARTUP_TIMEOUT + 4 * _FLORESTA_SYNC_TIMEOUT + 2 * _SCAN_TIMEOUT
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.timeout(_SETUP_WAITS + _FLORESTA_SYNC_TIMEOUT),
+]
 
 
 @dataclass(frozen=True)

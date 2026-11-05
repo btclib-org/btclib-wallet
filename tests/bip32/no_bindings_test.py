@@ -81,8 +81,8 @@ def _child_answers() -> dict[str, Any]:
         capture_output=True,
         encoding="utf-8",
         check=False,
-        # there so that a child that hangs fails as this test rather than
-        # as a slow suite holding an xdist worker
+        # a child that hangs fails this test sooner than the suite's
+        # `timeout` in pyproject.toml would
         timeout=120,
     )
     assert completed.returncode == 0, completed.stderr

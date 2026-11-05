@@ -52,7 +52,7 @@ with a checksum required and without; `parse` verifies a checksum where
 there is one and requires none, which is the second, the first adding
 only the refusal of an input without one. Core's target skips what
 `IsTooExpensive` names, to spend its fuzzing time elsewhere; this replay
-reads every input, and `qa-assets.yml`'s `timeout-minutes` bounds it.
+reads every input, and `pyproject.toml`'s `timeout` bounds each test.
 """
 
 from __future__ import annotations

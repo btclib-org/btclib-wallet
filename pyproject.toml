@@ -145,6 +145,8 @@ harness = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pytest-randomly>=5.0.0",
+    # the `timeout` key of [tool.pytest.ini_options] below
+    "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
 ]
 test = [{ include-group = "harness" }, { include-group = "bindings" }]
@@ -306,6 +308,34 @@ markers = [
 # act on it only if it is not silent. An ignore added here names the
 # warning, not a module, and says what would let it be dropped
 filterwarnings = ["error"]
+# pytest-timeout's bound on each test, setup and teardown included
+# (section 7 of the organization standard): the suite waits on child
+# interpreters, threads and sockets, and a test that never returns
+# otherwise holds the job until its timeout-minutes cancels it, which
+# keeps no log naming the test (btclib-org/btclib-wallet#650). Where
+# SIGALRM exists, pytest-timeout fails the test, prints its stack and
+# lets the run go on; on Windows it ends the worker after printing.
+#
+# The bound sits several times above the slowest test measured, since
+# one that fires on a slow runner is a red with nothing wrong. The
+# slowest on CI, py_arm_authority_test.py's
+# test_every_py_arm_is_in_the_inventory, took 66.01 s on macos-26-intel
+# under 3.11 (release run 41362009677) and at most 31.80 s on the images
+# still run (deps-latest run 41373147741, windows-latest, 3.11). The
+# slowest locally, a silent_payments_test.py vector, took 2.76 s on a
+# macOS machine at a one-minute load average of 27, measured with
+#
+#     uv run pytest -n 3 --durations=20
+#
+# The integration tests, which those runs skip, run under the same bound
+# in their own workflows. The slowest of them in recent runs was a
+# florestad fixture's setup, 24.02 s (integration-floresta.yml run
+# 41940312092), and qa_assets_test.py's largest corpus directory took
+# 19.41 s (qa-assets.yml run 41626383297). Where a test's waits can each
+# run close to their deadline and still succeed, on a device, a syncing
+# server or a cold subprocess, and together pass this bound, the test sets
+# a longer one beside them, so that their own failures fire first.
+timeout = 300
 
 [tool.codespell]
 # the vendored data is skipped rather than corrected: a test vector stays
