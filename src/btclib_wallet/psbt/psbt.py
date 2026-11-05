@@ -280,10 +280,14 @@ def _global_version(global_map: Mapping[bytes, bytes]) -> int:
     encodings -- an empty value, one octet, two, three and four all
     deserialize to a version this writes back as four.
     """
-    for k, v in global_map.items():
-        if k[:1] == PSBT_GLOBAL_VERSION:
-            return deserialize_sized_int(k, v, "global version", 4)
-    return 0
+    return next(
+        (
+            deserialize_sized_int(k, v, "global version", 4)
+            for k, v in global_map.items()
+            if k[:1] == PSBT_GLOBAL_VERSION
+        ),
+        0,
+    )
 
 
 def _assert_int_field_types(
@@ -348,8 +352,10 @@ def _lock_time(
     if all(time is not None for _, time in requiring):
         return max(cast(int, time) for _, time in requiring)
 
-    err_msg = "no lock time satisfies every input: "
-    err_msg += "a height is required by one and a time by another"
+    err_msg = (
+        "no lock time satisfies every input: "
+        "a height is required by one and a time by another"
+    )
     raise BTClibValueError(err_msg)
 
 
@@ -2135,8 +2141,7 @@ def _bip147_dummy(psbt_in: PsbtIn) -> list[bytes]:
     an element short, unknowably: one signature, no script, and nothing
     to tell it from a p2pk.
     """
-    script = _satisfied_script(psbt_in)
-    if script:
+    if script := _satisfied_script(psbt_in):
         return [b""] if is_p2ms_var(script) else []
     return [b""] if len(psbt_in.partial_sigs) > 1 else []
 
@@ -3945,23 +3950,23 @@ def _ensure_consistency(psbts: Sequence[Psbt]) -> None:
             for pub_key, key_origin in psbt.hd_key_paths.items()
         ):
             raise BTClibValueError("hd_key_paths: same pub_key, different key_origin")
-        key_paths.update(psbt.hd_key_paths)
+        key_paths |= psbt.hd_key_paths
 
         if any(
             key_origin in r_key_paths and pub_key != r_key_paths[key_origin]
             for pub_key, key_origin in psbt.hd_key_paths.items()
         ):
             raise BTClibValueError("hd_key_paths: same key_origin, different pub_key")
-        r_key_paths.update(
-            {key_origin: pub_key for pub_key, key_origin in psbt.hd_key_paths.items()}
-        )
+        r_key_paths |= {
+            key_origin: pub_key for pub_key, key_origin in psbt.hd_key_paths.items()
+        }
 
         if any(
             key in unknown and value != unknown[key]
             for key, value in psbt.unknown.items()
         ):
             raise BTClibValueError("unknown: same key, different value")
-        unknown.update(psbt.unknown)
+        unknown |= psbt.unknown
 
 
 def _joined_inputs(psbts: Sequence[Psbt]) -> list[PsbtIn]:

@@ -40,7 +40,7 @@ _SOURCES = ("src", "tests", "docs")
 def _match(pattern: str, text: str, what: str) -> str:
     match = re.search(pattern, text, re.MULTILINE)
     assert match, f"{what} has no line matching {pattern!r}"
-    return match.group(1)
+    return match[1]
 
 
 def _header_holder() -> str:

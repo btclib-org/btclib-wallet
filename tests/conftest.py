@@ -307,8 +307,7 @@ def pytest_configure(config: pytest.Config) -> None:
     failed. A run asking for the dispatch off and not getting it is
     refused the same way, for the same reason.
     """
-    unread = switch_went_unread(os.environ, is_libsecp256k1_serving())
-    if unread:
+    if unread := switch_went_unread(os.environ, is_libsecp256k1_serving()):
         raise pytest.UsageError(
             f"set: {', '.join(unread)}; and libsecp256k1 is still serving,"
             " the installed ecc reading none of them, so this run would"

@@ -89,7 +89,7 @@ def prv_key_data_from_minikey(minikey: str) -> PrvKeyData:
         raise NotAPrvKeyError(err_msg)
     if minikey[0] != "S":
         raise NotAPrvKeyError("not a minikey: does not start with 'S'")
-    if not all(c in _ALPHABET for c in minikey):
+    if any(c not in _ALPHABET for c in minikey):
         raise NotAPrvKeyError("not a minikey: character outside the base58 alphabet")
 
     if sha256((minikey + "?").encode("ascii"))[0] != 0x00:

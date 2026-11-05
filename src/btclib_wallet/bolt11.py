@@ -266,10 +266,14 @@ def _amount_digits(amount_msat: int) -> str:
     """
     if amount_msat % _MSAT_PER_BTC == 0:
         return str(amount_msat // _MSAT_PER_BTC)
-    for multiplier, per_digit in _MSAT_PER_DIGIT.items():
-        if amount_msat % per_digit == 0:
-            return f"{amount_msat // per_digit}{multiplier}"
-    return f"{amount_msat * 10}p"
+    return next(
+        (
+            f"{amount_msat // per_digit}{multiplier}"
+            for multiplier, per_digit in _MSAT_PER_DIGIT.items()
+            if amount_msat % per_digit == 0
+        ),
+        f"{amount_msat * 10}p",
+    )
 
 
 def _hrp(network: str, amount_msat: int | None) -> str:
@@ -397,7 +401,7 @@ class RouteHintHop:
     @classmethod
     def _parse(cls, data: bytes, *, check_validity: bool) -> RouteHintHop:
         return cls(
-            data[0:33],
+            data[:33],
             int.from_bytes(data[33:41], "big"),
             int.from_bytes(data[41:45], "big"),
             int.from_bytes(data[45:49], "big"),
@@ -514,16 +518,14 @@ class Bolt11Invoice:
         # its own well-formedness is the bits, and an even one BOLT9 does
         # not assign is a requirement no reader has been told how to meet
         features = self.features
-        unknown = unknown_even_bits(features)
-        if unknown:
+        if unknown := unknown_even_bits(features):
             bits = ", ".join(str(bit) for bit in unknown)
             raise BTClibValueError(f"unknown even feature bits: {bits}")
 
         # the other half of a well-formed vector, and BOLT9's own word
         # for it: a feature whose dependencies are set is one a reader can
         # act on without checking them again at every gate
-        unmet = unmet_dependencies(features)
-        if unmet:
+        if unmet := unmet_dependencies(features):
             missing = ", ".join(
                 f"{FEATURE_NAMES[bit]} requires {FEATURE_NAMES[required]}"
                 for bit, required in unmet
@@ -847,8 +849,7 @@ class Bolt11Invoice:
         for hops in route_hints:
             blob = b"".join(hop._serialize() for hop in hops)
             fields.append((_TAG_ROUTING_INFO, _bytes_to_words(blob)))
-        features_int = int_from_integer(features)
-        if features_int:
+        if features_int := int_from_integer(features):
             fields.append((_TAG_FEATURES, _minimal_int_words(features_int)))
         fields.extend((tag, tuple(words)) for tag, words in extra_tags)
 

@@ -134,8 +134,7 @@ def _participants(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
     """Return the participants of an aggregate key, in aggregation order."""
     participants = psbt_in.musig2_participant_pub_keys.get(aggregate_pub_key)
     if not participants:
-        err_msg = "no musig2 participants for aggregate key "
-        err_msg += aggregate_pub_key.hex()
+        err_msg = "no musig2 participants for aggregate key " + aggregate_pub_key.hex()
         raise BTClibValueError(err_msg)
     return participants
 
@@ -539,10 +538,10 @@ def partial_sigs_agg(
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
     tweaked_pub_key = bytes_from_point(session.key_agg_ctx.Q, secp256k1)
     partial_sigs = _session_partial_sigs(psbt_in, tweaked_pub_key, leaf_hash)
-    missing = [key for key in session.context.pub_keys if key not in partial_sigs]
-    if missing:
-        err_msg = "missing musig2 partial signature of "
-        err_msg += ", ".join(key.hex() for key in missing)
+    if missing := [key for key in session.context.pub_keys if key not in partial_sigs]:
+        err_msg = "missing musig2 partial signature of " + ", ".join(
+            key.hex() for key in missing
+        )
         raise BTClibValueError(err_msg)
 
     sig = musig2.partial_sig_agg(

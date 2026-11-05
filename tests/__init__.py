@@ -208,8 +208,9 @@ def replace_unchecked(instance: Any, **changes: Any) -> Any:
     is the one helper any of them can use in place of the direct field
     mutation a frozen instance now refuses.
     """
-    current = {field.name: getattr(instance, field.name) for field in fields(instance)}
-    current.update(changes)
+    current = {
+        field.name: getattr(instance, field.name) for field in fields(instance)
+    } | changes
     return type(instance)(**current, check_validity=False)
 
 

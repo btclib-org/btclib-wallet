@@ -111,7 +111,8 @@ def test_index_int_to_from_str() -> None:
     for s in ("-1", "-1h"):
         with pytest.raises(BTClibValueError, match=NOT_DIGITS):
             int_from_index_str(s)
-    for s in (f"{0x80000000}h", f"{0xFFFFFFFF + 1}"):
+    # 0x80000000 hardened, and 0xFFFFFFFF + 1
+    for s in ("2147483648h", "4294967296"):
         with pytest.raises(BTClibValueError, match=NOT_BELOW):
             int_from_index_str(s)
 
@@ -294,8 +295,8 @@ def test_a_master_fingerprint_strips_ascii_whitespace_alone() -> None:
     """Padding `string.whitespace` does not hold makes it no fingerprint."""
     padded = string.whitespace + "deadbeef" + string.whitespace
     assert str_from_der_path("m/0h", padded) == "deadbeef/0h"
+    err_msg = "invalid master fingerprint length"
     for pad in NOT_STRIPPED:
-        err_msg = "invalid master fingerprint length"
         with pytest.raises(BTClibValueError, match=err_msg):
             str_from_der_path("m/0h", pad + "deadbeef" + pad)
 

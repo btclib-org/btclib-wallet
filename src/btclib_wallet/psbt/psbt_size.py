@@ -136,10 +136,14 @@ def _pub_key_size(psbt_in: PsbtIn, payload: bytes) -> int:
     is 32 bytes more: assuming compressed for an input that carries the
     key would be assuming low, which is what this file is against.
     """
-    for pub_key in psbt_in.hd_key_paths:
-        if hash160(pub_key) == payload:
-            return len(pub_key)
-    return COMPRESSED_PUB_KEY_SIZE
+    return next(
+        (
+            len(pub_key)
+            for pub_key in psbt_in.hd_key_paths
+            if hash160(pub_key) == payload
+        ),
+        COMPRESSED_PUB_KEY_SIZE,
+    )
 
 
 def _solution_sizes(

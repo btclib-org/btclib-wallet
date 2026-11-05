@@ -2117,7 +2117,7 @@ def test_join() -> None:
     # swallow one
     params = inspect.signature(join).parameters
     assert "merge_out" not in params
-    assert not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    assert all(p.kind is not inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 def test_shuffle_sort_inp_out() -> None:
@@ -2331,13 +2331,13 @@ def _single_key_psbt(kind: str) -> tuple[Psbt, list[TxOut]]:
     psbt = Psbt.from_tx(tx)
     psbt.inputs[0].redeem_script = redeem_script
     psbt.inputs[0].witness_script = witness_script
+    # the transaction: a legacy input has no other utxo field, and a segwit
+    # v0 input carries it too, as Bitcoin Core's Updater writes one: it
+    # vouches for the amount BIP143 commits to
+    psbt.inputs[0].non_witness_utxo = prev_tx
     if kind == "p2pkh":
-        psbt.inputs[0].non_witness_utxo = prev_tx
         msg_hash = sig_hash.legacy(script_pub_key.script, tx, 0, 1)
     else:
-        # both, as Bitcoin Core's Updater writes a segwit v0 input: the
-        # transaction is what vouches for the amount `sign` commits to
-        psbt.inputs[0].non_witness_utxo = prev_tx
         psbt.inputs[0].witness_utxo = prev_out
         # BIP143's script code: the witness script for p2wsh, the p2pkh
         # script for the same hash160 for p2wpkh
@@ -2888,7 +2888,8 @@ def test_joining_refuses_nothing_and_what_is_not_a_psbt() -> None:
 
     psbt, _ = _single_key_psbt("p2wpkh")
     with pytest.raises(BTClibTypeError, match="invalid psbts type: generator"):
-        join((p for p in [psbt]), False, False, False, False)  # type: ignore[arg-type]
+        # a generator, the non-sequence under test, which iter() is not
+        join((p for p in [psbt]), False, False, False, False)  # type: ignore[arg-type]  # sourcery skip: simplify-generator
     with pytest.raises(BTClibTypeError, match=r"invalid psbts\[1\] type: int"):
         join([psbt, 1], False, False, False, False)  # type: ignore[list-item]
 
@@ -3316,7 +3317,8 @@ def test_combining_refuses_nothing_and_what_is_not_a_psbt() -> None:
 
     psbt = Psbt.b64decode(TO_BE_FINALIZED)
     with pytest.raises(BTClibTypeError, match="invalid psbts type: generator"):
-        combine(p for p in [psbt])  # type: ignore[arg-type]
+        # a generator, the non-sequence under test, which iter() is not
+        combine(p for p in [psbt])  # type: ignore[arg-type]  # sourcery skip: simplify-generator
     with pytest.raises(BTClibTypeError, match=r"invalid psbts\[1\] type: str"):
         combine([psbt, TO_BE_FINALIZED])  # type: ignore[list-item]
 

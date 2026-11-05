@@ -899,8 +899,7 @@ def select_coins(
     """
     if not algorithms:
         raise BTClibValueError("no algorithm named")
-    unknown = sorted(set(algorithms) - set(_ALGORITHMS))
-    if unknown:
+    if unknown := sorted(set(algorithms) - set(_ALGORITHMS)):
         raise BTClibValueError(f"unknown algorithm: {', '.join(unknown)}")
 
     results: list[SelectionResult] = []

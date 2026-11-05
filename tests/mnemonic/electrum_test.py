@@ -65,8 +65,10 @@ def test_unmanaged_versions() -> None:
 
     # the pre-2.0 scheme has a master public key and no BIP32 one
     old = "cell dumb heartbeat north boom tease ship baby bright kingdom rare squeeze"
-    err_msg = "^unmanaged electrum mnemonic version: old; "
-    err_msg += "use old_master_pub_key_from_mnemonic$"
+    err_msg = (
+        "^unmanaged electrum mnemonic version: old; "
+        "use old_master_pub_key_from_mnemonic$"
+    )
     with pytest.raises(BTClibValueError, match=err_msg):
         electrum.mxprv_from_mnemonic(old)
 

@@ -751,13 +751,17 @@ pull request, compares generated psbts with bitcoin-s and Core;
 command of this project's, so reproducing it locally means the CodeQL CLI
 and a database rather than a `uv run`.
 
+`sourcery.yml` has no line here either: [the standard's *The set, and its
+cadence*](https://github.com/btclib-org/.github#the-set-and-its-cadence)
+says why Sourcery is a pull request's check and not a local one.
+
 ### What gates a merge, and what only reports
 
-`lint.yml`, `test.yml`, `docs.yml` and `integration-bitcoind.yml` produce the
-required checks, and `REPOSITORY.md` reads the rule back from the endpoint
-rather than restating it. So a diff does not reach a review without having
-passed them or passing them beside it on the same sha, which is the
-reliance `REVIEWING.md` provides for.
+`lint.yml`, `test.yml`, `docs.yml`, `integration-bitcoind.yml` and
+`sourcery.yml` produce the required checks, and `REPOSITORY.md` reads the
+rule back from the endpoint rather than restating it. So a diff does not
+reach a review without having passed them or passing them beside it on the
+same sha, which is the reliance `REVIEWING.md` provides for.
 
 | workflow | when | what it varies |
 | --- | --- | --- |
@@ -766,6 +770,7 @@ reliance `REVIEWING.md` provides for.
 | `integration-bitcoind` | pull request, push to main, weekly | — |
 | `claude-review` | pull request, and `@claude` in a comment | — |
 | `api-break` | pull request | — |
+| `sourcery` | pull request | — |
 | `codeql` | pull request, push, and weekly | the languages |
 | `qa-assets` | weekly, pull request on its paths | Core's, rust-bitcoin's |
 | `fuzz` | weekly, and by hand before a release | — |
@@ -792,12 +797,13 @@ not a list here. Which day each of the rest runs is section 10 of
 [the organization standard](https://github.com/btclib-org/.github), and
 not this file's to restate.
 
-The gates run one image on one interpreter: `ubuntu-latest`, and the
-version `.python-version` names. `claude-review` gates nothing: a review
-that gates a merge would make a model's judgement a branch rule. `api-break`
-gates nothing either; it only labels. Why so little gates is the ceiling on
-concurrent jobs the plan puts on the whole organization, and
-`REPOSITORY.md`'s *Plan-gated settings* is where that lives.
+The `test`, `lint`, `docs` and `integration-bitcoind` rows run one image on
+one interpreter: `ubuntu-latest`, and the version `.python-version` names.
+`claude-review` gates nothing: a review that gates a merge would make a
+model's judgement a branch rule. `api-break` gates nothing either; it only
+labels. Why so little gates is the ceiling on concurrent jobs the plan puts
+on the whole organization, and `REPOSITORY.md`'s *Plan-gated settings* is
+where that lives.
 
 `verified-signatures` reports after each push to `main` whether every
 commit pushed is `verified`; [the standard's *Signatures*][s-sigs] has the

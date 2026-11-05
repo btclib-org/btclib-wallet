@@ -1909,8 +1909,10 @@ def test_fingerprint_is_the_children_parent_fingerprint() -> None:
     makes them agree is `_xpub_from_xprv`, shared rather than repeated
     here (issue btclib-org/btclib#1188).
     """
-    seed = "bfc4cbaad0ff131aa97fa30a48d09ae7df914bcc083af1e07793cd0a7c61a03f"
-    seed += "65d622848209ad3366a419f4718a80ec9037df107d8d12c19b83202de00a40ad"
+    seed = (
+        "bfc4cbaad0ff131aa97fa30a48d09ae7df914bcc083af1e07793cd0a7c61a03f"
+        "65d622848209ad3366a419f4718a80ec9037df107d8d12c19b83202de00a40ad"
+    )
     xprv = rootxprv_from_seed(seed)
 
     child = BIP32KeyData.b58decode(derive(xprv, 0x80000000))

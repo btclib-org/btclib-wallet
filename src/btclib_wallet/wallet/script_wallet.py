@@ -460,9 +460,11 @@ class ScriptWallet(RangedWallet):
             err_msg = f"unknown key order: {order} not in ({known})"
             raise BTClibValueError(err_msg)
         if order == "none" and sort_key is not None:
-            err_msg = 'sort_key with order "none": there is nothing to sort by,'
-            err_msg += ' and the keys stay as declared -- "account" and'
-            err_msg += ' "derived" are what a sort_key orders'
+            err_msg = (
+                'sort_key with order "none": there is nothing to sort by,'
+                ' and the keys stay as declared -- "account" and'
+                ' "derived" are what a sort_key orders'
+            )
             raise BTClibValueError(err_msg)
 
         self.script_type = script_type
@@ -485,8 +487,10 @@ class ScriptWallet(RangedWallet):
             if isinstance(command, KeyGroup)
         }
         if not self._ordered_keys:
-            err_msg = "no KeyGroup in the template: a script with no key to"
-            err_msg += " derive is one script, and script.serialize writes it"
+            err_msg = (
+                "no KeyGroup in the template: a script with no key to"
+                " derive is one script, and script.serialize writes it"
+            )
             raise BTClibValueError(err_msg)
 
         # built once at construction, which is what refuses a template no
@@ -841,16 +845,20 @@ class ScriptWallet(RangedWallet):
         never a guess at which account key a script key came from.
         """
         if self.order == "derived":
-            err_msg = "a quorum sorted after derivation inside a combinator:"
-            err_msg += " the order is a property of the index, so no ranged"
-            err_msg += " expression states it -- sortedmulti() states one"
-            err_msg += " quorum that is the whole script, and BIP379 has no"
-            err_msg += " sortedmulti fragment to state one inside another"
+            err_msg = (
+                "a quorum sorted after derivation inside a combinator:"
+                " the order is a property of the index, so no ranged"
+                " expression states it -- sortedmulti() states one"
+                " quorum that is the whole script, and BIP379 has no"
+                " sortedmulti fragment to state one inside another"
+            )
             raise NoDescriptorError(err_msg)
         if self.script_type == "p2sh":
-            err_msg = "a p2sh script that is not a bare quorum: miniscript is"
-            err_msg += " read in a P2WSH or a tapscript context, and BIP379"
-            err_msg += " has no legacy one for this script to be read in"
+            err_msg = (
+                "a p2sh script that is not a bare quorum: miniscript is"
+                " read in a P2WSH or a tapscript context, and BIP379"
+                " has no legacy one for this script to be read in"
+            )
             raise NoDescriptorError(err_msg)
         script = self._script(branch, 0)
         try:
@@ -882,9 +890,11 @@ class ScriptWallet(RangedWallet):
         range rather than as the substitution it is.
         """
         if not descriptor.is_ranged:
-            err_msg = "the lifted descriptor names one script and not a range:"
-            err_msg += " no key of the template came back as the expression it"
-            err_msg += " was derived from"
+            err_msg = (
+                "the lifted descriptor names one script and not a range:"
+                " no key of the template came back as the expression it"
+                " was derived from"
+            )
             raise BTClibRuntimeError(err_msg)
         for index in range(checked_indexes):
             lifted = descriptor.script_pub_key(index).script

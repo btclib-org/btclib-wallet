@@ -316,14 +316,13 @@ def _leaf_properties(fragment: str, threshold: int) -> frozenset[str]:
     return _t(_LEAF_PROPERTIES[fragment])
 
 
-def _wrapper_properties(
+# one return: a return per branch is past ruff's too-many-return-statements
+def _wrapper_properties(  # sourcery skip: lift-return-into-if
     fragment: str, x: frozenset[str], context: str
 ) -> frozenset[str]:
     """Return the type of a wrapped expression, from its argument's."""
     if fragment == "a:":
         properties = _if(_has(x, "B"), _t("W")) | (x & _t("ghijkudfems")) | _t("x")
-    elif fragment == "s:":
-        properties = _if(_has(x, "Bo"), _t("W")) | (x & _t("ghijkudfemsx"))
     elif fragment == "c:":
         properties = _if(_has(x, "K"), _t("B")) | (x & _t("ghijkondfem")) | _t("us")
     elif fragment == "d:":
@@ -338,8 +337,6 @@ def _wrapper_properties(
             | _if(context == TAPSCRIPT, _t("u"))
             | _t("ndx")
         )
-    elif fragment == "v:":
-        properties = _if(_has(x, "B"), _t("V")) | (x & _t("ghijkzonms")) | _t("fx")
     elif fragment == "j:":
         properties = (
             _if(_has(x, "Bn"), _t("B"))
@@ -347,6 +344,10 @@ def _wrapper_properties(
             | (x & _t("ghijkoums"))
             | _t("ndx")
         )
+    elif fragment == "s:":
+        properties = _if(_has(x, "Bo"), _t("W")) | (x & _t("ghijkudfemsx"))
+    elif fragment == "v:":
+        properties = _if(_has(x, "B"), _t("V")) | (x & _t("ghijkzonms")) | _t("fx")
     else:
         properties = (x & _t("ghijkBzondfems")) | _t("ux")
     return properties
@@ -562,7 +563,8 @@ _OVERHEAD = {
 }
 
 
-def _leaf_script_size(node: Miniscript) -> int:
+# one return: a return per branch is past ruff's too-many-return-statements
+def _leaf_script_size(node: Miniscript) -> int:  # sourcery skip: lift-return-into-if
     """Return the length of the script of a fragment with no subexpressions."""
     fragment = node.fragment
     keys = len(node.keys)
@@ -846,7 +848,10 @@ def _wrapper_stack(node: Miniscript) -> tuple[_Trace | None, _Trace | None]:
     return _concat(prefix, sat), prefix
 
 
-def _binary_stack(node: Miniscript) -> tuple[_Trace | None, _Trace | None]:
+# one return: a return per branch is past ruff's too-many-return-statements
+def _binary_stack(  # sourcery skip: lift-return-into-if
+    node: Miniscript,
+) -> tuple[_Trace | None, _Trace | None]:
     """Return the stack effect of a combinator, from its subexpressions'."""
     fragment = node.fragment
     (x_sat, x_dsat), (y_sat, y_dsat) = (sub._stack for sub in node.subs[:2])
@@ -937,7 +942,8 @@ def _pub_key_size(context: str) -> int:
     return 32 if context == TAPSCRIPT else 33
 
 
-def _leaf_witness(node: Miniscript) -> _Bounds:
+# one return: a return per branch is past ruff's too-many-return-statements
+def _leaf_witness(node: Miniscript) -> _Bounds:  # sourcery skip: lift-return-into-if
     """Return the witness bytes a leaf's satisfaction and dissatisfaction take.
 
     A signature is 72 bytes and a sighash byte under P2WSH -- the largest
@@ -989,7 +995,8 @@ def _wrapper_witness(node: Miniscript) -> _Bounds:
     return _Bounds(sub.sat, 1)
 
 
-def _binary_witness(node: Miniscript) -> _Bounds:
+# one return: a return per branch is past ruff's too-many-return-statements
+def _binary_witness(node: Miniscript) -> _Bounds:  # sourcery skip: lift-return-into-if
     """Return the witness bounds of a combinator."""
     fragment = node.fragment
     x, y = (sub._witness for sub in node.subs[:2])
@@ -1587,7 +1594,8 @@ def _sec(
     return sec[1:] if node.context == TAPSCRIPT else sec
 
 
-def _leaf_fragment_script(
+# one return: a return per branch is past ruff's too-many-return-statements
+def _leaf_fragment_script(  # sourcery skip: lift-return-into-if
     node: Miniscript,
     verify: bool,
     index: int,
@@ -1756,7 +1764,10 @@ def _fragment_text(wrapped: bool, node: Miniscript, subs: list[str]) -> str:
     return prefix + _plain_text(node, subs)
 
 
-def _plain_text(node: Miniscript, subs: list[str]) -> str:
+# one return: a return per branch is past ruff's too-many-return-statements
+def _plain_text(  # sourcery skip: lift-return-into-if
+    node: Miniscript, subs: list[str]
+) -> str:
     """Return a fragment written as its name and its arguments.
 
     Which arguments those are is the one thing that differs between the
@@ -2204,11 +2215,9 @@ def _read_fragment(
     if expression[pos : pos + 1] != "(":
         raise BTClibValueError("not a miniscript fragment: '(' expected after a name")
     if name in _COMBINATORS:
-        to_parse.append((name, 0, 0))
-        to_parse.append((_CLOSE, 0, 0))
+        to_parse.extend(((name, 0, 0), (_CLOSE, 0, 0)))
         for _ in range(2 if name == "andor" else 1):
-            to_parse.append((_WRAPPED_EXPR, 0, 0))
-            to_parse.append((_COMMA, 0, 0))
+            to_parse.extend(((_WRAPPED_EXPR, 0, 0), (_COMMA, 0, 0)))
         to_parse.append((_WRAPPED_EXPR, 0, 0))
         return pos + 1
     if name == "thresh":
@@ -2272,8 +2281,7 @@ def _read_more_thresh(
         if count == _MAX_THRESH_ARGUMENTS:
             err_msg = f"thresh() takes at most {_MAX_THRESH_ARGUMENTS} arguments"
             raise BTClibValueError(err_msg)
-        to_parse.append((_MORE_THRESH, count + 1, threshold))
-        to_parse.append((_WRAPPED_EXPR, 0, 0))
+        to_parse.extend(((_MORE_THRESH, count + 1, threshold), (_WRAPPED_EXPR, 0, 0)))
         return pos + 1
     if char != ")":
         raise BTClibValueError("unbalanced brackets in thresh()")
@@ -2451,8 +2459,7 @@ def _decomposed(script: bytes) -> list[tuple[int, bytes]]:
             entries.append((op_code, bytes([op_code - _OP_1 + 1])))
             continue
         if op_code in _VERIFY_FORMS:
-            entries.append((_VERIFY_FORMS[op_code], b""))
-            entries.append((_OP_VERIFY, b""))
+            entries.extend(((_VERIFY_FORMS[op_code], b""), (_OP_VERIFY, b"")))
             continue
         if _OP_0 < op_code <= _OP_PUSHDATA4:
             prefix = 1 if op_code <= 75 else 1 + 2 ** (op_code - 76)
@@ -3314,14 +3321,12 @@ def _leaf_input(
     """
     fragment = node.fragment
     if fragment == "0":
-        inputs = _Inputs(_NO_WITNESS, _NO_PUSHES)
-    elif fragment == "1":
-        inputs = _Inputs(_NO_PUSHES, _NO_WITNESS)
-    elif fragment in {"pk_k", "pk_h"}:
-        inputs = _key_input(
-            node, signatures, index, network, prv_keys, estimate=estimate
-        )
-    elif fragment in {"older", "after"}:
+        return _Inputs(_NO_WITNESS, _NO_PUSHES)
+    if fragment == "1":
+        return _Inputs(_NO_PUSHES, _NO_WITNESS)
+    if fragment in {"pk_k", "pk_h"}:
+        return _key_input(node, signatures, index, network, prv_keys, estimate=estimate)
+    if fragment in {"older", "after"}:
         met = (
             spend._older(node.threshold)
             if fragment == "older"
@@ -3332,8 +3337,8 @@ def _leaf_input(
         # Estimating, it is taken as met *and* as unknown -- the branch may
         # be the one taken, and a caller is owed the larger of the two
         satisfaction = _NO_PUSHES if estimate or met else _NO_WITNESS
-        inputs = _Inputs(satisfaction, _NO_WITNESS)
-    elif fragment in _HASH_OP_CODES:
+        return _Inputs(satisfaction, _NO_WITNESS)
+    if fragment in _HASH_OP_CODES:
         preimage = spend._preimage(fragment, node.data)
         if preimage is not None:
             satisfaction = _element(preimage)
@@ -3343,12 +3348,10 @@ def _leaf_input(
             satisfaction = _element(bytes(32))
         else:
             satisfaction = _NO_WITNESS
-        inputs = _Inputs(satisfaction, _ZERO32_PUSH)
-    else:
-        inputs = _multi_input(
-            node, signatures, index, network, prv_keys, choose, estimate=estimate
-        )
-    return inputs
+        return _Inputs(satisfaction, _ZERO32_PUSH)
+    return _multi_input(
+        node, signatures, index, network, prv_keys, choose, estimate=estimate
+    )
 
 
 def _wrapper_input(node: Miniscript, x: _Inputs) -> _Inputs:

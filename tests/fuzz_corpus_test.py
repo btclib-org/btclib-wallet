@@ -130,10 +130,14 @@ def _entry_points(tree: ast.Module) -> tuple[str, ...] | None:
 
 def _fuzz_target(tree: ast.Module) -> ast.FunctionDef | None:
     """Return the module-level `def fuzz_target(...)`, or None."""
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "fuzz_target":
-            return node
-    return None
+    return next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "fuzz_target"
+        ),
+        None,
+    )
 
 
 def _import_bindings(tree: ast.Module) -> dict[str, tuple[str, str]]:
@@ -196,7 +200,11 @@ def _resolve(spec: str) -> Any:
     return obj
 
 
-def _round_trip(spec: str, obj: Any, data: bytes) -> bool | None:
+# bool(), because `==` on `obj`, an Any, is an Any, which mypy's
+# no-any-return refuses
+def _round_trip(  # sourcery skip: remove-unnecessary-cast
+    spec: str, obj: Any, data: bytes
+) -> bool | None:
     """Return whether `obj` reserializes to `data`, or None if unchecked."""
     attr = spec.rsplit(".", 1)[-1]
     if attr == "b64decode":

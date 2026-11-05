@@ -160,7 +160,7 @@ class StubFetcher(Fetcher):
     @override
     def get_tx(self, tx_id: Octets) -> Tx:
         """Record the tx_id asked for and answer the fixed transaction."""
-        self.asked.append(bytes(tx_id).hex() if not isinstance(tx_id, str) else tx_id)
+        self.asked.append(tx_id if isinstance(tx_id, str) else bytes(tx_id).hex())
         return self.tx
 
     @override

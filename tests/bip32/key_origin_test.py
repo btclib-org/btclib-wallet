@@ -391,8 +391,8 @@ def test_from_description_refuses_padding_after_the_path() -> None:
     """What `string.whitespace` does not hold is no padding of the path."""
     description = "deadbeef/0h/1"
     expected = BIP32KeyOrigin.from_description(description)
+    err_msg = "^invalid derivation index: not ASCII decimal digits$"
     for pad in NOT_STRIPPED:
-        err_msg = "^invalid derivation index: not ASCII decimal digits$"
         with pytest.raises(BTClibValueError, match=err_msg):
             BIP32KeyOrigin.from_description(description + pad)
         with pytest.raises(BTClibValueError, match=err_msg):
