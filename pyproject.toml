@@ -331,8 +331,9 @@ filterwarnings = ["error"]
 # in their own workflows. The slowest of them in recent runs was a
 # florestad fixture's setup, 24.02 s (integration-floresta.yml run
 # 41940312092), and qa_assets_test.py's largest corpus directory took
-# 19.41 s (qa-assets.yml run 41626383297). psbt_interop_test.py sets a
-# longer bound of its own, so that its subprocess's timeout fires first.
+# 19.41 s (qa-assets.yml run 41626383297). A test whose own timeouts can
+# add up past this bound sets a longer one beside them, so that they fire
+# first.
 timeout = 300
 
 [tool.codespell]
