@@ -31,7 +31,7 @@ excluded-modules = []
 # result -- an `&` typed for one `|` binds tighter and joins only its
 # two neighbours, whose bits differ, so both drop out and REQUIRED_RULES
 # could have silently lost them. A `^` at any position survives the same
-# test and is equivalent on purpose: it also binds tighter than `|`, and
+# test and is an equivalent mutant: it also binds tighter than `|`, and
 # two disjoint bits combine the same way under `^` and under `|`.
 #
 # check_validity defaults account for another block (Sig.serialize,
