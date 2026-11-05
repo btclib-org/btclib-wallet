@@ -56,7 +56,7 @@ jobs:
     if: >-
       ${{ !github.event.pull_request.draft
       && github.event.action != 'closed' }}
-    uses: btclib-org/.github/.github/workflows/reusable-vendored-vectors.yml@7b85b373d1957dcfc1a648a21dd7233954ef410b # v2026.11.2
+    uses: btclib-org/.github/.github/workflows/reusable-vendored-vectors.yml@5be4b0fbb5231cff001a3ee0eaa8f7d82bffef11 # v2026.11.5
     # a caller's permissions: block bounds the called workflow and refuses
     # rather than trims, so its job's scopes are named here
     permissions:
