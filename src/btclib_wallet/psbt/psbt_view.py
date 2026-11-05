@@ -226,8 +226,10 @@ class PsbtView:
     def __init__(self, data: BinaryIO | Octets) -> None:
         stream: BinaryIO = BytesIO(bytes_from_octets(data)) if is_octets(data) else data
         if not stream.seekable():
-            err_msg = "a psbt view needs a seekable stream: it reads a map "
-            err_msg += "when it is asked for it, not in the order they arrive"
+            err_msg = (
+                "a psbt view needs a seekable stream: it reads a map "
+                "when it is asked for it, not in the order they arrive"
+            )
             raise BTClibValueError(err_msg)
         self.stream = stream
         # where the psbt starts, which is where the caller's cursor is: a

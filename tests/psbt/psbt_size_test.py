@@ -329,7 +329,7 @@ def spend_kind(tx_in: TxIn, psbt_in: PsbtIn) -> str:
     to take on trust from a comment.
     """
     if tx_in.script_witness.stack:
-        kind = "p2wpkh" if not psbt_in.witness_script else "p2wsh"
+        kind = "p2wsh" if psbt_in.witness_script else "p2wpkh"
         return f"p2sh-{kind}" if tx_in.script_sig else kind
     if psbt_in.redeem_script:
         return "p2sh-p2ms"

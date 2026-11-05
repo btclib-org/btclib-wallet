@@ -732,10 +732,10 @@ def partial_sigs_agg(
     psbt_in = psbt.inputs[vin_i]
     session = session_context(psbt, vin_i, thresh_pk, leaf_hash=leaf_hash)
     partial_sigs = _by_participant(psbt_in, FROST_PARTIAL_SIG, thresh_pk + leaf_hash)
-    missing = [my_id for my_id in session.ids if my_id not in partial_sigs]
-    if missing:
-        err_msg = "missing frost partial signature of participant "
-        err_msg += ", ".join(str(my_id) for my_id in missing)
+    if missing := [my_id for my_id in session.ids if my_id not in partial_sigs]:
+        err_msg = "missing frost partial signature of participant " + ", ".join(
+            str(my_id) for my_id in missing
+        )
         raise BTClibValueError(err_msg)
 
     sig = frost.partial_sig_agg([partial_sigs[my_id] for my_id in session.ids], session)

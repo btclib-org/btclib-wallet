@@ -160,7 +160,7 @@ def str_from_index_int(i: int, hardening: str = _HARDENING) -> str:
     # is not the number -- its *name*, "Sighash.ALL" where a path step
     # wants "1". Accepting a deliberate integer subclass, which is what
     # `is_integer` is for, means answering with the number it is
-    index = int(i)
+    index = int(i)  # sourcery skip: remove-unnecessary-cast
     if index < HARDENED_OFFSET:
         return str(index)
     return str(index - HARDENED_OFFSET) + hardening

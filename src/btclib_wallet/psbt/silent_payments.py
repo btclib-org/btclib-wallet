@@ -205,8 +205,7 @@ def _key_candidates(psbt_in: PsbtIn, *, script_sig_windows: bool) -> list[bytes]
     `_committed_key` keeps the one the spent script commits to.
     """
     candidates = list(psbt_in.hd_key_paths)
-    stack = _witness_stack(psbt_in)
-    if stack:
+    if stack := _witness_stack(psbt_in):
         candidates.append(stack[-1])
     if script_sig_windows:
         script_sig = psbt_in.final_script_sig
@@ -283,10 +282,14 @@ def _redeem_script(psbt_in: PsbtIn, script_hash: bytes) -> bytes | None:
         last = _last_push(psbt_in.final_script_sig)
         if last is not None:
             candidates.append(last)
-    for candidate in candidates:
-        if candidate and hash160(candidate) == script_hash:
-            return candidate
-    return None
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate and hash160(candidate) == script_hash
+        ),
+        None,
+    )
 
 
 def _is_proven_nums(psbt_in: PsbtIn, output_key: bytes) -> bool:
@@ -433,10 +436,11 @@ def eligible_pub_keys(psbt: Psbt) -> dict[int, Point]:
 
 def _scan_keys(psbt: Psbt) -> list[bytes]:
     """Return the scan key of every silent payment output, deduplicated."""
-    seen: dict[bytes, None] = {}
-    for psbt_out in psbt.outputs:
-        if psbt_out.sp_v0_info:
-            seen[psbt_out.sp_v0_info[:SP_SCAN_KEY_SIZE]] = None
+    seen: dict[bytes, None] = {
+        psbt_out.sp_v0_info[:SP_SCAN_KEY_SIZE]: None
+        for psbt_out in psbt.outputs
+        if psbt_out.sp_v0_info
+    }
     return list(seen)
 
 
@@ -729,8 +733,10 @@ def _assert_modifiable_cleared(psbt: Psbt) -> None:
     if not any(o.sp_v0_info and o.script_pub_key is not None for o in psbt.outputs):
         return
     if psbt.tx_modifiable & (INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE):
-        err_msg = "PSBT_GLOBAL_TX_MODIFIABLE still invites changes, with a silent "
-        err_msg += "payment output script already derived from what it would change"
+        err_msg = (
+            "PSBT_GLOBAL_TX_MODIFIABLE still invites changes, with a silent "
+            "payment output script already derived from what it would change"
+        )
         raise BTClibValueError(err_msg)
 
 
@@ -907,10 +913,9 @@ def set_output_scripts(psbt: Psbt) -> None:
     for scan_key in _scan_keys(psbt):
         _assert_covered(psbt, scan_key)
     scripts = output_scripts(psbt)
-    missing = [
+    if missing := [
         i for i, o in enumerate(psbt.outputs) if o.sp_v0_info and i not in scripts
-    ]
-    if missing:
+    ]:
         err_msg = f"no ECDH share to derive the script of output(s) {missing}"
         raise BTClibValueError(err_msg)
     if not scripts:

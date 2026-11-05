@@ -209,8 +209,10 @@ def _assert_valid_account_path(indexes: list[int]) -> None:
         raise BTClibValueError(err_msg)
 
     if any(index < HARDENED_OFFSET for index in indexes):
-        err_msg = "invalid BIP44 account path: purpose, coin type and account"
-        err_msg += " must be hardened"
+        err_msg = (
+            "invalid BIP44 account path: purpose, coin type and account"
+            " must be hardened"
+        )
         raise BTClibValueError(err_msg)
 
 
@@ -423,8 +425,10 @@ def _account_fingerprint(
     own = fingerprint(xkey.b58encode()) if xkey.depth == 0 else None
     if master_fingerprint is None:
         if own is None:
-            err_msg = "no master fingerprint: a key below the root cannot say"
-            err_msg += " which master key it came from"
+            err_msg = (
+                "no master fingerprint: a key below the root cannot say"
+                " which master key it came from"
+            )
             raise BTClibValueError(err_msg)
         return own
     given = bytes_from_octets(master_fingerprint, 4)

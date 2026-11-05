@@ -155,8 +155,10 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
                 err_msg += " which is no signet"
                 raise BTClibValueError(err_msg)
             if not verify_network:
-                err_msg = "a signet_challenge is what verify_network"
-                err_msg += " compares, and checks nothing with it off"
+                err_msg = (
+                    "a signet_challenge is what verify_network"
+                    " compares, and checks nothing with it off"
+                )
                 raise BTClibValueError(err_msg)
             # derived here and thrown away, so that a challenge that is no
             # script fails at the line that wrote it rather than at the

@@ -504,7 +504,7 @@ def test_core_derivation_vector(
             continue
         prv_keys: dict[str, str] = {}
         parsed = parse(descriptor, prv_keys=prv_keys)
-        assert prv_keys == {} or descriptor is private
+        assert not prv_keys or descriptor == private
         assert parsed.is_ranged == (len(scripts) > 1)
         for index, expected in enumerate(scripts):
             derived = parsed.script_pub_keys(index, prv_keys)
@@ -548,9 +548,8 @@ def test_doc_descriptor(descriptor: str) -> None:
     script_pub_keys = parse(descriptor).script_pub_keys()
     assert script_pub_keys
     for script_pub_key in script_pub_keys:
-        address = script_pub_key.address
         # p2pk and bare multisig have no address, which is not a failure
-        if address:
+        if address := script_pub_key.address:
             assert ScriptPubKey.from_address(address) == script_pub_key
 
 
@@ -1321,7 +1320,7 @@ class _ScannedPattern:
     ) -> Iterator[re.Match[str]]:
         pos = max(pos, 0)
         last = pos
-        for found in self.pattern.finditer(string, pos, endpos):
+        for found in self.pattern.finditer(string, last, endpos):
             self.work.span(last, found.end())
             last = found.end()
             yield found
@@ -5195,16 +5194,16 @@ def test_the_expansion_holds_the_derivations_core_writes(
     assert set(departures) <= set(core)
     expansion = parse(descriptor).expansion(index)
     written: dict[str, tuple[object, ...]] = {
-        key.hex(): (origin.description, sorted(hash_.hex() for hash_ in hashes))
+        key.hex(): (
+            origin.description,
+            sorted(hash_.hex() for hash_ in hashes),
+        )
         for key, (hashes, origin) in expansion.taproot_hd_key_paths.items()
+    } | {
+        key.hex(): (origin.description,)
+        for key, origin in expansion.hd_key_paths.items()
     }
-    written.update(
-        {
-            key.hex(): (origin.description,)
-            for key, origin in expansion.hd_key_paths.items()
-        }
-    )
-    assert written == {**core, **departures}
+    assert written == core | departures
 
 
 @pytest.mark.parametrize(

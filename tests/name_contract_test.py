@@ -82,10 +82,14 @@ _ENGLISH_PREDICATE: dict[str, str] = {
 
 def _promised_by(name: str) -> str | None:
     """Return the type the name promises, or None if it promises nothing."""
-    for prefix, promised in _PROMISED.items():
-        if name.startswith(prefix) or (prefix == "verify" and prefix in name):
-            return promised
-    return None
+    return next(
+        (
+            promised
+            for prefix, promised in _PROMISED.items()
+            if name.startswith(prefix) or (prefix == "verify" and prefix in name)
+        ),
+        None,
+    )
 
 
 def _named() -> dict[str, str]:
@@ -289,7 +293,7 @@ def test_check_says_nothing_here() -> None:
     question being asked: a refusal is an `assert_`, a converter is named
     for what it returns, and a query for what it answers.
     """
-    assert {d for d in _NAMED if d.rpartition(".")[2].startswith("check_")} == set()
+    assert not {d for d in _NAMED if d.rpartition(".")[2].startswith("check_")}
 
 
 @pytest.mark.parametrize("dotted", _PUBLIC_BOOLS)

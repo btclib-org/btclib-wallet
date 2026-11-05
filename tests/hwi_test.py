@@ -1170,9 +1170,8 @@ def test_btclib_runs_the_commands_hwi_publishes(tmp_path: Path) -> None:
     device = signer(hwi)
     receive = export_account(device, "m/84h/0h/0h")[0]
 
-    ran = {}
     enumerate_devices(executable=hwi)
-    ran["enumerate"] = last_cli(hwi)
+    ran = {"enumerate": last_cli(hwi)}
     device.xpub("m/84h/0h/0h")
     ran["getxpub"] = last_cli(hwi)
     device.sign_psbt(account_psbt(device)[0])

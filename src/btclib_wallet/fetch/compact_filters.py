@@ -693,12 +693,12 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 if not batch:
                     return
                 sync = self._low_work_sync(batch)
-                if sync is None:
-                    if not self._connect(batch) or not full:
-                        return
-                    continue
             else:
                 self._assert_pow(batch, sync.height + 1)
+            if sync is None:
+                if not self._connect(batch) or not full:
+                    return
+                continue
             if self._sync_batch(sync, batch, full=full):
                 continue
             sync = None
@@ -1075,7 +1075,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                     err_msg += f" {max_blocks} blocks"
                     raise FetchError(err_msg)
                 if heights:
-                    blocks.update(self._blocks(heights))
+                    blocks |= self._blocks(heights)
             return blocks
 
     @override

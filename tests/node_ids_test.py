@@ -25,4 +25,4 @@ def test_every_test_id_is_short(request: pytest.FixtureRequest) -> None:
     items = request.session.items
     assert items
     too_long = [item.nodeid[:100] for item in items if len(item.nodeid) > _MAX_LENGTH]
-    assert too_long == []
+    assert not too_long

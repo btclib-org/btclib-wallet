@@ -317,7 +317,7 @@ def test_proof_of_funds_message_binding(version: int, wire: bool, field: str) ->
     signature = built.b64encode() if wire else built
     # A hex spelling is the same message as the bytes stored in the field.
     external = msg.hex() if version == 2 else msg
-    if field in ("matching", "missing"):
+    if field in {"matching", "missing"}:
         bip322.assert_as_valid(external, case["address"], signature)
         assert bip322.verify(external, case["address"], signature)
     else:

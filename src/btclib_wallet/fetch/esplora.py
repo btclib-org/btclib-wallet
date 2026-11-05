@@ -162,8 +162,10 @@ def _checked_base_url(base_url: str) -> str:
         # `urlsplit`'s message, which can quote the credentials
         raise BTClibValueError("invalid base_url: not a url")
     if "@" in base_url:
-        err_msg = "credentials in base_url, which takes none:"
-        err_msg += " a transport of the caller's is what adds them"
+        err_msg = (
+            "credentials in base_url, which takes none:"
+            " a transport of the caller's is what adds them"
+        )
         raise BTClibValueError(err_msg)
     if split.scheme not in ("http", "https"):
         err_msg = f"invalid base_url scheme: '{split.scheme}' instead of http(s)"

@@ -935,7 +935,9 @@ def _assert_key_characters(rest: str, *, extended: bool) -> None:
         raise BTClibValueError("not a key expression")
     if steps and not extended:
         raise BTClibValueError(_UNDERIVABLE)
-    length = _assert_key_path(_split_wildcard(steps)[0])
+    # the path is checked whether or not it has a multipath step, so the
+    # call stays out of the branch below
+    length = _assert_key_path(_split_wildcard(steps)[0])  # sourcery skip: move-assign
     if "<" in rest:
         raise _MultipathKeyError(length)
 

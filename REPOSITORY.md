@@ -101,6 +101,11 @@ nothing.
 | `regtest / Regtest against Bitcoin Core` | `integration-bitcoind.yml` |
 | `lint / Dependency review` | `lint.yml`, calling `reusable-lint.yml` |
 | `lint / Sign-off` | `lint.yml`, calling `reusable-lint.yml` |
+| `sourcery / Sourcery` | `sourcery.yml`, calling `reusable-sourcery.yml` |
+
+[Section 10 of the
+standard](https://github.com/btclib-org/.github#the-set-and-its-cadence)
+says when a tree requires `sourcery / Sourcery`.
 
 A merge waits for all of these checks, except an administrator's:
 `enforce_admins` is off (*Branch protection*).
@@ -145,7 +150,8 @@ gh api -X PUT repos/btclib-org/btclib-wallet/branches/main/protection \
    {"context": "lint / Lint and type-check", "app_id": 15368},
    {"context": "regtest / Regtest against Bitcoin Core", "app_id": 15368},
    {"context": "lint / Dependency review", "app_id": 15368},
-   {"context": "lint / Sign-off", "app_id": 15368}]},
+   {"context": "lint / Sign-off", "app_id": 15368},
+   {"context": "sourcery / Sourcery", "app_id": 15368}]},
  "enforce_admins": false,
  "required_pull_request_reviews": {"dismiss_stale_reviews": true,
    "require_code_owner_reviews": false,
@@ -161,7 +167,7 @@ JSON
 The body arrives on stdin because `-f` sends every value as a string,
 where the endpoint types `app_id` as an integer.
 
-Read back on 2026-10-13:
+Read back at 2026-11-05T07:17:43Z:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet/branches/main/protection \
@@ -177,7 +183,8 @@ gh api repos/btclib-org/btclib-wallet/branches/main/protection \
 #   ["lint / Lint and type-check",15368],
 #   ["regtest / Regtest against Bitcoin Core",15368],
 #   ["lint / Dependency review",15368],
-#   ["lint / Sign-off",15368]],
+#   ["lint / Sign-off",15368],
+#   ["sourcery / Sourcery",15368]],
 #  "conversation":true,"enforce_admins":false,"linear":true,
 #  "reviews":{"dismiss_stale_reviews":true,
 #   "required_approving_review_count":1},

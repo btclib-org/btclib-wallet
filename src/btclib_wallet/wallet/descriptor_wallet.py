@@ -134,8 +134,10 @@ class DescriptorWallet(RangedWallet):
         # rather than an error. `Octets` is honoured inside btclib and
         # nowhere else, which is why the annotation has no case for it
         if isinstance(descriptors, str):
-            err_msg = "a descriptor string is not a Descriptor:"
-            err_msg += " DescriptorWallet.from_descriptor reads one"
+            err_msg = (
+                "a descriptor string is not a Descriptor:"
+                " DescriptorWallet.from_descriptor reads one"
+            )
             raise BTClibTypeError(err_msg)
         if isinstance(descriptors, Descriptor):
             by_branch = {0: descriptors}

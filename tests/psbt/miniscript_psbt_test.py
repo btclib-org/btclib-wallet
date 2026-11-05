@@ -353,7 +353,7 @@ def test_the_satisfaction_sizer_answers_for_the_branch_these_keys_build() -> Non
     psbt_in, tx_in = psbt_input(node)
     assert node.max_witness_stack == (0, 72, 72, 72, 0)
 
-    primary = estimated_input_sizes(psbt_in, tx_in, sizer=satisfaction_sizer(KEYS[0:3]))
+    primary = estimated_input_sizes(psbt_in, tx_in, sizer=satisfaction_sizer(KEYS[:3]))
     assert primary == (0, [0, 72, 72, 72, 0, len(node.script())])
     # the primary quorum is the larger branch, so this is what
     # `miniscript_sizer` would have answered too: no savings to find

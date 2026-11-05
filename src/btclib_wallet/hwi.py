@@ -818,8 +818,10 @@ class HwiSigner:
         try:
             text = octets.decode("utf-8")
         except UnicodeDecodeError as e:
-            err_msg = "hwi signmessage takes text on a command line:"
-            err_msg += " this message is not utf-8"
+            err_msg = (
+                "hwi signmessage takes text on a command line:"
+                " this message is not utf-8"
+            )
             raise BTClibValueError(err_msg) from e
         return self._answer(
             ["signmessage", "--", text, str_from_der_path(der_path)], "signature"

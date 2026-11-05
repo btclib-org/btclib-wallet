@@ -219,7 +219,7 @@ def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
         for path in sorted(base.rglob("*.py"))
         if (found := _stale_units_imported_by(path))
     }
-    assert stale == {}
+    assert not stale
 
 
 # `silent_payments` is the top-level module; `psbt.silent_payments` belongs
@@ -442,14 +442,13 @@ def _moving_file_violations(root: Path, moving: tuple[str, ...]) -> dict[str, se
                 if module.split(".")[0] == "tests"
                 for alias in aliases or [""]
             }
-            forbidden = (_units_imported_by(path, package) - set(_MOVING_UNITS)) | {
+            if forbidden := (_units_imported_by(path, package) - set(_MOVING_UNITS)) | {
                 name
                 for name in suite
                 if not any(
                     name == a or name.startswith(f"{a}.") for a in _COPIED_HELPERS
                 )
-            }
-            if forbidden:
+            }:
                 violations[path.relative_to(root).as_posix()] = forbidden
     return violations
 
@@ -581,7 +580,7 @@ def test_btclib_imports_nothing_of_btclib_wallet() -> None:
             )
         )
     }
-    assert found == {}
+    assert not found
 
 
 @pytest.mark.parametrize(

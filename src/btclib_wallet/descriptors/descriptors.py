@@ -805,10 +805,9 @@ class Provider:
         holds. A key this one knows with no origin takes the other's.
         """
         assert_type(other, Provider, "other")
-        keys = {**self.keys, **other.keys}
-        keys.update(
-            {key: origin for key, origin in self.keys.items() if origin is not None}
-        )
+        keys = {**self.keys, **other.keys} | {
+            key: origin for key, origin in self.keys.items() if origin is not None
+        }
         return Provider(
             keys=keys,
             scripts=tuple(dict.fromkeys(self.scripts + other.scripts)),
@@ -1149,13 +1148,17 @@ class Descriptor(ABC):
         if last_index < 0:
             raise BTClibValueError(f"negative last_index: {last_index}")
         last = last_index if self.is_ranged else 0
-        for index in range(last + 1):
-            if any(
-                candidate.script == script
-                for candidate in self.script_pub_keys(index, prv_keys)
-            ):
-                return index
-        return None
+        return next(
+            (
+                index
+                for index in range(last + 1)
+                if any(
+                    candidate.script == script
+                    for candidate in self.script_pub_keys(index, prv_keys)
+                )
+            ),
+            None,
+        )
 
     def expansion(self, index: int = 0, prv_keys: PrvKeys | None = None) -> Expansion:
         """Return what the descriptor expanded at `index` tells a psbt.
@@ -2986,7 +2989,7 @@ def _solved(script: bytes) -> tuple[str, list[bytes]]:  # noqa: PLR0911
         and script[1] + 2 == size
     ):
         version, program = (0 if first == b"\x00" else script[0] - 0x50), script[2:]
-        if version == 0 and len(program) in (20, 32):
+        if version == 0 and len(program) in {20, 32}:
             kind = (
                 "witness_v0_keyhash" if len(program) == 20 else "witness_v0_scripthash"
             )
@@ -2994,7 +2997,7 @@ def _solved(script: bytes) -> tuple[str, list[bytes]]:  # noqa: PLR0911
         if version == 1 and len(program) == _X_ONLY_SIZE:
             return "witness_v1_taproot", [program]
         return ("witness_unknown" if version else "nonstandard"), []
-    if size in (35, 67) and script[0] == size - 2 and script[-1] == _OP_CHECKSIG:
+    if size in {35, 67} and script[0] == size - 2 and script[-1] == _OP_CHECKSIG:
         pub_key = script[1:-1]
         if _sec_size(pub_key) == len(pub_key):
             return "pubkey", [pub_key]
@@ -3094,9 +3097,12 @@ def _inferred_miniscript(
 ) -> Miniscript | None:
     """Return the sane miniscript a script is, None where it is none."""
     tapscript = context == _P2TR
-    key_hashes: dict[Octets, Octets] = {}
-    for key_hash, sec in (known.by_x_only_hash if tapscript else known.by_hash).items():
-        key_hashes[key_hash] = sec[1:] if tapscript else sec
+    key_hashes: dict[Octets, Octets] = {
+        key_hash: sec[1:] if tapscript else sec
+        for key_hash, sec in (
+            known.by_x_only_hash if tapscript else known.by_hash
+        ).items()
+    }
     try:
         read = _miniscript_from_script(
             script, _MINISCRIPT_CONTEXTS[context], key_hashes
@@ -3326,7 +3332,8 @@ def _inferred_tr(
     return RawTrDescriptor(_inferred_x_only(output_key, known), network=network)
 
 
-def _inferred(  # noqa: C901, PLR0911, PLR0912
+# low-code-quality measures the complexity the noqa already declines
+def _inferred(  # noqa: C901, PLR0911, PLR0912  # sourcery skip: low-code-quality
     script: bytes, context: str, known: _Known, network: str
 ) -> Descriptor | None:
     """Return the descriptor of a script in its context, Core's `InferScript`.

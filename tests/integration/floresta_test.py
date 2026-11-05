@@ -135,7 +135,9 @@ def payment(stack: FlorestaStack) -> Payment:
 @pytest.fixture(params=["plain", "tls"])
 def tls(request: pytest.FixtureRequest) -> bool:
     """Name each of the server's ports in turn."""
-    return bool(request.param == "tls")
+    # bool(), because `==` on `request.param`, an Any, is an Any, which
+    # mypy's no-any-return refuses
+    return bool(request.param == "tls")  # sourcery skip: remove-unnecessary-cast
 
 
 @pytest.fixture

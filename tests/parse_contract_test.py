@@ -170,9 +170,9 @@ def test_a_key_origin_is_a_fingerprint_and_then_indexes() -> None:
     junk octets are one more index; and `parse` takes `Octets` rather than
     `BinaryData`, so there is no stream to leave alone.
     """
+    err_msg = "not enough data for the master fingerprint"
     for check_validity in (True, False):
         for raw in (b"", b"\x00", b"\x00\x00\x00"):
-            err_msg = "not enough data for the master fingerprint"
             with pytest.raises(BTClibValueError, match=err_msg):
                 BIP32KeyOrigin.parse(raw, check_validity=check_validity)
 

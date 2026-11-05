@@ -13,8 +13,7 @@ name: scorecard
 
 # the action's own triggers and not section 10's: ossf/scorecard-action
 # supports push and schedule on the default branch and calls
-# workflow_dispatch experimental, which is the one exception to
-# `workflow_dispatch` on everything
+# workflow_dispatch experimental, so this takes no workflow_dispatch
 on:
   push:
     branches: [main]
