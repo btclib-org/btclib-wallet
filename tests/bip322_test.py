@@ -174,7 +174,7 @@ def test_required_and_upgradeable_rules_are_every_flag_named() -> None:
 
     Each is built as one long `|` chain over distinct-bit `ScriptFlag`
     members. An `&` typed for one `|` binds tighter and joins only its
-    two neighbours; their bits differ, so both flags drop out. Nothing
+    two neighbours; their bits differ, so both drop out. Nothing
     before this test called either name to notice a REQUIRED_RULES that
     dropped flags it names.
     """
