@@ -30,7 +30,7 @@ dependencies = [
     # the protocol package every module here is written against. The
     # floor is the first release with `ScriptFlag.MINIMALIF_ALL`, which
     # `bip322` needs to hold legacy scripts to BIP322's MINIMALIF rule:
-    # below it this tree fails at import.
+    # below it `bip322` fails at import.
     #
     # It carries the `_var` names this tree calls (`is_p2ms_var`,
     # `output_pubkey_from_merkle_root_var` and the others), imports `ecc`
