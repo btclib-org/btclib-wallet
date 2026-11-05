@@ -175,8 +175,8 @@ def test_required_and_upgradeable_rules_are_every_flag_named() -> None:
     Each is built as one long `|` chain over distinct-bit `ScriptFlag`
     members: an `&` anywhere in that chain collapses everything already
     accumulated to the left of it against a single bit, and nothing
-    before this test called either name to notice a REQUIRED_RULES a
-    hundred times smaller than the flags it names.
+    before this test called either name to notice a REQUIRED_RULES that
+    dropped flags it names.
     """
     required = ALL_FLAGS
     for flag in (
