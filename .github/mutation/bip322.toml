@@ -19,11 +19,13 @@ excluded-modules = []
 # `bip322-survivors.txt` the workflow uploads, at btclib's run 34833390559. Most
 # survivors are the deferred-annotation class fetch.toml documents, the
 # keyword-only marker, or an `is` CPython's small-int cache makes
-# indistinguishable from `==`. A `^` for a `|` in the two flag chains
-# survives too, equivalent as the first finding below says. Every other
-# mutant of a `|` here dies, which is the point of that finding: this is
-# the one scope in this directory whose `|` is arithmetic in the places
-# that matter, so no operator filter belongs in it.
+# indistinguishable from `==`. A `^` for a `|` between flag sets survives
+# too, in the two chains and in `REQUIRED_RULES | UPGRADEABLE_RULES`,
+# whose bits are disjoint: equivalent, as the first finding below says.
+# Every other mutant of a `|` here dies, which is the point of that
+# finding: this is the one scope in this directory whose `|` is
+# arithmetic in the places that matter, so no operator filter belongs in
+# it.
 #
 # The most consequential real gap this session found:
 # REQUIRED_RULES and UPGRADEABLE_RULES are each a `|` chain over distinct-
