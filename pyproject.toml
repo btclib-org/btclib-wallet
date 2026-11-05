@@ -28,13 +28,16 @@ authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
 requires-python = ">=3.11"
 dependencies = [
     # the protocol package every module here is written against. The
-    # floor is the release whose `_var` names this tree calls
-    # (`is_p2ms_var`, `output_pubkey_from_merkle_root_var` and the
-    # others) and which imports `ecc` in place of `btclib_ecc`: below it
-    # this tree fails at import. It carries `Tx.parse_without_witness`
+    # floor is the first release with `ScriptFlag.MINIMALIF_ALL`, which
+    # `bip322` needs to hold legacy scripts to BIP322's MINIMALIF rule:
+    # below it `bip322` fails at import.
+    #
+    # It carries the `_var` names this tree calls (`is_p2ms_var`,
+    # `output_pubkey_from_merkle_root_var` and the others), imports `ecc`
+    # in place of `btclib_ecc`, and carries `Tx.parse_without_witness`
     # (issue #196) and the fixes of GHSA-9r97-9x22-2pp4,
     # GHSA-rw95-w37r-537w, GHSA-9fr5-46w5-5f9r and GHSA-c6h8-5hv5-3gv7
-    "btclib>=2026.10.24",
+    "btclib>=2026.10.30",
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `ecc.curves`, `ecc.ecc` less `bms`, which stays btclib's
     # own, `ecc.hashes`'s `tagged_hash` and `reduce_to_hlen`, and
@@ -113,7 +116,7 @@ classifiers = [
 # rather than a dependency for btclib's reason: every delegation declines
 # where the bindings are absent, and the Python arithmetic answers
 # instead. The btclib floor is the one of `dependencies`
-secp256k1 = ["btclib[secp256k1]>=2026.10.24", "btclib-secp256k1>=0.8.0.10"]
+secp256k1 = ["btclib[secp256k1]>=2026.10.30", "btclib-secp256k1>=0.8.0.10"]
 
 [project.urls]
 homepage = "https://btclib.org/btclib-wallet/"
@@ -134,7 +137,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.10.24", "btclib-secp256k1>=0.8.0.10"]
+bindings = ["btclib[secp256k1]>=2026.10.30", "btclib-secp256k1>=0.8.0.10"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was

@@ -19,21 +19,24 @@ excluded-modules = []
 # `bip322-survivors.txt` the workflow uploads, at btclib's run 34833390559. Most
 # survivors are the deferred-annotation class fetch.toml documents, the
 # keyword-only marker, or an `is` CPython's small-int cache makes
-# indistinguishable from `==`. Every other mutant of a `|` here dies,
-# which is the point of the first finding below: this is the one scope
-# in this directory whose `|` is arithmetic in the places that matter,
-# so no operator filter belongs in it.
+# indistinguishable from `==`. A `^` for a `|` between flag sets survives
+# too, in the two chains and in `REQUIRED_RULES | UPGRADEABLE_RULES`,
+# whose bits are disjoint: equivalent, as the first finding below says.
+# Every other mutant of a `|` here dies, which is the point of that
+# finding: this is the one scope in this directory whose `|` is
+# arithmetic in the places that matter, so no operator filter belongs in
+# it.
 #
 # The most consequential real gap this session found:
-# REQUIRED_RULES and UPGRADEABLE_RULES are each a `|` chain over distinct-
-# bit ScriptFlag members, and nothing called either name to check the
-# result -- an `&` at any position collapses everything accumulated left
-# of it against a single bit, so REQUIRED_RULES could have silently been
-# one flag wide instead of the seven the module lists. A `^` at the first
-# position of UPGRADEABLE_RULES survives the same test and is equivalent
-# there on purpose: two disjoint bits combine the same way under `^` and
-# under `|`, which is not true once a third term brings the accumulator
-# past a single bit -- exactly why the later positions in both chains die.
+# REQUIRED_RULES and UPGRADEABLE_RULES are each a `|` chain whose
+# operands have disjoint bits: ScriptFlag members, and first in
+# REQUIRED_RULES ALL_FLAGS, a set of them rather than one. Nothing called
+# either name to check the result -- an `&` typed for one `|` binds
+# tighter and joins only its two neighbours, whose bits are disjoint, so
+# both drop out and REQUIRED_RULES could have silently lost them. A `^`
+# at any position survives the same test and is an equivalent mutant: it
+# also binds tighter than `|`, and disjoint bits combine the same way
+# under `^` and under `|`.
 #
 # check_validity defaults account for another block (Sig.serialize,
 # b64encode, b64decode, assert_as_valid's `legacy` parameter), the same

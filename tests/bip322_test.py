@@ -77,18 +77,6 @@ BTCD = {
         "generated-negative-test-vectors.json",
     )
 }
-_BTCD_XFAIL = {
-    (
-        "generated-negative-test-vectors.json",
-        "error",
-        12,
-    ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
-    (
-        "generated-negative-test-vectors.json",
-        "error",
-        13,
-    ): "BIP322 requires MINIMALIF in legacy P2SH; btclib applies it only to witness scripts",
-}
 
 
 def _btcd_params() -> list[Any]:
@@ -97,15 +85,6 @@ def _btcd_params() -> list[Any]:
         pytest.param(
             group,
             case,
-            marks=(
-                pytest.mark.xfail(
-                    reason=_BTCD_XFAIL[name, group, i],
-                    strict=True,
-                    raises=AssertionError,
-                )
-                if (name, group, i) in _BTCD_XFAIL
-                else ()
-            ),
             id=vector_id(i, name, group, case.get("description", case.get("type"))),
         )
         for name, groups in BTCD.items()
@@ -193,12 +172,12 @@ def _ids(group: str) -> list[str]:
 def test_required_and_upgradeable_rules_are_every_flag_named() -> None:
     """The two flag sets, against the OR of what each lists by name.
 
-    Each is built as one long `|` chain over distinct-bit `ScriptFlag`
-    members, seven and five of them respectively: an `&` anywhere in
-    that chain collapses everything already accumulated to the left of
-    it against a single bit, and nothing before this test called either
-    name to notice a REQUIRED_RULES a hundred times smaller than the
-    seven flags it names.
+    Each is built as one long `|` chain whose operands have disjoint
+    bits: `ScriptFlag` members, and first in REQUIRED_RULES `ALL_FLAGS`,
+    a set of them rather than one. An `&` typed for one `|` binds
+    tighter and joins only its two neighbours; their bits are disjoint,
+    so both drop out. Nothing before this test called either name to
+    notice a REQUIRED_RULES that dropped flags it names.
     """
     required = ALL_FLAGS
     for flag in (
@@ -208,6 +187,7 @@ def test_required_and_upgradeable_rules_are_every_flag_named() -> None:
         ScriptFlag.MINIMALDATA,
         ScriptFlag.CLEANSTACK,
         ScriptFlag.MINIMALIF,
+        ScriptFlag.MINIMALIF_ALL,
         ScriptFlag.CONST_SCRIPTCODE,
     ):
         required |= flag

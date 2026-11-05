@@ -709,8 +709,7 @@ plus the `\n` the `end-of-file-fixer` hook added, so our blob is
 
 The BIP322 corpus of btcsuite/btcd#2521
 is run by `tests/bip322_test.py`, including its expected invalid and
-inconclusive outcomes. Legacy P2SH cases needing BIP322's MINIMALIF
-interpreter rule remain strict expected failures under issue #493.
+inconclusive outcomes.
 
 The files are taken from `503719c950953906a8fad9286b3b51aef5ff152b`,
 the head of btcsuite/btcd#2521. Each `commit` is the last one touching

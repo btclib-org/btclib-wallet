@@ -69,12 +69,12 @@ consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
 CLEANSTACK, MINIMALIF and CONST_SCRIPTCODE for the required ones, and the
 ``DISCOURAGE_`` family for the upgradeable ones -- the backticks because a
 name ending in an underscore is a link reference to docutils, which
-sphinx runs with `-W`. MINIMALIF falls short of the BIP: the
-engine applies MINIMALIF to witness v0 scripts, and tapscript has its own
-consensus rule, so a legacy P2SH script is not held to it. Issue #493
-tracks that gap. CONST_SCRIPTCODE refuses OP_CODESEPARATOR only in legacy
-scripts; the revealed P2WSH and tapscript programs are decoded through
-btclib and checked for that opcode here. Two rules of the list are not
+sphinx runs with `-W`. Core's MINIMALIF reaches witness v0 scripts
+only, and in tapscript the rule is consensus, so MINIMALIF_ALL, which
+is btclib's and not Core's, holds legacy and P2SH scripts to it too.
+CONST_SCRIPTCODE refuses OP_CODESEPARATOR only in legacy scripts; the
+revealed P2WSH and tapscript programs are decoded through btclib and
+checked for that opcode here. Two rules of the list are not
 flags. The block's limit on sigop cost is checked by counting `to_spend`
 and `to_sign` together with `sig_op_cost`. The other is "all signatures
 MUST use SIGHASH_ALL", which no set of flags can express:
@@ -199,6 +199,7 @@ REQUIRED_RULES = (
     | ScriptFlag.MINIMALDATA
     | ScriptFlag.CLEANSTACK
     | ScriptFlag.MINIMALIF
+    | ScriptFlag.MINIMALIF_ALL
     | ScriptFlag.CONST_SCRIPTCODE
 )
 
