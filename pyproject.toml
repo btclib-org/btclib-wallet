@@ -28,13 +28,16 @@ authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
 requires-python = ">=3.11"
 dependencies = [
     # the protocol package every module here is written against. The
-    # floor is the release whose `_var` names this tree calls
-    # (`is_p2ms_var`, `output_pubkey_from_merkle_root_var` and the
-    # others) and which imports `ecc` in place of `btclib_ecc`: below it
-    # this tree fails at import. It carries `Tx.parse_without_witness`
+    # floor is the first release with `ScriptFlag.MINIMALIF_ALL`, which
+    # `bip322` needs to hold legacy scripts to BIP322's MINIMALIF rule:
+    # below it this tree fails at import.
+    #
+    # It carries the `_var` names this tree calls (`is_p2ms_var`,
+    # `output_pubkey_from_merkle_root_var` and the others), imports `ecc`
+    # in place of `btclib_ecc`, and carries `Tx.parse_without_witness`
     # (issue #196) and the fixes of GHSA-9r97-9x22-2pp4,
     # GHSA-rw95-w37r-537w, GHSA-9fr5-46w5-5f9r and GHSA-c6h8-5hv5-3gv7
-    "btclib>=2026.10.24",
+    "btclib>=2026.10.30",
     # the curve arithmetic and the signature schemes this tree imports
     # directly: `ecc.curves`, `ecc.ecc` less `bms`, which stays btclib's
     # own, `ecc.hashes`'s `tagged_hash` and `reduce_to_hlen`, and

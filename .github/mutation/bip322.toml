@@ -29,7 +29,7 @@ excluded-modules = []
 # bit ScriptFlag members, and nothing called either name to check the
 # result -- an `&` at any position collapses everything accumulated left
 # of it against a single bit, so REQUIRED_RULES could have silently been
-# one flag wide instead of the seven the module lists. A `^` at the first
+# one flag wide instead of every flag the module lists. A `^` at the first
 # position of UPGRADEABLE_RULES survives the same test and is equivalent
 # there on purpose: two disjoint bits combine the same way under `^` and
 # under `|`, which is not true once a third term brings the accumulator

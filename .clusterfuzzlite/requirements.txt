@@ -8,9 +8,9 @@ bitcoin-core-rpc==2026.10.17 \
     --hash=sha256:4e8491c47f9d430024d70511f2714c367d81f17534f8d8e93876dd085aa917b1 \
     --hash=sha256:5ee180b85c9427c0c143c3e310d0e19df2305e63af7548cdcbfe97ae066de554
     # via btclib-wallet
-btclib==2026.10.28 \
-    --hash=sha256:82bb3907da76137db202a736e40f4a327192310247cfe3939e81c54addb1e2e5 \
-    --hash=sha256:d7c725ab186cbe6a8dc68ce2af85c9c9694d504d56060e98a6eb3c9ba585a0fc
+btclib==2026.10.30 \
+    --hash=sha256:4aeeacbc0218721e90a61c95daa5b17b91b0625deb819773fc405c11da9d0289 \
+    --hash=sha256:c79668e82f543b87d302b6c93aa46009caf4b0d19ee7bd6fde429846da606a5b
     # via btclib-wallet
 ecc==2026.11.2 \
     --hash=sha256:e8182f801cced9f451fcbb52c5748f19b7038b041e8e7808d5fe8e546592bfcf \
