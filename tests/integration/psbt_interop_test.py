@@ -412,6 +412,12 @@ def _bitcoin_s_batch(cases: list[dict[str, Any]], command: list[str]) -> dict[st
     return execution
 
 
+# Twice the subprocess's own timeout, so that a hung bitcoin-s reaches
+# _bitcoin_s_batch's TimeoutExpired handler, which keeps its output in the
+# report, before pytest-timeout ends the test. The whole test took at most
+# 11.18 s on CI (qa-assets.yml runs 41090162761, 41112304699 and
+# 41626383297), and the job's timeout-minutes, 30, is above this bound
+@pytest.mark.timeout(2 * _TIMEOUT)
 def test_generated_psbts_against_bitcoin_s_and_core(
     node: BitcoinCoreRpcClient, tmp_path: Path
 ) -> None:

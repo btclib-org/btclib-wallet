@@ -326,6 +326,13 @@ filterwarnings = ["error"]
 # macOS machine at a one-minute load average of 27, measured with
 #
 #     uv run pytest -n 3 --durations=20
+#
+# The integration tests, which those runs skip, run under the same bound
+# in their own workflows. The slowest of them in recent runs was a
+# florestad fixture's setup, 24.02 s (integration-floresta.yml run
+# 41940312092), and qa_assets_test.py's largest corpus directory took
+# 19.41 s (qa-assets.yml run 41626383297). psbt_interop_test.py sets a
+# longer bound of its own, so that its subprocess's timeout fires first.
 timeout = 300
 
 [tool.codespell]
