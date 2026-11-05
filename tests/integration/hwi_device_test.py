@@ -133,7 +133,7 @@ def test_hwi_answers_the_contract(device: HwiSigner) -> None:
 
 # Up to four HWI calls, each bounded by DEFAULT_TIMEOUT: enumerate where
 # this test is the first to ask for `device`, getxpub, and displayaddress
-# twice. Four of them pass the suite's 300 s, so the bound here is one
+# twice. Four of them pass the suite's `timeout`, so the bound here is one
 # call more. Its call took at most 1.73 s on CI (integration-hwi.yml run
 # 41821395411)
 @pytest.mark.timeout(5 * DEFAULT_TIMEOUT)
@@ -158,8 +158,8 @@ def test_the_device_shows_the_address_the_descriptor_describes(
 
 
 # Three HWI calls, each bounded by DEFAULT_TIMEOUT: enumerate for
-# `regtest_device`, getxpub and signtx, which pass the suite's 300 s. The
-# bound here is one call more, which also covers bitcoind's start for
+# `regtest_device`, getxpub and signtx, which pass the suite's `timeout`.
+# The bound here is one call more, which also covers bitcoind's start for
 # `node`, bounded by conftest.py's _STARTUP_TIMEOUT, and the node's calls.
 # Its call took at most 3.26 s on CI (integration-hwi.yml run 41768268590)
 @pytest.mark.timeout(4 * DEFAULT_TIMEOUT)
