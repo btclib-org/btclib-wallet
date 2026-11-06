@@ -19,7 +19,7 @@ package's own exceptions are promised, and `_call` below is the line that
 makes it true.
 """
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, cast
 
 from bitcoin_core_rpc import (
@@ -428,26 +428,12 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         first = block_header_height(start_height)
         self._verify_once()
         tip_id = self._best_block_hex()
-        blocks: list[tuple[BlockRef, list[Tx]]] = []
-        block_hex, height = tip_id, None
-        while True:
-            ref, txs, parent = self._history_block(block_hex, height, elements)
-            if height is None:
-                first = min(first, ref.height)
-            blocks.append((ref, txs))
-            if ref.height == first:
-                break
-            block_hex, height = parent, ref.height - 1
-        confirmed = [HistoryTx(tx, ref) for ref, txs in reversed(blocks) for tx in txs]
-        unconfirmed = [
-            HistoryTx(tx, None) for tx in self._history_mempool(elements, tip_id)
-        ]
-        if self._best_block_hex() != tip_id:
-            raise FetchError("the tip moved while the history was read")
-        return ScriptHistory(
-            start=blocks[-1][0],
-            tip=blocks[0][0],
-            txs=(*confirmed, *unconfirmed),
+        return _core_history(
+            tip_id,
+            first,
+            lambda block_hex, height: self._history_block(block_hex, height, elements),
+            lambda: self._history_mempool(elements, tip_id),
+            self._best_block_hex,
         )
 
     def _best_block_hex(self) -> str:
@@ -465,21 +451,8 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         parent is `""` for the genesis block.
         """
         reply = self._call("getblock", [block_hex, 3], max_body_size=_MAX_LARGE_REPLY)
-        with fetch_errors(f"getblock {block_hex}"):
-            answered = _member(reply, "hash")
-            if answered != block_hex:
-                raise BTClibValueError(f"the answer is block {answered}")
-            answered = _member(reply, "height")
-            if not is_integer(answered) or (height is not None and answered != height):
-                raise BTClibValueError(f"the answer is at height {answered}")
-            txs = [
-                tx_from_raw(_member(entry, "hex"), _member(entry, "txid"), self.network)
-                for entry in _member(reply, "tx")
-                if _touches(entry, elements)
-            ]
-            parent = str(reply.get("previousblockhash", ""))
-            ref = BlockRef(cast(int, answered), bytes_from_octets(block_hex, 32))
-        return ref, txs, parent
+        source = f"getblock {block_hex}"
+        return _block_history(reply, block_hex, height, elements, self.network, source)
 
     def _history_mempool(self, elements: frozenset[bytes], tip_id: str) -> list[Tx]:
         """Return the mempool's transactions touching `elements`."""
@@ -497,21 +470,9 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                     raise
                 continue
             mempool.append(tx_from_raw(raw, tx_id, self.network))
-        if not mempool:
-            return []
-        ours = {
-            OutPoint(tx.id, vout)
-            for tx in mempool
-            for vout, tx_out in enumerate(tx.vout)
-            if tx_out.script_pub_key.script in elements
-        }
-        ours |= self._history_unspent(elements, tip_id)
-        return [
-            tx
-            for tx in mempool
-            if any(tx_out.script_pub_key.script in elements for tx_out in tx.vout)
-            or any(tx_in.prev_out in ours for tx_in in tx.vin)
-        ]
+        return _mempool_touching(
+            mempool, elements, lambda: self._history_unspent(elements, tip_id)
+        )
 
     def _history_unspent(
         self, elements: frozenset[bytes], tip_id: str
@@ -531,6 +492,109 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 OutPoint(_member(utxo, "txid"), _member(utxo, "vout"))
                 for utxo in _member(reply, "unspents")
             }
+
+
+# what reads one block for `_core_history`: its hash and the height the walk
+# expects, `None` for the tip, to the block, its transactions touching the
+# scripts and its parent's hash
+_BlockReader = Callable[[str, int | None], tuple[BlockRef, list[Tx], str]]
+
+
+def _core_history(
+    tip_hex: str,
+    first: int,
+    read_block: _BlockReader,
+    read_mempool: Callable[[], list[Tx]],
+    best_block_hex: Callable[[], str],
+) -> ScriptHistory:
+    """Return the history a Core node answers, over RPC or over `-rest`.
+
+    The blocks are walked down from the tip `tip_hex` through each one's
+    parent, so the walk stays on the chain of that tip whatever the node
+    switches to meanwhile, down to `first` or to the tip's height where
+    that is lower. The mempool is read after them, and the tip again
+    last: a tip that moved is a `FetchError`.
+    """
+    blocks: list[tuple[BlockRef, list[Tx]]] = []
+    block_hex, height = tip_hex, None
+    while True:
+        ref, txs, parent = read_block(block_hex, height)
+        if height is None:
+            first = min(first, ref.height)
+        blocks.append((ref, txs))
+        if ref.height == first:
+            break
+        block_hex, height = parent, ref.height - 1
+    confirmed = [HistoryTx(tx, ref) for ref, txs in reversed(blocks) for tx in txs]
+    unconfirmed = [HistoryTx(tx, None) for tx in read_mempool()]
+    if best_block_hex() != tip_hex:
+        raise FetchError("the tip moved while the history was read")
+    return ScriptHistory(
+        start=blocks[-1][0],
+        tip=blocks[0][0],
+        txs=(*confirmed, *unconfirmed),
+    )
+
+
+def _block_history(
+    reply: Any,
+    block_hex: str,
+    height: int | None,
+    elements: frozenset[bytes],
+    network: str,
+    source: str,
+) -> tuple[BlockRef, list[Tx], str]:
+    """Return a block, its transactions touching `elements`, and its parent.
+
+    `reply` is the block as Core renders it with the output each input
+    spends: `getblock` at verbosity 3, and `-rest`'s `/block/<hash>.json`.
+    `height` is the one the walk expects, or `None` for the tip. The
+    parent is `""` for the genesis block.
+    """
+    with fetch_errors(source):
+        answered = _member(reply, "hash")
+        if answered != block_hex:
+            raise BTClibValueError(f"the answer is block {answered}")
+        answered = _member(reply, "height")
+        if not is_integer(answered) or (height is not None and answered != height):
+            raise BTClibValueError(f"the answer is at height {answered}")
+        txs = [
+            tx_from_raw(_member(entry, "hex"), _member(entry, "txid"), network)
+            for entry in _member(reply, "tx")
+            if _touches(entry, elements)
+        ]
+        parent = str(reply.get("previousblockhash", ""))
+        ref = BlockRef(cast(int, answered), bytes_from_octets(block_hex, 32))
+    return ref, txs, parent
+
+
+def _mempool_touching(
+    mempool: list[Tx],
+    elements: frozenset[bytes],
+    unspent: Callable[[], set[OutPoint]],
+) -> list[Tx]:
+    """Return the transactions of `mempool` touching `elements`.
+
+    A mempool input names an output and not its script, so the outputs it
+    may spend are those `unspent` answers the scripts hold in the chain,
+    asked only where the mempool holds any, and those the mempool's own
+    transactions pay to them.
+    """
+    if not mempool:
+        return []
+    ours = {
+        OutPoint(tx.id, vout)
+        for tx in mempool
+        for vout, tx_out in enumerate(tx.vout)
+        if tx_out.script_pub_key.script in elements
+    }
+    ours |= unspent()
+    return [
+        tx
+        for tx in mempool
+        if any(tx_out.script_pub_key.script in elements for tx_out in tx.vout)
+        or any(tx_in.prev_out in ours for tx_in in tx.vin)
+    ]
 
 
 def _member(reply: Any, name: str) -> Any:

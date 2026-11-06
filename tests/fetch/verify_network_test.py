@@ -121,7 +121,9 @@ _QUESTIONS: dict[str, Callable[[Fetcher], object]] = {
 # three of `bitcoin_core_test.py`, `electrum_test.py` and `esplora_test.py`,
 # `test_get_balance_verifies_the_network_before_asking_the_balance` in
 # `esplora_test.py`,
-# `test_get_history_verifies_the_network_first` in `history_test.py`, and
+# `test_get_history_verifies_the_network_first` in `history_test.py`,
+# `bitcoin_core_rest_history_test.py`, `electrum_history_test.py` and
+# `esplora_history_test.py`, and
 # `test_sync_and_scan_blocks_verify_the_network_first` in
 # `compact_filters_test.py`
 _ELSEWHERE = {
@@ -130,12 +132,15 @@ _ELSEWHERE = {
     ("BitcoinCoreFetcher", "broadcast"),
     ("BitcoinCoreFetcher", "estimate_fee"),
     ("BitcoinCoreFetcher", "get_history"),
+    ("BitcoinCoreRestFetcher", "get_history"),
+    ("ElectrumFetcher", "get_history"),
     ("ElectrumFetcher", "estimate_fee"),
     ("ElectrumFetcher", "get_block_headers"),
     ("ElectrumFetcher", "get_tx_merkle"),
     ("EsploraFetcher", "broadcast"),
     ("EsploraFetcher", "estimate_fee"),
     ("EsploraFetcher", "get_balance"),
+    ("EsploraFetcher", "get_history"),
 }
 
 

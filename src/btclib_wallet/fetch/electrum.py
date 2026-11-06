@@ -445,7 +445,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         line = self._round_trip(
             electrum.scripthash_get_history_request(request_id, scripthash)
         )
-        with fetch_errors(f"scripthash {scripthash} history"):
+        with fetch_errors(f"scripthash {scripthash}"):
             return electrum.scripthash_get_history_response(line, request_id)
 
     def estimate_fee(self, target: int) -> FeeQuote:

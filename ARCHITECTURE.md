@@ -182,9 +182,10 @@ code takes a `Fetcher` and never branches on which one it got.
 its `scan_blocks` does.
 `Broadcaster`, `FeeEstimator`, `BalanceReader` and `HistoryReader` are
 further protocols a backend may or may not satisfy:
-`BitcoinCoreRestFetcher` answers none of them. Core's `-rest` interface
-is read-only and carries no fee estimation and no address index, and
-the fetcher does not read a script's history.
+`BitcoinCoreRestFetcher` answers only `HistoryReader`. Core's `-rest`
+interface is read-only and carries no fee estimation and no address
+index, so the fetcher reads a script's history from the blocks and the
+mempool.
 `fetch.transport` is the client seam — one HTTP connection per call, one
 kept open across calls, and `TlsLineTransport` for the Electrum line
 protocol — and `fetch.peer_transport` is the seam of the p2p peer:
