@@ -391,9 +391,9 @@ one is.
 ```text
 repo    bitcoin/bips
 path    bip-0375/bip375_test_vectors.json
-commit  7ccde10a3c572b75d8fa5a584bf25463156cdcb3  2026-09-12
-blob    d08d943e46c1f00d891d046db070da192549d171
-pulled  2026-08-25, re-pinned to the tip 2026-09-29
+commit  434a4d26599b8712f8823f390b8a67df67a3c0a8  2026-11-04
+blob    e05a0c2d853f386d1151e2e49f51a06908c7434f
+pulled  2026-08-25, re-pinned to the tip 2026-11-06
 behind  0 revisions; that commit is the tip of the path
 ```
 
@@ -430,6 +430,14 @@ previous pin: "psbt structure: incorrect byte length for
 PSBT_OUT_SP_V0_LABEL field", a field-shape violation
 `tests/psbt/bip375_test.py`'s `_REFUSED` now names beside the others.
 
+Re-pinned to the tip on 2026-11-06, the file as merged by PR
+bitcoin/bips#2207 (merge `d4dea2a230be9f91f89f789a79f4e53137fe5498`). The
+`commit` above is that pull request's own, the last to touch the path, and
+the weekly job compares a pin with that one. BIP375's changelog gives it
+as "Correct labeled test vectors and reference: include labeled-spend key
+in PSBT_OUT_SP_V0_INFO", and the valid "two sp outputs - output 0 uses
+label=3 / output 1 uses label=1" is replaced by the case below.
+
 All 23 invalid psbts are refused and all 20 valid ones pass, and it takes
 two test modules to say so: `tests/psbt/bip375_test.py` holds the codec to
 the file -- the field shapes, which is six of the seven "PSBT Structure"
@@ -441,20 +449,14 @@ its own instead, naming the one check it isolates itself to -- one case
 does, "input eligibility: bare OP_2 script is not a segwit v2 witness
 program".
 
-**The file and the BIP disagree about one rule, and the file wins here.**
-BIP375 says the codes of one scan key are sorted lexicographically to
-determine the ordering of `k`; the vectors' output scripts are the ones
-*output index* order derives. The case that decides it is published as
-valid -- "two sp outputs - output 0 uses label=3 / output 1 uses label=1"
--- and its two spend keys are in descending order, so the two rules assign
-`k` the other way round and only one of them reproduces the scripts the
-file carries. Neither reading of "the codes" rescues the prose: sorting
-the 66-byte info fields and sorting the bech32m address strings both order
-that pair the same wrong way. Upstream's own
-`bip-0375/validator/validate_psbt.py` walks index order too, so two of its
-three artefacts agree and the prose is the outlier.
-`test_the_k_ordering_is_the_output_index` pins that in both directions, so
-a revision settling it the other way fails rather than passing quietly.
+**The `k` of an output follows BIP375's sort**: within one scan key, by
+spend key, then by output index, as the BIP's text and
+`bip-0375/validator/validate_psbt.py` both say. The case that decides it
+is published as valid -- "three sp outputs (same scan key) - output 0
+uses label=1, outputs 1 and 2 uses label=2 (same spend key)" -- and the
+spend key of outputs 1 and 2 sorts below that of output 0, so output
+index order reproduces none of its scripts.
+`test_the_k_ordering_is_the_spend_key_then_the_output_index` pins that.
 
 ### BIP322 (signed messages): files under `tests/_data/`
 
