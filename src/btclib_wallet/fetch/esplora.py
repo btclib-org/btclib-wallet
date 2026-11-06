@@ -42,10 +42,11 @@ that is a merkle branch checked against a header, which is what the
 Electrum backend of issue btclib-org/btclib#204 adds and this one cannot. That
 is the trade the fallback exists to offer, and `SECURITY.md` states it.
 
-Every endpoint here but `/fee-estimates` and `/address/<address>` answers in
-plain text rather than json: `/tx/<txid>/hex`, `/blocks/tip/height`,
-`/blocks/tip/hash`, `/block-height/<height>` and `/block/<hash>/header`,
-read; `POST /tx`, written. The json renderings beside them carry the same
+Every endpoint here but `/fee-estimates`, `/address/<address>` and the ones
+`get_history` reads answers in plain text rather than json:
+`/tx/<txid>/hex`, `/blocks/tip/height`, `/blocks/tip/hash`,
+`/block-height/<height>` and `/block/<hash>/header`, read; `POST /tx`,
+written. The json renderings beside them carry the same
 values with more to disagree about -- and `/hex` is what makes the id check
 above possible at all. That these are what a second deployment has to serve
 is why they are the thing to check before naming one: a host answering json
@@ -56,14 +57,18 @@ from __future__ import annotations
 
 import contextlib
 import json
-from typing import cast
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
+from btclib.consensus import MAX_BLOCK_WEIGHT, WITNESS_SCALE_FACTOR
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
+from btclib.hashes import sha256
 from btclib.network import NETWORKS
+from btclib.script import ScriptPubKey
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
@@ -79,6 +84,12 @@ from btclib_wallet.fetch.fetcher import (
     fetch_errors,
     tx_from_raw,
     tx_id_hex,
+)
+from btclib_wallet.fetch.history import (
+    BlockRef,
+    HistoryTx,
+    ScriptHistory,
+    history_scripts,
 )
 from btclib_wallet.fetch.transport import (
     DEFAULT_MAX_BODY_SIZE,
@@ -128,8 +139,18 @@ _MAX_TX_BODY = DEFAULT_MAX_BODY_SIZE
 _MAX_FEE_ESTIMATES_BODY = 4096
 # `/address/<address>` answers json too: the address, and two objects of
 # five integers each. An address is at most 90 characters (BIP173), so
-# this leaves room for twenty-digit integers and whitespace
+# this leaves room for twenty-digit integers and whitespace. The answer of
+# `/scripthash/<hash>` is the same, with the 64 hex digits of the hash
 _MAX_ADDRESS_BODY = 1024
+# a page of a script's transactions, rendered in json with the outputs
+# their inputs spend: the api bounds the transactions a page holds and not
+# their size, so this is the widest bound, and a page past it is refused
+_MAX_TXS_BODY = DEFAULT_MAX_BODY_SIZE
+# `/block/<hash>/txids` answers a json array of the block's txids, each 64
+# hex digits, two quotes and a comma. No transaction weighs less than
+# Core's `MIN_TRANSACTION_WEIGHT`, sixty octets at four weight units each
+# (src/consensus/consensus.h), which bounds how many a block holds
+_MAX_TXIDS_BODY = MAX_BLOCK_WEIGHT // (WITNESS_SCALE_FACTOR * 60) * 67 + 64
 
 # API.md's own set of confirmation targets: 1-25, 144, 504 and 1008. The
 # highest of them is the target above which no deployment answers, and
@@ -204,8 +225,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
     Also a `BalanceReader`: `get_balance` is `GET /address/<address>`,
     which answers json too.
 
-    Not a `HistoryReader` yet: issue btclib-org/btclib-wallet#629 tracks
-    it as a step after `BitcoinCoreFetcher`.
+    Also a `HistoryReader`: `get_history` is `GET /scripthash/<hash>/txs`,
+    and its own docstring says what it takes on the server's word.
     """
 
     def __init__(
@@ -301,8 +322,18 @@ class EsploraFetcher(NetworkVerifyingFetcher):
     def get_best_block_id(self) -> bytes:
         """Return the hash of the server's best chain tip, display order."""
         self._verify_once()
+        return self._tip_hash()
+
+    def _tip_hash(self) -> bytes:
+        """Return the hash of the server's chain tip, and ask nothing else."""
         with fetch_errors("blocks/tip/hash"):
             return bytes_from_octets(self.text("/blocks/tip/hash", _MAX_HASH_BODY), 32)
+
+    def _block_id_at(self, height: int) -> bytes:
+        """Return the hash of the block at `height`, asking nothing else."""
+        with fetch_errors("block-height"):
+            reply = self.text(f"/block-height/{height}", _MAX_HASH_BODY)
+            return bytes_from_octets(reply, 32)
 
     @override
     def get_block_header(self, height: int) -> BlockHeader:
@@ -314,9 +345,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         """
         self._verify_once()
         height = block_header_height(height)
-        with fetch_errors("block-height"):
-            reply = self.text(f"/block-height/{height}", _MAX_HASH_BODY)
-            block_hash = bytes_from_octets(reply, 32).hex()
+        block_hash = self._block_id_at(height).hex()
         raw = self.text(f"/block/{block_hash}/header", _MAX_HEADER_BODY)
         return block_header_from_raw(raw, height, network=self.network)
 
@@ -458,6 +487,167 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             if confirmed < 0:
                 raise BTClibValueError(f"negative confirmed balance: {confirmed}")
             return Balance(confirmed=confirmed, unconfirmed=unconfirmed)
+
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        """Return the history of `scripts`, from `start` to the tip.
+
+        Each script is asked by its sha256, in the byte order it is
+        computed in. `/scripthash/<hash>/txs/chain` lists the confirmed
+        transactions newest first, a page at a time, each with the height
+        and the hash of its block, and the next page follows the last
+        transaction of the one before. Each block named must be the one
+        `/block-height/<height>` answers, and `/block/<hash>/txids` gives
+        the position of a transaction in it. `/scripthash/<hash>/txs/mempool`
+        lists the mempool's, which an api caps, so a list shorter than the
+        count `/scripthash/<hash>` reports is a `FetchError`. The tip is
+        read first and its hash again last, and a tip that moved is a
+        `FetchError`.
+
+        What the explorer answers is unverified beyond those checks and
+        the transaction ids. It can leave a transaction out or put one in
+        a block it is not in, and it reports the mempool's with nothing to
+        check them against: their signatures are not verified, and a
+        transaction it reports may never confirm.
+
+        The cost is a request per page and two per script, two per block
+        holding one of the transactions, and one per transaction. A page
+        past `_MAX_TXS_BODY` is a `FetchError`.
+        """
+        elements = history_scripts(scripts)
+        first = block_header_height(start_height)
+        self._verify_once()
+        tip_id = self._tip_hash()
+        with fetch_errors("blocks/tip/height"):
+            height = block_header_height(
+                int(self.text("/blocks/tip/height", _MAX_HEIGHT_BODY))
+            )
+        if self._block_id_at(height) != tip_id:
+            raise FetchError("the tip moved while the history was read")
+        tip = BlockRef(height, tip_id)
+        first = min(first, tip.height)
+        start = tip
+        if first < tip.height:
+            start = BlockRef(first, self._block_id_at(first))
+        hashes = [sha256(script).hex() for script in sorted(elements)]
+        blocks: dict[str, BlockRef] = {}
+        for scripthash in hashes:
+            for tx_id, ref in self._chain_history(scripthash, first):
+                if ref.height > tip.height:
+                    raise FetchError("the tip moved while the history was read")
+                if blocks.setdefault(tx_id, ref) != ref:
+                    raise FetchError(f"transaction {tx_id}: listed in two blocks")
+        positions = self._positions(blocks)
+        mempool = {
+            tx_id: None
+            for scripthash in hashes
+            for tx_id in self._mempool_history(scripthash)
+            if tx_id not in blocks
+        }
+        confirmed = sorted(
+            blocks, key=lambda tx_id: (blocks[tx_id].height, positions[tx_id])
+        )
+        txs = [HistoryTx(self.get_tx(tx_id), blocks[tx_id]) for tx_id in confirmed]
+        txs += [HistoryTx(self.get_tx(tx_id), None) for tx_id in mempool]
+        if self._tip_hash() != tip.block_id:
+            raise FetchError("the tip moved while the history was read")
+        return ScriptHistory(start=start, tip=tip, txs=tuple(txs))
+
+    def _json(self, path: str, max_body_size: int) -> Any:
+        """Return the parsed body of a GET on `path`."""
+        return json.loads(self.text(path, max_body_size))
+
+    def _chain_history(self, scripthash: str, first: int) -> list[tuple[str, BlockRef]]:
+        """Return the confirmed transactions of a script, down to `first`."""
+        found: list[tuple[str, BlockRef]] = []
+        seen: set[str] = set()
+        path = f"/scripthash/{scripthash}/txs/chain"
+        source = f"scripthash {scripthash} history"
+        while True:
+            with fetch_errors(source):
+                page = self._json(path, _MAX_TXS_BODY)
+                if not isinstance(page, list):
+                    raise BTClibTypeError(f"not an array: {type(page).__name__}")
+                entries = [_confirmed_entry(entry) for entry in page]
+            for tx_id, ref in entries:
+                if found and ref.height > found[-1][1].height:
+                    raise FetchError(f"{source}: not newest first")
+                if ref.height < first:
+                    return found
+                if tx_id in seen:
+                    raise FetchError(f"{source}: transaction {tx_id} listed twice")
+                seen.add(tx_id)
+                found.append((tx_id, ref))
+            if not entries:
+                return found
+            path = f"/scripthash/{scripthash}/txs/chain/{found[-1][0]}"
+
+    def _positions(self, blocks: dict[str, BlockRef]) -> dict[str, int]:
+        """Return the position of each transaction in the block named for it.
+
+        Each block is checked to be the one at its height first.
+        """
+        positions: dict[str, int] = {}
+        for ref in sorted(set(blocks.values()), key=lambda ref: ref.height):
+            if self._block_id_at(ref.height) != ref.block_id:
+                err_msg = f"block {ref.block_id.hex()} is not at height {ref.height}"
+                raise FetchError(err_msg)
+            source = f"block {ref.block_id.hex()} txids"
+            with fetch_errors(source):
+                reply = self._json(
+                    f"/block/{ref.block_id.hex()}/txids", _MAX_TXIDS_BODY
+                )
+                if not isinstance(reply, list):
+                    raise BTClibTypeError(f"not an array: {type(reply).__name__}")
+                index = {tx_id_hex(tx_id): i for i, tx_id in enumerate(reply)}
+            for tx_id in (tx_id for tx_id, at in blocks.items() if at == ref):
+                if tx_id not in index:
+                    raise FetchError(f"{source}: no transaction {tx_id}")
+                positions[tx_id] = index[tx_id]
+        return positions
+
+    def _mempool_history(self, scripthash: str) -> list[str]:
+        """Return the ids of a script's mempool transactions, all of them."""
+        source = f"scripthash {scripthash}"
+        with fetch_errors(source):
+            stats = self._json(f"/scripthash/{scripthash}", _MAX_ADDRESS_BODY)
+            if not isinstance(stats, dict):
+                raise BTClibTypeError(f"not an object: {type(stats).__name__}")
+            mempool_stats = stats.get("mempool_stats")
+            if not isinstance(mempool_stats, dict):
+                raise BTClibTypeError("mempool_stats: not an object")
+            count = mempool_stats.get("tx_count")
+            if not is_integer(count):
+                raise BTClibTypeError(f"mempool_stats: invalid tx_count: {count!r}")
+            page = self._json(f"/scripthash/{scripthash}/txs/mempool", _MAX_TXS_BODY)
+            if not isinstance(page, list):
+                raise BTClibTypeError(f"not an array: {type(page).__name__}")
+            tx_ids = [tx_id_hex(_member(entry, "txid")) for entry in page]
+        if len(tx_ids) < cast(int, count):
+            err_msg = f"{source}: {len(tx_ids)} of {count} mempool transactions listed"
+            raise FetchError(err_msg)
+        return tx_ids
+
+
+def _member(entry: Any, name: str) -> Any:
+    """Return one member of a json object, refusing what is not one."""
+    if not isinstance(entry, dict) or name not in entry:
+        raise TypeError(f"no {name!r} member")
+    return entry[name]
+
+
+def _confirmed_entry(entry: Any) -> tuple[str, BlockRef]:
+    """Return the id of a confirmed transaction, and its block."""
+    status = _member(entry, "status")
+    if _member(status, "confirmed") is not True:
+        raise BTClibValueError("a transaction of the chain is not confirmed")
+    height = _member(status, "block_height")
+    if not is_integer(height):
+        raise BTClibTypeError(f"invalid block_height: {height!r}")
+    block_id = bytes_from_octets(_member(status, "block_hash"), 32)
+    ref = BlockRef(block_header_height(height), block_id)
+    return tx_id_hex(_member(entry, "txid")), ref
 
 
 def _txo_balance(payload: dict[str, object], key: str) -> int:

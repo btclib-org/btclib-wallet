@@ -30,8 +30,10 @@ convention.
 `blockchain.block.headers` for a chunk of consecutive headers,
 `blockchain.transaction.get_merkle` for the branch and position that
 proves a transaction confirmed, `blockchain.estimatefee` for a fee
-rate quoted for a confirmation target, and `blockchain.scripthash.get_balance`
-for confirmed satoshis and a signed mempool delta. Each has a function
+rate quoted for a confirmation target, `blockchain.scripthash.get_balance`
+for confirmed satoshis and a signed mempool delta, and
+`blockchain.scripthash.get_history` for the transactions that touch a
+script. Each has a function
 to build the request and one to read the matching response -- shapes,
 not a client: nothing here keeps a connection or retries. The balance
 batch helpers put several requests on one line and match their answers
@@ -68,6 +70,7 @@ from btclib_wallet.exceptions import RpcError
 
 __all__ = [
     "HeaderTip",
+    "HistoryItem",
     "MerkleProof",
     "ScriptBalance",
     "assert_merkle_proof",
@@ -85,6 +88,8 @@ __all__ = [
     "scripthash_get_balance_batch_response",
     "scripthash_get_balance_request",
     "scripthash_get_balance_response",
+    "scripthash_get_history_request",
+    "scripthash_get_history_response",
     "transaction_get_merkle_request",
     "transaction_get_merkle_response",
     "transaction_get_request",
@@ -128,6 +133,14 @@ def _assert_integer(value: object, what: str, *, non_negative: bool) -> None:
         raise BTClibTypeError(f"invalid {what} type: {type(value).__name__}")
     if non_negative and cast(int, value) < 0:
         raise BTClibValueError(f"invalid {what}: {_message_text(value)} < 0")
+
+
+def _assert_scripthash(scripthash: str) -> None:
+    """Refuse what is not a script hash as 64 hexadecimal characters."""
+    if not isinstance(scripthash, str):
+        raise BTClibTypeError(f"invalid scripthash type: {type(scripthash).__name__}")
+    if not _TX_ID.fullmatch(scripthash):
+        raise BTClibValueError("invalid scripthash: expected 64 hex characters")
 
 
 def _assert_tx_id(tx_id: str) -> None:
@@ -305,10 +318,7 @@ def scripthash_get_balance_request(request_id: int, scripthash: str) -> bytes:
     `scripthash` is the script's SHA256 hash in Electrum's reversed-byte
     hexadecimal spelling. Whitespace is refused rather than sent on the wire.
     """
-    if not isinstance(scripthash, str):
-        raise BTClibTypeError(f"invalid scripthash type: {type(scripthash).__name__}")
-    if not _TX_ID.fullmatch(scripthash):
-        raise BTClibValueError("invalid scripthash: expected 64 hex characters")
+    _assert_scripthash(scripthash)
     return encode_request(request_id, "blockchain.scripthash.get_balance", [scripthash])
 
 
@@ -397,6 +407,68 @@ def scripthash_get_balance_batch_response(
     if balances.keys() != expected:
         raise BTClibValueError("balance batch: missing response id")
     return tuple(balances[request_id] for request_id in request_ids)
+
+
+@dataclass(frozen=True)
+class HistoryItem:
+    """One transaction `blockchain.scripthash.get_history` answered.
+
+    `height` is that of the block confirming `tx_id`, or one of the two
+    mempool heights: `0` where every input spends a confirmed output and
+    `-1` where one does not.
+    """
+
+    tx_id: str
+    height: int
+
+
+def scripthash_get_history_request(request_id: int, scripthash: str) -> bytes:
+    """Return a `blockchain.scripthash.get_history` request.
+
+    `scripthash` is refused as `scripthash_get_balance_request` refuses it.
+    """
+    _assert_scripthash(scripthash)
+    return encode_request(request_id, "blockchain.scripthash.get_history", [scripthash])
+
+
+def scripthash_get_history_response(
+    line: bytes, request_id: int
+) -> tuple[HistoryItem, ...]:
+    """Return the transactions a `scripthash.get_history` reply lists, in order.
+
+    The checks are those of Electrum's own client
+    (`get_history_for_scripthash` of `electrum/interface.py`): the
+    confirmed entries come first, their heights never falling, then the
+    mempool's, and no transaction is listed twice. The `fee` of a mempool
+    entry is unread.
+
+    Refused: a result that is not a list, an entry that is not an object,
+    a `height` that is not an integer or a `tx_hash` that is not a string
+    (`BTClibTypeError`); a height below `-1`, a `tx_hash` that is not 64
+    hex characters, an entry out of that order and a repeated `tx_hash`
+    (`BTClibValueError`).
+    """
+    result = decode_response(line, request_id)
+    if not isinstance(result, list):
+        raise BTClibTypeError("scripthash.get_history: not a list")
+    items: list[HistoryItem] = []
+    for entry in result:
+        if not isinstance(entry, dict):
+            raise BTClibTypeError("scripthash.get_history: an entry is not an object")
+        height = entry.get("height")
+        tx_id = entry.get("tx_hash")
+        _assert_integer(height, "height", non_negative=False)
+        _assert_tx_id(cast(str, tx_id))
+        height = cast(int, height)
+        if height < -1:
+            raise BTClibValueError(f"scripthash.get_history: invalid height {height}")
+        previous = items[-1].height if items else 1
+        if height > 0 and (previous < 1 or height < previous):
+            raise BTClibValueError("scripthash.get_history: an entry out of order")
+        items.append(HistoryItem(cast(str, tx_id), height))
+    if len({item.tx_id for item in items}) != len(items):
+        raise BTClibValueError("scripthash.get_history: a transaction listed twice")
+    return tuple(items)
 
 
 def transaction_get_request(request_id: int, tx_id: str) -> bytes:
