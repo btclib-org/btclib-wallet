@@ -6,9 +6,8 @@
 
 The vectors are BIP375's own `bip375_test_vectors.json`, already vendored
 under `tests/psbt/_data/` for `bip375_test.py`, which holds the codec to
-them; this module holds the two roles to the same file, and where that one
-had to say that seventeen of the invalid psbts are accepted, here **all 22
-are refused and all 20 valid ones pass**.
+them; this module holds the two roles to the same file: here **every
+invalid psbt is refused and every valid one passes**.
 
 The `checks` field of a case names which of BIP375's four checks it is
 about, so each invalid case is asserted against the check that should
@@ -18,14 +17,11 @@ naming `checks` is isolating one of them instead -- the rest of the psbt
 is not necessarily complete for the others -- so only the named check
 runs.
 
-**The k ordering is measured here, not assumed**, because BIP375's prose
-and its own vectors disagree and the disagreement is load-bearing. The
-prose says to sort the codes of one scan key lexicographically; the
-vectors' scripts are the ones output-index order derives, and one case
-published as *valid* has its two spend keys in descending order, so the
-two readings differ on it. `test_the_k_ordering_is_the_output_index` pins
-that, so a revision settling it the other way fails here rather than
-passing quietly.
+**The k ordering is measured here, not assumed.** BIP375 sorts the
+outputs of one scan key by spend key, then by output index, and one case
+published as *valid* has its spend keys out of index order.
+`test_the_k_ordering_is_the_spend_key_then_the_output_index` pins it on
+that case.
 """
 
 from __future__ import annotations
@@ -166,17 +162,15 @@ def test_every_valid_psbt_passes_every_check(vector: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("vector", _INVALID, ids=_INVALID_IDS)
 def test_every_invalid_psbt_is_refused(vector: dict[str, Any]) -> None:
-    """All 22, where the codec alone refused five.
+    """Every one, each refused by the check its own category names.
 
-    The other seventeen are what this module adds, and each is refused by
-    the check its own category names -- `Psbt.parse` and `assert_valid`
-    for the structural ones, and one of the three role checks otherwise.
+    `Psbt.parse` and `assert_valid` for the structural ones, and one of
+    the three role checks otherwise.
     """
     category = _category(vector["description"])
     if category == "psbt structure":
-        # the codec's own, five of the six: parse refuses four for a
-        # length and one for a missing script, and the sixth is the
-        # modifiable flags, which is a Signer's obligation
+        # the codec's own, all but the modifiable flags, which are a
+        # Signer's obligation
         with pytest.raises(BTClibValueError):
             role.assert_as_valid(_decoded(vector["psbt"]))
         return
@@ -207,57 +201,60 @@ def _vector(group: str, prefix: str) -> dict[str, Any]:
     return next(v for v in _VECTORS[group] if v["description"].startswith(prefix))
 
 
-def test_the_k_ordering_is_the_output_index() -> None:
-    """BIP375's prose and BIP375's vectors disagree; the vectors win.
+def test_the_k_ordering_is_the_spend_key_then_the_output_index() -> None:
+    """BIP375's k follows the spend key, then the output index.
 
-    "If there are multiple silent payment codes with the same scan key,
-    sort the codes lexicographically in ascending order to determine the
-    ordering of the k value" -- and the case below is published as valid,
-    shares one scan key across two outputs, and has its spend keys in
-    *descending* order. So the lexicographic rule would give output 1 the
-    k of 0, and the scripts the file carries are the ones output index
-    order derives.
-
-    Asserted rather than described, in both directions: index order
-    reproduces both scripts, and the byte order and the address order --
-    the two readings of "the codes" -- reproduce neither. Upstream's own
-    validator walks index order too, so the prose is the outlier.
+    The case below is published as valid and pays one scan key three
+    times: output 0 to one spend key, outputs 1 and 2 to a second spend
+    key that sorts below the first. So k = 0 goes to output 1, k = 1 to
+    output 2 and k = 2 to output 0. Index order reproduces none of the
+    three scripts, and the tie broken the other way neither of the two
+    that share a spend key.
     """
-    vector = _vector("valid", "can finalize: two sp outputs - output 0 uses label=3")
-    psbt = _decoded(vector["psbt"])
+    prefix = "can finalize: three sp outputs (same scan key) - output 0"
+    psbt = _decoded(_vector("valid", prefix)["psbt"])
     outputs = [(i, o) for i, o in enumerate(psbt.outputs) if o.sp_v0_info]
-    assert len(outputs) == 2
+    assert [i for i, _ in outputs] == [0, 1, 2]
     scan_key = outputs[0][1].sp_v0_info[: sp._PK_SIZE]
-    # one scan key, and the spend keys the other way round
     assert all(o.sp_v0_info[: sp._PK_SIZE] == scan_key for _, o in outputs)
-    assert outputs[0][1].sp_v0_info > outputs[1][1].sp_v0_info
+    # outputs 1 and 2 share a spend key, and it sorts below output 0's
+    assert outputs[1][1].sp_v0_info == outputs[2][1].sp_v0_info
+    assert outputs[1][1].sp_v0_info < outputs[0][1].sp_v0_info
 
     found = role._share_and_sum(psbt, scan_key)
     assert found is not None
     share, A_sum = found
     secret = role.shared_secret_from_share(psbt, share, A_sum)
 
-    def script(psbt_out: Any, k: int) -> bytes:
-        B_m = psbt_out.sp_v0_info[sp._PK_SIZE :]
-        return serialize(["OP_1", sp.output_key(secret, B_m, k)])
+    def scripts(order: list[int]) -> dict[int, bytes]:
+        """Return the script of each output, k being its place in order."""
+        return {
+            i: serialize(
+                [
+                    "OP_1",
+                    sp.output_key(secret, psbt.outputs[i].sp_v0_info[sp._PK_SIZE :], k),
+                ]
+            )
+            for k, i in enumerate(order)
+        }
 
-    # index order: k is the position among the silent payment outputs
-    for k, (_, psbt_out) in enumerate(outputs):
-        assert psbt_out.script_pub_key == script(psbt_out, k)
-    # the lexicographic order would swap them, and neither script matches
-    for k, (_, psbt_out) in enumerate(reversed(outputs)):
-        assert psbt_out.script_pub_key != script(psbt_out, k)
+    carried = {i: o.script_pub_key for i, o in outputs}
+    assert scripts([1, 2, 0]) == carried
+    by_index = scripts([0, 1, 2])
+    assert all(by_index[i] != carried[i] for i in carried)
+    tie_reversed = scripts([2, 1, 0])
+    assert all(tie_reversed[i] != carried[i] for i in (1, 2))
 
     # and what the module derives is what the file carries
-    assert role.output_scripts(psbt) == {i: o.script_pub_key for i, o in outputs}
+    assert role.output_scripts(psbt) == carried
 
 
 def test_the_two_ordering_vectors_are_refused_whatever_the_order() -> None:
     """The invalid cases named after ordering are not about ordering.
 
-    Both have all three candidate orderings agree -- their spend keys are
-    already ascending, or identical -- so what makes them invalid is that
-    their scripts match no k assignment at all. Worth pinning: a reader of
+    In both, index order and BIP375's sorted order agree -- their spend
+    keys are already ascending, or identical -- so what makes them invalid
+    is that their scripts match neither order. Worth pinning: a reader of
     the descriptions would expect them to be the vectors that decide the
     ordering question, and they are not; the valid case above is.
     """
@@ -700,6 +697,41 @@ def _derived() -> Psbt:
     role.set_input_share(psbt, 0, _PRV_KEY, aux=bytes(32))
     role.set_output_scripts(psbt)
     return psbt
+
+
+def test_a_fake_address_with_a_lower_spend_key_hides_the_real_one() -> None:
+    """An address reusing a recipient's scan key can take its k = 0.
+
+    k follows the spend key, so a fake address whose spend key sorts below
+    the recipient's takes k = 0 in either output order, and the
+    recipient's scan finds nothing. One whose spend key sorts above it
+    changes nothing for the recipient.
+    """
+    b_scan, b_spend = 0x11, 0x22
+    scan_key = bytes_from_point(mult(b_scan))
+    real = scan_key + bytes_from_point(mult(b_spend))
+    lower = scan_key + bytes_from_point(mult(0x30))
+    higher = scan_key + bytes_from_point(mult(0x31))
+    assert lower < real < higher
+
+    def found(infos: list[bytes]) -> int:
+        """Return how many outputs the recipient finds, paying infos."""
+        psbt = _sp_psbt()
+        psbt.outputs = [PsbtOut(amount=10_000, sp_v0_info=info) for info in infos]
+        role.set_input_share(psbt, 0, _PRV_KEY, aux=bytes(32))
+        role.set_output_scripts(psbt)
+        outpoints = [psbt_in.prev_out for psbt_in in psbt.inputs]
+        A_sum = sp.pub_key_sum(list(role.eligible_pub_keys(psbt).values()))
+        tweak = sp.tweak_data(outpoints, A_sum)
+        scripts = role.output_scripts(psbt)
+        keys = [scripts[i][2:] for i in range(len(infos))]
+        return len(sp.scan_outputs(b_scan, mult(b_spend), tweak, keys))
+
+    assert found([real]) == 1
+    assert found([real, lower]) == 0
+    assert found([lower, real]) == 0
+    assert found([real, higher]) == 1
+    assert found([higher, real]) == 1
 
 
 def test_an_empty_silent_payment_script_is_present_but_wrong() -> None:

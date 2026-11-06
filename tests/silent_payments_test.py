@@ -1142,6 +1142,34 @@ def test_output_keys_pays_nothing_for_no_addresses() -> None:
     )
 
 
+def test_a_fake_address_paid_first_hides_the_real_one() -> None:
+    """An address reusing a recipient's scan key can take its k.
+
+    Paid before the real address, the fake one takes k = 0, and the
+    recipient's scan, which stops at the first k it does not find, finds
+    nothing. Paid after it, the fake one changes nothing for the
+    recipient.
+    """
+    b_scan, b_spend, b_fake = 0x11, 0x22, 0x33
+    real = silent_payments.address_from_keys(mult(b_scan), mult(b_spend))
+    fake = silent_payments.address_from_keys(mult(b_scan), mult(b_fake))
+    tweak = silent_payments.tweak_data(
+        [OutPoint("00" * 31 + "01", 0)], mult(_B_SCAN_PRV)
+    )
+
+    def found(keys: list[bytes]) -> list[bytes]:
+        """Return the output keys the real recipient finds among keys."""
+        outputs = silent_payments.scan_outputs(b_scan, mult(b_spend), tweak, keys)
+        return [output.pub_key for output in outputs]
+
+    alone = _pay([real])
+    assert found(alone) == alone
+    assert found(_pay([real, fake])) == alone
+    fake_first = _pay([fake, real])
+    assert fake_first[1] != alone[0]
+    assert found(fake_first) == []
+
+
 _NETWORKS = ("mainnet", "testnet", "signet", "testnet4", "regtest")
 _HRPS = {
     "mainnet": "sp",

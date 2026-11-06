@@ -762,6 +762,14 @@ def output_keys(
     the difference of the two published addresses, which is the recipient
     named in public.
 
+    **Every address must belong to its recipient**, and the caller is the
+    one to check it. An address that reuses another recipient's scan key
+    falls in that recipient's group. Given before the recipient's own
+    address, it takes the lower k, and the recipient's output gets a k
+    that its scan never reaches: the output stays spendable, but the
+    recipient does not find it. Where that cannot be checked, pay those
+    recipients in separate transactions.
+
     Where `_DELEGATE_OUTPUT_KEYS` is True and the bindings serve
     secp256k1 -- BIP352 has no other curve to ask them for -- this is
     `silentpayments.create_outputs`'s own derivation rather than the

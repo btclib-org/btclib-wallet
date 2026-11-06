@@ -70,12 +70,19 @@ share by the input hash, and the input hash needs the *sum of the public
 keys* of the eligible inputs -- which is why reading those keys is the
 first thing here and not an aside.
 
-**The k of an output** is BIP375's own rule and not BIP352's ordering: it
-counts per scan key, over the outputs in index order. That is what the
-BIP's vectors and its reference validator do and *not* what its prose
-says, which asks for the codes to be sorted lexicographically;
-`_ordered_sp_outputs` is where the discrepancy is documented, and
+**The k of an output** is BIP375's own rule: it counts per scan key, over
+the outputs sorted by spend key, then by output index.
+`_ordered_sp_outputs` quotes the rule, and
 `tests/psbt/silent_payments_test.py` says which of the vectors pins it.
+
+**Every address must belong to its recipient**, and the caller is the one
+to check it. Here k follows the spend key, not the output's position: an
+address that reuses a recipient's scan key, with a spend key that sorts
+below the recipient's, takes k = 0 wherever it is placed. The recipient's
+scan, which stops at the first k it does not find, then never reaches the
+recipient's output. The output stays spendable, but the recipient does not
+find it. No order of the outputs prevents this; where an address cannot be
+checked, pay it in a separate transaction.
 """
 
 from __future__ import annotations
@@ -491,34 +498,20 @@ def shared_secret_from_share(psbt: Psbt, share: Octets, A_sum: Point) -> Point:
 def _ordered_sp_outputs(psbt: Psbt) -> list[tuple[int, PsbtOut]]:
     """Return the silent payment outputs in the order their k follows.
 
-    Output index order, per scan key -- which is **not** what BIP375's
-    prose says, and the discrepancy is upstream's rather than a choice
-    made here. The BIP says: "If there are multiple silent payment codes
-    with the same scan key, sort the codes lexicographically in ascending
-    order to determine the ordering of the k value."
-
-    Measured against `bip375_test_vectors.json`, that sort produces the
-    wrong scripts. Its "two sp outputs - output 0 uses label=3 / output 1
-    uses label=1" case is published as *valid* and its two spend keys are
-    in descending order, so a lexicographic sort assigns k = 0 to output 1
-    -- and the scripts the file carries are the ones index order derives.
-    Neither reading of "the codes" rescues the prose: sorting the 66-byte
-    info fields and sorting the bech32m address strings both order that
-    pair the other way round.
-
-    So two of upstream's three artefacts agree on index order -- the
-    vectors and `bip-0375/validator/validate_psbt.py`, which tracks k per
-    scan key while walking the outputs in index order -- and only the
-    prose dissents. Index order is therefore what interoperates, and the
-    two "output scripts" invalid vectors named after ordering are refused
-    under it anyway: each carries a k assignment no ascending rule
-    produces, the two values swapped in one and three permuted in the
-    other. `tests/psbt/silent_payments_test.py` pins each of those facts,
-    so a revision of the BIP that settles it the other way fails here
-    rather than passing quietly -- which is what bitcoin/bips#2207 proposes,
-    correcting the vectors and the validator to match the prose.
+    Sorted by PSBT_OUT_SP_V0_INFO, then by output index. Within one scan
+    key that is the spend key's order, which is BIP375's rule: "If there
+    are multiple silent payment codes with the same scan key, sort the
+    codes lexicographically in ascending order to determine the ordering
+    of the k value. If there are multiple silent payment codes with both
+    the same scan and spend keys, sort the subgroup by output index in
+    ascending order." `bip-0375/validator/validate_psbt.py` sorts on the
+    same key, and `output_scripts` counts k per scan key, so how the
+    groups interleave does not matter.
     """
-    return [(i, o) for i, o in enumerate(psbt.outputs) if o.sp_v0_info]
+    return sorted(
+        ((i, o) for i, o in enumerate(psbt.outputs) if o.sp_v0_info),
+        key=lambda pair: (pair[1].sp_v0_info, pair[0]),
+    )
 
 
 def output_scripts(psbt: Psbt) -> dict[int, bytes]:
@@ -909,6 +902,9 @@ def set_output_scripts(psbt: Psbt) -> None:
     eligible inputs have an ECDH share or the global ECDH share is set":
     a script summed from the shares that have arrived is one
     `assert_output_scripts_as_valid` refuses.
+
+    The addresses it pays must each belong to their recipient: the module
+    docstring's "Every address must belong to its recipient" says why.
     """
     for scan_key in _scan_keys(psbt):
         _assert_covered(psbt, scan_key)
