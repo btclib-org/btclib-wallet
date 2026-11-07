@@ -1318,7 +1318,7 @@ is how BIP174's example was signed: the test signs that way, and only
 with the keys the case lists.
 
 The files are taken at
-[`24a45463081e8e3a2f85dd0f4192af99d5d33275`](https://git.rust-bitcoin.org/rust-bitcoin/rust-psbt/commit/24a45463081e8e3a2f85dd0f4192af99d5d33275),
+[`24a45463081e8e3a2f85dd0f4192af99d5d33275`](https://github.com/rust-bitcoin/rust-psbt/commit/24a45463081e8e3a2f85dd0f4192af99d5d33275),
 the merge of the rust-psbt pull request that brought each path's `commit`
 below to `master`.
 
