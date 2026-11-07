@@ -300,7 +300,7 @@ def test_a_node_on_a_taken_port_is_started_again_on_another(
     """The first rpc port is taken; the second try holds a fresh one."""
     _first_port_is(monkeypatch, held_port)
     process, _, port = start_on_free_ports(
-        lambda: _start_node(node_script, tmp_path, None)
+        lambda: _start_node(node_script, tmp_path, None, ())
     )
     try:
         assert port != held_port
@@ -319,7 +319,7 @@ def test_a_taken_rpc_port_on_the_last_attempt_is_raised(
     _first_port_is(monkeypatch, held_port)
     with pytest.raises(PortTaken, match="Unable to bind any endpoint"):
         start_on_free_ports(
-            lambda: _start_node(node_script, tmp_path, None), attempts=1
+            lambda: _start_node(node_script, tmp_path, None, ()), attempts=1
         )
 
 
@@ -331,7 +331,7 @@ def test_a_node_on_a_taken_p2p_port_is_started_again_on_another(
 
     def start() -> tuple[Any, Any, int]:
         p2p_port = next(ports, None) or stack_module._free_port()
-        process, client, _ = _start_node(node_script, tmp_path, p2p_port)
+        process, client, _ = _start_node(node_script, tmp_path, p2p_port, ())
         return process, client, p2p_port
 
     process, _, p2p_port = start_on_free_ports(start)
@@ -348,7 +348,7 @@ def test_a_taken_p2p_port_on_the_last_attempt_is_raised(
     """With one attempt, the taken p2p port is raised as `PortTaken`."""
     with pytest.raises(PortTaken, match="Unable to bind to"):
         start_on_free_ports(
-            lambda: _start_node(node_script, tmp_path, held_port), attempts=1
+            lambda: _start_node(node_script, tmp_path, held_port, ()), attempts=1
         )
 
 
@@ -358,7 +358,7 @@ def test_a_node_that_exits_for_another_reason_fails_the_run(
     """An exit that does not name a taken port is not retried."""
     monkeypatch.setattr(stack_module, "BitcoinCoreRpcClient", _ListeningClient)
     with pytest.raises(pytest.fail.Exception, match="bitcoind exited with 0"):
-        _start_node([sys.executable, "-c", "pass"], tmp_path, None)
+        _start_node([sys.executable, "-c", "pass"], tmp_path, None, ())
 
 
 def test_a_complaint_of_an_earlier_try_is_not_read_as_the_next_ones(
@@ -370,6 +370,6 @@ def test_a_complaint_of_an_earlier_try_is_not_read_as_the_next_ones(
     """A try that exits quietly after one on a taken port is no `PortTaken`."""
     _first_port_is(monkeypatch, held_port)
     with pytest.raises(PortTaken):
-        _start_node(node_script, tmp_path, None)
+        _start_node(node_script, tmp_path, None, ())
     with pytest.raises(pytest.fail.Exception, match="bitcoind exited with 0"):
-        _start_node([sys.executable, "-c", "pass"], tmp_path, None)
+        _start_node([sys.executable, "-c", "pass"], tmp_path, None, ())

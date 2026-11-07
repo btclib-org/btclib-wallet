@@ -233,6 +233,11 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
     Also a `HistoryReader`: `get_history` is `GET /scripthash/<hash>/txs`,
     and its own docstring says what it takes on the server's word.
+
+    Not a `RelayFeeReader`: no endpoint of Esplora's answers a relay fee
+    floor. `GET /mempool` answers the mempool's count, size, total fee
+    and fee histogram, and nothing else (`src/rest.rs` of Blockstream's
+    electrs, at the commit `integration-electrs.yml` pins).
     """
 
     def __init__(

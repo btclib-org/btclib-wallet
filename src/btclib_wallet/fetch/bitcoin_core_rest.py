@@ -58,11 +58,13 @@ from typing_extensions import override
 from btclib_wallet.exceptions import HttpError
 from btclib_wallet.fetch.bitcoin_core import (
     _MAX_LARGE_REPLY,
+    _MAX_MEMPOOL_INFO_REPLY,
     _MAX_MEMPOOL_REPLY,
     _block_history,
     _core_history,
     _member,
     _mempool_touching,
+    _relay_fees,
 )
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -74,6 +76,7 @@ from btclib_wallet.fetch.fetcher import (
     tx_id_hex,
 )
 from btclib_wallet.fetch.history import BlockRef, ScriptHistory, history_scripts
+from btclib_wallet.fetch.relay_fees import RelayFees
 
 __all__ = [
     "BitcoinCoreRestClient",
@@ -149,6 +152,8 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
 
     Also a `HistoryReader`: `get_history` reads the blocks and the
     mempool, as `BitcoinCoreFetcher.get_history` does over the RPC.
+
+    Also a `RelayFeeReader`: `get_relay_fees` reads `/mempool/info.json`.
     """
 
     def __init__(
@@ -315,6 +320,18 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
             f"/headers/{block_hash}.bin?count=1", max_body_size=_MAX_HEADER_BODY
         )
         return block_header_from_raw(raw, height, network=self.network)
+
+    def get_relay_fees(self) -> RelayFees:
+        """Return the relay fee floors of the node.
+
+        `/mempool/info.json` answers what `getmempoolinfo` answers over the
+        RPC, and is read as `BitcoinCoreFetcher.get_relay_fees` reads it.
+        """
+        self._verify_once()
+        reply = self._get_json(
+            "/mempool/info.json", max_body_size=_MAX_MEMPOOL_INFO_REPLY
+        )
+        return _relay_fees(reply, "mempool info")
 
     def get_history(
         self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
