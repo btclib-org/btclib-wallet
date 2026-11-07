@@ -26,7 +26,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash256, sha256
 from btclib.tx import OutPoint, Tx
 
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.history import BlockRef
 from tests.fetch.electrum_test import TESTNET_GENESIS, TESTNET_GENESIS_HEADER
@@ -186,6 +186,24 @@ def test_get_history_lists_the_mempool_last_and_once() -> None:
         (FUNDING.id, server.ref(1)),
         (both.id, None),
     ]
+
+
+def test_a_mempool_transaction_gone_mid_read_is_the_servers_error() -> None:
+    """Listed by `get_history`, gone by `transaction.get`: an `RpcError`."""
+    server = FakeServer([[FUNDING]], [SPEND])
+
+    def gone(request: bytes, timeout: float) -> bytes:
+        asked = json.loads(request)
+        if asked["params"] == [SPEND.id.hex()]:
+            error = {"code": 2, "message": "transaction not found"}
+            return json.dumps({"id": asked["id"], "error": error}).encode()
+        return server(request, timeout)
+
+    fetcher = ElectrumFetcher("regtest", transport=gone, verify_network=False)
+    with pytest.raises(RpcError, match="transaction not found") as raised:
+        fetcher.get_history([OURS])
+    assert isinstance(raised.value, FetchError)
+    assert raised.value.code == 2
 
 
 def test_a_transaction_spelled_two_ways_is_listed_once() -> None:

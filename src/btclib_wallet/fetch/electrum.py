@@ -373,7 +373,9 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         What the server lists is unverified beyond that. It can leave a
         transaction out, and it reports the mempool's with nothing to
         check them against: their signatures are not verified, and a
-        transaction it reports may never confirm.
+        transaction it reports may never confirm. A mempool transaction
+        the server no longer has when it is asked for is the server's
+        `RpcError`, a `FetchError`, and the caller asks again.
 
         The cost is a request per script, per block holding one of the
         transactions, and two per transaction. A server refuses a script

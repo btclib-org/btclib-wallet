@@ -244,6 +244,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "timeout",
         "transport",
     ],
+    "btclib_wallet.fetch:EsploraFetcher.get_history": ["max_pages"],
     "btclib_wallet.fetch:TlsLineTransport.__init__": ["context", "max_line_size"],
     "btclib_wallet.hwi:HwiSigner.__init__": [
         "executable",

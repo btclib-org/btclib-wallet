@@ -304,6 +304,17 @@ def test_get_history_skips_a_transaction_that_left_the_mempool() -> None:
     assert _fetcher(node).get_history([OURS]).txs == ()
 
 
+def test_get_history_lists_a_mempool_txid_listed_twice_once() -> None:
+    """A txid `getrawmempool` repeats is asked for and listed once."""
+    funding = _tx([OutPoint(COINBASE.id, 0)], [OURS])
+    node = _edited(
+        FakeNode([[(COINBASE, [None])]], [funding]), "getrawmempool", lambda r: r * 2
+    )
+    history = _fetcher(node).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [(funding.id, None)]
+    assert node.methods.count("getrawtransaction") == 1
+
+
 def test_get_history_raises_any_other_rpc_error() -> None:
     """Only the node not having the transaction is a skip."""
     node = FakeNode([[(COINBASE, [None])]], [PAYMENT])
