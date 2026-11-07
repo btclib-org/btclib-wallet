@@ -147,10 +147,11 @@ _MAX_ADDRESS_BODY = 1024
 # their inputs spend: the api bounds the transactions a page holds and not
 # their size, so this is the widest bound, and a page past it is refused
 _MAX_TXS_BODY = DEFAULT_MAX_BODY_SIZE
-# `/block/<hash>/txids` answers a json array of the block's txids, each 64
-# hex digits, two quotes and a comma. No transaction weighs less than
-# Core's `MIN_TRANSACTION_WEIGHT`, sixty octets at four weight units each
-# (src/consensus/consensus.h), which bounds how many a block holds
+# `/block/<hash>/txids` answers a json array of the block's txids, each 64 hex
+# digits, two quotes and a comma. No transaction weighs less than Core's
+# `MIN_TRANSACTION_WEIGHT`, sixty octets at four weight units each
+# (src/consensus/consensus.h, bitcoin/bitcoin@f0de87f040), which bounds how
+# many a block holds
 _MAX_TXIDS_BODY = MAX_BLOCK_WEIGHT // (WITNESS_SCALE_FACTOR * 60) * 67 + 64
 
 # API.md's own set of confirmation targets: 1-25, 144, 504 and 1008. The
@@ -375,15 +376,15 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         renders a mainnet address for every output it fetches, for coins
         that are not there.
 
-        Signet is the case a genesis hash cannot settle: Core builds
-        every signet's genesis from the same parameters
-        (`kernel/chainparams.cpp`), the challenge going into the message
-        start and not into the block, so this check separates mainnet,
-        testnet, testnet4, signet and regtest, and separates no two
-        signets -- the same limit the node backends have when no
-        `signet_challenge` is given. This class takes no
-        `signet_challenge` of its own: nothing Esplora's api publishes is
-        a signet's challenge to compare it against.
+        Signet is the case a genesis hash cannot settle: Core builds every
+        signet's genesis from the same parameters
+        (`src/kernel/chainparams.cpp`, bitcoin/bitcoin@f0de87f040), the
+        challenge going into the message start and not into the block, so
+        this check separates mainnet, testnet, testnet4, signet and
+        regtest, and separates no two signets -- the same limit the node
+        backends have when no `signet_challenge` is given. This class
+        takes no `signet_challenge` of its own: nothing Esplora's api
+        publishes is a signet's challenge to compare it against.
         """
         with fetch_errors("block-height"):
             reply = self.text("/block-height/0", _MAX_HASH_BODY)

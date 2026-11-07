@@ -34,8 +34,8 @@ from tests.descriptors.infer_test import (
 pytestmark = pytest.mark.integration
 
 # the shapes the pinned Core answers other than `SHAPES` records, with that
-# answer: v32.1 keeps a key's later origin where v31.1 stacks both
-# (btclib-org/btclib-wallet#616)
+# answer: the pinned release keeps a key's later origin where v31.1 stacks
+# both (btclib-org/btclib-wallet#719)
 PINNED_CORE = {
     "a key spelled twice in a fragment": [
         f"sh(multi(1,[bbbbbbbb/2]{K1},[bbbbbbbb/2]{K1}))#mmdkvqev"

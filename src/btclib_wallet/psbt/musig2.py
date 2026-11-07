@@ -208,14 +208,14 @@ class _SessionParts(NamedTuple):
     """What a session is, before the nonces of round 1 exist.
 
     `tweaked_pub_key` is the aggregate key **as tweaked for this session**,
-    compressed, and it is what the nonces and the partial signatures of
-    the input are keyed by -- not the aggregate key the participants are
-    filed under, which is the untweaked one. The two differ in exactly
-    the cases where the aggregate key is not what the spend verifies
-    against: Bitcoin Core keys these fields by its `plain_pub`, which is
-    the aggregate key carried through the derivation and the taproot
-    tweak (`SignMuSig2` in script/sign.cpp), and a psbt keyed either
-    other way is one no other implementation reads.
+    compressed, and it is what the nonces and the partial signatures of the
+    input are keyed by -- not the aggregate key the participants are filed
+    under, which is the untweaked one. The two differ in exactly the cases
+    where the aggregate key is not what the spend verifies against: Bitcoin
+    Core keys these fields by its `plain_pub`, which is the aggregate key
+    carried through the derivation and the taproot tweak (`SignMuSig2` in
+    src/script/sign.cpp, bitcoin/bitcoin@f0de87f040), and a psbt keyed
+    either other way is one no other implementation reads.
 
     `key_agg_ctx` is the `KeyAggContext` `tweaked_pub_key` was read off of
     -- carried along rather than dropped, so that a caller needing it

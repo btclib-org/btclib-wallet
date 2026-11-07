@@ -2,12 +2,13 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""Timelock parse failures, as Bitcoin Core v31.1 reports them.
+"""Timelock parse failures, as Bitcoin Core reports them.
 
-Issues btclib-org/btclib-wallet#437 and btclib-org/btclib-wallet#475. A
-step inside a timelock argument is not a derivation path: miniscript
-refuses the number, and Core's descriptor reader reports its fallback for
-wsh() or for a tr() leaf rather than a later key or path fault.
+Issues btclib-org/btclib-wallet#437 and btclib-org/btclib-wallet#475. Core
+is the release `integration-bitcoind.yml` pins. A step inside a timelock
+argument is not a derivation path: miniscript refuses the number, and
+Core's descriptor reader reports its fallback for wsh() or for a tr() leaf
+rather than a later key or path fault.
 """
 
 from __future__ import annotations

@@ -2,11 +2,12 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""Malformed closed multisigs, as Bitcoin Core v31.1 reports them.
+"""Malformed closed multisigs, as Bitcoin Core reports them.
 
-Issue btclib-org/btclib-wallet#476. Core's miniscript parser refuses a
-multisig outside its own context before it reads a key, and reads each key
-of one in its own context up to the next comma, counting no bracket.
+Issue btclib-org/btclib-wallet#476. Core is the release
+`integration-bitcoind.yml` pins. Its miniscript parser refuses a multisig
+outside its own context before it reads a key, and reads each key of one
+in its own context up to the next comma, counting no bracket.
 """
 
 import pytest

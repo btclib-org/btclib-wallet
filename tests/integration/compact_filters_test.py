@@ -46,7 +46,8 @@ from tests.integration.conftest import (
 pytestmark = pytest.mark.integration
 
 # what bitcoind writes to its `debug.log` when it cannot bind its p2p port
-# (src/net.cpp); the conftest's `_wait_for` reads only the rpc port's
+# (src/net.cpp, bitcoin/bitcoin@f0de87f040); the conftest's `_wait_for`
+# reads only the rpc port's
 _P2P_PORT_TAKEN = re.compile(
     r"Unable to bind to \S+ on this computer\. .+ is probably already running"
 )

@@ -7,8 +7,9 @@
 `psbt_fuzz1.hex` and `psbt_fuzz2.hex` are rust-bitcoin's regression
 inputs for that crash; `tests/_data/README.md` pins and describes them.
 Each is well-formed on its own: a psbt with no input and no output, and
-one global xpub with an origin of one or two steps. Bitcoin Core 31.1.0
-reads both, and prints the origin asserted below, with:
+one global xpub with an origin of one or two steps. The Bitcoin Core
+release `integration-bitcoind.yml` pins reads both, and prints the origin
+asserted below, with:
 
     bitcoin-cli decodepsbt "$(xxd -r -p tests/psbt/_data/psbt_fuzz1.hex |
         base64 | tr -d '[:space:]')"

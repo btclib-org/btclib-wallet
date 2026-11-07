@@ -713,9 +713,10 @@ def _taproot_derivations(
     plain key and the leaves of every group it is in.
 
     Bitcoin Core gives a participant the hash of every leaf of the tree
-    instead, because `SignMuSig2` in its `src/script/sign.cpp` fills in
-    the participants of every aggregate for each leaf key it cannot sign
-    for. Here an entry names only the leaves its key can sign.
+    instead, because `SignMuSig2` in its `src/script/sign.cpp`
+    (bitcoin/bitcoin@f0de87f040) fills in the participants of every
+    aggregate for each leaf key it cannot sign for. Here an entry names
+    only the leaves its key can sign.
 
     Where one key is spelled more than once, an explicit origin beats one
     `_derived_origin` makes up, and then a plain key's origin beats a
@@ -780,7 +781,7 @@ class Provider:
     """The keys and scripts a caller knows, for `infer_descriptor` to read.
 
     Bitcoin Core's `SigningProvider` without the private keys, at
-    bitcoin/bitcoin@9be056a8a7 (the v31.1 tag). `Descriptor.provider` is
+    bitcoin/bitcoin@f0de87f040 (the v32.1 tag). `Descriptor.provider` is
     what a descriptor expanded at an index tells one, and `merged` joins
     several.
 

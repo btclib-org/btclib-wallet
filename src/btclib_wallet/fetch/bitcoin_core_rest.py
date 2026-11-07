@@ -106,7 +106,7 @@ _MAX_HASH_BODY = 32
 # one rather than its default of five
 _MAX_HEADER_BODY = 80
 # the most outputs one `/getutxos` request names: Core's
-# `MAX_GETUTXOS_OUTPOINTS` (src/rest.cpp)
+# `MAX_GETUTXOS_OUTPOINTS` (src/rest.cpp, bitcoin/bitcoin@f0de87f040)
 _MAX_GETUTXOS_OUTPOINTS = 15
 
 

@@ -7,7 +7,7 @@
 Three oracles, one per claim the module docstring makes.
 
 **The waste formula** is checked against Bitcoin Core's own
-`waste_test` (`bitcoin/bitcoin@4ec6ff022a`,
+`waste_test` (`bitcoin/bitcoin@f0de87f040`,
 `src/wallet/test/coinselector_tests.cpp:720`), transcribed rather than
 re-derived: each of Core's `add_coin(amount, n, selection, fee,
 long_term_fee)` calls fixes a fee and a long-term fee directly, which
@@ -24,7 +24,7 @@ shares: every candidate a selection returns is one of the candidates it
 was given, and the effective value of the selection covers the target.
 `branch_and_bound` is also checked against a brute-force search over a
 small pool, as Core's `bnb_finds_min_waste` does
-(`bitcoin/bitcoin@a8b69bdeaf`, `src/wallet/test/fuzz/coinselection.cpp:217`).
+(`bitcoin/bitcoin@f0de87f040`, `src/wallet/test/fuzz/coinselection.cpp:217`).
 
 **The pair with `tx_builder.build_psbt`** is checked the way the issue
 that asked for this module says to: a selection is turned into `PsbtIn`
@@ -310,7 +310,7 @@ def test_select_coins_reports_insufficient_funds() -> None:
 
 # ---------------------------------------------------------------------------
 # The waste formula, transcribed from Core's waste_test
-# (bitcoin/bitcoin@4ec6ff022a, src/wallet/test/coinselector_tests.cpp:720).
+# (bitcoin/bitcoin@f0de87f040, src/wallet/test/coinselector_tests.cpp:720).
 # Core fixes a fee and a long-term fee per coin directly; here each is
 # `_rate(n)` over a one-virtual-byte candidate, so that `Candidate.fee`
 # answers exactly `n`.
@@ -892,7 +892,7 @@ def test_branch_and_bound_keeps_the_lower_waste_of_two_window_matches() -> None:
     assert selected == [tried_first]
 
 
-# Core's own `coinselection_tests.cpp` (`bitcoin/bitcoin@a8b69bdeaf`) fixes
+# Core's own `coinselection_tests.cpp` (`bitcoin/bitcoin@f0de87f040`) fixes
 # the cost of change at 359 satoshi for its default 5 sat/vB rate and at
 # 979 for its 25 sat/vB one, against a long-term rate of 10 sat/vB; its
 # coins are P2WPKH inputs of 68 vbytes, the heavy ones 500 vbytes
@@ -940,7 +940,7 @@ def _effective_values(selected: list[Candidate] | None, fee_rate: FeeRate) -> li
 def test_branch_and_bound_skips_clones_of_an_omitted_candidate() -> None:
     """Core's "Skip equivalent input sets": a pool of clones takes few tries.
 
-    `bitcoin/bitcoin@a8b69bdeaf`, `coinselection_tests.cpp:175-178`: 50,000
+    `bitcoin/bitcoin@f0de87f040`, `coinselection_tests.cpp:175-178`: 50,000
     clones of 5 are searched for 2, 7, 7 in 16 tries. Without the skip,
     omitting one clone leaves the search to rebuild, with the next clone,
     the selections it has tried, until the budget ends it.
@@ -1037,7 +1037,7 @@ def test_branch_and_bound_prunes_on_waste_only_at_high_fee_rates(
 ) -> None:
     """Core's `bnb_feerate_sensitivity_test`: selections and tries.
 
-    `bitcoin/bitcoin@a8b69bdeaf`, `coinselection_tests.cpp:243-263`. The
+    `bitcoin/bitcoin@f0de87f040`, `coinselection_tests.cpp:243-263`. The
     effective values are in cents, and the heavy candidates are the ones
     of 500 vbytes.
     """
@@ -1165,7 +1165,7 @@ def test_knapsack_prefers_the_lowest_larger_when_it_beats_the_subset() -> None:
 
 
 def test_knapsack_prefers_the_single_bigger_coin_over_a_larger_subset() -> None:
-    """Core's `knapsack_solver_test`, result10: `bitcoin/bitcoin@4ec6ff022a`.
+    """Core's `knapsack_solver_test`, result10: `bitcoin/bitcoin@f0de87f040`.
 
     `coinselector_tests.cpp:436`: candidates of 6, 7, 8, 20 and 30 cents
     against a target of 16 -- the smaller coins best only 6+7+8=21, not as
@@ -1183,7 +1183,7 @@ def test_knapsack_prefers_the_single_bigger_coin_over_a_larger_subset() -> None:
 
 
 def test_knapsack_breaks_a_subset_sum_tie_toward_the_single_coin() -> None:
-    """Core's `knapsack_solver_test`, result12: `bitcoin/bitcoin@4ec6ff022a`.
+    """Core's `knapsack_solver_test`, result12: `bitcoin/bitcoin@f0de87f040`.
 
     `coinselector_tests.cpp:452-453`: candidates of 5, 6, 7, 8, 18, 20 and 30
     cents against a target of 16 -- the smaller coins can make 5+6+7=18,

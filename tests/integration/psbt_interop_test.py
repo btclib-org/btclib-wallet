@@ -91,9 +91,9 @@ def _batch() -> list[dict[str, Any]]:
 
 
 # decodepsbt's name for each field btclib-wallet holds, from
-# src/rpc/rawtransaction.cpp of Bitcoin Core. An unknown record is one
-# Core did not recognize, so a field filed under a wrong key type shows
-# there as well as missing from its own name.
+# src/rpc/rawtransaction.cpp of Bitcoin Core, bitcoin/bitcoin@f0de87f040. An
+# unknown record is one Core did not recognize, so a field filed under a
+# wrong key type shows there as well as missing from its own name.
 _CORE_GLOBAL = {
     "hd_key_paths": "global_xpubs",
     "unknown": "proprietary",
@@ -230,8 +230,9 @@ def _core_v2_mismatches(original: Psbt, response: dict[str, Any]) -> list[str]:
 
     The psbt's version and the fields BIP370 adds in place of the unsigned
     transaction, by decodepsbt's names in src/rpc/rawtransaction.cpp of
-    Bitcoin Core. `tx_modifiable` is compared as Core's three flags, its
-    bits 0, 1 and 2, which are the only bits decodepsbt reports.
+    Bitcoin Core, bitcoin/bitcoin@f0de87f040. `tx_modifiable` is compared as
+    Core's three flags, its bits 0, 1 and 2, which are the only bits
+    decodepsbt reports.
     """
     flags = original.tx_modifiable
     mismatches = _value_mismatches(

@@ -233,9 +233,9 @@ def test_d_is_a_unit_in_tapscript_and_not_in_p2wsh(thresh: str, address: str) ->
     """Bitcoin Core accepts it in a `tr()`, rust-miniscript refuses it.
 
     BIP379 gives `d:X` the type `u` in Tapscript only, and Core's
-    `miniscript.cpp` has it for `IsTapscript`. rust-miniscript says the
-    fragment `is not a unit`. In P2WSH it is no unit, and a `thresh()` that
-    needs one is ill-typed.
+    `src/script/miniscript.cpp` (bitcoin/bitcoin@f0de87f040) has it for
+    `IsTapscript`. rust-miniscript says the fragment `is not a unit`. In
+    P2WSH it is no unit, and a `thresh()` that needs one is ill-typed.
     """
     assert parse(f"tr({XA},{thresh})").address() == address
     with pytest.raises(BTClibValueError, match="^ill-typed miniscript: thresh over "):

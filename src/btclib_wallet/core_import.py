@@ -4,7 +4,7 @@
 
 """The requests Bitcoin Core's `importdescriptors` takes.
 
-https://github.com/bitcoin/bitcoin/blob/master/src/wallet/rpc/backup.cpp
+`src/wallet/rpc/backup.cpp`, bitcoin/bitcoin@f0de87f040.
 
 What a wallet does with the descriptors `bip44.account_descriptors`
 builds: hand them to a node, which then watches every script they
@@ -30,8 +30,9 @@ half a rescan later:
   be the active source of;
 - a `range` belongs to a ranged descriptor and to no other;
 - both ends of a `range` are what `ParseRange` and `ParseDescriptorRange`
-  in `src/rpc/util.cpp` take: ordered, non-negative, an end below 2**31,
-  and fewer than a million indexes between them;
+  in `src/rpc/util.cpp` (bitcoin/bitcoin@f0de87f040) take: ordered,
+  non-negative, an end below 2**31, and fewer than a million indexes
+  between them;
 - `next_index` is inside that range;
 - a `label` goes with neither `internal` nor a range;
 - a `timestamp` is a number or the exact string `now`, which is what

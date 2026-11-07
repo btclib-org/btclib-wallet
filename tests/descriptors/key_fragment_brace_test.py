@@ -2,9 +2,10 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""An unclosed "{" after a key fragment, as Bitcoin Core v31.1 reports it.
+"""An unclosed "{" after a key fragment, as Bitcoin Core reports it.
 
-Issue btclib-org/btclib-wallet#607. Core's ``Expr`` counts a brace as a
+Issue btclib-org/btclib-wallet#607. Core is the release
+`integration-bitcoind.yml` pins. Its ``Expr`` counts a brace as a
 bracket, so after ``pk(K){`` the fragment it cuts runs on until a ")"
 closes the "{", and the key it reads, ``K){,pk(K2)``, is the fault.
 """

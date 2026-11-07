@@ -2,11 +2,12 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""A tr() branch with a wrong count of subtrees, as Bitcoin Core v31.1 reads it.
+"""A tr() branch with a wrong count of subtrees, as Bitcoin Core reads it.
 
-Issue btclib-org/btclib-wallet#608. Core reads a branch's first subtree,
-and its second where there is a comma after the first, before it finds
-the count wrong, so a fault inside one of them comes first.
+Issue btclib-org/btclib-wallet#608. Core is the release
+`integration-bitcoind.yml` pins. It reads a branch's first subtree, and
+its second where there is a comma after the first, before it finds the
+count wrong, so a fault inside one of them comes first.
 """
 
 import pytest
