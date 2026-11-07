@@ -1170,9 +1170,8 @@ def test_a_fake_address_paid_first_hides_the_real_one() -> None:
     assert found(fake_first) == []
 
 
-
 def test_two_owners_sharing_a_scan_key_hide_each_other() -> None:
-    """Two genuine owners that share a scan key cannot both be paid once.
+    """Owners sharing a scan key cannot both find an output of one transaction.
 
     Paid as `[a, b]`, A finds 1 and B finds 0; paid as `[b, a]`, A finds 0
     and B finds 1. Each paid alone finds its output. A recipient's labelled

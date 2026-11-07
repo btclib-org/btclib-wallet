@@ -734,9 +734,8 @@ def test_a_fake_address_with_a_lower_spend_key_hides_the_real_one() -> None:
     assert found([higher, real]) == 1
 
 
-
 def test_two_owners_sharing_a_scan_key_hide_each_other() -> None:
-    """Two genuine owners that share a scan key cannot both be paid once.
+    """Owners sharing a scan key cannot both find an output of one transaction.
 
     In a PSBT, k follows the spend key: the owner whose spend key sorts
     lower takes k = 0, and the other finds 0 in either output order. Each
@@ -744,15 +743,11 @@ def test_two_owners_sharing_a_scan_key_hide_each_other() -> None:
     """
     scan, a_spend, b_spend = 0x11, 0x22, 0x33
     scan_key = bytes_from_point(mult(scan))
-    a_info = scan_key + bytes_from_point(mult(a_spend))
-    b_info = scan_key + bytes_from_point(mult(b_spend))
     # which owner sorts lower is what BIP375 assigns k = 0 to
-    lower_spend, higher_spend = (
-        (a_spend, b_spend) if a_info < b_info else (b_spend, a_spend)
+    (lower_info, lower_spend), (higher_info, higher_spend) = sorted(
+        (scan_key + bytes_from_point(mult(spend)), spend)
+        for spend in (a_spend, b_spend)
     )
-    lower_info = scan_key + bytes_from_point(mult(lower_spend))
-    higher_info = scan_key + bytes_from_point(mult(higher_spend))
-    assert lower_info < higher_info
 
     def found(infos: list[bytes], spend: int) -> int:
         """Return how many outputs the owner of spend finds, paying infos."""
