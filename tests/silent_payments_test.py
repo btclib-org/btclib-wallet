@@ -1170,6 +1170,40 @@ def test_a_fake_address_paid_first_hides_the_real_one() -> None:
     assert found(fake_first) == []
 
 
+def test_two_owners_sharing_a_scan_key_hide_each_other() -> None:
+    """Owners sharing a scan key cannot both find an output of one transaction.
+
+    Paid as `[a, b]`, A finds 1 and B finds 0; paid as `[b, a]`, A finds 0
+    and B finds 1. Each paid alone finds its output. A recipient's labelled
+    addresses are found together where its scan holds those labels.
+    """
+    scan, a_spend, b_spend = 0x11, 0x22, 0x33
+    a = silent_payments.address_from_keys(mult(scan), mult(a_spend))
+    b = silent_payments.address_from_keys(mult(scan), mult(b_spend))
+    la1 = silent_payments.labeled_address_from_keys(scan, mult(a_spend), 1)
+    la2 = silent_payments.labeled_address_from_keys(scan, mult(a_spend), 2)
+    labels = silent_payments.label_lookup(scan, [0, 1, 2])
+    tweak = silent_payments.tweak_data(
+        [OutPoint("00" * 31 + "01", 0)], mult(_B_SCAN_PRV)
+    )
+
+    def found(keys: list[bytes], spend: int, *, with_labels: bool = False) -> int:
+        """Return how many outputs the owner of spend finds among keys."""
+        lab = labels if with_labels else None
+        return len(
+            silent_payments.scan_outputs(scan, mult(spend), tweak, keys, labels=lab)
+        )
+
+    assert found(_pay([a]), a_spend) == 1
+    assert found(_pay([b]), b_spend) == 1
+    assert found(_pay([a, b]), a_spend) == 1
+    assert found(_pay([a, b]), b_spend) == 0
+    assert found(_pay([b, a]), a_spend) == 0
+    assert found(_pay([b, a]), b_spend) == 1
+    assert found(_pay([la1, a, la2]), a_spend, with_labels=True) == 3
+    assert found(_pay([la1, a, la2]), a_spend) == 0
+
+
 _NETWORKS = ("mainnet", "testnet", "signet", "testnet4", "regtest")
 _HRPS = {
     "mainnet": "sp",
