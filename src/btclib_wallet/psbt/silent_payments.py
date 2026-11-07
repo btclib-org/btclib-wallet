@@ -75,14 +75,16 @@ the outputs sorted by spend key, then by output index.
 `_ordered_sp_outputs` quotes the rule, and
 `tests/psbt/silent_payments_test.py` says which of the vectors pins it.
 
-**Every address must belong to its recipient**, and the caller is the one
-to check it. Here k follows the spend key, not the output's position: an
-address that reuses a recipient's scan key, with a spend key that sorts
-below the recipient's, takes k = 0 wherever it is placed. The recipient's
-scan, which stops at the first k it does not find, then never reaches the
-recipient's output. The output stays spendable, but the recipient does not
-find it. No order of the outputs prevents this; where an address cannot be
-checked, pay it in a separate transaction.
+**In one transaction, addresses that share a scan key must belong to one
+recipient**, whether the other address is a fake or another owner's. Here
+k follows the spend key, not the output's position: an address that reuses
+a recipient's scan key, with a spend key that sorts below the recipient's,
+takes k = 0 wherever it is placed. The recipient's scan, which stops at
+the first k it does not find, then never reaches the recipient's output.
+The output stays spendable, but the recipient does not find it. No order
+of the outputs prevents this. A recipient's own labelled addresses are
+harmless where its scan holds those labels. Otherwise pay the addresses in
+separate transactions.
 """
 
 from __future__ import annotations

@@ -734,6 +734,47 @@ def test_a_fake_address_with_a_lower_spend_key_hides_the_real_one() -> None:
     assert found([higher, real]) == 1
 
 
+
+def test_two_owners_sharing_a_scan_key_hide_each_other() -> None:
+    """Two genuine owners that share a scan key cannot both be paid once.
+
+    In a PSBT, k follows the spend key: the owner whose spend key sorts
+    lower takes k = 0, and the other finds 0 in either output order. Each
+    paid alone finds its output.
+    """
+    scan, a_spend, b_spend = 0x11, 0x22, 0x33
+    scan_key = bytes_from_point(mult(scan))
+    a_info = scan_key + bytes_from_point(mult(a_spend))
+    b_info = scan_key + bytes_from_point(mult(b_spend))
+    # which owner sorts lower is what BIP375 assigns k = 0 to
+    lower_spend, higher_spend = (
+        (a_spend, b_spend) if a_info < b_info else (b_spend, a_spend)
+    )
+    lower_info = scan_key + bytes_from_point(mult(lower_spend))
+    higher_info = scan_key + bytes_from_point(mult(higher_spend))
+    assert lower_info < higher_info
+
+    def found(infos: list[bytes], spend: int) -> int:
+        """Return how many outputs the owner of spend finds, paying infos."""
+        psbt = _sp_psbt()
+        psbt.outputs = [PsbtOut(amount=10_000, sp_v0_info=info) for info in infos]
+        role.set_input_share(psbt, 0, _PRV_KEY, aux=bytes(32))
+        role.set_output_scripts(psbt)
+        outpoints = [psbt_in.prev_out for psbt_in in psbt.inputs]
+        A_sum = sp.pub_key_sum(list(role.eligible_pub_keys(psbt).values()))
+        tweak = sp.tweak_data(outpoints, A_sum)
+        scripts = role.output_scripts(psbt)
+        keys = [scripts[i][2:] for i in range(len(infos))]
+        return len(sp.scan_outputs(scan, mult(spend), tweak, keys))
+
+    assert found([lower_info], lower_spend) == 1
+    assert found([higher_info], higher_spend) == 1
+    assert found([lower_info, higher_info], lower_spend) == 1
+    assert found([lower_info, higher_info], higher_spend) == 0
+    assert found([higher_info, lower_info], lower_spend) == 1
+    assert found([higher_info, lower_info], higher_spend) == 0
+
+
 def test_an_empty_silent_payment_script_is_present_but_wrong() -> None:
     """Only absence defers derivation; a present empty script is checked."""
     absent = _sp_psbt()
