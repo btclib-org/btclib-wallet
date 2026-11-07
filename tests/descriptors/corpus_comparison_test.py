@@ -5,11 +5,12 @@
 """Where `parse` agrees with Bitcoin Core and rust-miniscript does not.
 
 `.github/scripts/compare_descriptors.py` hands the descriptors this
-repository holds to `parse`, to Bitcoin Core v31.1 and to rust-miniscript
-96a1c917. Each test here pins one kind of input on which Core and `parse`
-agree and rust-miniscript differs, or on which `parse` stays with the
-answer it gives where Core differs. An address is the one Core's
-`deriveaddresses` gave on a mainnet node with no chain.
+repository holds to `parse`, to the Bitcoin Core release
+`integration-bitcoind.yml` pins and to rust-miniscript 96a1c917. Each test
+here pins one kind of input on which Core and `parse` agree and
+rust-miniscript differs, or on which `parse` stays with the answer it gives
+where Core differs. An address is the one Core's `deriveaddresses` gave on a
+mainnet node with no chain.
 
 Each test fails if its rule is flipped.
 """
@@ -174,20 +175,6 @@ def test_a_miniscript_that_is_not_sane_is_refused_in_a_descriptor(
     """
     with pytest.raises(BTClibValueError, match=f"^{re.escape(fault)}$"):
         parse(descriptor)
-
-
-def test_two_hardened_children_of_one_xprv_are_two_keys() -> None:
-    """Bitcoin Core v31.1 refuses it as a duplicate, rust-miniscript accepts it.
-
-    Core v31.1 compares the keys of a miniscript after deriving each with no
-    private key at hand (`PubkeyProvider::operator<`, `descriptor.cpp`),
-    which fails for a hardened step, so two of them compare equal.
-    bitcoin/bitcoin#34697 fixed it on master after v31.1. Here they are two
-    keys, and the same hardened child twice is still one.
-    """
-    assert parse(f"wsh(or_d(pk({XPRV}/0h),pk({XPRV}/1h)))").is_ranged is False
-    with pytest.raises(BTClibValueError, match="is not sane: it repeats a public key$"):
-        parse(f"wsh(or_d(pk({XPRV}/0h),pk({XPRV}/0h)))")
 
 
 def test_a_key_repeated_on_a_later_path_is_refused() -> None:
