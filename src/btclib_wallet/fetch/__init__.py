@@ -45,7 +45,16 @@ transactions touching some scripts**, confirmed and in the mempool, with
 the chain they were read on. `BitcoinCoreFetcher`,
 `BitcoinCoreRestFetcher`, `ElectrumFetcher` and `EsploraFetcher` satisfy
 it, and `ScriptHistory` is what a call returns, each transaction a
-`HistoryTx` and each block a `BlockRef`.
+`HistoryTx` and each block a `BlockRef`. `start_height_for_time` returns
+the height a wallet born at a known time has history from, read from any
+`Fetcher`.
+
+**`RelayFeeReader` is a fifth `Protocol`, for a backend that reports the
+fee rates its node's mempool holds a transaction to**: the minimum relay
+rate, the mempool's minimum rate and the incremental relay rate.
+`BitcoinCoreFetcher` and `BitcoinCoreRestFetcher` satisfy it, and
+`RelayFees` is what a call returns. `ElectrumFetcher`, `EsploraFetcher`
+and `CompactFilterFetcher` do not, and each says why.
 
 **It adds no dependency.** The standard library is the whole of every
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`
@@ -95,7 +104,8 @@ what raises if there is nothing to connect to.
 **What is exported, and what is not.** The fetchers, the interface they
 implement, `Broadcaster` and `FeeEstimator` beside it with `FeeQuote`,
 `BalanceReader` with `Balance`, `HistoryReader` with `ScriptHistory`,
-`HistoryTx` and `BlockRef`,
+`HistoryTx`, `BlockRef` and `start_height_for_time`, `RelayFeeReader`
+with `RelayFees`,
 the clients a Bitcoin Core node is reached through --
 `BitcoinCoreRpcClient` for the JSON-RPC server, `BitcoinCoreRestClient`
 for `-rest` -- and the transport seam:
@@ -152,8 +162,10 @@ from btclib_wallet.fetch.history import (
     HistoryReader,
     HistoryTx,
     ScriptHistory,
+    start_height_for_time,
 )
 from btclib_wallet.fetch.peer_transport import PeerTransport, TcpPeerTransport
+from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
 from btclib_wallet.fetch.transport import (
     DEFAULT_TIMEOUT,
     HttpTransport,
@@ -187,9 +199,12 @@ __all__ = [
     "HttpTransport",
     "LineTransport",
     "PeerTransport",
+    "RelayFeeReader",
+    "RelayFees",
     "ScriptHistory",
     "SessionTransport",
     "TcpPeerTransport",
     "TlsLineTransport",
+    "start_height_for_time",
     "urlopen_transport",
 ]

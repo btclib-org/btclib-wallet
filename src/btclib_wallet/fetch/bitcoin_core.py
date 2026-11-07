@@ -58,6 +58,7 @@ from btclib_wallet.fetch.history import (
     ScriptHistory,
     history_scripts,
 )
+from btclib_wallet.fetch.relay_fees import RelayFees
 
 __all__ = [
     "COOKIE_USER",
@@ -113,6 +114,12 @@ _DEFAULT_MAX_MEMPOOL = 300_000_000
 # refused as a `FetchError`.
 _MAX_MEMPOOL_REPLY = _DEFAULT_MAX_MEMPOOL // _MEMPOOL_ENTRY_USAGE * 67
 
+# What `getmempoolinfo` may weigh, the same reply as `-rest`'s
+# `/mempool/info.json`: a fixed set of members, each a number or a boolean,
+# so it does not grow with the mempool. `tests/integration/relay_fees_test.py`
+# holds the reply of the Core release the integration job runs under it.
+_MAX_MEMPOOL_INFO_REPLY = 1024
+
 # the modes `estimatesmartfee` takes, which Core matches without regard to
 # ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
 _ESTIMATE_MODES = ("unset", "economical", "conservative")
@@ -132,6 +139,8 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
 
     Also a `HistoryReader`: `get_history` reads the blocks and the
     mempool, and asks nothing of the node's wallet.
+
+    Also a `RelayFeeReader`: `get_relay_fees` sends `getmempoolinfo`.
 
     The client is a constructor argument rather than a set of connection
     arguments repeated here: one class owns the endpoint and credentials,
@@ -387,6 +396,18 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
             rate = FeeRate.from_btc_per_kvbyte(feerate, round_up=True)
             return FeeQuote(rate=rate, target=cast(int, blocks))
 
+    def get_relay_fees(self) -> RelayFees:
+        """Return the relay fee floors of the node.
+
+        `getmempoolinfo`'s `minrelaytxfee`, `mempoolminfee` and
+        `incrementalrelayfee`, read by `_relay_fees`.
+        """
+        self._verify_once()
+        reply = self._call(
+            "getmempoolinfo", None, max_body_size=_MAX_MEMPOOL_INFO_REPLY
+        )
+        return _relay_fees(reply, "getmempoolinfo")
+
     def get_history(
         self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
     ) -> ScriptHistory:
@@ -595,6 +616,28 @@ def _mempool_touching(
         if any(tx_out.script_pub_key.script in elements for tx_out in tx.vout)
         or any(tx_in.prev_out in ours for tx_in in tx.vin)
     ]
+
+
+def _relay_fees(reply: Any, source: str) -> RelayFees:
+    """Return the relay fee floors of a `getmempoolinfo` reply.
+
+    The reply is the one `MempoolInfoToJSON` writes (src/rpc/mempool.cpp),
+    over the RPC and over `-rest`'s `/mempool/info.json` alike. Each rate
+    is BTC/kvB and is rounded up where it is finer than a satoshi per kvB,
+    as `RelayFeeReader`'s contract says. A missing member, or one that is
+    no rate, is a `FetchError` naming `source`.
+    """
+    with fetch_errors(source):
+        return RelayFees(
+            min_relay=_fee_rate(_member(reply, "minrelaytxfee")),
+            mempool_min=_fee_rate(_member(reply, "mempoolminfee")),
+            incremental=_fee_rate(_member(reply, "incrementalrelayfee")),
+        )
+
+
+def _fee_rate(btc_per_kvbyte: Any) -> FeeRate:
+    """Return a rate Core quotes in BTC/kvB, rounded up."""
+    return FeeRate.from_btc_per_kvbyte(btc_per_kvbyte, round_up=True)
 
 
 def _member(reply: Any, name: str) -> Any:

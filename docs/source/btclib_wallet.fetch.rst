@@ -104,6 +104,13 @@ btclib_wallet.fetch.peer_transport module
    :members:
    :show-inheritance:
 
+btclib_wallet.fetch.relay_fees module
+-------------------------------------
+
+.. automodule:: btclib_wallet.fetch.relay_fees
+   :members:
+   :show-inheritance:
+
 btclib_wallet.fetch.transport module
 ------------------------------------
 

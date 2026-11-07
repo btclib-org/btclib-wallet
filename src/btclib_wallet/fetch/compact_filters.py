@@ -259,6 +259,11 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
     `net_processing.h`), or the peer has the `mempool` permission
     (`ProcessMessage` of `net_processing.cpp`).
 
+    Not a `RelayFeeReader`: no p2p message carries the minimum relay rate
+    or the incremental rate. BIP133's `feefilter` is the one that carries
+    a rate, the peer's mempool minimum, which Core rounds and randomizes
+    before sending (`MaybeSendFeefilter` of `net_processing.cpp`).
+
     `transport` is required, keyword-only, and has no default, as it is
     for `ElectrumFetcher`: which peer sees this client is not this
     package's decision. `TcpPeerTransport(host, port)` is the one shipped,

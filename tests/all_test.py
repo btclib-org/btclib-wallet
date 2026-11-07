@@ -169,6 +169,7 @@ CHILD_MODULES = {
             "fetcher",
             "history",
             "peer_transport",
+            "relay_fees",
             "transport",
         ],
     },
