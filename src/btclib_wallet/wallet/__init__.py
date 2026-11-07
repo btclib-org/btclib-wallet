@@ -14,7 +14,7 @@ Four modules make it up, and each imports the ones before it and none
 after:
 
 - `wallet` is that vocabulary and holds no source of its own: `Wallet` is
-  the ledger, and `RangedWallet` the half addressed by a branch and an
+  the record, and `RangedWallet` the half addressed by a branch and an
   index;
 - `key_wallet` is the wallets whose output hashes one key -- `KeyWallet`
   for individual keys and `BIP32KeyWallet` for a BIP44 account -- and

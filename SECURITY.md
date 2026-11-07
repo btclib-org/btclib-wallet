@@ -281,3 +281,14 @@ used to teach and to prototype as much as to build.
     until a caller writes the endpoint down. `Broadcaster.broadcast`
     checks that the backend named the txid this code computed, and
     nothing checks that the transaction went on to propagate.
+- **A `Ledger` verifies a backend's unconfirmed spends of its own coins**
+    with btclib's script engine. `btclib_wallet.ledger.ledger`'s
+    docstring says when, and what stays unverified.
+
+## A ledger's file holds its keys in plain text
+
+`btclib_wallet.ledger` writes each source's extended private keys into
+its SQLite file unencrypted, as an unencrypted Bitcoin Core wallet does,
+until ISS btclib-org/btclib-wallet#717 encrypts them. Whoever reads the
+file can spend the coins. The file is made readable by its owner alone
+where the system has POSIX permissions.

@@ -63,6 +63,7 @@ __all__ = [
     "exceptions",
     "fetch",
     "hwi",
+    "ledger",
     "minikey",
     "mnemonic",
     "psbt",

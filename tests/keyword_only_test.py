@@ -255,6 +255,25 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "capabilities",
     ],
     "btclib_wallet.hwi:HwiSigner.sign_psbt": ["allowed_sig_hash_types"],
+    "btclib_wallet.ledger:Ledger.add_source": ["lookahead"],
+    "btclib_wallet.ledger:Ledger.balances": ["include_nonmempool"],
+    "btclib_wallet.ledger:Ledger.create": [
+        "broadcaster",
+        "fee_estimator",
+        "relay_fee_reader",
+        "fallback_fee_rate",
+    ],
+    "btclib_wallet.ledger:Ledger.load": [
+        "broadcaster",
+        "fee_estimator",
+        "relay_fee_reader",
+        "fallback_fee_rate",
+    ],
+    "btclib_wallet.ledger:Ledger.utxos": [
+        "include_immature_coinbase",
+        "include_locked",
+        "include_unsafe",
+    ],
     "btclib_wallet.hwi:enumerate_devices": [
         "executable",
         "network",

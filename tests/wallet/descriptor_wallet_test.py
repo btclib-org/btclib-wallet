@@ -4,7 +4,7 @@
 
 """Tests for the `btclib_wallet.wallet.descriptor_wallet` module.
 
-What a `DescriptorWallet` adds to a `Descriptor` is the branch, the ledger
+What a `DescriptorWallet` adds to a `Descriptor` is the branch, the record
 and `position_of`; what it delegates is the rest. So these tests are about
 the pairing -- the three ways the chains get their labels, and the
 refusals a chain cannot be built from -- and about the delegation being

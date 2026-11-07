@@ -136,6 +136,18 @@ and `wallet.script_wallet` are addressed by the BIP44 branch and index a
 `RangedWallet` puts below an account, one from an output descriptor and
 one from a script template.
 
+## The ledger, above the wallets
+
+`ledger/` is what a wallet is in Bitcoin Core's sense: `Ledger` holds a
+set of `DescriptorWallet`s, every transaction that touches their
+scripts, with its state, and the coins and balances read from them. It
+syncs from a `fetch.HistoryReader` when its caller calls `sync`, and
+spends through `coin_selection`, `tx_builder` and a `fetch.Broadcaster`.
+So it imports both `wallet/` and `fetch/`, and neither imports it. It
+writes one SQLite file, through the standard library's `sqlite3`, which
+holds everything a load answers from; `ledger.store`'s docstring says
+how the file names its format and version.
+
 ## Discreet log contracts
 
 `dlc/` holds what a DLC needs offline: `dlc.transactions` builds its
@@ -215,8 +227,9 @@ serialization — is btclib's or ecc's, and a mnemonic up to its seed is
 bip39_slip39's; this package reimplements none of it. What is here is
 the key-derivation schemes above btclib, the formats that cross a
 wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
-— the wallets that remember what they have handed out, the one contract
-an external signer answers to, the transactions and signatures of a
+— the wallets that remember what they have handed out, the ledger that
+keeps their transactions and coins in a file, the one contract an
+external signer answers to, the transactions and signatures of a
 discreet log contract, and the clients that reach a node, an explorer,
 an Electrum server or a p2p peer for what the chain currently holds.
 `tests/imports_test.py` mirrors the edges above, and holds the layering

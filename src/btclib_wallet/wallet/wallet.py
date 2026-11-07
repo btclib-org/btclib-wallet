@@ -9,7 +9,7 @@ it from three different sources -- an extended key, an output descriptor,
 a script template. The questions put to them are one set, and this module
 is that set: it holds no key, no descriptor and no script of its own.
 
-`Wallet` is the ledger half -- the addresses handed out, what is
+`Wallet` is the record half -- the addresses handed out, what is
 remembered about each, and whether any private key is held -- and
 `KeyWallet`, which takes individual keys and has no position to compute
 them from, is a wallet on that much alone.
@@ -42,21 +42,15 @@ one. The chains are the same two chains either way, named rather than
 derived.
 
 **What no wallet here does.** No utxos, no balances, no transaction
-building, no persistence to disk, no encryption at rest. Utxos and
-balances need a view of the chain, and no wallet here keeps one.
-`fetch.HistoryReader` lists the transactions that touch some scripts,
-which is what such a view is built from. `get_tx_out` reads the named
-output's parent transaction rather than a utxo set -- it answers what
-the output is, spent or not, never whether it is spent, so there is no
-utxo set here to read a balance from. Transaction building needs no view
-of any chain; it is `tx_builder.py`'s, built from candidates a caller
-already selected. Persistence and encryption at rest need a file format
-and a key-derivation function that would outlive any release choosing
-them. Without any of them a wallet is a pure function of its source --
-the same source gives the same addresses in the same order, every time
--- which is what makes it testable and what keeps its whole state in
-memory, where the caller can see it. A spender is the larger reading of
-"wallet" and belongs above this, not inside it.
+building, no persistence to disk, no encryption at rest. Without any of
+them a wallet is a pure function of its source -- the same source gives
+the same addresses in the same order, every time -- which is what makes
+it testable and what keeps its whole state in memory, where the caller
+can see it. Transaction building needs no view of any chain; it is
+`tx_builder.py`'s, built from candidates a caller already selected. The
+rest belongs to `btclib_wallet.ledger`, one layer above this: a `Ledger`
+holds a set of descriptor wallets, the transactions that touch them,
+their utxos and balances, a spender, and the file they live in.
 
 https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki
 """
@@ -141,7 +135,7 @@ class AddressInfo:
 class Wallet(ABC):
     """The addresses a wallet has handed out, and what it knows of each.
 
-    A ledger and nothing else: what puts an address in it is each
+    A record and nothing else: what puts an address in it is each
     wallet's own business -- `KeyWallet.add` takes a key, and
     `RangedWallet.address` computes a position -- and what it answers is
     the same either way.
@@ -219,7 +213,7 @@ class Wallet(ABC):
         return self._handed_out[addr]
 
     def _record(self, info: AddressInfo) -> str:
-        """Take one address into the ledger, and return it."""
+        """Take one address into the record, and return it."""
         self._handed_out[info.address] = info
         return info.address
 
@@ -428,7 +422,7 @@ class RangedWallet(Wallet, ABC):
         An empty span is refused too: there is nothing to be right about,
         and a caller that has written an empty file has not written a
         span. Outputs are named however the caller holds them, as in
-        `position_of`, and the wallet's ledger is left alone -- checking
+        `position_of`, and the wallet's record is left alone -- checking
         what was handed out is not handing it out again.
         """
         if not addresses:
