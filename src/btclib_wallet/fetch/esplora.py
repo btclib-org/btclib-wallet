@@ -161,9 +161,7 @@ _MAX_FEE_TARGET = 1008
 
 # the default max_pages of get_history, whose docstring says why
 _MAX_HISTORY_PAGES = 1000
-# the most transactions a page of `/txs/chain` holds: "Returns 25
-# transactions per page" (Esplora's API.md). A longer page is refused, so
-# get_history reads at most this many times max_pages of a script's
+# the most transactions get_history takes in a page, whose docstring says why
 _HISTORY_PAGE_SIZE = 25
 
 
