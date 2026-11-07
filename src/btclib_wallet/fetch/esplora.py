@@ -42,15 +42,16 @@ that is a merkle branch checked against a header, which is what the
 Electrum backend of issue btclib-org/btclib#204 adds and this one cannot. That
 is the trade the fallback exists to offer, and `SECURITY.md` states it.
 
-Every endpoint here but `/fee-estimates`, `/address/<address>` and the ones
-`get_history` reads answers in plain text rather than json:
+Every endpoint here but `/fee-estimates`, `/address/<address>`,
+`/scripthash/<hash>`, its `/txs/chain` and `/txs/mempool` pages and
+`/block/<hash>/txids` answers in plain text rather than json:
 `/tx/<txid>/hex`, `/blocks/tip/height`, `/blocks/tip/hash`,
 `/block-height/<height>` and `/block/<hash>/header`, read; `POST /tx`,
-written. The json renderings beside them carry the same
-values with more to disagree about -- and `/hex` is what makes the id check
-above possible at all. That these are what a second deployment has to serve
-is why they are the thing to check before naming one: a host answering json
-where this expects text is not compatible in the way that matters.
+written. The json renderings beside them carry the same values with more
+to disagree about -- and `/hex` is what makes the id check above possible
+at all. That these are what a second deployment has to serve is why they
+are the thing to check before naming one: a host answering json where
+this expects text is not compatible in the way that matters.
 """
 
 from __future__ import annotations

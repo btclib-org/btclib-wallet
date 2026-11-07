@@ -188,6 +188,25 @@ def test_get_history_lists_the_mempool_last_and_once() -> None:
     ]
 
 
+def test_a_transaction_spelled_two_ways_is_listed_once() -> None:
+    """Two scripts naming one txid in different case name one transaction."""
+    both = _tx([OutPoint(bytes(32), 0)], [OURS, MINE])
+    server = FakeServer([[both]])
+
+    def shout(method: str, params: list[Any], result: Any) -> Any:
+        if method == "blockchain.scripthash.get_history" and params[0] == (
+            sha256(MINE)[::-1].hex()
+        ):
+            return [{**item, "tx_hash": item["tx_hash"].upper()} for item in result]
+        return result
+
+    server.edit = shout
+    history = _fetcher(server).get_history([OURS, MINE])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [
+        (both.id, server.ref(1))
+    ]
+
+
 def _edited(
     server: FakeServer, method: str, change: Callable[[Any], Any]
 ) -> FakeServer:

@@ -413,9 +413,10 @@ def scripthash_get_balance_batch_response(
 class HistoryItem:
     """One transaction `blockchain.scripthash.get_history` answered.
 
-    `height` is that of the block confirming `tx_id`, or one of the two
-    mempool heights: `0` where every input spends a confirmed output and
-    `-1` where one does not.
+    `tx_id` is in lower-case hex, however the server spelled it, so one
+    transaction is one id. `height` is that of the block confirming it,
+    or one of the two mempool heights: `0` where every input spends a
+    confirmed output and `-1` where one does not.
     """
 
     tx_id: str
@@ -465,7 +466,7 @@ def scripthash_get_history_response(
         previous = items[-1].height if items else 1
         if height > 0 and (previous < 1 or height < previous):
             raise BTClibValueError("scripthash.get_history: an entry out of order")
-        items.append(HistoryItem(cast(str, tx_id), height))
+        items.append(HistoryItem(cast(str, tx_id).lower(), height))
     if len({item.tx_id for item in items}) != len(items):
         raise BTClibValueError("scripthash.get_history: a transaction listed twice")
     return tuple(items)

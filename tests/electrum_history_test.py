@@ -72,6 +72,7 @@ def test_history_response_keeps_the_servers_order() -> None:
         ([_entry(A, 6), _entry(B, 5)], BTClibValueError, "out of order"),
         ([_entry(A, 0), _entry(B, 5)], BTClibValueError, "out of order"),
         ([_entry(A, 5), _entry(A, 0)], BTClibValueError, "listed twice"),
+        ([_entry(A, 5), _entry(A.upper(), 5)], BTClibValueError, "listed twice"),
     ],
 )
 def test_history_response_refuses_what_a_history_is_not(
@@ -87,3 +88,9 @@ def test_history_response_raises_the_servers_error() -> None:
     line = json.dumps({"id": 7, "error": {"code": 1, "message": "too many"}})
     with pytest.raises(RpcError, match="too many"):
         electrum.scripthash_get_history_response(line.encode(), 7)
+
+
+def test_history_response_spells_each_txid_in_lower_case() -> None:
+    """One transaction is one key, however the server spelled its id."""
+    items = electrum.scripthash_get_history_response(_line([_entry(A.upper(), 5)]), 7)
+    assert items == (electrum.HistoryItem(A, 5),)
