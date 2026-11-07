@@ -24,6 +24,70 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.7
+
+### Esplora, Electrum and Core's REST list a script's history
+
+`EsploraFetcher`, `ElectrumFetcher` and `BitcoinCoreRestFetcher` satisfy
+`HistoryReader`, and `btclib_wallet.electrum` reads
+`blockchain.scripthash.get_history` (closes #629).
+
+### bip322 refuses a non-minimal OP_IF or OP_NOTIF in legacy and P2SH
+
+`REQUIRED_RULES` adds btclib's `ScriptFlag.MINIMALIF_ALL`, and the btclib
+floor moves to 2026.10.30 (closes #493).
+
+### BIP375's k follows the spend key
+
+Within one scan key, outputs sort by spend key, then by output index, the
+rule bitcoin/bips#2207 merged (closes #676).
+
+### Every silent-payment address must belong to its recipient
+
+`output_keys` and the `psbt.silent_payments` module say why, and what to
+do where an address cannot be checked (closes #685).
+
+### The homepage is `https://btclib.org/btclib-wallet/`
+
+The documentation stays on Read the Docs (closes #644).
+
+### README.md links its own files absolutely, so they resolve on PyPI
+
+The documentation keeps them as links to its own pages (issue
+btclib-org/.github#1851).
+
+### pytest-timeout bounds each test
+
+At 300 s, so a hang names its test (closes #650).
+
+### Sourcery runs on every pull request
+
+Its findings on `main` are fixed, or skipped by name with the reason
+beside the line (issue btclib-org/.github#2005).
+
+### The calls of btclib-org/.github name the commit of its tag `v2026.11.5`
+
+CodeQL runs the security-extended queries (issue btclib-org/.github#2005).
+
+### `check-executables-have-shebangs` runs
+
+(issue btclib-org/btclib#2852).
+
+### `.coderabbit.yaml` configures CodeRabbit's review
+
+(issue btclib-org/.github#1998).
+
+### `RELEASING.md`, `CONTRIBUTING.md` and `REVIEWING.md` take the shared part
+
+`RELEASING.md` gains the pinned griffe step and the `api_gaps.py` run
+(issue btclib-org/.github#1855).
+
+### The lock, the fuzz build and the workflows take Dependabot's updates
+
+The lock takes bitcoin-core-rpc 2026.10.23, hypothesis 6.170.13, mypy
+2.4.1, pytest 9.2.0, ruff 0.17.3 and uv-build 0.13.6, `.clusterfuzzlite`
+the same bitcoin-core-rpc and uv-build, and the workflows setup-uv 10.3.3.
+
 ## v2026.11.3
 
 ### The silent-payment output key is computed without `tweak_add_var`
