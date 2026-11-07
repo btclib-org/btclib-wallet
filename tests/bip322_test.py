@@ -17,6 +17,7 @@ import base64
 import dataclasses
 import string
 from copy import deepcopy
+from functools import partial
 from typing import Any
 
 import pytest
@@ -28,7 +29,9 @@ from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
 from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
+    BTClibTypeError,
     BTClibValueError,
+    NotAPrvKeyError,
     ScriptError,
 )
 from btclib.hashes import hash160, magic_message
@@ -594,6 +597,52 @@ def test_sign_and_verify(script_type: str, msg: bytes) -> None:
     assert not bip322.verify(
         msg, addr, bip322.sign(msg, b58.prv_key_data_from_wif(OTHER_WIF), other)
     )
+
+
+@pytest.mark.parametrize("script_type", ["p2pkh", "p2wpkh", "p2sh-p2wpkh", "p2tr"])
+def test_a_wif_signs_as_the_key_it_reads_to(
+    script_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`sign` reads a WIF `str` as `b58.prv_key_data_from_wif` does.
+
+    The auxiliary randomness of BIP340 is fixed, so that the p2tr
+    signature is a function of the key and the hash as the ECDSA ones are.
+    """
+    monkeypatch.setattr(ssa, "sign_", partial(ssa.sign_, aux=bytes(32)))
+    msg, addr = b"Hello World", _address(WIF, script_type)
+    sig = bip322.sign(msg, WIF, addr)
+    assert sig == bip322.sign(msg, b58.prv_key_data_from_wif(WIF), addr)
+    assert bip322.verify(msg, addr, sig)
+    with pytest.raises(BTClibValueError, match="mismatch between private key"):
+        bip322.sign(msg, OTHER_WIF, addr)
+
+
+def test_a_regtest_wif_signs_for_its_address_as_it_is() -> None:
+    """The key's network is not read: a regtest WIF reads as testnet."""
+    msg = b"regtest"
+    wif = wif_from_prv_key(b58.prv_key_data_from_wif(WIF).q, "regtest", True)
+    assert b58.prv_key_data_from_wif(wif).network == "testnet"
+    regtest_key = b58.prv_key_data_from_wif(wif, "regtest")
+    addr = p2wpkh(regtest_key.pub)
+    assert addr.startswith("bcrt1")
+    sig = bip322.sign(msg, wif, addr)
+    assert sig == bip322.sign(msg, regtest_key, addr)
+    assert bip322.verify(msg, addr, sig)
+
+
+def test_sign_refuses_a_key_that_is_neither_a_wif_nor_parsed() -> None:
+    """A str that is no WIF is the parser's refusal; another type, a type error.
+
+    Bytes and a bare scalar spell a scalar in btclib, not a WIF; a bool
+    is an int, and refused as one.
+    """
+    addr = _address(WIF, "p2wpkh")
+    with pytest.raises(NotAPrvKeyError):
+        bip322.sign(b"", "not a wif", addr)
+    wif_bytes = WIF.encode("ascii")
+    for prv_key in (wif_bytes, bytearray(wif_bytes), 1, True, None):
+        with pytest.raises(BTClibTypeError, match="invalid prv_key type: "):
+            bip322.sign(b"", prv_key, addr)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
