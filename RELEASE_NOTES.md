@@ -9,6 +9,68 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.7
+
+- **`bip322` refuses a signature whose legacy or P2SH script runs an
+  OP_IF or OP_NOTIF on an argument other than the empty vector or 0x01**
+  ([ISS 493](https://github.com/btclib-org/btclib-wallet/issues/493)),
+  as BIP322's required rules ask. It accepted one. `REQUIRED_RULES` adds
+  btclib's `ScriptFlag.MINIMALIF_ALL`, which holds every script to the
+  rule. Act on it if you verify BIP322 signatures and relied on that
+  acceptance, or read `REQUIRED_RULES`: expect the new flag.
+- **btclib 2026.10.30 is the floor**, the first release with
+  `ScriptFlag.MINIMALIF_ALL`. Act on it if you pin btclib below it: raise
+  the pin, and read btclib's notes for v2026.10.28 and v2026.10.30, whose
+  breaking changes reach you with it.
+- **A silent-payment PSBT counts k per scan key over its outputs sorted
+  by spend key, then by output index**
+  ([ISS 676](https://github.com/btclib-org/btclib-wallet/issues/676)),
+  the rule of BIP375 as bitcoin/bips#2207 merged it. It counted them in
+  output index order. Where one scan key has several outputs whose spend
+  keys are not in index order, `output_scripts` and `set_output_scripts`
+  assign k differently, and `assert_output_scripts_as_valid` refuses a
+  PSBT built with the old order. Act on it if you build or check such
+  PSBTs: build them again.
+- **In one transaction, silent-payment addresses that share a scan key
+  must belong to one recipient**
+  ([ISS 685](https://github.com/btclib-org/btclib-wallet/issues/685)).
+  k counts per scan key, and a recipient's scan stops at the first k it
+  does not find. An address with a recipient's scan key and a spend key
+  that is neither the recipient's nor one of its labels, whether a fake
+  address or another owner's, takes a k in that recipient's count, and
+  every output of the recipient counted after it stays spendable but is
+  never found. `output_keys` counts in the order the addresses are
+  given. A PSBT counts in the order of the spend keys, so in a PSBT no
+  order of the outputs protects the recipient. Addresses with different
+  scan keys do not affect each other, and a recipient's own labelled
+  addresses share its scan key without harm where its scan holds those
+  labels. Act on it if you pay silent-payment addresses: pay two that
+  share a scan key, the first key `keys_from_address` returns, in one
+  transaction only where you know one recipient owns both and scans for
+  the labels it published, and otherwise in separate transactions.
+- **`EsploraFetcher`, `ElectrumFetcher` and `BitcoinCoreRestFetcher`
+  list a script's history with `get_history`**
+  ([ISS 629](https://github.com/btclib-org/btclib-wallet/issues/629)),
+  as `BitcoinCoreFetcher` does. What an Esplora or Electrum server
+  answers is unverified beyond each transaction's id, which fixes all of
+  it but its witness, and the checks each docstring names. Either server
+  can leave a transaction out, list one that touches none of the
+  scripts, change any transaction's witness, and name a start, a tip or
+  a confirmed transaction's block, height included, that the best chain
+  does not hold, or report a confirmed one as in the mempool; an Esplora
+  server can also put a transaction in a block, or at a position in it,
+  where it is not. The signatures of the mempool transactions are not
+  verified, and one of them may never confirm. Act on it if you read a
+  history from such a server: check that each transaction pays to one of
+  the scripts or spends an output that does, and verify every witness,
+  every unconfirmed transaction, and the start, the tip and the block of
+  each confirmed one, and from Esplora its position there, before you
+  rely on them. These checks do not find a transaction left out: the
+  history is complete only where you check it another way, such as
+  against a node of your own.
+
+`CHANGELOG.md`'s own `v2026.11.7` section has the rest.
+
 ## v2026.11.3
 
 - **The silent-payment sender and a labelled address no longer add a
