@@ -148,15 +148,17 @@ The address is the first one BIP84 lists for that mnemonic.
 
 ## Architecture
 
-[ARCHITECTURE.md](./ARCHITECTURE.md) is the design: which module holds
-what, the dependencies and why each, and every place a module crosses out
-of the process it runs in. [ASSURANCE_CASE.md](./ASSURANCE_CASE.md) is
-why the security section below holds.
+[ARCHITECTURE.md](https://github.com/btclib-org/btclib-wallet/blob/main/ARCHITECTURE.md)
+is the design: which module holds what, the dependencies and why each,
+and every place a module crosses out of the process it runs in.
+[ASSURANCE_CASE.md](https://github.com/btclib-org/btclib-wallet/blob/main/ASSURANCE_CASE.md)
+is why the security section below holds.
 
 ## Security
 
 A mnemonic, an extended private key and a PSBT being signed are secrets,
-and where they are handled is this package. [SECURITY.md](./SECURITY.md)
+and where they are handled is this package.
+[SECURITY.md](https://github.com/btclib-org/btclib-wallet/blob/main/SECURITY.md)
 says what that promises, where constant time ends, and how to report a
 vulnerability.
 
@@ -165,12 +167,14 @@ vulnerability.
 Development is LLM-based: humans are welcome, as long as they are
 comfortable with agentic development ;-). A contribution must have been
 read and understood by the person who submits it.
-[`CONTRIBUTING.md`](./CONTRIBUTING.md#working-with-an-llm) has the rules.
+[`CONTRIBUTING.md`](https://github.com/btclib-org/btclib-wallet/blob/main/CONTRIBUTING.md#working-with-an-llm)
+has the rules.
 
-[CONTRIBUTING.md](./CONTRIBUTING.md) has the commands each CI job runs,
-verbatim. `uv sync` creates the environment; uv is the only tool that has
-to be installed. [REVIEWING.md](./REVIEWING.md) is what a pull request is
-answered against.
+[CONTRIBUTING.md](https://github.com/btclib-org/btclib-wallet/blob/main/CONTRIBUTING.md)
+has the commands each CI job runs, verbatim. `uv sync` creates the
+environment; uv is the only tool that has to be installed.
+[REVIEWING.md](https://github.com/btclib-org/btclib-wallet/blob/main/REVIEWING.md)
+is what a pull request is answered against.
 
 How the organization decides, and who holds which role, is its
 [GOVERNANCE.md](https://github.com/btclib-org/.github/blob/main/GOVERNANCE.md);
@@ -182,7 +186,8 @@ what it intends to do, and what it deliberately does not, is its
 - Documentation: <https://btclib-wallet.readthedocs.io/>
 - Source: <https://github.com/btclib-org/btclib-wallet>
 - Releases: <https://github.com/btclib-org/btclib-wallet/releases>
-- [CHANGELOG.md](./CHANGELOG.md), and [RELEASE_NOTES.md](./RELEASE_NOTES.md)
+- [CHANGELOG.md](https://github.com/btclib-org/btclib-wallet/blob/main/CHANGELOG.md),
+  and [RELEASE_NOTES.md](https://github.com/btclib-org/btclib-wallet/blob/main/RELEASE_NOTES.md)
   for what a release asks a user to act on
 
 ---

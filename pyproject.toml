@@ -152,7 +152,13 @@ harness = [
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
 ]
-test = [{ include-group = "harness" }, { include-group = "bindings" }]
+test = [
+    { include-group = "harness" },
+    { include-group = "bindings" },
+    # tests/docs_conf_test.py executes docs/source/conf.py, which imports
+    # it; the marker and the bound are `docs`'s, below
+    "sphinx>=9.1.0; python_full_version >= '3.12'",
+]
 lint = [
     { include-group = "bindings" },
     "mypy>=2.3.1",
