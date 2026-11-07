@@ -2,8 +2,8 @@
 name: scorecard
 
 # the OpenSSF Scorecard: a public repository's supply-chain practices,
-# scored and published, and the badge at the head of the README's last
-# line. A check scoring below its maximum is an issue against what it
+# scored and published, and the last badge of the README's `## Status`
+# section. A check scoring below its maximum is an issue against what it
 # found, section 10 of the organization's standard says, and never a
 # sentence explaining the score.
 #
