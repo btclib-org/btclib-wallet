@@ -176,7 +176,11 @@ def start_height_for_time(fetcher: Fetcher, time: datetime) -> int | None:
     # datetime two hours earlier
     earliest = time.timestamp() - MAX_FUTURE_BLOCK_TIME
     tip = fetcher.get_block_count()
-    for height in range(tip + 1):
-        if fetcher.get_block_header(height).time.timestamp() >= earliest:
-            return height
-    return None
+    return next(
+        (
+            height
+            for height in range(tip + 1)
+            if fetcher.get_block_header(height).time.timestamp() >= earliest
+        ),
+        None,
+    )

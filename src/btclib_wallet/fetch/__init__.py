@@ -45,8 +45,8 @@ transactions touching some scripts**, confirmed and in the mempool, with
 the chain they were read on. `BitcoinCoreFetcher`,
 `BitcoinCoreRestFetcher`, `ElectrumFetcher` and `EsploraFetcher` satisfy
 it, and `ScriptHistory` is what a call returns, each transaction a
-`HistoryTx` and each block a `BlockRef`. `start_height_for_time` is the
-height a wallet born at a known time has history from, read from any
+`HistoryTx` and each block a `BlockRef`. `start_height_for_time` returns
+the height a wallet born at a known time has history from, read from any
 `Fetcher`.
 
 **`RelayFeeReader` is a fifth `Protocol`, for a backend that reports the
