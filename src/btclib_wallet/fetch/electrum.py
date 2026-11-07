@@ -52,11 +52,15 @@ other backends' word for it, and the reason this backend exists.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
+from btclib.hashes import sha256
 from btclib.network import NETWORKS
+from btclib.script import ScriptPubKey
 from btclib.tx import Tx
 from btclib.utils import is_integer
 from typing_extensions import override
@@ -72,6 +76,12 @@ from btclib_wallet.fetch.fetcher import (
     fetch_errors,
     tx_from_raw,
     tx_id_hex,
+)
+from btclib_wallet.fetch.history import (
+    BlockRef,
+    HistoryTx,
+    ScriptHistory,
+    history_scripts,
 )
 from btclib_wallet.fetch.transport import DEFAULT_TIMEOUT, LineTransport, valid_timeout
 
@@ -114,13 +124,12 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     equivalent to Core's `blocks`, so unlike the other two backends this
     one cannot report a clamp the server may have applied underneath it.
 
+    Also a `HistoryReader`: `get_history` is
+    `blockchain.scripthash.get_history`, and its own docstring says what
+    it checks and what it takes on the server's word.
+
     `get_tx_out` is not overridden, and stays the `Fetcher` base's
-    derivation from `get_tx`. The protocol answers a script hash's
-    history and its unspent outputs, `blockchain.scripthash.get_history`
-    and `.listunspent`, but `ElectrumFetcher` asks neither, and is no
-    `HistoryReader` yet: issue btclib-org/btclib-wallet#629 tracks it as a
-    step after `BitcoinCoreFetcher`. The history names a height and no
-    block, so each confirmed entry also needs the header at its height.
+    derivation from `get_tx`.
     """
 
     def __init__(
@@ -338,6 +347,106 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         header = self.get_block_header(height)
         proof = self.get_tx_merkle(tx_id, height)
         return electrum.verify_merkle_proof(tx_id, proof, header)
+
+    def _tip_ref(self) -> BlockRef:
+        """Return the chain tip, its id the hash of its checked header."""
+        tip = self._tip()
+        header = block_header_from_raw(tip.header, tip.height, network=self.network)
+        return BlockRef(tip.height, header.hash)
+
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        """Return the history of `scripts`, from `start` to the tip.
+
+        `blockchain.scripthash.get_history` for each script, which lists
+        its transactions from the genesis block on, each confirmed one
+        with the height of its block and no more. So the block of each
+        is the header at that height, and `get_tx_merkle` gives its
+        position there, which orders the transactions of one block. The
+        branch is checked against the header, as `verify_tx` checks it,
+        and a branch that fails is a `FetchError`. Each header is checked
+        for its proof of work, and is not linked to the tip by its
+        parents. `blockchain.headers.subscribe` is asked first and last,
+        and a tip that moved is a `FetchError`.
+
+        What the server lists is unverified beyond that. It can leave a
+        transaction out, and it reports the mempool's with nothing to
+        check them against: their signatures are not verified, and a
+        transaction it reports may never confirm.
+
+        The cost is a request per script, per block holding one of the
+        transactions, and two per transaction. A server refuses a script
+        with more history than it serves, as an `RpcError`.
+        """
+        elements = history_scripts(scripts)
+        first = block_header_height(start_height)
+        self._verify_once()
+        tip = self._tip_ref()
+        first = min(first, tip.height)
+        start = tip
+        if first < tip.height:
+            start = BlockRef(first, self._header_at(first).hash)
+        heights = self._listed(elements)
+        if any(height > tip.height for height in heights.values() if height):
+            raise FetchError("the tip moved while the history was read")
+        confirmed = self._proven(
+            {tx_id: h for tx_id, h in heights.items() if h is not None and h >= first}
+        )
+        txs = [HistoryTx(self.get_tx(tx_id), ref) for tx_id, ref in confirmed]
+        txs += [
+            HistoryTx(self.get_tx(tx_id), None)
+            for tx_id, height in heights.items()
+            if height is None
+        ]
+        if self._tip_ref() != tip:
+            raise FetchError("the tip moved while the history was read")
+        return ScriptHistory(start=start, tip=tip, txs=tuple(txs))
+
+    def _listed(self, elements: frozenset[bytes]) -> dict[str, int | None]:
+        """Return the height of each transaction the scripts list.
+
+        `None` is the mempool's. Each script is asked by its sha256,
+        reversed, as the protocol spells a script hash.
+        """
+        heights: dict[str, int | None] = {}
+        for script in sorted(elements):
+            for item in self._script_history(sha256(script)[::-1].hex()):
+                height = item.height if item.height > 0 else None
+                if heights.setdefault(item.tx_id, height) != height:
+                    err_msg = f"transaction {item.tx_id}: listed at two heights"
+                    raise FetchError(err_msg)
+        return heights
+
+    def _proven(self, heights: dict[str, int]) -> list[tuple[str, BlockRef]]:
+        """Return each transaction and its block, in chain order.
+
+        Each is proven in the header at its height by its merkle branch,
+        whose position orders the transactions of one block.
+        """
+        headers: dict[int, BlockHeader] = {}
+        confirmed: list[tuple[int, int, str]] = []
+        for tx_id, height in heights.items():
+            if height not in headers:
+                headers[height] = self._header_at(height)
+            proof = self.get_tx_merkle(tx_id, height)
+            if not electrum.verify_merkle_proof(tx_id, proof, headers[height]):
+                err_msg = f"transaction {tx_id}: no proof it is in block {height}"
+                raise FetchError(err_msg)
+            confirmed.append((height, proof.pos, tx_id))
+        return [
+            (tx_id, BlockRef(height, headers[height].hash))
+            for height, _, tx_id in sorted(confirmed)
+        ]
+
+    def _script_history(self, scripthash: str) -> tuple[electrum.HistoryItem, ...]:
+        """Return what `blockchain.scripthash.get_history` lists."""
+        request_id = self._next_request_id()
+        line = self._round_trip(
+            electrum.scripthash_get_history_request(request_id, scripthash)
+        )
+        with fetch_errors(f"scripthash {scripthash}"):
+            return electrum.scripthash_get_history_response(line, request_id)
 
     def estimate_fee(self, target: int) -> FeeQuote:
         """Return a fee rate expected to confirm within `target` blocks.

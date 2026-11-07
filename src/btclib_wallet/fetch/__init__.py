@@ -42,9 +42,10 @@ call returns: the confirmed satoshis and the mempool's signed change to them.
 
 **`HistoryReader` is a fourth `Protocol`, for a backend that lists the
 transactions touching some scripts**, confirmed and in the mempool, with
-the chain they were read on. `BitcoinCoreFetcher` satisfies it, and
-`ScriptHistory` is what a call returns, each transaction a `HistoryTx`
-and each block a `BlockRef`.
+the chain they were read on. `BitcoinCoreFetcher`,
+`BitcoinCoreRestFetcher`, `ElectrumFetcher` and `EsploraFetcher` satisfy
+it, and `ScriptHistory` is what a call returns, each transaction a
+`HistoryTx` and each block a `BlockRef`.
 
 **It adds no dependency.** The standard library is the whole of every
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`

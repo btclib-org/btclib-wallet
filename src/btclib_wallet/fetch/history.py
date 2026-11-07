@@ -6,7 +6,8 @@
 
 Kept apart from `Fetcher`, as `Broadcaster`, `FeeEstimator` and
 `BalanceReader` are, because not every backend can answer it.
-`BitcoinCoreFetcher` satisfies it.
+`BitcoinCoreFetcher`, `BitcoinCoreRestFetcher`, `ElectrumFetcher` and
+`EsploraFetcher` satisfy it.
 
 Not `runtime_checkable`, for the reason `Broadcaster` is not: the
 contract below is not what `isinstance(x, HistoryReader)` would verify.

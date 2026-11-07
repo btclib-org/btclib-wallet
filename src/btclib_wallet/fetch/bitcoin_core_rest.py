@@ -38,6 +38,7 @@ members of a `/chaininfo.json` reply rather than endpoints of their own.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from bitcoin_core_rpc import (
@@ -49,10 +50,20 @@ from bitcoin_core_rpc import (
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.tx import Tx
+from btclib.script import ScriptPubKey
+from btclib.tx import OutPoint, Tx
 from btclib.utils import bytes_from_octets
 from typing_extensions import override
 
+from btclib_wallet.exceptions import HttpError
+from btclib_wallet.fetch.bitcoin_core import (
+    _MAX_LARGE_REPLY,
+    _MAX_MEMPOOL_REPLY,
+    _block_history,
+    _core_history,
+    _member,
+    _mempool_touching,
+)
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     block_header_from_raw,
@@ -62,6 +73,7 @@ from btclib_wallet.fetch.fetcher import (
     tx_from_raw,
     tx_id_hex,
 )
+from btclib_wallet.fetch.history import BlockRef, ScriptHistory, history_scripts
 
 __all__ = [
     "BitcoinCoreRestClient",
@@ -90,6 +102,9 @@ _MAX_HASH_BODY = 32
 # eighty raw bytes, the query parameter being what holds Core to exactly
 # one rather than its default of five
 _MAX_HEADER_BODY = 80
+# the most outputs one `/getutxos` request names: Core's
+# `MAX_GETUTXOS_OUTPOINTS` (src/rest.cpp)
+_MAX_GETUTXOS_OUTPOINTS = 15
 
 
 def _field(reply: Any, name: str) -> Any:
@@ -132,9 +147,8 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
     spent output and one that never existed answer it identically -- and
     is not repeated here.
 
-    Not a `HistoryReader` yet: issue btclib-org/btclib-wallet#629 tracks
-    it as a step after `BitcoinCoreFetcher`, over `/block/<hash>.json`,
-    which names the output each input spends, and `/mempool/contents.json`.
+    Also a `HistoryReader`: `get_history` reads the blocks and the
+    mempool, as `BitcoinCoreFetcher.get_history` does over the RPC.
     """
 
     def __init__(
@@ -232,11 +246,10 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         """Return the parsed body of one `-rest` request, errors translated.
 
         `max_body_size` is `int` here where `_get_bin`'s is `int | None`:
-        every `.json` path this fetcher reads is `/chaininfo.json`, small
-        and bounded by `_MAX_CHAININFO_BODY`, so there is no call site
-        that would ever want the client's own wide default -- what
-        `_get_bin`'s `None` exists to ask for, a raw transaction being
-        unbounded in the way a `chaininfo` reply is not.
+        every `.json` path this fetcher reads has a bound of its own, so
+        no call site wants the client's own default -- what `_get_bin`'s
+        `None` exists to ask for, a raw transaction being bounded by
+        nothing else.
         """
         with client_errors():
             return self.client.get_json(path, max_body_size=max_body_size)
@@ -302,3 +315,112 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
             f"/headers/{block_hash}.bin?count=1", max_body_size=_MAX_HEADER_BODY
         )
         return block_header_from_raw(raw, height, network=self.network)
+
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        """Return the history of `scripts`, from `start` to the tip.
+
+        `-rest` has no query keyed on a script, so this reads what a
+        script is in, as `BitcoinCoreFetcher.get_history` does. The
+        blocks are `/block/<hash>.json`, the rendering `getblock` gives
+        at verbosity 3, with the output each input spends, and under the
+        same bound. The mempool is `/mempool/contents.json`, then
+        `/tx/<txid>.bin` for each transaction; one the node no longer has
+        by then is skipped. The outputs a mempool input spends are read
+        from the chain by `/getutxos`, which names the tip it was read
+        at, and an answer read at another tip is a `FetchError`.
+        `/chaininfo.json` is asked first and last, and a tip that moved
+        is a `FetchError`.
+
+        The cost is a request per block from `start_height` up, one per
+        mempool transaction and one per fifteen of their inputs.
+        """
+        elements = history_scripts(scripts)
+        first = block_header_height(start_height)
+        self._verify_once()
+        tip_hex = self._best_block_hex()
+        return _core_history(
+            tip_hex,
+            first,
+            lambda block_hex, height: self._history_block(block_hex, height, elements),
+            lambda: self._history_mempool(elements, tip_hex),
+            self._best_block_hex,
+        )
+
+    def _best_block_hex(self) -> str:
+        """Return the hash of the node's best chain tip, as hex."""
+        with fetch_errors("chaininfo"):
+            reply = self._get_json("/chaininfo.json", max_body_size=_MAX_CHAININFO_BODY)
+            return bytes_from_octets(_field(reply, "bestblockhash"), 32).hex()
+
+    def _history_block(
+        self, block_hex: str, height: int | None, elements: frozenset[bytes]
+    ) -> tuple[BlockRef, list[Tx], str]:
+        """Read one block, as `_block_history` returns it."""
+        reply = self._get_json(
+            f"/block/{block_hex}.json", max_body_size=_MAX_LARGE_REPLY
+        )
+        source = f"block {block_hex}"
+        return _block_history(reply, block_hex, height, elements, self.network, source)
+
+    def _history_mempool(self, elements: frozenset[bytes], tip_hex: str) -> list[Tx]:
+        """Return the mempool's transactions touching `elements`."""
+        path = "/mempool/contents.json?verbose=false"
+        reply = self._get_json(path, max_body_size=_MAX_MEMPOOL_REPLY)
+        with fetch_errors("mempool"):
+            if not isinstance(reply, list):
+                raise BTClibTypeError(f"not an array: {type(reply).__name__}")
+            tx_ids = [tx_id_hex(tx_id) for tx_id in reply]
+        mempool: list[Tx] = []
+        for tx_id in tx_ids:
+            try:
+                raw = self._get_bin(f"/tx/{tx_id}.bin", max_body_size=None)
+            except HttpError as e:
+                if e.status != 404:
+                    raise
+                continue
+            mempool.append(tx_from_raw(raw, tx_id, self.network))
+        return _mempool_touching(
+            mempool, elements, lambda: self._history_unspent(mempool, elements, tip_hex)
+        )
+
+    def _history_unspent(
+        self, mempool: list[Tx], elements: frozenset[bytes], tip_hex: str
+    ) -> set[OutPoint]:
+        """Return the chain's outputs to `elements` that `mempool` spends."""
+        inside = {tx.id for tx in mempool}
+        asked = sorted(
+            {
+                tx_in.prev_out
+                for tx in mempool
+                for tx_in in tx.vin
+                if tx_in.prev_out.tx_id not in inside
+            },
+            key=lambda out: (out.tx_id, out.vout),
+        )
+        ours: set[OutPoint] = set()
+        for i in range(0, len(asked), _MAX_GETUTXOS_OUTPOINTS):
+            batch = asked[i : i + _MAX_GETUTXOS_OUTPOINTS]
+            path = "/".join(f"{out.tx_id.hex()}-{out.vout}" for out in batch)
+            reply = self._get_json(
+                f"/getutxos/{path}.json", max_body_size=_MAX_LARGE_REPLY
+            )
+            with fetch_errors("getutxos"):
+                answered = _member(reply, "chaintipHash")
+                if answered != tip_hex:
+                    raise BTClibValueError(f"read at {answered}, not at {tip_hex}")
+                bitmap = _member(reply, "bitmap")
+                if not isinstance(bitmap, str) or len(bitmap) != len(batch):
+                    raise BTClibValueError(f"invalid bitmap: {bitmap!r}")
+                hits = [
+                    out for out, bit in zip(batch, bitmap, strict=True) if bit == "1"
+                ]
+                utxos = _member(reply, "utxos")
+                if not isinstance(utxos, list) or len(utxos) != len(hits):
+                    raise BTClibValueError("not an output for each hit")
+                for out, utxo in zip(hits, utxos, strict=True):
+                    script = _member(_member(utxo, "scriptPubKey"), "hex")
+                    if bytes.fromhex(script) in elements:
+                        ours.add(out)
+        return ours

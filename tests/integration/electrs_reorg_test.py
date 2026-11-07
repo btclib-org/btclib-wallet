@@ -11,12 +11,17 @@ one. Here the node mines a block holding a
 payment, a longer branch replaces that block, and the payment is replaced
 by a conflicting one in the new branch.
 
+`get_history` follows a script through a mempool arrival, a confirmation
+and a reorganization, as `tests/integration/history_test.py` follows it
+over the node's RPC.
+
 Skipped unless `BTCLIB_INTEGRATION=1` and `BTCLIB_ELECTRS` names the
 server's binary.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
@@ -28,6 +33,8 @@ from btclib.block.block_header import BlockHeader
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.decorators import CachingFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
+from btclib_wallet.fetch.esplora import EsploraFetcher
+from btclib_wallet.fetch.history import ScriptHistory
 from tests.integration.conftest import (
     Stack,
     electrs_binary,
@@ -128,3 +135,94 @@ def test_fetchers_follow_the_chain_that_replaced_a_block(
         assert new_status["confirmed"]
         assert new_status["block_hash"] == new_blocks[0]
         assert not stack.http_json(f"/tx/{old_spend.tx_id}/status")["confirmed"]
+
+
+# how long the server may take to see a mempool transaction: electrs polls
+# the node's mempool, where it follows blocks as `Stack.wait_synced` waits
+_MEMPOOL_TIMEOUT = 60
+
+
+def _ids(history: ScriptHistory) -> list[tuple[str, int | None]]:
+    """Return each listed transaction's id, and its block's height or None."""
+    return [
+        (entry.tx.id.hex(), None if entry.block is None else entry.block.height)
+        for entry in history.txs
+    ]
+
+
+def _settled(
+    fetcher: ElectrumFetcher | EsploraFetcher,
+    script: bytes,
+    start: int,
+    want: list[tuple[str, int | None]],
+) -> ScriptHistory:
+    """Return the history once it lists `want`, the server having caught up."""
+    deadline = time.monotonic() + _MEMPOOL_TIMEOUT
+    while True:
+        history = fetcher.get_history([script], start)
+        if _ids(history) == want:
+            return history
+        if time.monotonic() > deadline:
+            pytest.fail(f"the history is {_ids(history)}, not {want}")
+        time.sleep(0.2)
+
+
+@pytest.mark.parametrize("kind", ["electrum", "esplora"])
+def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
+    kind: str, stack: Stack
+) -> None:
+    """Each answer lists the script's transactions on the chain it names."""
+    node = stack.node
+    fetcher = make_fetcher(kind, stack)
+    assert isinstance(fetcher, (ElectrumFetcher, EsploraFetcher))
+    address = node.call("getnewaddress")
+    script = bytes.fromhex(node.call("getaddressinfo", [address])["scriptPubKey"])
+    start = int(node.call("getblockcount"))
+
+    # a payment in the mempool: no block of the chain holds it
+    payment = str(node.call("sendtoaddress", [address, "1.0"]))
+    history = _settled(fetcher, script, start, [(payment, None)])
+    assert history.start == history.tip
+    assert history.tip.block_id.hex() == node.call("getbestblockhash")
+
+    # the payment confirmed, and an empty block above it
+    (confirming,) = stack.mine()
+    stack.mine()
+    history = _settled(fetcher, script, start, [(payment, start + 1)])
+    assert history.txs[0].block is not None
+    assert history.txs[0].block.block_id.hex() == confirming
+    assert history.tip.height == start + 2
+
+    # a spend of it in the mempool
+    vout = next(
+        out["n"]
+        for out in node.call("getrawtransaction", [payment, 1])["vout"]
+        if out["scriptPubKey"]["hex"] == script.hex()
+    )
+    utxo = {"txid": payment, "vout": vout, "amount": Decimal("1.0")}
+    spend = _spend(node, utxo, "0.0001")
+    node.call("sendrawtransaction", [spend.hex])
+    _settled(fetcher, script, start, [(payment, start + 1), (spend.tx_id, None)])
+
+    # the spend confirmed: the caller holds this answer's tip
+    (spent_in,) = stack.mine()
+    held = _settled(
+        fetcher, script, start, [(payment, start + 1), (spend.tx_id, start + 3)]
+    )
+    assert held.tip.block_id.hex() == spent_in
+
+    # the block that held the spend is invalidated and none replaces it: the
+    # chain ends below the tip the caller holds, the answer starts at the new
+    # tip, and the spend is back in the mempool
+    node.call("invalidateblock", [spent_in])
+    stack.wait_synced()
+    history = _settled(fetcher, script, held.tip.height, [(spend.tx_id, None)])
+    assert history.start == history.tip
+    assert history.start.height == held.tip.height - 1
+
+    # a block without the spend takes the height back, and is another block
+    node.call("generateblock", [stack.reward_address, []])
+    stack.wait_synced()
+    history = _settled(fetcher, script, held.tip.height, [(spend.tx_id, None)])
+    assert history.start.height == held.tip.height
+    assert history.start != held.tip
