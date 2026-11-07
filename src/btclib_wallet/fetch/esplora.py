@@ -159,6 +159,13 @@ _MAX_TXIDS_BODY = MAX_BLOCK_WEIGHT // (WITNESS_SCALE_FACTOR * 60) * 67 + 64
 # "no target quoted at or above" that target
 _MAX_FEE_TARGET = 1008
 
+# the default max_pages of get_history, whose docstring says why
+_MAX_HISTORY_PAGES = 1000
+# the most transactions a page of `/txs/chain` holds: "Returns 25
+# transactions per page" (Esplora's API.md). A longer page is refused, so
+# get_history reads at most this many times max_pages of a script's
+_HISTORY_PAGE_SIZE = 25
+
 
 def _checked_base_url(base_url: str) -> str:
     """Return `base_url`, having refused a url no request can reach.
@@ -490,7 +497,11 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             return Balance(confirmed=confirmed, unconfirmed=unconfirmed)
 
     def get_history(
-        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+        self,
+        scripts: Iterable[Octets | ScriptPubKey],
+        start_height: int = 0,
+        *,
+        max_pages: int = _MAX_HISTORY_PAGES,
     ) -> ScriptHistory:
         """Return the history of `scripts`, from `start` to the tip.
 
@@ -510,12 +521,24 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         the transaction ids. It can leave a transaction out or put one in
         a block it is not in, and it reports the mempool's with nothing to
         check them against: their signatures are not verified, and a
-        transaction it reports may never confirm.
+        transaction it reports may never confirm. A mempool transaction
+        the explorer no longer has when it is asked for, a 404, is
+        skipped.
+
+        `max_pages` bounds the pages of confirmed transactions read for
+        each script. A page holds at most 25, as Esplora's `API.md` says,
+        and a longer one is a `FetchError`, so at most 25 times
+        `max_pages` are read for a script: an explorer that keeps
+        answering would otherwise decide how long the call runs and how
+        much it holds. A script whose pages do not end within the bound
+        is a `FetchError` naming it, and no history is returned. A caller
+        with a longer history raises `max_pages`.
 
         The cost is a request per page and two per script, two per block
         holding one of the transactions, and one per transaction. A page
         past `_MAX_TXS_BODY` is a `FetchError`.
         """
+        max_pages = _valid_max_pages(max_pages)
         elements = history_scripts(scripts)
         first = block_header_height(start_height)
         self._verify_once()
@@ -534,7 +557,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         hashes = [sha256(script).hex() for script in sorted(elements)]
         blocks: dict[str, BlockRef] = {}
         for scripthash in hashes:
-            for tx_id, ref in self._chain_history(scripthash, first):
+            for tx_id, ref in self._chain_history(scripthash, first, max_pages):
                 if ref.height > tip.height:
                     raise FetchError("the tip moved while the history was read")
                 if blocks.setdefault(tx_id, ref) != ref:
@@ -550,7 +573,10 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             blocks, key=lambda tx_id: (blocks[tx_id].height, positions[tx_id])
         )
         txs = [HistoryTx(self.get_tx(tx_id), blocks[tx_id]) for tx_id in confirmed]
-        txs += [HistoryTx(self.get_tx(tx_id), None) for tx_id in mempool]
+        for tx_id in mempool:
+            tx = self._mempool_tx(tx_id)
+            if tx is not None:
+                txs.append(HistoryTx(tx, None))
         if self._tip_hash() != tip.block_id:
             raise FetchError("the tip moved while the history was read")
         return ScriptHistory(start=start, tip=tip, txs=tuple(txs))
@@ -559,18 +585,27 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         """Return the parsed body of a GET on `path`."""
         return json.loads(self.text(path, max_body_size))
 
-    def _chain_history(self, scripthash: str, first: int) -> list[tuple[str, BlockRef]]:
-        """Return the confirmed transactions of a script, down to `first`."""
+    def _chain_history(
+        self, scripthash: str, first: int, max_pages: int
+    ) -> list[tuple[str, BlockRef]]:
+        """Return the confirmed transactions of a script, down to `first`.
+
+        A `FetchError` where they do not end within `max_pages` pages.
+        """
         found: list[tuple[str, BlockRef]] = []
         seen: set[str] = set()
         path = f"/scripthash/{scripthash}/txs/chain"
         source = f"scripthash {scripthash} history"
-        while True:
+        for _ in range(max_pages):
             with fetch_errors(source):
                 page = self._json(path, _MAX_TXS_BODY)
                 if not isinstance(page, list):
                     raise BTClibTypeError(f"not an array: {type(page).__name__}")
                 entries = [_confirmed_entry(entry) for entry in page]
+            if len(entries) > _HISTORY_PAGE_SIZE:
+                err_msg = f"{source}: {len(entries)} transactions in a page,"
+                err_msg += f" more than {_HISTORY_PAGE_SIZE}"
+                raise FetchError(err_msg)
             for tx_id, ref in entries:
                 if found and ref.height > found[-1][1].height:
                     raise FetchError(f"{source}: not newest first")
@@ -583,6 +618,17 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             if not entries:
                 return found
             path = f"/scripthash/{scripthash}/txs/chain/{found[-1][0]}"
+        err_msg = f"{source}: more than the max_pages of {max_pages} pages"
+        raise FetchError(err_msg)
+
+    def _mempool_tx(self, tx_id: str) -> Tx | None:
+        """Return a mempool transaction, `None` where the explorer lacks it."""
+        try:
+            return self.get_tx(tx_id)
+        except HttpError as e:
+            if e.status != 404:
+                raise
+        return None
 
     def _positions(self, blocks: dict[str, BlockRef]) -> dict[str, int]:
         """Return the position of each transaction in the block named for it.
@@ -629,6 +675,15 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             err_msg = f"{source}: {len(tx_ids)} of {count} mempool transactions listed"
             raise FetchError(err_msg)
         return tx_ids
+
+
+def _valid_max_pages(max_pages: int) -> int:
+    """Return `max_pages`, having refused what is not a positive integer."""
+    if not is_integer(max_pages):
+        raise BTClibTypeError(f"invalid max_pages type: {type(max_pages).__name__}")
+    if max_pages < 1:
+        raise BTClibValueError(f"invalid max_pages: {max_pages}")
+    return max_pages
 
 
 def _member(entry: Any, name: str) -> Any:

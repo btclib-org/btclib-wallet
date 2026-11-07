@@ -22,7 +22,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
 from btclib.tx import OutPoint
 
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch import esplora
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from tests.fetch.electrum_history_test import (
@@ -199,6 +199,117 @@ def test_a_mempool_list_shorter_than_its_count_is_refused() -> None:
     explorer.edit = lambda kind, reply: [] if kind == "mempool" else reply
     with pytest.raises(FetchError, match="0 of 1 mempool transactions listed"):
         _fetcher(explorer).get_history([OURS])
+
+
+def _gone(explorer: FakeEsplora, tx_id: bytes, status: int) -> EsploraFetcher:
+    """Return a fetcher over `explorer`, whose `/tx/<tx_id>/hex` is `status`."""
+
+    def transport(request: Request, timeout: float) -> tuple[int, bytes]:
+        if request.full_url == f"{BASE}/tx/{tx_id.hex()}/hex":
+            return status, b"Transaction not found"
+        return explorer(request, timeout)
+
+    return EsploraFetcher(
+        BASE, network="regtest", transport=transport, verify_network=False
+    )
+
+
+def test_a_mempool_transaction_gone_mid_read_is_skipped() -> None:
+    """Listed by `/txs/mempool`, a 404 by `/tx`: skipped."""
+    explorer = FakeEsplora(FakeServer([[FUNDING]], [SPEND]))
+    history = _gone(explorer, SPEND.id, 404).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [
+        (FUNDING.id, explorer.server.ref(1))
+    ]
+
+
+@pytest.mark.parametrize(
+    "tx_id, status", [(SPEND.id, 503), (FUNDING.id, 404)], ids=["503", "confirmed"]
+)
+def test_any_other_missing_transaction_is_raised(tx_id: bytes, status: int) -> None:
+    """Only a 404 for a mempool transaction is a skip."""
+    explorer = FakeEsplora(FakeServer([[FUNDING]], [SPEND]))
+    with pytest.raises(HttpError) as raised:
+        _gone(explorer, tx_id, status).get_history([OURS])
+    assert raised.value.status == status
+
+
+def test_the_pages_of_a_script_are_bounded() -> None:
+    """Reaching `max_pages` with pages still to read raises, naming it."""
+    explorer = _explorer(page=1)
+    _fetcher(explorer).get_history([OURS], max_pages=3)
+    # two transactions a page each, and the empty page that ends them
+    assert len(_chain_pages(explorer)) == 3
+    with pytest.raises(FetchError, match="more than the max_pages of 2 pages"):
+        _fetcher(_explorer(page=1)).get_history([OURS], max_pages=2)
+
+
+def _flooding(per_page: int, pages: list[str]) -> EsploraFetcher:
+    """Return a fetcher over an explorer answering `per_page` new txids a page.
+
+    Each is at the tip. Once more than `_MAX_HISTORY_PAGES` pages are asked,
+    the page is empty, so that a fetcher with no bound ends.
+    """
+    explorer = _explorer()
+    tip = explorer.server.ref(4)
+    status = {"confirmed": True, "block_height": 4, "block_hash": tip.block_id.hex()}
+
+    def flood(request: Request, timeout: float) -> tuple[int, bytes]:
+        if "/txs/chain" not in request.full_url:
+            return explorer(request, timeout)
+        pages.append(request.full_url)
+        if len(pages) > esplora._MAX_HISTORY_PAGES:
+            return 200, b"[]"
+        first = (len(pages) - 1) * per_page + 1
+        page = [
+            {"txid": f"{n:064x}", "status": status}
+            for n in range(first, first + per_page)
+        ]
+        return 200, json.dumps(page).encode()
+
+    return EsploraFetcher(
+        BASE, network="regtest", transport=flood, verify_network=False
+    )
+
+
+def test_an_explorer_with_endless_pages_is_cut_at_the_default_bound() -> None:
+    """New txids at the tip, page after page, stop at `_MAX_HISTORY_PAGES`."""
+    pages: list[str] = []
+    fetcher = _flooding(1, pages)
+    with pytest.raises(FetchError, match="more than the max_pages of 1000 pages"):
+        fetcher.get_history([OURS])
+    assert len(pages) == esplora._MAX_HISTORY_PAGES == 1000
+    # past the bound the explorer answers the empty page a fetcher with no
+    # bound would have ended on
+    assert fetcher.get_history([OURS]).txs == ()
+
+
+def test_a_page_of_more_than_25_transactions_is_refused() -> None:
+    """Esplora's API.md: "Returns 25 transactions per page"."""
+    with pytest.raises(FetchError, match="200 transactions in a page, more than 25"):
+        _flooding(200, []).get_history([OURS])
+    # a page of 25 is read, and only the bound on pages stops the next
+    with pytest.raises(FetchError, match="more than the max_pages of 1 pages"):
+        _flooding(25, []).get_history([OURS], max_pages=1)
+
+
+@pytest.mark.parametrize(
+    "max_pages, error, match",
+    [
+        ("1", BTClibTypeError, "invalid max_pages type: str"),
+        (1.0, BTClibTypeError, "invalid max_pages type: float"),
+        (True, BTClibTypeError, "invalid max_pages type: bool"),
+        (0, BTClibValueError, "invalid max_pages: 0"),
+    ],
+)
+def test_max_pages_is_checked_before_any_request(
+    max_pages: Any, error: type[Exception], match: str
+) -> None:
+    """A bound that is not a positive integer is refused without a request."""
+    explorer = _explorer()
+    with pytest.raises(error, match=match):
+        _fetcher(explorer).get_history([OURS], max_pages=max_pages)
+    assert explorer.paths == []
 
 
 def _with(kind: str, change: Callable[[Any], Any]) -> FakeEsplora:

@@ -181,6 +181,18 @@ def test_get_history_skips_a_transaction_that_left_the_mempool() -> None:
     assert _fetcher(rest).get_history([OURS]).txs == ()
 
 
+def test_get_history_lists_a_mempool_txid_listed_twice_once() -> None:
+    """A txid `/mempool/contents` repeats is asked for and listed once."""
+    funding = _tx([OutPoint(COINBASE.id, 0)], [OURS])
+    rest = FakeRest(FakeNode([[(COINBASE, [None])]], [funding]))
+    rest.edit = lambda kind, reply: reply * 2 if kind == "mempool" else reply
+    history = _fetcher(rest).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [(funding.id, None)]
+    assert [path for path in rest.paths if path.startswith("/tx/")] == [
+        f"/tx/{funding.id.hex()}.bin"
+    ]
+
+
 def test_get_history_raises_any_other_http_error() -> None:
     """Only the node not having the transaction is a skip."""
     rest = FakeRest(FakeNode([[(COINBASE, [None])]], [PAYMENT]))

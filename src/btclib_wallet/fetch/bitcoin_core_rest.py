@@ -371,7 +371,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         with fetch_errors("mempool"):
             if not isinstance(reply, list):
                 raise BTClibTypeError(f"not an array: {type(reply).__name__}")
-            tx_ids = [tx_id_hex(tx_id) for tx_id in reply]
+            tx_ids = list(dict.fromkeys(tx_id_hex(tx_id) for tx_id in reply))
         mempool: list[Tx] = []
         for tx_id in tx_ids:
             try:
