@@ -16,8 +16,11 @@ The rest hold what the bounds on `get_history`'s replies rest on, as
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError
+from btclib.amount import btc_from_sats, sats_from_btc
 from btclib.consensus import MAX_BLOCK_WEIGHT
 from btclib.hashes import hash160
 from btclib.script import ScriptPubKey, Witness, serialize
@@ -55,9 +58,13 @@ def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
     script = bytes.fromhex(miner.call("getaddressinfo", [address])["scriptPubKey"])
     fetcher = BitcoinCoreFetcher(node, "regtest")
     start = int(node.call("getblockcount"))
+    # one coinbase has matured, and what it pays falls with its height:
+    # regtest halves the subsidy every 150 blocks, and other tests mine on
+    # this chain too
+    paid = sats_from_btc(Decimal(str(miner.call("getbalance")))) // 2
 
     # a payment in the mempool: no block of the chain holds it
-    payment = miner.call("sendtoaddress", [address, "1.0"])
+    payment = miner.call("sendtoaddress", [address, f"{btc_from_sats(paid):.8f}"])
     history = fetcher.get_history([script], start)
     assert _ids(history) == [(payment, None)]
     assert history.start == history.tip
@@ -81,7 +88,10 @@ def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
     )
     unsigned = miner.call(
         "createrawtransaction",
-        [[{"txid": payment, "vout": vout}], {miner.call("getnewaddress"): "0.999"}],
+        [
+            [{"txid": payment, "vout": vout}],
+            {miner.call("getnewaddress"): f"{btc_from_sats(paid - 1_000):.8f}"},
+        ],
     )
     signed = miner.call("signrawtransactionwithwallet", [unsigned])["hex"]
     spend = node.call("sendrawtransaction", [signed])
