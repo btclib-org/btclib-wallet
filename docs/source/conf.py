@@ -70,21 +70,22 @@ extensions = [
 # into a failed build -- the open questions belong in the issue tracker
 
 # the standard library, and the siblings this package depends on, whose
-# types its signatures name. `latest` for each, being the build of that
-# sibling's main: a name a sibling removed is the break a build here
-# should report
+# types its signatures name. Each sibling at `stable`, the build of its
+# latest release, and not at `latest`, the build of its main: main can
+# move a name before any release this package installs carries the move,
+# and this package's own references would then fail the build
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", (None, "_inventories/python.inv")),
-    "btclib": ("https://btclib.readthedocs.io/en/latest/", None),
-    "ecc": ("https://btclib-ecc.readthedocs.io/en/latest/", None),
+    "btclib": ("https://btclib.readthedocs.io/en/stable/", None),
+    "ecc": ("https://btclib-ecc.readthedocs.io/en/stable/", None),
     "bitcoin_core_rpc": (
-        "https://bitcoin-core-rpc.readthedocs.io/en/latest/",
+        "https://bitcoin-core-rpc.readthedocs.io/en/stable/",
         None,
     ),
 }
 # no reuse of a fetched inventory: sphinx keeps one for as many days as
 # this allows, invisibly to a diff and even under -E, and a sibling's
-# `latest` moves on this organization's own landings, so a name it removed
+# `stable` moves with each of its releases, so a name a release removed
 # would still resolve on a checkout and fail on a runner. Section 2 of the
 # organization's standard asks for 0 where a mapping names a sibling
 intersphinx_cache_limit = 0
