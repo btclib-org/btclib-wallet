@@ -128,6 +128,11 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     `blockchain.scripthash.get_history`, and its own docstring says what
     it checks and what it takes on the server's word.
 
+    Not a `RelayFeeReader`: `blockchain.relayfee` answers the minimum
+    relay rate alone. Protocol 1.6 adds `mempool.get_info`, which answers
+    all three rates, and neither electrs nor Floresta, at the commits
+    their integration workflows pin, serves it.
+
     `get_tx_out` is not overridden, and stays the `Fetcher` base's
     derivation from `get_tx`.
     """

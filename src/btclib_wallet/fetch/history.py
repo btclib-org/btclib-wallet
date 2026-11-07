@@ -11,21 +11,35 @@ Kept apart from `Fetcher`, as `Broadcaster`, `FeeEstimator` and
 
 Not `runtime_checkable`, for the reason `Broadcaster` is not: the
 contract below is not what `isinstance(x, HistoryReader)` would verify.
+
+`start_height_for_time` is where a history read starts for a wallet
+born at a known time, from any `Fetcher`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from btclib.alias import Octets
+from btclib.block.limits import MAX_FUTURE_BLOCK_TIME
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import ScriptPubKey
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_octets
 
-__all__ = ["BlockRef", "HistoryReader", "HistoryTx", "ScriptHistory", "history_scripts"]
+from btclib_wallet.fetch.fetcher import Fetcher
+
+__all__ = [
+    "BlockRef",
+    "HistoryReader",
+    "HistoryTx",
+    "ScriptHistory",
+    "history_scripts",
+    "start_height_for_time",
+]
 
 
 @dataclass(frozen=True)
@@ -126,3 +140,43 @@ class HistoryReader(Protocol):
     ) -> ScriptHistory:
         """Return the history of `scripts`, from `start` to the tip."""
         ...
+
+
+def start_height_for_time(fetcher: Fetcher, time: datetime) -> int | None:
+    """Return the first height a wallet born at `time` has history from.
+
+    Core starts a rescan from a key's birth time this way:
+    `RescanFromTime` (src/wallet/wallet.cpp) subtracts `TIMESTAMP_WINDOW`,
+    which is `MAX_FUTURE_BLOCK_TIME`, two hours (src/chain.h), and
+    `FindEarliestAtLeast` (src/chain.cpp) returns the first block whose
+    running maximum time is at least that. The running maximum first
+    reaches a time at the first block whose own time does, so that block
+    is the one returned. Header times need not rise with height, so a
+    block after it may carry an earlier time, and a binary search over
+    the times can return a later height.
+
+    `None` where no block up to the tip qualifies: nothing on the chain
+    can hold history of the wallet yet.
+
+    The headers are read from height 0 up, one `get_block_header` call
+    each, up to the height returned or to the tip `get_block_count`
+    answers first.
+
+    Refused: a `fetcher` that is no `Fetcher` and a `time` that is no
+    `datetime` (`BTClibTypeError`), and a `time` with no time zone
+    (`BTClibValueError`), which a block time cannot be compared with.
+    """
+    if not isinstance(fetcher, Fetcher):
+        raise BTClibTypeError(f"not a Fetcher: {type(fetcher).__name__}")
+    if not isinstance(time, datetime):
+        raise BTClibTypeError(f"not a datetime: {type(time).__name__}")
+    if time.utcoffset() is None:
+        raise BTClibValueError(f"a time with no time zone: {time}")
+    # compared as seconds, since a datetime near `datetime.min` has no
+    # datetime two hours earlier
+    earliest = time.timestamp() - MAX_FUTURE_BLOCK_TIME
+    tip = fetcher.get_block_count()
+    for height in range(tip + 1):
+        if fetcher.get_block_header(height).time.timestamp() >= earliest:
+            return height
+    return None

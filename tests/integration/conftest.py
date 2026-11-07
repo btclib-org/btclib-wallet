@@ -90,14 +90,19 @@ def bitcoind_path() -> str:
 
 
 def _bitcoind_args(
-    bitcoind: Sequence[str], datadir: Path, port: int, p2p_port: int | None
+    bitcoind: Sequence[str],
+    datadir: Path,
+    port: int,
+    p2p_port: int | None,
+    extra: Sequence[str],
 ) -> list[str]:
     """Return the command line of a throwaway regtest node, `node`'s own.
 
     `bitcoind` is the command that runs the program, as `electrs` is to
     `_start_server`: the program's path, for the real one. With a
     `p2p_port` the node listens on it, on loopback, for a peer that syncs
-    from it.
+    from it. `extra` is appended last, the options a test's own node
+    adds.
     """
     listen = ["-listen=0"]
     if p2p_port is not None:
@@ -124,6 +129,7 @@ def _bitcoind_args(
         # for what is still in its mempool
         "-txindex=1",
         "-printtoconsole=0",
+        *extra,
     ]
 
 
@@ -146,7 +152,7 @@ def node(
     """
     datadir = tmp_path_factory.mktemp("regtest")
     process, client, _ = start_on_free_ports(
-        lambda: _start_node([bitcoind_path], datadir, None)
+        lambda: _start_node([bitcoind_path], datadir, None, ())
     )
     try:
         yield client
@@ -480,11 +486,14 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
 
 
 def _start_node(
-    bitcoind: Sequence[str], datadir: Path, p2p_port: int | None
+    bitcoind: Sequence[str],
+    datadir: Path,
+    p2p_port: int | None,
+    extra: Sequence[str],
 ) -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
     """Return a node, a client of it and its rpc port, once it answers.
 
-    `p2p_port` is `_bitcoind_args`'s.
+    `p2p_port` and `extra` are `_bitcoind_args`'s.
 
     The node is stopped again where it does not get there, `PortTaken`
     included, so that the next try does not leave it behind.
@@ -494,7 +503,7 @@ def _start_node(
     # read as this one's
     (datadir / "regtest" / "debug.log").unlink(missing_ok=True)
     process = _start(
-        _bitcoind_args(bitcoind, datadir, port, p2p_port), datadir / "stdout.log"
+        _bitcoind_args(bitcoind, datadir, port, p2p_port, extra), datadir / "stdout.log"
     )
     client = BitcoinCoreRpcClient(
         f"http://127.0.0.1:{port}", cookie_path=datadir / "regtest" / ".cookie"
@@ -565,7 +574,7 @@ def running_stack(
     datadir = tmp_path_factory.mktemp("stack-node")
     index = tmp_path_factory.mktemp("stack-index")
     node_process, client, rpc_port = start_on_free_ports(
-        lambda: _start_node([bitcoind], datadir, None)
+        lambda: _start_node([bitcoind], datadir, None, ())
     )
     stack: Stack | None = None
     try:
@@ -841,7 +850,7 @@ def running_floresta_stack(
 
     def start_node() -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
         p2p_port = _free_port()
-        process, client, _ = _start_node([bitcoind], datadir, p2p_port)
+        process, client, _ = _start_node([bitcoind], datadir, p2p_port, ())
         return process, client, p2p_port
 
     node_process, client, p2p_port = start_on_free_ports(start_node)
