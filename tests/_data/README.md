@@ -1624,7 +1624,7 @@ that directory's test files:
 
 - each quoted `name(...)` string, checksum removed, that `git grep -F`
   finds neither elsewhere in this suite's `tests/` nor in Bitcoin Core's
-  `src/test` at a8b69bdeafdf;
+  `src/test` at f0de87f040;
 - the key expressions, not the bare key origins, of `KeyExpressionTest.scala`
   that the same search finds in neither;
 - the bad checksums of `DescriptorChecksumTest.scala`.
@@ -1634,9 +1634,10 @@ among them the public-key cases of `KeyExpressionTest.scala` that derive
 hardened steps.
 
 An accepted descriptor's script is bitcoin-s's. Its checksum, and its
-addresses where bitcoin-s gives no script, are Bitcoin Core 31.1.0's
-`getdescriptorinfo` and `deriveaddresses`, run with no chain on mainnet. Where
-bitcoin-s gives a checksum, Core's is the same.
+addresses where bitcoin-s gives no script, are what `getdescriptorinfo` and
+`deriveaddresses` answer, run with no chain on mainnet, at the Bitcoin Core
+release `integration-bitcoind.yml` pins. Where bitcoin-s gives a checksum,
+Core's is the same.
 Core's `getdescriptorinfo` refuses every case the test expects refused.
 
 The test's strings are the pinned files' strings. From the repository root,
@@ -1697,7 +1698,7 @@ def selected(s):
     here = ("git", "grep", "-qF", "--", s, "--", "tests/")
     core = ("git", "-C", sys.argv[2], "grep", "-qF", "--", s)
     return not found(*here, ":!tests/descriptors/bitcoin_s_test.py") and not found(
-        *core, "a8b69bdeafdf", "--", "src/test"
+        *core, "f0de87f040", "--", "src/test"
     )
 
 
@@ -1910,16 +1911,17 @@ and what it carries is the whole of the entry.
 
 **The envelopes are not recorded.** They are what bitcoind and Esplora
 send, written here from the source that writes them rather than captured
-from a node: `JSONRPCReplyObj` in Core's `src/rpc/request.cpp` puts
-`jsonrpc`, `result` and `id` in that order, compact, and `WriteReply`
-appends the newline, which is why these files are one line each and why
+from a node, Core's at bitcoin/bitcoin@f0de87f040: `JSONRPCReplyObj` in
+`src/rpc/request.cpp` puts `jsonrpc`, `result` and `id` in that order,
+compact, and `HTTPReq_JSONRPC` in `src/httprpc.cpp` appends the
+newline, which is why these files are one line each and why
 `pretty-format-json` must not touch them — the exclusion by directory
 already covers them. The error object of
 `getrawtransaction_error.json` is Core's too, code `-5` with the message
 `src/rpc/rawtransaction.cpp` builds for a node running without
-`-txindex`, verbatim including the trailing sentence `JSONRPCError`
-appends. Nothing here was invented; nothing here was captured either, and
-a node's answer is what settles a disagreement.
+`-txindex`, verbatim including the trailing sentence it appends. Nothing
+here was invented; nothing here was captured either, and a node's answer
+is what settles a disagreement.
 
 **What they carry is chain data, and it verifies itself.** The hex in
 `getrawtransaction.json` and in `esplora_tx_hex.txt` is transaction 1 of

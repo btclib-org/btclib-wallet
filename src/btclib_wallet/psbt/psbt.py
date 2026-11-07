@@ -1763,9 +1763,9 @@ def _combine_optional_field(
     which for these fields answers the wrong question: 0 is a sequence
     BIP125 gives a meaning to, a sig_hash_type of 0 is SIGHASH_DEFAULT,
     an amount of 0 is an amount, and the empty signed message is a message.
-    Bitcoin Core's PSBTInput::Merge keeps the sig_hash_type it has and
-    takes the other's only when it has none, since bitcoin/bitcoin@ea785a31f7;
-    v31.1's Merge does not touch the field.
+    Bitcoin Core's PSBTInput::Merge (src/psbt.cpp,
+    bitcoin/bitcoin@f0de87f040) keeps the sig_hash_type it has and takes
+    the other's only when it has none.
     """
     item = getattr(psbt_map, key)
     if item is None:

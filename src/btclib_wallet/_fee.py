@@ -9,9 +9,10 @@ from btclib.fee import FeeRate, fee_from_vsize
 
 __all__: list[str] = []
 
-# Core's wallet.h DEFAULT_MAX_TRANSACTION_FEERATE, the -maxfeerate
-# default: 0.10 BTC per kvB. Kept below both callers to avoid a circular
-# import between the builder and the PSBT it builds.
+# Core's DEFAULT_MAX_RAW_TX_FEE_RATE (src/node/transaction.h,
+# bitcoin/bitcoin@f0de87f040), the default `maxfeerate` of
+# `sendrawtransaction`: 0.10 BTC per kvB. Kept below both callers to avoid
+# a circular import between the builder and the PSBT it builds.
 _DEFAULT_MAX_FEE_RATE = FeeRate(sats_per_kvbyte=10_000_000)
 
 

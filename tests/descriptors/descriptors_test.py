@@ -112,7 +112,8 @@ CHECKSUM_VECTORS = [
 ]
 
 
-# descriptors taken from https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md
+# descriptors taken from Bitcoin Core's `doc/descriptors.md`, at the commit
+# tests/_data/README.md pins
 # checksum calculated using https://docs.rs/bdk/latest/bdk/descriptor/checksum/fn.get_checksum.html
 @pytest.mark.parametrize("descriptor, expected_checksum", CHECKSUM_VECTORS)
 def test_checksum(descriptor: str, expected_checksum: str) -> None:
@@ -647,7 +648,7 @@ def test_multipath_refuses_two_steps_in_one_key(path: str) -> None:
     """Refuse a key path with more than one step, as Bitcoin Core does.
 
     `ParseKeyPath` answers "Multiple multipath key path specifiers found"
-    (`src/script/descriptor.cpp`, bitcoin/bitcoin@9be056a8a7).
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040).
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     message = "Multiple multipath key path specifiers found"
@@ -678,7 +679,7 @@ def test_multipath_refuses_a_second_step_before_any_later_fault(
     with ``<`` and ending with ``>`` after a step is "Multiple multipath key
     path specifiers found", whatever it holds. Core parses the keys of
     ``multi()`` left to right (`src/script/descriptor.cpp`,
-    bitcoin/bitcoin@a8b69bdeaf).
+    bitcoin/bitcoin@f0de87f040).
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = template.format(xpub=xpub)
@@ -707,7 +708,7 @@ def test_multipath_refuses_a_fingerprint_before_the_origin_path(origin: str) -> 
     `ParsePubkey` checks that the fingerprint, the text between ``[`` and
     the first ``/`` or ``]``, is 8 hex characters before it reads the
     origin's path
-    (`src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf). In the last
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040). In the last
     case the fingerprint is empty.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
@@ -750,7 +751,7 @@ def test_multipath_refuses_the_fault_core_reads_first(
 ) -> None:
     """Refuse, in both functions, the fault Bitcoin Core reads first.
 
-    In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf:
+    In `src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040:
     `ParsePubkey` counts a key's ``]`` before it reads the origin, and
     inside ``multi()`` the key ends at a ``,``, so ``[dead`` is a key with
     no ``]``. `ParseKeyPath` reads each path element, and each item of a
@@ -770,7 +771,7 @@ def test_multipath_refuses_the_fault_core_reads_first(
 def test_multipath_reads_a_key_where_core_does() -> None:
     """Read a key, and a ``musig()`` path, only where Core gets to them.
 
-    In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf, ``pkh()``
+    In `src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040, ``pkh()``
     hands its whole argument to `ParsePubkey`, "," included: ``dead,beef``
     is a fingerprint of nine characters, and a "," starts no key. `parse`
     refuses the first for the same fingerprint, and the second for the
@@ -831,7 +832,7 @@ def test_multipath_reads_a_key_where_core_does() -> None:
 def test_parse_refuses_the_fault_core_reads_first(template: str, message: str) -> None:
     """Refuse, in `parse`, the fault Bitcoin Core reads first.
 
-    In `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf:
+    In `src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040:
     `ParsePubkeyInner` refuses a key that is not an extended one, where a
     path follows it, before it reads the path; ``pkh()`` hands its whole
     argument, "," included, to `ParsePubkey`, which reads the origin
@@ -868,7 +869,7 @@ def test_multipath_refuses_a_hardened_item_of_a_musig_step(template: str) -> Non
 
     `ParseKeyPath` counts it as a hardened step, which the ``musig()``
     parser refuses before the multipath (`src/script/descriptor.cpp`,
-    bitcoin/bitcoin@a8b69bdeaf). Expanded, the unhardened items would give
+    bitcoin/bitcoin@f0de87f040). Expanded, the unhardened items would give
     descriptors `parse` accepts.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
@@ -914,13 +915,13 @@ def test_multipath_and_parse_name_the_fault_core_reads_first(
 ) -> None:
     """Name the same fault in both functions, the one Core reads first.
 
-    `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf: a `musig()`
-    path is refused for a hardened step (2145-2147) before the multipath
-    check (2180-2181) and after the participants, an extended-key check
-    (2125-2127) comes before the path, `ParsePubkeyInner` refuses an empty
-    key (1989-1991) and a key that cannot derive (2043-2044) before it
-    reads the path (2049), `pkh()` hands its whole argument to
-    `ParsePubkey` (2410), which reads the fingerprint first (2226-2227),
+    `src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040: a `musig()`
+    path is refused for a hardened step (2128-2130) before the multipath
+    check (2163-2164) and after the participants, an extended-key check
+    (2108-2110) comes before the path, `ParsePubkeyInner` refuses an empty
+    key (1972-1974) and a key that cannot derive (2026-2027) before it
+    reads the path (2032), `pkh()` hands its whole argument to
+    `ParsePubkey` (2393), which reads the fingerprint first (2209-2210),
     and `rawtr()` takes one key.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
@@ -1077,7 +1078,7 @@ def test_multipath_keeps_the_text_of_the_items_it_expands() -> None:
 def test_multipath_refuses_a_musig_multipath_in_participant_and_path() -> None:
     """Refuse both, with the message of Bitcoin Core's ``musig()`` parser.
 
-    `src/script/descriptor.cpp`, bitcoin/bitcoin@aef8a04966.
+    `src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040.
     """
     message = "Cannot have multipath participant keys"
     with pytest.raises(BTClibValueError, match=message):
@@ -1100,7 +1101,7 @@ def test_multipath_refuses_a_step_in_a_key_origin(step: str) -> None:
     `ParseKeyPath` is called with `allow_multipath=false` for an origin and
     tests for a `<`...`>` element before it reads any number, so ``<0;1>>``
     and ``<<0;1>`` get the multipath message, not the uint32 one
-    (`src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf).
+    (`src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040).
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = f"pkh([deadbeef/{step}]{xpub}/0/*)"
@@ -1126,7 +1127,7 @@ def test_multipath_refuses_a_step_glued_to_a_key(template: str) -> None:
 
     Core reads the item before the first ``/`` as the key, and refuses it
     with "key '...' is not valid" (`ParsePubkeyInner`,
-    `src/script/descriptor.cpp`, bitcoin/bitcoin@a8b69bdeaf). The message
+    `src/script/descriptor.cpp`, bitcoin/bitcoin@f0de87f040). The message
     leaves out the key.
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
@@ -1531,7 +1532,7 @@ def test_multipath_refuses_a_step_that_is_not_the_whole_element(
 
     Core reads such an element, or an item of a ``<…>`` element, as a number
     and answers "is not a valid uint32" (`src/util/bip32.cpp`,
-    bitcoin/bitcoin@aef8a04966).
+    bitcoin/bitcoin@f0de87f040).
     """
     xpub = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y"
     descriptor = template.format(xpub=xpub)
@@ -2233,7 +2234,8 @@ def test_a_key_holds_no_whitespace() -> None:
     """Refuse a key with leading or trailing whitespace, as Core does.
 
     Core's ``ParsePubkeyInner`` refuses a key item whose first or last
-    character is ``IsSpace`` (`src/script/descriptor.cpp`), with
+    character is ``IsSpace`` (`src/script/descriptor.cpp`,
+    bitcoin/bitcoin@f0de87f040), with
     "Key '...' is invalid due to whitespace". The message leaves out the
     key. A descriptor that Core refuses cannot be imported into Core
     (issue #443).
@@ -2882,9 +2884,9 @@ def test_tr_tree_depth_is_bounded() -> None:
     TAPROOT_CONTROL_MAX_NODE_COUNT: a leaf below it is proved by a merkle
     path the control block has no room for, so what the expression
     describes is not a spendable output. Both sides of the boundary are
-    pinned here, and both were checked against Core v31.1.0's
-    `getdescriptorinfo`, which takes 128, refuses 129, and phrases the
-    refusal in the words this one repeats.
+    pinned here. The `getdescriptorinfo` of the Bitcoin Core release
+    `integration-bitcoind.yml` pins takes 128, refuses 129, and phrases
+    the refusal in the words this one repeats.
     """
     assert taproot.MAX_TREE_DEPTH == 128
 
@@ -4886,10 +4888,11 @@ def test_parse_takes_the_keys_the_test_networks_share() -> None:
         parse(f"pkh({TESTNET_XPUB}/0)", network)
 
 
-# The derivation entries Bitcoin Core v31.1 writes for an input spending each
-# descriptor: `utxoupdatepsbt <psbt> '["<descriptor>"]'` then `decodepsbt`,
-# offline on mainnet. Keyed by public key; a taproot entry is the origin and
-# the sorted leaf hashes, a BIP32 one the origin alone.
+# The derivation entries the Bitcoin Core release integration-bitcoind.yml
+# pins writes for an input spending each descriptor: `utxoupdatepsbt <psbt>
+# '["<descriptor>"]'` then `decodepsbt`, offline on mainnet. Keyed by public
+# key; a taproot entry is the origin and the sorted leaf hashes, a BIP32 one
+# the origin alone.
 LEAF_PK_B = "ab11b8ce98a88b0dccf33a8144f90266dd8228b9fec6fa0cc0f7d4c0a28b8977"
 LEAF_PK_C = "a5f4dd9bd9e8664ec5d1b97819e523b297ea9c7f8daa0b2e96e6460060333e5f"
 LEAF_MUSIG_AB = "357cc9cc4a0807df3e21d2ecf02cc94327fca8a2e4db17089921c03c4f50bbef"
@@ -5074,7 +5077,8 @@ CORE_DERIVATIONS = [
     pytest.param(
         f"wsh(multi(1,[aaaaaaaa/1h]{KEY_A},[bbbbbbbb/2h]{KEY_A}))",
         0,
-        # Core v31.1 prefixes the second origin to the first
+        # what Core v31.1 writes, the second origin prefixed to the first,
+        # and this package with it: the pinned release writes bbbbbbbb/2h
         {KEY_A: ("bbbbbbbb/2h/1h",)},
         {KEY_A: ("aaaaaaaa/1h",)},
         id="two-explicit-origins-first-wins",

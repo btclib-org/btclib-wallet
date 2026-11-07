@@ -4,9 +4,10 @@
 
 """Read a malformed multisig's keys before the structure that follows it.
 
-Bitcoin Core v31.1's ``ParseScript`` falls through to miniscript when a
-multi() or multi_a() expression does not end in a closing parenthesis.
-The key reader can fail before that miniscript's trailing text is found.
+Bitcoin Core's ``ParseScript`` (`src/script/descriptor.cpp`,
+bitcoin/bitcoin@f0de87f040) falls through to miniscript when a multi()
+or multi_a() expression does not end in a closing parenthesis. The key
+reader can fail before that miniscript's trailing text is found.
 """
 
 from collections.abc import Callable

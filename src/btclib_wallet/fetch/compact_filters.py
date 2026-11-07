@@ -45,6 +45,9 @@ ping between calls, so the first call after an idle stretch raises
 `FetchError` and the next one reconnects. Calls are not safe to make from
 two threads.
 
+Bitcoin Core's source is read here, and in the docstrings below, at
+bitcoin/bitcoin@f0de87f040.
+
 **`verify_network`** is `assert_network`, whose docstring says what it asks.
 """
 

@@ -62,7 +62,7 @@ whichever of the three the caller names -- every one of them, by default
 `SelectionResult::GetWaste` metric: the difference between what each
 selected input costs now and what it would cost at the long-term rate,
 plus the cost of the change it creates or, where none is worth creating,
-the excess dropped to the fee. `bitcoin/bitcoin@4ec6ff022a`'s
+the excess dropped to the fee. `bitcoin/bitcoin@f0de87f040`'s
 `src/wallet/coinselection.cpp` is where all four are read from.
 
 **What Core's own implementation carries that this one does not, and
@@ -118,14 +118,15 @@ __all__ = [
     "single_random_draw",
 ]
 
-# Core's wallet/coinselection.h CHANGE_LOWER: the smallest change amount
-# single random draw ever aims to create, so that a selection landing
-# just past the target does not leave a change output worth a handful of
-# satoshi. Only single_random_draw reads it -- branch_and_bound and
-# knapsack are given the cost of change directly, and size their own
-# window from it -- but it is public for the same reason FeeRate's own
-# constant is: a caller comparing this module's numbers against Core's
-# wants the figure named rather than repeated.
+# Core's CHANGE_LOWER (src/wallet/coinselection.h,
+# bitcoin/bitcoin@f0de87f040): the smallest change amount single random
+# draw ever aims to create, so that a selection landing just past the
+# target does not leave a change output worth a handful of satoshi. Only
+# single_random_draw reads it -- branch_and_bound and knapsack are given
+# the cost of change directly, and size their own window from it -- but it
+# is public for the same reason FeeRate's own constant is: a caller
+# comparing this module's numbers against Core's wants the figure named
+# rather than repeated.
 CHANGE_LOWER = 50_000
 
 # the total tries branch_and_bound explores before it stops looking for a
