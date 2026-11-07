@@ -31,9 +31,9 @@ a production custody protocol, and the point of them is that one maps to
 miniscript opcode for opcode while the other does not -- ``v:older(n)`` writes
 ``<n> CHECKSEQUENCEVERIFY VERIFY`` where the script written by hand had ``<n>
 CHECKSEQUENCEVERIFY DROP``, so that script is not miniscript at all. Both
-answers were confirmed against Bitcoin Core v31.1: `getdescriptorinfo` accepts
-each expression and `deriveaddresses` gives the address of the script computed
-here.
+answers were confirmed against the Bitcoin Core release
+`integration-bitcoind.yml` pins: `getdescriptorinfo` accepts each expression
+and `deriveaddresses` gives the address of the script computed here.
 """
 
 from __future__ import annotations
@@ -1387,11 +1387,12 @@ def test_a_tr_miniscript_leaf_is_held_to_the_same_sanity() -> None:
         parse_descriptor(f"tr({KEYS[0]},and_v(1,1))")
 
 
-# a tr() with a miniscript leaf and the regtest address Bitcoin Core v31.1
-# answers for it, from `getdescriptorinfo` and `deriveaddresses`. The
-# address is the output key, which commits to the whole tree, so agreeing
-# on it is agreeing on every leaf script: the tapscript dialect of the
-# fragments, the 32-byte keys, and the order the tree is built in
+# a tr() with a miniscript leaf and the regtest address the Bitcoin Core
+# release integration-bitcoind.yml pins answers for it, from
+# `getdescriptorinfo` and `deriveaddresses`. The address is the output key,
+# which commits to the whole tree, so agreeing on it is agreeing on every
+# leaf script: the tapscript dialect of the fragments, the 32-byte keys, and
+# the order the tree is built in
 CORE_TR_VECTORS = [
     (
         f"tr({CUSTODY_KEYS[0]},and_v(v:pk({CUSTODY_KEYS[1]}),older(36)))",

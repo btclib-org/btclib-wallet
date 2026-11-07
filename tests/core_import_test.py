@@ -5,12 +5,13 @@
 """Tests for the `btclib_wallet.core_import` module.
 
 The oracle is Bitcoin Core's `ProcessDescriptorImport`, in
-`src/wallet/rpc/backup.cpp`: every refusal here is one it makes, and the
-field names and defaults are the ones its `importdescriptors` help
-declares. No value is copied from it -- what is mirrored is a set of
-rules, so there is nothing to pin in `tests/_data/README.md` and nothing
-to refresh; a rule that changes there is a rule this module gets wrong,
-which is what the citations in the module docstring are for.
+`src/wallet/rpc/backup.cpp` (bitcoin/bitcoin@f0de87f040): every refusal
+here is one it makes, and the field names and defaults are the ones its
+`importdescriptors` help declares. No value is copied from it -- what is
+mirrored is a set of rules, so there is nothing to pin in
+`tests/_data/README.md` and nothing to refresh; a rule that changes there
+is a rule this module gets wrong, which is what the citations in the
+module docstring are for.
 
 Every request built here is checked to be json, because that is what it is
 for: a dict Python is happy with and `json.dumps` refuses is a request

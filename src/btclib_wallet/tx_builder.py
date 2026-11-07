@@ -94,8 +94,9 @@ __all__ = [
     "build_psbt",
 ]
 
-# Core's wallet.h DEFAULT_TRANSACTION_MAXFEE, the -maxtxfee default: 0.10
-# BTC, the largest fee `build_psbt` pays unless its caller raises it
+# Core's DEFAULT_TRANSACTION_MAXFEE (src/wallet/wallet.h,
+# bitcoin/bitcoin@f0de87f040), the -maxtxfee default: 0.10 BTC, the
+# largest fee `build_psbt` pays unless its caller raises it
 DEFAULT_MAX_FEE = 10_000_000
 
 # Core's -maxfeerate default, 0.10 BTC per kvB: the highest rate

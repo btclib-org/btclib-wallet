@@ -4,13 +4,15 @@
 
 """A PSBT's global unsigned transaction is read as Core reads it.
 
-Core reads that field as `TX_NO_WITNESS` (`src/psbt.h`), so a `00` after
-the version is an empty input list and the next octet the output count,
-never BIP144's marker and flag (issue #196).
+Core reads that field as `TX_NO_WITNESS` (`src/psbt.h`,
+bitcoin/bitcoin@f0de87f040), so a `00` after the version is an empty
+input list and the next octet the output count, never BIP144's marker and
+flag (issue #196).
 
-The vectors are the output of Bitcoin Core v31.1.0's `createpsbt`, called
-with no input and the outputs below, each paying a P2WPKH address of its
-wallet; the output values are those `decodepsbt` printed.
+The vectors are the output of `createpsbt` at the Bitcoin Core release
+`integration-bitcoind.yml` pins, called for a version 0 psbt with no
+input and the outputs below, each paying a P2WPKH address of its wallet;
+the output values are those `decodepsbt` printed.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ import pytest
 
 from btclib_wallet.psbt import Psbt
 
-# createpsbt [] [{<address>: 0.01}, {<address>: 0.02}, ...]
+# createpsbt [] [{<address>: 0.01}, {<address>: 0.02}, ...] 0 false 2 0
 CORE_NO_INPUT = {
     1: (
         "cHNidP8BACkCAAAAAAFAQg8AAAAAABYAFEkcnKypSywk/dz+LDdK2TGoHiefAAAAAAAA",

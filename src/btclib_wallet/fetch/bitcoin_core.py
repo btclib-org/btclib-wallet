@@ -99,9 +99,10 @@ _MAX_LARGE_REPLY = 5 * MAX_BLOCK_WEIGHT
 _MEMPOOL_ENTRY_USAGE = 800
 
 # `-maxmempool`'s default in octets: Core's `DEFAULT_MAX_MEMPOOL_SIZE_MB`, 300,
-# counted in units of 1,000,000 (src/kernel/mempool_options.h).
-# `tests/integration/history_test.py` holds it equal to the `maxmempool` that
-# `getmempoolinfo` reports for a node run at the default.
+# counted in units of 1,000,000 (src/kernel/mempool_options.h,
+# bitcoin/bitcoin@f0de87f040). `tests/integration/history_test.py` holds it
+# equal to the `maxmempool` that `getmempoolinfo` reports for a node run at the
+# default.
 _DEFAULT_MAX_MEMPOOL = 300_000_000
 
 # What the mempool's txids may weigh at `-maxmempool`'s default, which counts
@@ -114,7 +115,8 @@ _DEFAULT_MAX_MEMPOOL = 300_000_000
 _MAX_MEMPOOL_REPLY = _DEFAULT_MAX_MEMPOOL // _MEMPOOL_ENTRY_USAGE * 67
 
 # the modes `estimatesmartfee` takes, which Core matches without regard to
-# ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp)
+# ASCII case (`FeeModeMap` and `FeeModeFromString`, src/common/messages.cpp,
+# bitcoin/bitcoin@f0de87f040)
 _ESTIMATE_MODES = ("unset", "economical", "conservative")
 
 
