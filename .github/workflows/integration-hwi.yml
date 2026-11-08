@@ -190,8 +190,11 @@ jobs:
           uv venv --python "$HWI_PYTHON" hwi-env
           # --no-deps: the lock carries a cbor2 and a protobuf that HWI's
           # metadata refuses, and everything it needs is in the lock
+          # --no-config: the constraints of pyproject.toml's [tool.uv] are the
+          # project's, and --require-hashes refuses one that pins no version
           uv pip install --python hwi-env/bin/python --require-hashes \
             --no-deps \
+            --no-config \
             --requirement .github/integration-hwi/requirements-hwi.txt
           uv pip freeze --python hwi-env/bin/python | grep -Fx "hwi==$HWI_VERSION"
           echo "BTCLIB_HWI=$PWD/hwi-env/bin/hwi --emulators" >> "$GITHUB_ENV"
@@ -446,8 +449,11 @@ jobs:
           uv venv --python "$HWI_PYTHON" hwi-env
           # --no-deps: the lock carries a cbor2 and a protobuf that HWI's
           # metadata refuses, and everything it needs is in the lock
+          # --no-config: the constraints of pyproject.toml's [tool.uv] are the
+          # project's, and --require-hashes refuses one that pins no version
           uv pip install --python hwi-env/bin/python --require-hashes \
             --no-deps \
+            --no-config \
             --requirement .github/integration-hwi/requirements-hwi.txt
           uv pip freeze --python hwi-env/bin/python | grep -Fx "hwi==$HWI_VERSION"
           # an environment of its own: speculos wants pyqt6 and pygame
@@ -458,6 +464,7 @@ jobs:
           # metadata refuses, and everything it needs is in the lock
           uv pip install --python speculos-env/bin/python --require-hashes \
             --no-deps \
+            --no-config \
             --requirement .github/integration-hwi/requirements-speculos.txt
           uv pip freeze --python speculos-env/bin/python |
             grep -Fx "speculos==$SPECULOS_VERSION"
