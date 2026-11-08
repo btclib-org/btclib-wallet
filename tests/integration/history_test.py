@@ -8,13 +8,17 @@ A payment to a script arrives in the mempool and is confirmed; a spend of
 it arrives in the mempool and is confirmed; the block that confirmed the
 spend is invalidated, and a block without the spend later takes its
 height. The node's wallet pays and spends; the history is read from the
-node's blocks, mempool and utxo set.
+node's blocks, mempool and utxo set. The node is the test's own, so the
+chain starts at the genesis block whatever the session's other tests
+have mined, and the block it invalidates is on no other test's chain.
 
 The rest hold what the bounds on `get_history`'s replies rest on, as
 `bitcoin_core`'s comments on them say.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient, FetchError
@@ -32,8 +36,24 @@ from btclib_wallet.fetch import bitcoin_core
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.history import ScriptHistory
 from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
+from tests.integration.conftest import _start_node, _stop, start_on_free_ports
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def own_node(
+    bitcoind_path: str, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[BitcoinCoreRpcClient]:
+    """Yield a client of a regtest node of its own, started as `node` is."""
+    datadir = tmp_path_factory.mktemp("history-node")
+    process, client, _ = start_on_free_ports(
+        lambda: _start_node([bitcoind_path], datadir, None, ())
+    )
+    try:
+        yield client
+    finally:
+        _stop(process)
 
 
 def _ids(history: ScriptHistory) -> list[tuple[str, int | None]]:
@@ -45,23 +65,23 @@ def _ids(history: ScriptHistory) -> list[tuple[str, int | None]]:
 
 
 def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
-    node: BitcoinCoreRpcClient,
-    wallets: tuple[BitcoinCoreRpcClient, BitcoinCoreRpcClient],
+    own_node: BitcoinCoreRpcClient,
 ) -> None:
     """Each answer lists the script's transactions on the chain it names."""
-    miner = wallets[0]
+    own_node.call("createwallet", ["miner"])
+    miner = own_node.for_wallet("miner")
     miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
     address = miner.call("getnewaddress")
     script = bytes.fromhex(miner.call("getaddressinfo", [address])["scriptPubKey"])
-    fetcher = BitcoinCoreFetcher(node, "regtest")
-    start = int(node.call("getblockcount"))
+    fetcher = BitcoinCoreFetcher(own_node, "regtest")
+    start = int(own_node.call("getblockcount"))
 
     # a payment in the mempool: no block of the chain holds it
     payment = miner.call("sendtoaddress", [address, "1.0"])
     history = fetcher.get_history([script], start)
     assert _ids(history) == [(payment, None)]
     assert history.start == history.tip
-    assert history.tip.block_id.hex() == node.call("getbestblockhash")
+    assert history.tip.block_id.hex() == own_node.call("getbestblockhash")
 
     # the payment confirmed, and an empty block above it
     (confirming,) = miner.call("generatetoaddress", [1, miner.call("getnewaddress")])
@@ -84,7 +104,7 @@ def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
         [[{"txid": payment, "vout": vout}], {miner.call("getnewaddress"): "0.999"}],
     )
     signed = miner.call("signrawtransactionwithwallet", [unsigned])["hex"]
-    spend = node.call("sendrawtransaction", [signed])
+    spend = own_node.call("sendrawtransaction", [signed])
     history = fetcher.get_history([script], start + 2)
     assert _ids(history) == [(spend, None)]
 
@@ -97,14 +117,14 @@ def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
     # the block that held the spend is invalidated and none replaces it:
     # the chain ends below the tip the caller holds, the answer starts at
     # the new tip, and the spend is back in the mempool
-    node.call("invalidateblock", [spent_in])
+    own_node.call("invalidateblock", [spent_in])
     history = fetcher.get_history([script], held.tip.height)
     assert history.start == history.tip
     assert history.start.height == held.tip.height - 1
     assert _ids(history) == [(spend, None)]
 
     # a block without the spend takes the height back, and is another block
-    node.call("generateblock", [miner.call("getnewaddress"), []])
+    own_node.call("generateblock", [miner.call("getnewaddress"), []])
     history = fetcher.get_history([script], held.tip.height)
     assert history.start.height == held.tip.height
     assert history.start != held.tip
