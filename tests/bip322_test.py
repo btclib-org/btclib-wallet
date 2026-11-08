@@ -653,37 +653,42 @@ def _wif_payload(scalar: bytes, flag: bytes) -> str:
 
 
 _SCALAR = b58.prv_key_data_from_wif(WIF).q.to_bytes(32, "big")
-_BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_XPRV = rootxprv_from_seed(bytes.fromhex("8f6e1b9a2c4d7e3f0a5b6c8d9e1f2a3b"))
+# the key field of an xprv is 0x00 and the 32-byte key, last in its payload
+_XPRV_KEY = base58.decode(_XPRV)[-32:]
 
 # a string a caller may pass for a key, each one character or one field
-# away from a WIF, and the refusal its reading ends in
-_NEAR_KEYS = {
+# away from a WIF, the refusal its reading ends in, and the key it holds
+_NEAR_KEYS: dict[str, tuple[str, type[BTClibValueError], bytes]] = {
     "checksum character changed": (
-        WIF[:-1] + _BASE58[(_BASE58.index(WIF[-1]) + 1) % len(_BASE58)],
+        WIF[:-1] + ("j" if WIF[-1] != "j" else "k"),
         NotAPrvKeyError,
+        _SCALAR,
     ),
-    "non-base58 character": (WIF[:20] + "0" + WIF[21:], NotAPrvKeyError),
+    "non-base58 character": (WIF[:20] + "0" + WIF[21:], NotAPrvKeyError, _SCALAR),
     "scalar n": (
         _wif_payload(secp256k1.n.to_bytes(32, "big"), b"\x01"),
         InvalidPrvKeyError,
+        _SCALAR,
     ),
-    "compression byte 0x02": (_wif_payload(_SCALAR, b"\x02"), InvalidPrvKeyError),
-    "xprv": (
-        rootxprv_from_seed(bytes.fromhex("8f6e1b9a2c4d7e3f0a5b6c8d9e1f2a3b")),
-        NotAPrvKeyError,
+    "compression byte 0x02": (
+        _wif_payload(_SCALAR, b"\x02"),
+        InvalidPrvKeyError,
+        _SCALAR,
     ),
+    "xprv": (_XPRV, NotAPrvKeyError, _XPRV_KEY),
 }
 
 
 @pytest.mark.parametrize("name", list(_NEAR_KEYS))
 def test_sign_refuses_a_near_key_without_echoing_it(name: str) -> None:
     """A mistyped WIF or a key in the wrong place is refused secret-free."""
-    text, error = _NEAR_KEYS[name]
+    text, error, key = _NEAR_KEYS[name]
     with pytest.raises(error) as caught:
         bip322.sign(b"", text, _address(WIF, "p2wpkh"))
     assert_secret_free(
         caught.value,
-        [text, text.encode("ascii"), _SCALAR, str(int.from_bytes(_SCALAR, "big"))],
+        [text, text.encode("ascii"), key, str(int.from_bytes(key, "big"))],
     )
 
 
