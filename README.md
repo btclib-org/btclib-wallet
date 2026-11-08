@@ -3,24 +3,7 @@
 From a seed to a signed, broadcast bitcoin transaction, on top of the
 btclib library.
 
-<!-- The badges are what the reader decides with, in three groups: what the
-software is and whether it can be used, whether it works, and what the
-OpenSSF makes of it.
-
-Inside the second group the gates come first, in the order a commit meets
-them, and the sentinels follow in the order section 10 of the organization
-standard schedules them -- the badge order *is* the calendar order over
-that subset, which is why the two move together or not at all. The day and
-hour each sentinel owns live in that section and are not copied here: a
-reader wanting the schedule reads it there, where it is still true.
-
-One badge per line keeps a change to one line and every line inside MD013,
-whose 80 columns bind only where a space follows them.
-
-A badge that reports no state -- "we use ruff", "we use uv" -- reports a
-choice instead, and those are in CONTRIBUTING.md, beside the prose that
-says how the choice is enforced.
--->
+<!-- Section 2 of btclib-org/.github's README.md says which badges sit here. -->
 [![PyPI version](https://img.shields.io/pypi/v/btclib-wallet.svg?logo=pypi)](https://pypi.org/project/btclib-wallet/)
 [![GitHub release](https://img.shields.io/github/v/release/btclib-org/btclib-wallet.svg)](https://github.com/btclib-org/btclib-wallet/releases)
 [![development status](https://img.shields.io/pypi/status/btclib-wallet.svg)](https://pypi.org/project/btclib-wallet/)
@@ -30,30 +13,6 @@ says how the choice is enforced.
 [![implementation](https://img.shields.io/pypi/implementation/btclib-wallet.svg)](https://pypi.org/project/btclib-wallet/)
 [![wheel](https://img.shields.io/pypi/wheel/btclib-wallet.svg)](https://pypi.org/project/btclib-wallet/)
 
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/btclib-org/btclib-wallet/main.svg)](https://results.pre-commit.ci/latest/github/btclib-org/btclib-wallet/main)
-[![lint workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml?query=branch%3Amain)
-[![test workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/test.yml?query=branch%3Amain)
-[![docs workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/docs.yml?query=branch%3Amain)
-[![documentation build](https://app.readthedocs.org/projects/btclib-wallet/badge/?version=latest)](https://btclib-wallet.readthedocs.io)
-[![vendored-vectors workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/vendored-vectors.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/vendored-vectors.yml?query=branch%3Amain)
-[![mutation workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/mutation.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/mutation.yml?query=branch%3Amain)
-[![qa-assets workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/qa-assets.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/qa-assets.yml?query=branch%3Amain)
-[![fuzz workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/fuzz.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/fuzz.yml?query=branch%3Amain)
-[![integration-bitcoind workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-bitcoind.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-bitcoind.yml?query=branch%3Amain)
-[![integration-hwi workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-hwi.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-hwi.yml?query=branch%3Amain)
-[![integration-electrs workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-electrs.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-electrs.yml?query=branch%3Amain)
-[![integration-floresta workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-floresta.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-floresta.yml?query=branch%3Amain)
-[![deps-latest workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-latest.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-latest.yml?query=branch%3Amain)
-[![pypi-install workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/pypi-install.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/pypi-install.yml?query=branch%3Amain)
-[![deps-oldest workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-oldest.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-oldest.yml?query=branch%3Amain)
-[![os-macos workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-macos.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-macos.yml?query=branch%3Amain)
-[![os-ubuntu workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-ubuntu.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-ubuntu.yml?query=branch%3Amain)
-[![os-windows workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-windows.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-windows.yml?query=branch%3Amain)
-[![links workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/links.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/links.yml?query=branch%3Amain)
-[![sdist-rebuild workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/sdist-rebuild.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/sdist-rebuild.yml?query=branch%3Amain)
-[![codeql workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/codeql.yml?query=branch%3Amain)
-
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/btclib-org/btclib-wallet/badge)](https://scorecard.dev/viewer/?uri=github.com/btclib-org/btclib-wallet)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14813/badge)](https://www.bestpractices.dev/projects/14813)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/14813/baseline)](https://www.bestpractices.dev/projects/14813)
 
@@ -189,6 +148,33 @@ what it intends to do, and what it deliberately does not, is its
 - [CHANGELOG.md](https://github.com/btclib-org/btclib-wallet/blob/main/CHANGELOG.md),
   and [RELEASE_NOTES.md](https://github.com/btclib-org/btclib-wallet/blob/main/RELEASE_NOTES.md)
   for what a release asks a user to act on
+
+## Status
+
+<!-- Section 2 of btclib-org/.github's README.md says which badges sit here. -->
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/btclib-org/btclib-wallet/main.svg)](https://results.pre-commit.ci/latest/github/btclib-org/btclib-wallet/main)
+[![lint workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml?query=branch%3Amain)
+[![test workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/test.yml?query=branch%3Amain)
+[![docs workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/docs.yml?query=branch%3Amain)
+[![documentation build](https://app.readthedocs.org/projects/btclib-wallet/badge/?version=latest)](https://btclib-wallet.readthedocs.io)
+[![vendored-vectors workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/vendored-vectors.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/vendored-vectors.yml?query=branch%3Amain)
+[![mutation workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/mutation.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/mutation.yml?query=branch%3Amain)
+[![qa-assets workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/qa-assets.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/qa-assets.yml?query=branch%3Amain)
+[![fuzz workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/fuzz.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/fuzz.yml?query=branch%3Amain)
+[![integration-bitcoind workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-bitcoind.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-bitcoind.yml?query=branch%3Amain)
+[![integration-hwi workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-hwi.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-hwi.yml?query=branch%3Amain)
+[![integration-electrs workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-electrs.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-electrs.yml?query=branch%3Amain)
+[![integration-floresta workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-floresta.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/integration-floresta.yml?query=branch%3Amain)
+[![deps-latest workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-latest.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-latest.yml?query=branch%3Amain)
+[![pypi-install workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/pypi-install.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/pypi-install.yml?query=branch%3Amain)
+[![deps-oldest workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-oldest.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/deps-oldest.yml?query=branch%3Amain)
+[![os-macos workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-macos.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-macos.yml?query=branch%3Amain)
+[![os-ubuntu workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-ubuntu.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-ubuntu.yml?query=branch%3Amain)
+[![os-windows workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-windows.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/os-windows.yml?query=branch%3Amain)
+[![links workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/links.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/links.yml?query=branch%3Amain)
+[![sdist-rebuild workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/sdist-rebuild.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/sdist-rebuild.yml?query=branch%3Amain)
+[![codeql workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/codeql.yml?query=branch%3Amain)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/btclib-org/btclib-wallet/badge)](https://scorecard.dev/viewer/?uri=github.com/btclib-org/btclib-wallet)
 
 ---
 
