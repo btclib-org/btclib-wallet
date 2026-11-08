@@ -712,10 +712,12 @@ class FlorestaStack:
 
 
 def _wait_for_file(path: Path, process: subprocess.Popen[bytes]) -> None:
-    """Poll until `path` exists, or fail with what the process did instead."""
+    """Poll until `path` is not empty, or fail with what the process did."""
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while time.monotonic() < deadline:
-        if path.exists():
+        # a file is created empty and written after, so a read in between
+        # gets nothing
+        if path.exists() and path.stat().st_size:
             return
         if process.poll() is not None:
             pytest.fail(f"{path.name} not written: exit {process.returncode}")
