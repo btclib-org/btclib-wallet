@@ -691,7 +691,7 @@ def test_sign_refuses_a_key_of_another_type_without_echoing_it() -> None:
     """Bytes or an int holding a key are refused by type name alone."""
     wif_bytes = WIF.encode("ascii")
     q = int.from_bytes(_SCALAR, "big")
-    secrets = [WIF, wif_bytes, _SCALAR, str(q)]
+    secrets: list[str | bytes] = [WIF, wif_bytes, _SCALAR, str(q)]
     for prv_key in (wif_bytes, bytearray(wif_bytes), _SCALAR, q):
         with pytest.raises(BTClibTypeError, match="invalid prv_key type: ") as caught:
             bip322.sign(b"", prv_key, _address(WIF, "p2wpkh"))  # type: ignore[arg-type]
