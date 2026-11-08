@@ -21,7 +21,7 @@ from functools import partial
 from typing import Any
 
 import pytest
-from btclib import b58
+from btclib import b58, base58
 from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
@@ -31,6 +31,7 @@ from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
     BTClibValueError,
+    InvalidPrvKeyError,
     NotAPrvKeyError,
     ScriptError,
 )
@@ -58,6 +59,7 @@ from ecc.exceptions import EccRuntimeError
 from ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
+from btclib_wallet.bip32 import rootxprv_from_seed
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx, finalize
 from tests import (
@@ -643,6 +645,57 @@ def test_sign_refuses_a_key_that_is_neither_a_wif_nor_parsed() -> None:
     for prv_key in (wif_bytes, bytearray(wif_bytes), 1, True, None):
         with pytest.raises(BTClibTypeError, match="invalid prv_key type: "):
             bip322.sign(b"", prv_key, addr)  # type: ignore[arg-type]
+
+
+def _wif_payload(scalar: bytes, flag: bytes) -> str:
+    """Return the mainnet WIF spelling of a scalar and a compression byte."""
+    return base58.encode(b"\x80" + scalar + flag).decode("ascii")
+
+
+_SCALAR = b58.prv_key_data_from_wif(WIF).q.to_bytes(32, "big")
+_BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+# a string a caller may pass for a key, each one character or one field
+# away from a WIF, and the refusal its reading ends in
+_NEAR_KEYS = {
+    "checksum character changed": (
+        WIF[:-1] + _BASE58[(_BASE58.index(WIF[-1]) + 1) % len(_BASE58)],
+        NotAPrvKeyError,
+    ),
+    "non-base58 character": (WIF[:20] + "0" + WIF[21:], NotAPrvKeyError),
+    "scalar n": (
+        _wif_payload(secp256k1.n.to_bytes(32, "big"), b"\x01"),
+        InvalidPrvKeyError,
+    ),
+    "compression byte 0x02": (_wif_payload(_SCALAR, b"\x02"), InvalidPrvKeyError),
+    "xprv": (
+        rootxprv_from_seed(bytes.fromhex("8f6e1b9a2c4d7e3f0a5b6c8d9e1f2a3b")),
+        NotAPrvKeyError,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(_NEAR_KEYS))
+def test_sign_refuses_a_near_key_without_echoing_it(name: str) -> None:
+    """A mistyped WIF or a key in the wrong place is refused secret-free."""
+    text, error = _NEAR_KEYS[name]
+    with pytest.raises(error) as caught:
+        bip322.sign(b"", text, _address(WIF, "p2wpkh"))
+    assert_secret_free(
+        caught.value,
+        [text, text.encode("ascii"), _SCALAR, str(int.from_bytes(_SCALAR, "big"))],
+    )
+
+
+def test_sign_refuses_a_key_of_another_type_without_echoing_it() -> None:
+    """Bytes or an int holding a key are refused by type name alone."""
+    wif_bytes = WIF.encode("ascii")
+    q = int.from_bytes(_SCALAR, "big")
+    secrets = [WIF, wif_bytes, _SCALAR, str(q)]
+    for prv_key in (wif_bytes, bytearray(wif_bytes), _SCALAR, q):
+        with pytest.raises(BTClibTypeError, match="invalid prv_key type: ") as caught:
+            bip322.sign(b"", prv_key, _address(WIF, "p2wpkh"))  # type: ignore[arg-type]
+        assert_secret_free(caught.value, secrets)
 
 
 @pytest.mark.parametrize(
