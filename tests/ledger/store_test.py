@@ -15,7 +15,8 @@ import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 
 from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, store
-from tests.ledger.conftest import FakeChain
+from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, source
+from tests.secret_free import assert_secret_free, windows
 
 
 def _pragma(path: Path, name: str) -> int:
@@ -177,3 +178,45 @@ def test_a_file_that_names_no_network_is_refused(chain: FakeChain, path: Path) -
         BTClibValueError, match="not a ledger file: it names no network"
     ):
         Ledger.load(path, "regtest", chain)
+
+
+def test_a_sources_repr_holds_no_private_key() -> None:
+    """Its repr and its str leave the keys out, and show the descriptors."""
+    wallet = source()
+    held = store._Source(
+        {branch: str(wallet.descriptor(branch)) for branch in wallet.branches},
+        dict(wallet.prv_keys or {}),
+        LOOKAHEAD,
+        0,
+        False,
+    )
+    assert XPRV in held.prv_keys.values()
+    for text in (repr(held), str(held)):
+        assert not [piece for piece in map(str, windows(XPRV)) if piece in text]
+        assert held.descriptors[0] in text
+
+
+@pytest.mark.parametrize(
+    "column, damaged",
+    [
+        ("prv_keys", "substr(prv_keys, 1, length(prv_keys) - 1)"),
+        ("descriptors", "'null'"),
+        ("descriptors", "'[1]'"),
+        ("prv_keys", "'[]'"),
+        ("prv_keys", "'5'"),
+    ],
+)
+def test_a_source_column_that_is_no_json_object_is_refused(
+    chain: FakeChain, path: Path, column: str, damaged: str
+) -> None:
+    """A column that is no JSON object is refused, and no key leaves with it."""
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+    db = sqlite3.connect(path)
+    with db:
+        db.execute(f"UPDATE sources SET {column} = {damaged}")  # noqa: S608
+    db.close()
+    err_msg = f"source 0's {column} is not a JSON object"
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
+        Ledger.load(path, "regtest", chain)
+    assert_secret_free(e.value, [XPRV])

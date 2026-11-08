@@ -21,10 +21,14 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.script import ScriptPubKey
+from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import COINBASE_MATURITY
+from ecc.ecc import dsa
 
+from btclib_wallet.bip32 import BIP32KeyData
+from btclib_wallet.bip32.bip32 import derive, prv_keyinfo_from_xprv, xpub_from_xprv
 from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.history import BlockRef, ScriptHistory
@@ -35,7 +39,7 @@ from btclib_wallet.ledger import (
     TxDetail,
     TxState,
 )
-from btclib_wallet.ledger.ledger import _parents_first
+from btclib_wallet.ledger.ledger import _SYNC_ATTEMPTS, _parents_first
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
@@ -201,6 +205,26 @@ def test_a_source_added_with_a_birth_height_reads_its_history(
     ledger.add_source(other, 1, lookahead=SMALL_LOOKAHEAD)
     assert payment.id in ledger.sync().changed
     assert ledger.balances().trusted == 20_000
+
+
+def test_a_new_source_paid_at_the_tip_still_reads_its_history(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """A payment the main read finds grows the window, not replaces it.
+
+    The new source's whole window is still read from its birth.
+    """
+    other = source("wpkh({}/84h/1h/7h/{}/*)", (0,))
+    early = chain.pay([TxOut(20_000, other.script_pub_key(0, 0))])
+    chain.mine([early])
+    chain.mine(count=3)
+    ledger.sync()
+    ledger.add_source(other, 1, lookahead=SMALL_LOOKAHEAD)
+    late = chain.pay([TxOut(30_000, other.script_pub_key(0, 1))])
+    changed = ledger.sync().changed
+    assert {early.id, late.id} <= changed
+    assert ledger.balances().trusted == 20_000
+    assert ledger.balances().untrusted_pending == 30_000
 
 
 def test_a_source_is_checked(ledger: Ledger) -> None:
@@ -380,6 +404,36 @@ def test_a_spend_beside_an_input_of_somebody_else_is_not_trusted(
         assert not info.trusted
 
 
+def test_a_spend_naming_an_output_its_parent_lacks_is_not_trusted(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """The other input names an index past the last output of a parent held.
+
+    The ledger's own input is signed as a signer holding the same key signs
+    one input at a time: a wpkh signature commits to no other input's output.
+    """
+    script = ledger.sources[0].script_pub_key(0, 0).script
+    payment = chain.pay([TxOut(100_000, script)])
+    chain.mine([payment])
+    ledger.sync()
+    vin = [TxIn(OutPoint(payment.id, 0)), TxIn(OutPoint(payment.id, 1))]
+    vout = [TxOut(1_000, _outside().script_pub_key)]
+    xprv = derive(XPRV, "m/84h/1h/0h/0/0")
+    pub_key = BIP32KeyData.b58decode(xpub_from_xprv(xprv)).key
+    # the p2pkh script of the key hash the wpkh script holds
+    script_code = b"\x76\xa9\x14" + script[2:] + b"\x88\xac"
+    msg_hash = segwit_v0(script_code, Tx(vin=vin, vout=vout), 0, ALL, 100_000)
+    sig = dsa.sign_(msg_hash, prv_keyinfo_from_xprv(xprv)[0]).serialize()
+    vin[0] = TxIn(vin[0].prev_out, script_witness=Witness([sig + b"\x01", pub_key]))
+    spend = Tx(vin=vin, vout=vout)
+    chain.mempool[spend.id] = chain.known[spend.id] = spend
+    ledger.sync()
+    info = ledger.transaction(spend.id)
+    assert info.wallet_tx.state is TxState.MEMPOOL
+    assert not info.trusted
+    assert ledger.balances() == Balances(0, 0, 0, 0)
+
+
 def test_a_reorganization_returns_a_confirmed_payment_to_the_mempool(
     ledger: Ledger, chain: FakeChain
 ) -> None:
@@ -520,12 +574,12 @@ def test_an_invalid_spend_of_the_ledgers_coin_never_enters(
 
 
 def test_a_spender_seen_before_its_parent_is_checked_when_it_arrives(
-    ledger: Ledger, chain: FakeChain
+    ledger: Ledger, chain: FakeChain, path: Path
 ) -> None:
     """Admitted unchecked, then gone with its child once the parent shows."""
     payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
     chain.mine([payment])
-    honest = _signed_after_seeing(ledger, chain, payment)
+    honest = _signed_after_seeing(path, chain, payment)
     forged = tampered(honest)
     # a child of its output to somebody else, which nothing checks
     child = Tx(
@@ -546,9 +600,8 @@ def test_a_spender_seen_before_its_parent_is_checked_when_it_arrives(
             ledger.transaction(gone.id)
 
 
-def _signed_after_seeing(ledger: Ledger, chain: FakeChain, payment: Tx) -> Tx:
+def _signed_after_seeing(path: Path, chain: FakeChain, payment: Tx) -> Tx:
     """Sign a spend of the payment with a ledger that holds it, elsewhere."""
-    path = Path(ledger._store._db.execute("PRAGMA database_list").fetchone()[2])
     helper_path = path.with_name("helper.sqlite")
     with Ledger.create(helper_path, "regtest", chain) as helper:
         helper.add_source(source(), lookahead=SMALL_LOOKAHEAD)
@@ -561,12 +614,12 @@ def _signed_after_seeing(ledger: Ledger, chain: FakeChain, payment: Tx) -> Tx:
 
 
 def test_a_valid_spender_seen_before_its_parent_stays(
-    ledger: Ledger, chain: FakeChain
+    ledger: Ledger, chain: FakeChain, path: Path
 ) -> None:
     """The check passes once the parent arrives, and nothing leaves."""
     payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
     chain.mine([payment])
-    honest = _signed_after_seeing(ledger, chain, payment)
+    honest = _signed_after_seeing(path, chain, payment)
     chain.hidden.add(payment.id)
     chain.mempool[honest.id] = chain.known[honest.id] = honest
     ledger.sync()
@@ -576,14 +629,13 @@ def test_a_valid_spender_seen_before_its_parent_stays(
 
 
 def _signed_by_twin(
-    ledger: Ledger,
+    path: Path,
     chain: FakeChain,
     wallet: DescriptorWallet,
     vin: list[TxIn],
     vout: list[TxOut],
 ) -> Tx:
     """Sign with another ledger of `wallet`, over the same chain."""
-    path = Path(ledger._store._db.execute("PRAGMA database_list").fetchone()[2])
     with Ledger.create(path.with_name("twin.sqlite"), "regtest", chain) as twin:
         twin.add_source(wallet, lookahead=SMALL_LOOKAHEAD)
         twin.sync()
@@ -591,7 +643,7 @@ def _signed_by_twin(
 
 
 def test_a_forged_spend_of_a_coin_the_same_sync_brings_into_view(
-    ledger: Ledger, chain: FakeChain
+    ledger: Ledger, chain: FakeChain, path: Path
 ) -> None:
     """Checked against the windows as the sync leaves them.
 
@@ -604,7 +656,7 @@ def test_a_forged_spend_of_a_coin_the_same_sync_brings_into_view(
     far = chain.pay([TxOut(500_000, wallet.script_pub_key(0, 5))])
     chain.mine([near, far])
     honest = _signed_by_twin(
-        ledger, chain, source(), [TxIn(OutPoint(far.id, 0))], [_outside()]
+        path, chain, source(), [TxIn(OutPoint(far.id, 0))], [_outside()]
     )
     forged = tampered(honest)
     chain.mempool[forged.id] = chain.known[forged.id] = forged
@@ -637,7 +689,7 @@ def test_a_forged_spend_of_a_coin_a_new_source_owns_leaves(
     chain.mine([parent])
     ledger.sync()
     honest = _signed_by_twin(
-        ledger,
+        path,
         chain,
         other,
         [TxIn(OutPoint(parent.id, 1))],
@@ -859,7 +911,7 @@ def _texts(ledger: Ledger) -> list[tuple[list[str], dict[str, str]]]:
 def test_a_sync_reads_again_where_the_tip_moved(
     ledger: Ledger, chain: FakeChain
 ) -> None:
-    """Between two reads of one sync, at most three times in all.
+    """Between two reads of one sync, at most `_SYNC_ATTEMPTS` times in all.
 
     A source added with a birth height is read on its own after the main
     read, so its read can answer for another tip.
@@ -887,7 +939,8 @@ def test_a_sync_reads_again_where_the_tip_moved(
     chain.get_history = moving  # type: ignore[method-assign]
     with pytest.raises(FetchError, match="the chain tip moved"):
         ledger.sync()
-    assert calls == 6
+    # the main read and the new source's read, at every attempt
+    assert calls == 2 * _SYNC_ATTEMPTS
 
 
 def test_a_taproot_spend_beside_an_output_not_held_is_kept_out(

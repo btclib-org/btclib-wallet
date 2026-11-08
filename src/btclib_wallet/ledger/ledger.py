@@ -59,17 +59,14 @@ the ledger holds. The check runs at the end of each sync, against the
 scripts the windows reach once that sync has moved them, and again
 whenever the scripts watched grow: by `add_source`, `new_address` or
 `fund`. A transaction that fails leaves the ledger with its unconfirmed
-descendants, or is kept out. Where the transaction spending an output
-arrives before the transaction paying it, the input cannot be checked
-yet: it is checked when that parent arrives. A taproot input commits to
-every output the transaction spends, so a spend of a taproot output of
-the ledger beside an output the ledger does not hold fails the check.
-What stays unverified: an incoming unconfirmed transaction spends no
-coin of the ledger, so nothing of it is checked; a spend of the ledger's
-coin whose parent the backend has not reported, until it does; and a
-transaction a backend reports in a block, since a `HistoryReader`
-answers no proof that the block holds it (ISS
-btclib-org/btclib-wallet#737).
+descendants, or is kept out. A taproot input commits to every output the
+transaction spends, so a spend of a taproot output of the ledger beside
+an output the ledger does not hold fails the check. What stays
+unverified: an incoming unconfirmed transaction spends no coin of the
+ledger, so nothing of it is checked; a spend of the ledger's coin whose
+parent the backend has not reported, until it does; and a transaction a
+backend reports in a block, since a `HistoryReader` answers no proof
+that the block holds it (ISS btclib-org/btclib-wallet#737).
 
 **Balances.** Core's `GetBalance` and `CachedTxIsTrusted`
 (src/wallet/receive.cpp:205-295 at bitcoin/bitcoin@f0de87f040, the v32.1
@@ -285,21 +282,27 @@ class Ledger:
             relay_fee_reader,
             fallback_fee_rate,
         )
-        for source_id, source in store.sources():
-            wallet = DescriptorWallet(
-                {
-                    branch: parse(text, network, source.prv_keys)
-                    for branch, text in source.descriptors.items()
-                },
-                source.prv_keys or None,
-            )
-            ledger._attach(source_id, wallet, source)
-        for position in store.handed_out():
-            ledger._hand_out(position)
-        ledger._txs = {wtx.tx.id: wtx for wtx in store.txs(network)}
-        ledger._blocks = store.blocks()
-        ledger._tip = store.tip()
-        ledger._extend_windows()
+        try:
+            for source_id, source in store.sources():
+                wallet = DescriptorWallet(
+                    {
+                        branch: parse(text, network, source.prv_keys)
+                        for branch, text in source.descriptors.items()
+                    },
+                    source.prv_keys or None,
+                )
+                ledger._attach(source_id, wallet, source)
+            for position in store.handed_out():
+                ledger._hand_out(position)
+            ledger._txs = {wtx.tx.id: wtx for wtx in store.txs(network)}
+            ledger._blocks = store.blocks()
+            ledger._tip = store.tip()
+            ledger._extend_windows()
+        except BaseException:
+            # what the file holds was refused: it is closed, as `_Store.open`
+            # closes one it refuses
+            store.close()
+            raise
         return ledger
 
     def close(self) -> None:
@@ -479,10 +482,10 @@ class Ledger:
         """Read the chain from the tip the ledger holds, and record it.
 
         The module docstring says how. A tip that moves between the reads
-        of one sync starts it again, at most three times in all, and then
-        raises `FetchError`. A backend's own `FetchError` is raised as it
-        comes, and nothing is written. A ledger with no source is refused,
-        having no script to ask about.
+        of one sync starts it again, at most `_SYNC_ATTEMPTS` times in
+        all, and then raises `FetchError`. A backend's own `FetchError` is
+        raised as it comes, and nothing is written. A ledger with no
+        source is refused, having no script to ask about.
         """
         if not self._sources:
             raise BTClibValueError("no source: add one before the sync")
@@ -517,7 +520,9 @@ class Ledger:
         # of the ledger's windows grows as they are found, and the scripts
         # it reaches are read in turn
         windows = _Windows(dict(self._window), dict(self._scripts), set(self._handed))
-        pending.update(self._grow(windows, answers))
+        # merged, not replaced: an unscanned source keeps its whole window
+        for source, grown in self._grow(windows, answers).items():
+            pending.setdefault(source, set()).update(grown)
         while pending:
             for source, source_scripts in sorted(pending.items()):
                 answer = self._history(source_scripts, self._birth[source])
@@ -655,11 +660,10 @@ class Ledger:
         if wtx.state is not TxState.MEMPOOL or self._debit(wtx.tx) == 0:
             return False
         for tx_in in wtx.tx.vin:
-            parent = self._txs.get(tx_in.prev_out.tx_id)
-            if parent is None:
+            prevout = _prevout(tx_in, self._txs)
+            if prevout is None or not self._owned(prevout):
                 return False
-            if not self._owned(parent.tx.vout[tx_in.prev_out.vout]):
-                return False
+            parent = self._txs[tx_in.prev_out.tx_id]
             if parent.tx.id not in trusted and not self._is_trusted(parent, trusted):
                 return False
             trusted.add(parent.tx.id)

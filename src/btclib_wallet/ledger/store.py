@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
 from urllib.parse import quote
@@ -82,11 +82,12 @@ class _Source:
 
     `descriptors` is the text of each branch's descriptor, `prv_keys` the
     mapping `descriptors.parse` fills. `birth` is the height its history
-    is read from, and `scanned` whether that read is done.
+    is read from, and `scanned` whether that read is done. The repr
+    leaves `prv_keys` out: its values are private keys.
     """
 
     descriptors: dict[int, str]
-    prv_keys: dict[str, str]
+    prv_keys: dict[str, str] = field(repr=False)
     lookahead: int
     birth: int
     scanned: bool
@@ -140,6 +141,24 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
         raise BTClibValueError("not a ledger file: it names no network")
     if row[0] != network:
         raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
+
+
+def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
+    """Return a source's column as the JSON object it holds.
+
+    The decoder's error keeps the whole text, private keys included, so
+    the refusal is raised outside the `except`, where no `__context__`
+    holds it.
+    """
+    try:
+        decoded: object = json.loads(text)
+    except ValueError:
+        decoded = None
+    if not isinstance(decoded, dict):
+        err_msg = f"not a ledger file: source {source_id}'s {column}"
+        err_msg += " is not a JSON object"
+        raise BTClibValueError(err_msg)
+    return decoded
 
 
 def _pragma(db: sqlite3.Connection, name: str) -> int:
@@ -216,8 +235,13 @@ class _Store:
             (
                 source_id,
                 _Source(
-                    {int(b): text for b, text in json.loads(descriptors).items()},
-                    json.loads(prv_keys),
+                    {
+                        int(b): text
+                        for b, text in _decoded(
+                            descriptors, source_id, "descriptors"
+                        ).items()
+                    },
+                    _decoded(prv_keys, source_id, "prv_keys"),
                     lookahead,
                     birth,
                     bool(scanned),
