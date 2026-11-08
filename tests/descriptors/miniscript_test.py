@@ -694,6 +694,23 @@ def test_a_hardened_key_is_derived_where_the_descriptor_holds_its_private_key(
     assert node.has_duplicate_keys(prv_keys)
 
 
+def test_two_hardened_children_of_one_xprv_are_two_keys() -> None:
+    """Take two hardened children of one key as two keys, one twice as one.
+
+    The Bitcoin Core release `integration-bitcoind.yml` pins answers the
+    same: `KeyParser::KeyCompare` in `src/script/descriptor.cpp`
+    (bitcoin/bitcoin@f0de87f040) derives each key with the private keys read
+    while parsing. Its `deriveaddresses` gives the first descriptor this
+    address, and its `getdescriptorinfo` refuses the second.
+    """
+    prv_keys: dict[str, str] = {}
+    descriptor = f"wsh(or_d(pk({XPRV}/0h),pk({XPRV}/1h)))"
+    address = parse_descriptor(descriptor, prv_keys=prv_keys).address(prv_keys=prv_keys)
+    assert address == "bc1qzvz2vfh6s3s72kwnkc27lsajq0rz6vwee9ffmmkdzxyaepwd84rswul8x8"
+    with pytest.raises(BTClibValueError, match="is not sane: it repeats a public key$"):
+        parse_descriptor(f"wsh(or_d(pk({XPRV}/0h),pk({XPRV}/0h)))")
+
+
 def test_a_multipath_descriptor_repeats_a_key_in_its_second_branch() -> None:
     """Refuse the branch where the hardened steps meet, and expand none."""
     key = TESTNET_XPRV
