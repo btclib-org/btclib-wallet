@@ -17,10 +17,11 @@ import base64
 import dataclasses
 import string
 from copy import deepcopy
+from functools import partial
 from typing import Any
 
 import pytest
-from btclib import b58
+from btclib import b58, base58
 from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
@@ -28,7 +29,10 @@ from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
 from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
+    BTClibTypeError,
     BTClibValueError,
+    InvalidPrvKeyError,
+    NotAPrvKeyError,
     ScriptError,
 )
 from btclib.hashes import hash160, magic_message
@@ -55,6 +59,7 @@ from ecc.exceptions import EccRuntimeError
 from ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
+from btclib_wallet.bip32 import rootxprv_from_seed
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx, finalize
 from tests import (
@@ -594,6 +599,105 @@ def test_sign_and_verify(script_type: str, msg: bytes) -> None:
     assert not bip322.verify(
         msg, addr, bip322.sign(msg, b58.prv_key_data_from_wif(OTHER_WIF), other)
     )
+
+
+@pytest.mark.parametrize("script_type", ["p2pkh", "p2wpkh", "p2sh-p2wpkh", "p2tr"])
+def test_a_wif_signs_as_the_key_it_reads_to(
+    script_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`sign` reads a WIF `str` as `b58.prv_key_data_from_wif` does.
+
+    The auxiliary randomness of BIP340 is fixed, so that the p2tr
+    signature is a function of the key and the hash as the ECDSA ones are.
+    """
+    monkeypatch.setattr(ssa, "sign_", partial(ssa.sign_, aux=bytes(32)))
+    msg, addr = b"Hello World", _address(WIF, script_type)
+    sig = bip322.sign(msg, WIF, addr)
+    assert sig == bip322.sign(msg, b58.prv_key_data_from_wif(WIF), addr)
+    assert bip322.verify(msg, addr, sig)
+    with pytest.raises(BTClibValueError, match="mismatch between private key"):
+        bip322.sign(msg, OTHER_WIF, addr)
+
+
+def test_a_regtest_wif_signs_for_its_address_as_it_is() -> None:
+    """The key's network is not read: a regtest WIF reads as testnet."""
+    msg = b"regtest"
+    wif = wif_from_prv_key(b58.prv_key_data_from_wif(WIF).q, "regtest", True)
+    assert b58.prv_key_data_from_wif(wif).network == "testnet"
+    regtest_key = b58.prv_key_data_from_wif(wif, "regtest")
+    addr = p2wpkh(regtest_key.pub)
+    assert addr.startswith("bcrt1")
+    sig = bip322.sign(msg, wif, addr)
+    assert sig == bip322.sign(msg, regtest_key, addr)
+    assert bip322.verify(msg, addr, sig)
+
+
+def test_sign_refuses_a_key_that_is_neither_a_wif_nor_parsed() -> None:
+    """A str that is no WIF is the parser's refusal; another type, a type error.
+
+    Bytes and a bare scalar spell a scalar in btclib, not a WIF; a bool
+    is an int, and refused as one.
+    """
+    addr = _address(WIF, "p2wpkh")
+    with pytest.raises(NotAPrvKeyError):
+        bip322.sign(b"", "not a wif", addr)
+    wif_bytes = WIF.encode("ascii")
+    for prv_key in (wif_bytes, bytearray(wif_bytes), 1, True, None):
+        with pytest.raises(BTClibTypeError, match="invalid prv_key type: "):
+            bip322.sign(b"", prv_key, addr)  # type: ignore[arg-type]
+
+
+def _wif_payload(scalar: bytes, flag: bytes) -> str:
+    """Return the mainnet WIF spelling of a scalar and a compression byte."""
+    return base58.encode(b"\x80" + scalar + flag).decode("ascii")
+
+
+_SCALAR = b58.prv_key_data_from_wif(WIF).q.to_bytes(32, "big")
+_N = secp256k1.n.to_bytes(32, "big")
+_XPRV = rootxprv_from_seed(bytes.fromhex("8f6e1b9a2c4d7e3f0a5b6c8d9e1f2a3b"))
+# the key field of an xprv is 0x00 and the 32-byte key, last in its payload
+_XPRV_KEY = base58.decode(_XPRV)[-32:]
+
+# a string a caller may pass for a key, each one character or one field
+# away from a WIF, the refusal its reading ends in, and the key it holds
+_NEAR_KEYS: dict[str, tuple[str, type[BTClibValueError], bytes]] = {
+    "checksum character changed": (
+        WIF[:-1] + ("j" if WIF[-1] != "j" else "k"),
+        NotAPrvKeyError,
+        _SCALAR,
+    ),
+    "non-base58 character": (WIF[:20] + "0" + WIF[21:], NotAPrvKeyError, _SCALAR),
+    "scalar n": (_wif_payload(_N, b"\x01"), InvalidPrvKeyError, _N),
+    "compression byte 0x02": (
+        _wif_payload(_SCALAR, b"\x02"),
+        InvalidPrvKeyError,
+        _SCALAR,
+    ),
+    "xprv": (_XPRV, NotAPrvKeyError, _XPRV_KEY),
+}
+
+
+@pytest.mark.parametrize("name", list(_NEAR_KEYS))
+def test_sign_refuses_a_near_key_without_echoing_it(name: str) -> None:
+    """A mistyped WIF or a key in the wrong place is refused secret-free."""
+    text, error, key = _NEAR_KEYS[name]
+    with pytest.raises(error) as caught:
+        bip322.sign(b"", text, _address(WIF, "p2wpkh"))
+    assert_secret_free(
+        caught.value,
+        [text, text.encode("ascii"), key, str(int.from_bytes(key, "big"))],
+    )
+
+
+def test_sign_refuses_a_key_of_another_type_without_echoing_it() -> None:
+    """Bytes or an int holding a key are refused by type name alone."""
+    wif_bytes = WIF.encode("ascii")
+    q = int.from_bytes(_SCALAR, "big")
+    secrets: list[str | bytes] = [WIF, wif_bytes, _SCALAR, str(q)]
+    for prv_key in (wif_bytes, bytearray(wif_bytes), _SCALAR, q):
+        with pytest.raises(BTClibTypeError, match="invalid prv_key type: ") as caught:
+            bip322.sign(b"", prv_key, _address(WIF, "p2wpkh"))  # type: ignore[arg-type]
+        assert_secret_free(caught.value, secrets)
 
 
 @pytest.mark.parametrize(

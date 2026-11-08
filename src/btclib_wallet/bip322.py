@@ -105,6 +105,7 @@ import string
 from dataclasses import dataclass
 
 from btclib.alias import Octets, String
+from btclib.b58 import prv_key_data_from_wif
 from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
 from btclib.ecc import bms
 from btclib.exceptions import (
@@ -874,18 +875,25 @@ def _assert_key_owns(script_type: str, payload: bytes, pub_key: bytes) -> None:
         raise BTClibValueError("mismatch between private key and address")
 
 
-def sign(msg: Octets, prv_key: PrvKeyData, addr: String) -> Sig:
+def sign(msg: Octets, prv_key: PrvKeyData | str, addr: String) -> Sig:
     """Return the BIP322 signature of a message for a single-key address.
 
     The address is the argument and not something worked out from the
     key, one key owning an address of each type: it is the challenge
     being signed, and BIP322 has no default for it.
 
-    The key is the parsed form, as `ecc.bms.sign` takes it: the scalar
-    signs and the compression flag beside it says which SEC octets the
-    address was built from. A WIF is read once by
-    `b58.prv_key_data_from_wif`, and a scalar is stated with
+    The key is a `key.PrvKeyData`, or a WIF as a `str`, which
+    `b58.prv_key_data_from_wif` reads into one. What signs is the
+    scalar, and the compression flag beside it says which SEC octets the
+    address was built from. A caller holding a scalar states it with
     `PrvKeyData(q, network, compressed)`.
+
+    The key's network is not read: the address names its own. So a
+    regtest WIF, which reads as a testnet key, signs as it is for its
+    regtest address.
+
+    Any other type is refused, bytes and a bare scalar included: in
+    btclib those spell a scalar, which carries no compression flag.
 
     p2pkh, p2wpkh, p2sh-p2wpkh and p2tr are what one private key
     satisfies on its own, so they are what this signs; the taproot case
@@ -899,6 +907,8 @@ def sign(msg: Octets, prv_key: PrvKeyData, addr: String) -> Sig:
     `Descriptor.satisfy` over the signatures it needs, and then a `Sig`
     of what comes out. This function is the case that needs neither.
     """
+    if isinstance(prv_key, str):
+        prv_key = prv_key_data_from_wif(prv_key)
     # asked here whatever `check_validity` the object was built with: a
     # key the constructor was told not to check is one a caller may hold
     assert_type(prv_key, PrvKeyData, "prv_key")
