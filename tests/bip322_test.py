@@ -653,6 +653,7 @@ def _wif_payload(scalar: bytes, flag: bytes) -> str:
 
 
 _SCALAR = b58.prv_key_data_from_wif(WIF).q.to_bytes(32, "big")
+_N = secp256k1.n.to_bytes(32, "big")
 _XPRV = rootxprv_from_seed(bytes.fromhex("8f6e1b9a2c4d7e3f0a5b6c8d9e1f2a3b"))
 # the key field of an xprv is 0x00 and the 32-byte key, last in its payload
 _XPRV_KEY = base58.decode(_XPRV)[-32:]
@@ -666,11 +667,7 @@ _NEAR_KEYS: dict[str, tuple[str, type[BTClibValueError], bytes]] = {
         _SCALAR,
     ),
     "non-base58 character": (WIF[:20] + "0" + WIF[21:], NotAPrvKeyError, _SCALAR),
-    "scalar n": (
-        _wif_payload(secp256k1.n.to_bytes(32, "big"), b"\x01"),
-        InvalidPrvKeyError,
-        _SCALAR,
-    ),
+    "scalar n": (_wif_payload(_N, b"\x01"), InvalidPrvKeyError, _N),
     "compression byte 0x02": (
         _wif_payload(_SCALAR, b"\x02"),
         InvalidPrvKeyError,
