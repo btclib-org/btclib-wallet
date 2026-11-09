@@ -1,0 +1,352 @@
+# Copyright (c) The btclib developers
+# Distributed under the MIT software license, see the accompanying
+# LICENSE file or https://opensource.org/license/mit for the full text.
+
+"""A `Ledger` read against bitcoind's own wallet on the same regtest chain.
+
+Core's wallet is the oracle. The node's wallet `twin` holds the very
+descriptors the ledger holds, keys included, so both watch the same
+scripts. After each step -- a mempool arrival, a confirmation, a coinbase,
+a spend and its replacement, a broadcast the node refuses, a reorganization, an
+unload and load, and a node restart -- the ledger is synced and its
+answers are compared with what `twin` answers.
+
+The node is this module's own, so that it can be restarted; it refuses
+a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
+ledger from its matured balance, never a fixed amount.
+"""
+
+from __future__ import annotations
+
+import shutil
+from collections.abc import Iterator
+from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pytest
+from bitcoin_core_rpc import BitcoinCoreRpcClient
+from btclib.amount import btc_from_sats, sats_from_btc
+from btclib.fee import FeeRate
+from btclib.script import ScriptPubKey
+from btclib.tx import Tx, TxIn, TxOut
+
+from btclib_wallet.descriptors import add_checksum, parse
+from btclib_wallet.exceptions import RpcError
+from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
+from btclib_wallet.ledger import Ledger, TxState
+from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
+from btclib_wallet.wallet import DescriptorWallet
+from tests.integration.conftest import _start_node, _stop, start_on_free_ports
+
+pytestmark = pytest.mark.integration
+
+XPRV = (
+    "tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARb"
+    "tRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK"
+)
+RECEIVE = f"wpkh({XPRV}/84h/1h/0h/0/*)"
+CHANGE = f"wpkh({XPRV}/84h/1h/0h/1/*)"
+# the node's own floor, 2 sat/vB, and the fallback the ledger pays above it
+MIN_RELAY = "0.00002"
+FALLBACK = FeeRate.from_sats_per_vbyte(5)
+
+
+@dataclass
+class Node:
+    """The module's node, which a test may restart on the same data."""
+
+    bitcoind: str
+    datadir: Path
+    process: Any = None
+    client: Any = None
+
+    def start(self) -> None:
+        """Start the node, and load the wallets it held when it stopped."""
+        self.process, self.client, _ = start_on_free_ports(
+            lambda: _start_node(
+                [self.bitcoind], self.datadir, None, (f"-minrelaytxfee={MIN_RELAY}",)
+            )
+        )
+        loaded = set(self.client.call("listwallets"))
+        for name in self.client.call("listwalletdir")["wallets"]:
+            if name["name"] not in loaded:
+                self.client.call("loadwallet", [name["name"]])
+
+    def stop(self) -> None:
+        """Stop the node."""
+        _stop(self.process)
+
+    def wallet(self, name: str) -> BitcoinCoreRpcClient:
+        """Return a client of one of the node's wallets."""
+        return self.client.for_wallet(name)  # type: ignore[no-any-return]
+
+
+@pytest.fixture(scope="module")
+def node(
+    bitcoind_path: str, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[Node]:
+    """Yield the module's node, with `miner` funded and `twin` the ledger's."""
+    started = Node(bitcoind_path, tmp_path_factory.mktemp("ledger-node"))
+    started.start()
+    try:
+        started.client.call("createwallet", ["miner"])
+        miner = started.wallet("miner")
+        miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
+        started.client.call("createwallet", ["twin", False, True])
+        started.wallet("twin").call(
+            "importdescriptors",
+            [
+                [
+                    {
+                        "desc": add_checksum(desc),
+                        "active": True,
+                        "internal": internal,
+                        "timestamp": 0,
+                        "range": [0, 999],
+                    }
+                    for desc, internal in ((RECEIVE, False), (CHANGE, True))
+                ]
+            ],
+        )
+        yield started
+    finally:
+        started.stop()
+
+
+def _source() -> DescriptorWallet:
+    prv_keys: dict[str, str] = {}
+    branches = [parse(text, "regtest", prv_keys) for text in (RECEIVE, CHANGE)]
+    return DescriptorWallet(branches, prv_keys)
+
+
+def _sats(value: Any) -> int:
+    """Return a BTC amount of Core's in satoshi, a negative one included."""
+    amount = Decimal(str(value))
+    return -sats_from_btc(-amount) if amount < 0 else sats_from_btc(amount)
+
+
+def _settle(node: Node) -> None:
+    """Let the node's wallets take in what its mempool and chain did."""
+    node.client.call("syncwithvalidationinterfacequeue")
+
+
+def _compare(node: Node, ledger: Ledger) -> None:
+    """Assert the ledger answers what `twin` answers, after a sync."""
+    _settle(node)
+    twin = node.wallet("twin")
+    mine = twin.call("getbalances")["mine"]
+    balances = ledger.balances()
+    assert balances.trusted == _sats(mine["trusted"])
+    assert balances.untrusted_pending == _sats(mine["untrusted_pending"])
+    assert balances.immature == _sats(mine["immature"])
+    assert balances.nonmempool == _sats(mine["nonmempool"])
+    for minconf in (0, 1):
+        trusted = ledger.balances(minconf, include_nonmempool=False).trusted
+        assert trusted == _sats(twin.call("getbalance", ["*", minconf]))
+    expected = {
+        (u["txid"], u["vout"], _sats(u["amount"]), u["confirmations"], u["safe"])
+        for u in twin.call("listunspent", [0])
+    }
+    found = {
+        (
+            u.outpoint.tx_id.hex(),
+            u.outpoint.vout,
+            u.tx_out.value,
+            u.confirmations,
+            u.safe,
+        )
+        for u in ledger.utxos(0)
+    }
+    assert found == expected
+    for info in ledger.transactions:
+        if info.wallet_tx.state is TxState.INACTIVE:
+            continue
+        core = twin.call("gettransaction", [info.wallet_tx.tx.id.hex()])
+        assert info.amount == _sats(core["amount"])
+        assert info.fee == (-_sats(core["fee"]) if "fee" in core else None)
+        assert info.confirmations == core["confirmations"]
+        if core["confirmations"] == 0:
+            assert info.trusted == core["trusted"]
+    last = twin.call("getwalletinfo")["lastprocessedblock"]
+    assert ledger.tip is not None
+    assert ledger.tip.block_id.hex() == last["hash"]
+    assert ledger.tip.height == last["height"]
+
+
+def _pay_ledger(node: Node, ledger: Ledger) -> str:
+    """Pay a quarter of the miner's matured balance to a new address."""
+    miner = node.wallet("miner")
+    paid = _sats(miner.call("getbalance")) // 4
+    return str(
+        miner.call(
+            "sendtoaddress", [ledger.new_address(), f"{btc_from_sats(paid):.8f}"]
+        )
+    )
+
+
+def _mine(node: Node, blocks: int = 1) -> list[str]:
+    miner = node.wallet("miner")
+    return list(miner.call("generatetoaddress", [blocks, miner.call("getnewaddress")]))
+
+
+def _miner_output(node: Node, value: int) -> TxOut:
+    address = node.wallet("miner").call("getnewaddress")
+    return TxOut(value, ScriptPubKey.from_address(address))
+
+
+def test_the_ledger_answers_what_cores_wallet_answers(
+    node: Node, tmp_path: Path
+) -> None:
+    """Each step of the module docstring, compared after a sync."""
+    path = tmp_path / "ledger.sqlite"
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    ledger = Ledger.create(
+        path,
+        "regtest",
+        fetcher,
+        broadcaster=fetcher,
+        fee_estimator=fetcher,
+        fallback_fee_rate=FALLBACK,
+    )
+    ledger.add_source(_source())
+    ledger.sync()
+    _compare(node, ledger)
+
+    # a mempool arrival, then its confirmation
+    _pay_ledger(node, ledger)
+    ledger.sync()
+    _compare(node, ledger)
+    assert ledger.balances().untrusted_pending > 0
+    _mine(node)
+    ledger.sync()
+    _compare(node, ledger)
+
+    # a coinbase paid to the ledger, immature
+    node.client.call("generatetoaddress", [1, ledger.new_address()])
+    ledger.sync()
+    _compare(node, ledger)
+    assert ledger.balances().immature > 0
+
+    # a spend, then a replacement paying one more satoshi a vbyte
+    spend = ledger.spend([_miner_output(node, ledger.balances().trusted // 3)])
+    ledger.sync()
+    _compare(node, ledger)
+    replacement = _replacement(ledger, spend)
+    node.client.call(
+        "sendrawtransaction", [replacement.serialize(include_witness=True).hex()]
+    )
+    result = ledger.sync()
+    assert {spend.id, replacement.id} <= result.changed
+    assert ledger.transaction(spend.id).wallet_tx.state is TxState.INACTIVE
+    assert ledger.transaction(replacement.id).wallet_tx.state is TxState.MEMPOOL
+    _compare(node, ledger)
+    _mine(node)
+    ledger.sync()
+    _compare(node, ledger)
+
+    # a broadcast the node refuses, under its relay floor: made from a
+    # copy of the file, so that Core's wallet, which never sees the
+    # transaction, stays comparable with the ledger after it
+    copy = tmp_path / "refusing.sqlite"
+    shutil.copyfile(path, copy)
+    refusing = Ledger.load(copy, "regtest", fetcher, broadcaster=fetcher)
+    with pytest.raises(RpcError, match="min relay fee not met"):
+        refusing.spend(
+            [_miner_output(node, refusing.balances().trusted // 4)],
+            FeeRate.from_sats_per_vbyte(1),
+        )
+    refusing.sync()
+    # the last transaction recorded
+    last = refusing.transactions[-1].wallet_tx
+    assert last.state is TxState.INACTIVE
+    refused = last.tx
+    spent = sum(_value_spent(refusing, tx_in) for tx_in in refused.vin)
+    _settle(node)
+    mine = node.wallet("twin").call("getbalances")["mine"]
+    # the coins it spends are trusted in Core's wallet, which never saw
+    # it, and here too, with `nonmempool` taking them back
+    assert refusing.balances().trusted == _sats(mine["trusted"])
+    assert refusing.balances().nonmempool == -spent
+    assert (
+        refusing.balances(include_nonmempool=False).trusted
+        == _sats(mine["trusted"]) - spent
+    )
+    refusing.close()
+
+    # a reorganization: the block confirming a payment is invalidated and
+    # an empty block takes its height
+    payment = _pay_ledger(node, ledger)
+    (block,) = _mine(node)
+    ledger.sync()
+    node.client.call("invalidateblock", [block])
+    node.client.call("generateblock", [node.wallet("miner").call("getnewaddress"), []])
+    result = ledger.sync()
+    assert result.fork_height is not None
+    assert bytes.fromhex(payment) in result.changed
+    assert ledger.transaction(bytes.fromhex(payment)).wallet_tx.state is TxState.MEMPOOL
+    _compare(node, ledger)
+    _mine(node)
+    ledger.sync()
+    _compare(node, ledger)
+
+    # an unload and a load: the same answers, and no read of the node
+    answers = (ledger.balances(), ledger.utxos(0), ledger.transactions, ledger.tip)
+    ledger.close()
+    ledger = Ledger.load(path, "regtest", _NoReader(), fallback_fee_rate=FALLBACK)
+    assert (
+        ledger.balances(),
+        ledger.utxos(0),
+        ledger.transactions,
+        ledger.tip,
+    ) == answers
+    ledger.close()
+
+    # a node restart
+    node.stop()
+    node.start()
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    ledger = Ledger.load(
+        path, "regtest", fetcher, broadcaster=fetcher, fallback_fee_rate=FALLBACK
+    )
+    assert (
+        ledger.balances(),
+        ledger.utxos(0),
+        ledger.transactions,
+        ledger.tip,
+    ) == answers
+    ledger.sync()
+    _compare(node, ledger)
+    ledger.close()
+
+
+def _value_spent(ledger: Ledger, tx_in: TxIn) -> int:
+    """Return the value of the ledger's output an input spends."""
+    parent = ledger.transaction(tx_in.prev_out.tx_id).wallet_tx.tx
+    return parent.vout[tx_in.prev_out.vout].value
+
+
+def _replacement(ledger: Ledger, spend: Tx) -> Tx:
+    """Return the spend paying 1000 satoshi less change, signed again."""
+    change = next(
+        i
+        for i, tx_out in enumerate(spend.vout)
+        if ledger.position_of(tx_out.script_pub_key) is not None
+    )
+    vout = list(spend.vout)
+    vout[change] = TxOut(vout[change].value - 1_000, vout[change].script_pub_key)
+    unsigned = Tx(
+        version=spend.version,
+        lock_time=spend.lock_time,
+        vin=[TxIn(tx_in.prev_out, sequence=tx_in.sequence) for tx_in in spend.vin],
+        vout=vout,
+    )
+    return extract_tx(finalize(ledger.sign(Psbt.from_tx(unsigned))))
+
+
+class _NoReader:
+    """A reader that fails every call: a load reads nothing."""
+
+    def get_history(self, scripts: Any, start_height: int = 0) -> Any:
+        pytest.fail("the load read the backend")

@@ -11,6 +11,7 @@ Subpackages
    btclib_wallet.descriptors
    btclib_wallet.dlc
    btclib_wallet.fetch
+   btclib_wallet.ledger
    btclib_wallet.mnemonic
    btclib_wallet.psbt
    btclib_wallet.wallet

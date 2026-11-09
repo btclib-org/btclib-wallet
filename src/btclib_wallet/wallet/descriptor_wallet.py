@@ -24,7 +24,7 @@ ways in put the labels there:
 - `from_account`, which is `bip44.account_descriptors`: an account xpub
   and its master fingerprint in, the receive and change descriptors out.
 
-What this adds to a descriptor is the branch, the ledger of what has been
+What this adds to a descriptor is the branch, the record of what has been
 handed out, and `position_of`; what it delegates is everything else, and
 `descriptor(branch)` hands back the `Descriptor` for the questions this
 does not ask -- `str()`, `key_expressions`, `satisfy` for a shape the

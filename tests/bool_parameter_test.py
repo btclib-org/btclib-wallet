@@ -66,7 +66,9 @@ from __future__ import annotations
 import ast
 import sys
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
@@ -106,6 +108,7 @@ from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.hwi import HwiSigner, enumerate_devices
+from btclib_wallet.ledger import Ledger
 from btclib_wallet.mnemonic import bip39
 from btclib_wallet.psbt import frost as psbt_frost
 from btclib_wallet.psbt import musig2 as psbt_musig2
@@ -126,6 +129,7 @@ from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
 from tests.fetch.peer_chain_test import Chain, ScriptedPeer
+from tests.ledger.conftest import FakeChain
 from tests.psbt import frost_test as psbt_frost_test
 from tests.psbt import musig2_test as psbt_musig2_test
 from tests.psbt import psbt_cases
@@ -265,6 +269,15 @@ class _Case:
     # and for a kind only where the kind is the polarity rather than the
     # answer -- the flags carrying one below are those
     reason: str = ""
+
+
+def _asked_of_a_ledger(method: str, **kwargs: Any) -> object:
+    """Ask a new, empty ledger, in a file of its own, and close it."""
+    with (
+        TemporaryDirectory() as tmp,
+        Ledger.create(Path(tmp) / "ledger.sqlite", "regtest", FakeChain()) as ledger,
+    ):
+        return getattr(ledger, method)(**kwargs)
 
 
 _KINDS = (
@@ -443,6 +456,20 @@ _KINDS = (
         {"xpub": _XPUB},
         optional=True,
         reason="`prv_keyinfo_from_xprv`'s above, on the public half",
+    ),
+    # which coins are counted, and which are listed
+    _Case(
+        "btclib_wallet.ledger.ledger.Ledger.balances",
+        "include_nonmempool",
+        partial(_asked_of_a_ledger, "balances"),
+    ),
+    *(
+        _Case(
+            "btclib_wallet.ledger.ledger.Ledger.utxos",
+            flag,
+            partial(_asked_of_a_ledger, "utxos"),
+        )
+        for flag in ("include_immature_coinbase", "include_locked", "include_unsafe")
     ),
 )
 

@@ -5,7 +5,7 @@
 """Tests for the vocabulary every `btclib_wallet.wallet` class answers to.
 
 One account, three wallets over it, and one set of assertions run against
-all three: the ledger of what has been handed out, `next_address` walking
+all three: the record of what has been handed out, `next_address` walking
 a branch, `position_of` taking every spelling of an output, and the bounds
 of a position. What each computes an address *from* is its own module's
 test; this one is about the words being the same words, which is what a
@@ -79,7 +79,7 @@ BUILDERS = pytest.mark.parametrize("build", WALLETS, ids=lambda build: build.__n
 
 
 @BUILDERS
-def test_the_ledger_holds_what_was_handed_out(
+def test_the_record_holds_what_was_handed_out(
     build: Callable[[], RangedWallet],
 ) -> None:
     """A wallet remembers the positions it was asked for, and only those.
@@ -105,7 +105,7 @@ def test_the_ledger_holds_what_was_handed_out(
     assert info.script_type == wallet.script_type
 
     # an address of the wallet's own chains, not asked for yet, is a miss:
-    # the ledger is what has been issued and not what could be
+    # the record is what has been issued and not what could be
     unissued = build().address(0, 9)
     assert unissued not in wallet
     for address in (unissued, _ELSEWHERE):

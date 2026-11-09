@@ -114,6 +114,9 @@ intersphinx_cache_limit = 0
 #   own type-to-xref splitter stops at the first nested bracket and
 #   reports the truncated fragment as the unresolved class, rather than
 #   resolving the pieces on either side of it
+# - a private class a constructor takes: `Ledger.__init__` takes the
+#   `_Store` that `Ledger.create` and `Ledger.load` open, and the store
+#   is not documented, being no caller's to build
 nitpick_ignore = [
     ("py:class", "Octets"),
     ("py:class", "Mnemonic"),
@@ -121,6 +124,7 @@ nitpick_ignore = [
     ("py:class", "musig2.SessionContext"),
     ("py:class", "collections.abc.Mapping[bytes"),
     ("py:class", "tuple[bytes"),
+    ("py:class", "btclib_wallet.ledger.store._Store"),
 ]
 
 source_suffix = [".rst", ".md"]

@@ -1,4 +1,4 @@
-# The wallets, mutated: the ledger of what has been handed out, the two
+# The wallets, mutated: the record of what has been handed out, the two
 # key-derived sources, the descriptor-backed one and the script template
 # beside it. What a wallet answers is an address somebody is about to be
 # paid at, and the failure this asks about is the one a test suite is

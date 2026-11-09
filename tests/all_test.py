@@ -173,6 +173,10 @@ CHILD_MODULES = {
             "transport",
         ],
     },
+    "btclib_wallet.ledger": {
+        "groups": [],
+        "unpublished": ["ledger", "records", "store"],
+    },
     "btclib_wallet.mnemonic": {
         "groups": ["bip39", "electrum", "slip39"],
         "unpublished": [],
