@@ -423,8 +423,7 @@ class Ledger:
         self._window, self._scripts = self._windows_for(self._handed)
         txs = dict(self._txs)
         _drop_unverified(txs, self._scripts)
-        gone = [txid for txid in self._txs if txid not in txs]
-        if gone:
+        if gone := [txid for txid in self._txs if txid not in txs]:
             self._store.delete_txs(gone)
             self._txs = txs
 
@@ -1127,10 +1126,14 @@ def _drop_unverified(
 def _how_spent(spenders: Sequence[WalletTx]) -> TxState | None:
     """Core's `HowSpent`: the strongest state of the spenders, None if none."""
     states = {wtx.state for wtx in spenders}
-    for state in (TxState.CONFIRMED, TxState.MEMPOOL, TxState.INACTIVE):
-        if state in states:
-            return state
-    return None
+    return next(
+        (
+            state
+            for state in (TxState.CONFIRMED, TxState.MEMPOOL, TxState.INACTIVE)
+            if state in states
+        ),
+        None,
+    )
 
 
 def _parents_first(txs: Mapping[bytes, Tx]) -> list[Tx]:
