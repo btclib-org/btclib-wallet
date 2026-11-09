@@ -164,7 +164,7 @@ jobs:
       # the script is btclib-org/.github's, served from there at main under a
       # `path:` of its own and sparse on .github/scripts, so no copy of it is
       # kept in this tree: the wait and the verdict are tested where it lives
-      # (section 10 of that repository's README.md)
+      # (section 10 of the organization's standard)
       - name: Check out the check script
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
