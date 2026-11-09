@@ -12,7 +12,7 @@
 
 A release's own pull request writes the release's section, from the squash
 subjects since the previous tag, and no other pull request adds an entry
-(sections 9 and 12 of [the organization standard][std]). An entry is for
+(sections 9 and 12 of [the organization's standard][std]). An entry is for
 anything a reader would notice, and is narrower than "every change": a
 comment reworded inside a workflow changes nothing a reader of this
 repository meets. [RELEASE_NOTES.md](./RELEASE_NOTES.md) has the release

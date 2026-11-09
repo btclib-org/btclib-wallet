@@ -3,7 +3,7 @@
 From a seed to a signed, broadcast bitcoin transaction, on top of the
 btclib library.
 
-<!-- Section 2 of btclib-org/.github's README.md says which badges sit here. -->
+<!-- Section 2 of the organization's standard says which badges sit here. -->
 [![PyPI version](https://img.shields.io/pypi/v/btclib-wallet.svg?logo=pypi)](https://pypi.org/project/btclib-wallet/)
 [![GitHub release](https://img.shields.io/github/v/release/btclib-org/btclib-wallet.svg)](https://github.com/btclib-org/btclib-wallet/releases)
 [![development status](https://img.shields.io/pypi/status/btclib-wallet.svg)](https://pypi.org/project/btclib-wallet/)
@@ -151,7 +151,7 @@ what it intends to do, and what it deliberately does not, is its
 
 ## Status
 
-<!-- Section 2 of btclib-org/.github's README.md says which badges sit here. -->
+<!-- Section 2 of the organization's standard says which badges sit here. -->
 [![pre-commit.ci status](https://results.pre-commit.ci/badge/github/btclib-org/btclib-wallet/main.svg)](https://results.pre-commit.ci/latest/github/btclib-org/btclib-wallet/main)
 [![lint workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml?query=branch%3Amain)
 [![test workflow status](https://github.com/btclib-org/btclib-wallet/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/btclib-org/btclib-wallet/actions/workflows/test.yml?query=branch%3Amain)

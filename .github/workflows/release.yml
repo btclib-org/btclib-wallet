@@ -32,8 +32,8 @@ concurrency:
 jobs:
   # the checkout, the ancestry check, the version comparison against the
   # tag, and the release-notes check on RELEASE_NOTES.md and CHANGELOG.md are
-  # btclib-org/.github's, called at a tagged commit (section 10 of
-  # btclib-org/.github's README.md). This tree is calendar-versioned, so
+  # btclib-org/.github's, called at a tagged commit (section 10 of the
+  # organization's standard). This tree is calendar-versioned, so
   # tag-requires-day stays at its default; build below consumes
   # version-suffix, the rehearsal output
   version-check:
@@ -53,7 +53,7 @@ jobs:
   # `uv audit` over what the wheel declares, before anything is published:
   # btclib-org/.github's reusable-audit.yml, so that the uv version, the
   # flags and what it refuses are written once, called at a tagged commit
-  # (section 10 of btclib-org/.github's README.md). An advisory or an
+  # (section 10 of the organization's standard). An advisory or an
   # unreachable service fails it, and the publish jobs below name it in
   # `needs:` and in their `if:`, `always()` there being what would
   # otherwise let them run past a red one. The callee asks only for the
@@ -64,8 +64,8 @@ jobs:
     uses: btclib-org/.github/.github/workflows/reusable-audit.yml@5be4b0fbb5231cff001a3ee0eaa8f7d82bffef11 # v2026.11.5
 
   # the build and its signature: btclib-org/.github's reusable-build.yml,
-  # called at a tagged commit (section 10 of btclib-org/.github's
-  # README.md). It builds the distribution files and the bill of
+  # called at a tagged commit (section 10 of the organization's
+  # standard). It builds the distribution files and the bill of
   # materials, uploads them as `dist` and `sbom`, and signs them before
   # any publish job waits for its environment's approval, which is how
   # the signer is a workflow this tree's own steps cannot alter (SLSA
@@ -286,8 +286,8 @@ jobs:
       version: ${{ github.ref_name }}
 
   # the GitHub release: btclib-org/.github's reusable-github-release.yml,
-  # called at a tagged commit (section 10 of btclib-org/.github's
-  # README.md). needs: names build beside publish-pypi, build producing
+  # called at a tagged commit (section 10 of the organization's
+  # standard). needs: names build beside publish-pypi, build producing
   # the bundle the callee attaches; the if asks about those two alone, a
   # failure of the published job beside this one bearing on nothing an
   # announcement says
@@ -309,9 +309,8 @@ jobs:
   # a new release tag from an automation rule of its own, and a build that
   # never starts fails nothing, a site answering 200 serving the last build
   # that succeeded. The wait is btclib-org/.github's reusable-documented.yml,
-  # called at a tagged commit (section 10 of btclib-org/.github's
-  # README.md); a rehearsal is never tagged and has nothing for read the
-  # docs to have built
+  # called at a tagged commit (section 10 of the organization's standard); a
+  # rehearsal is never tagged and has nothing for read the docs to have built
   documented:
     needs: version-check
     if: github.event_name == 'push'

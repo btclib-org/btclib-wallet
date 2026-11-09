@@ -16,8 +16,8 @@ name: fuzz
 # of btclib and into this tree; btclib's own fuzz/fuzz_psbt.py,
 # fuzz/fuzz_descriptor.py and fuzz/fuzz_bip322.py, and their corpora, are
 # what btclib-org/btclib's own PR 2245 removes in step. Section 10 of the
-# organization standard is where `fuzz` is named as a sentinel every tree
-# parsing a stranger's own bytes owes.
+# organization's standard is where `fuzz` is named as a sentinel every
+# tree parsing a stranger's own bytes owes.
 # Every `fuzz/fuzz_*.py` is a target this workflow builds and runs, and
 # `.clusterfuzzlite/` is ClusterFuzzLite's own configuration for
 # building them -- `project.yaml`, `Dockerfile` and `build.sh`, read by
@@ -29,7 +29,7 @@ name: fuzz
 # docs/running_clusterfuzzlite.md, "ClusterFuzz Lite Modes"), which is
 # what builds a corpus over time and is meant for a schedule. No pull
 # request trigger and no "code-change" job beside it: section 10 of the
-# organization standard makes the clock the discriminator rather than
+# organization's standard makes the clock the discriminator rather than
 # the trigger, and says why *not required* is not the free half of that
 # -- what a pull request charges is the wait, and a reader waits on the
 # list rather than on the subset of it that gates. An hour of fuzzing on

@@ -368,7 +368,7 @@ repos:
         types: [markdown]
         exclude: ^README\.md$
       # the root README.md is the package's page on the index, where a
-      # relative link reaches nothing: section 2 of the organization
+      # relative link reaches nothing: section 2 of the organization's
       # standard is the rule. The pattern above with "./" and "../" no
       # longer admitted
       - id: readme-absolute-link
@@ -379,8 +379,8 @@ repos:
         files: ^README\.md$
         types: [markdown]
       # a line that ends inside a word, at that word's own hyphen.
-      # Section 4 of the organization standard is the rule: what such a
-      # line renders as, why nothing else here catches it, what this
+      # Section 4 of the organization's standard is the rule: what such
+      # a line renders as, why nothing else here catches it, what this
       # pattern cannot see, and what the measurement was before it was
       # proposed. The types are where a build renders prose from --
       # markdown, and what docutils reads, an rst page and a Python
@@ -393,8 +393,8 @@ repos:
         entry: "[A-Za-z0-9]-$"
         types_or: [markdown, python, rst]
       # a placeholder that is a whole argument, in quotes. Section 9 of
-      # the organization standard is the rule and what the quoting costs
-      # a paste; section 4 is where this hook is, which quotes it
+      # the organization's standard is the rule and what the quoting
+      # costs a paste; section 4 is where this hook is, which quotes it
       # exempts, and the three things this pattern cannot see. The
       # discrimination is read off the line and not off the fence around
       # it, because a fence-aware pattern has to consume everything
@@ -636,9 +636,9 @@ repos:
         language: pygrep
         entry: '\b(text|universal_newlines)=True'
         files: \.py$
-      # section 8 of the organization standard's own acceptance command,
-      # run at the gate: a pragma with nothing after it on its line
-      # carries no reason, for no cover and no branch alike. The `#`
+      # the acceptance command of section 8 of the organization's
+      # standard, run at the gate: a pragma with nothing after it on its
+      # line carries no reason, for no cover and no branch alike. The `#`
       # immediately before pragma is what a comment always carries and a
       # backticked reference to the rule in prose never does, section 8
       # already saying prose drops it -- so this does not refuse a
@@ -735,7 +735,8 @@ repos:
   # beside the sources for the length of the run; the one of them a pattern
   # here reaches is tests/package/anything.egg-info, which is what
   # source-exclude in [tool.uv.build-backend] answers.
-  # Section 12 of btclib-org/.github is the rule (btclib-org/.github#197)
+  # Section 12 of the organization's standard is the rule
+  # (btclib-org/.github#197)
   - repo: https://github.com/henryiii/check-sdist
     rev: v1.6.0
     hooks:
@@ -767,15 +768,15 @@ repos:
   # past 5.0.1, stays the maintainer's job.
   #
   # `language: system` and `uv run --locked` are the form section 4 of
-  # the organization standard gives a local hook of this shape, and uv is
-  # on the PATH of every hook because the lint gate is started by it.
+  # the organization's standard gives a local hook of this shape, and uv
+  # is on the PATH of every hook because the lint gate is started by it.
   # `--only-group check` adds that group to the environment the gate runs
   # from and takes nothing out of it, and installs no project;
-  # `--no-build` makes a dependency with no wheel fail rather than
-  # build from source, as section 4 of the organization standard says.
-  # The `-d --min=10 .`, `pass_filenames` and `always_run` are the
-  # upstream hook's own definition, written out because a local hook
-  # cannot inherit one.
+  # `--no-build` makes a dependency with no wheel fail rather than build
+  # from source, as section 4 of the organization's standard says. The
+  # `-d --min=10 .`, `pass_filenames` and `always_run` are the upstream
+  # hook's own definition, written out because a local hook cannot
+  # inherit one.
   #
   # The backend is pyproject.toml's `uv_build`, in the same group: pyroma
   # builds this project to read its metadata and its command line has no

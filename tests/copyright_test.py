@@ -12,9 +12,9 @@ together, which is what this module does. `docs/source/conf.py` is the
 fourth reader and derives its value instead, which the last test holds.
 
 The header is read off this module's own first three lines rather than
-off `COPYRIGHT`, where section 14 of the organization standard keeps its
-text: `COPYRIGHT` is not in the sdist, and the suite runs from one. That
-the two agree is section 14's own comparison, made from
+off `COPYRIGHT`, where section 14 of the organization's standard keeps
+its text: `COPYRIGHT` is not in the sdist, and the suite runs from one.
+That the two agree is section 14's own comparison, made from
 `btclib-org/.github`.
 """
 

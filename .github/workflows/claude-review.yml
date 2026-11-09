@@ -7,7 +7,7 @@ name: claude-review
 # whose every change reaches a user's keys wants a reading before a merge.
 # The prompt, the credential guard, the action, the verdict check and the
 # @claude answer are `btclib-org/.github`'s `reusable-claude-review.yml`,
-# called at a tagged commit (section 10 of btclib-org/.github's README.md).
+# called at a tagged commit (section 10 of the organization's standard).
 # What stays here is the trigger, the concurrency group, the permissions,
 # the paragraph about what this tree ships and this header.
 #

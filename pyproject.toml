@@ -209,8 +209,8 @@ dev = [
 
 [tool.uv]
 # the oldest uv that may read uv.lock, at most the uv a Dependabot run's
-# log names -- section 1 of the organization standard has the argument,
-# section 15 the commands that measure it
+# log names -- section 1 of the organization's standard has the
+# argument, section 15 the commands that measure it
 required-version = ">=0.13.4"
 # the lock held below two releases whose new parameter types mypy refuses
 # here: ecc 2026.11.7 types the variable-time integers `ecc.alias.Public`,
@@ -329,12 +329,13 @@ markers = [
 # warning, not a module, and says what would let it be dropped
 filterwarnings = ["error"]
 # pytest-timeout's bound on each test, setup and teardown included
-# (section 7 of the organization standard): the suite waits on child
-# interpreters, threads and sockets, and a test that never returns
-# otherwise holds the job until its timeout-minutes cancels it, which
-# keeps no log naming the test (btclib-org/btclib-wallet#650). Where
-# SIGALRM exists, pytest-timeout fails the test, prints its stack and
-# lets the run go on; on Windows it ends the worker after printing.
+# (section 7 of the organization's standard): the suite waits on
+# child interpreters, threads and sockets, and a test that never
+# returns otherwise holds the job until its timeout-minutes cancels
+# it, which keeps no log naming the test
+# (btclib-org/btclib-wallet#650). Where SIGALRM exists,
+# pytest-timeout fails the test, prints its stack and lets the run go
+# on; on Windows it ends the worker after printing.
 #
 # The bound sits several times above the slowest test measured, since
 # one that fires on a slow runner is a red with nothing wrong. The
@@ -511,9 +512,9 @@ exclude = ["CHANGELOG.md", "RELEASE_NOTES.md"]
 preview = true
 explicit-preview-rules = true
 # every rule family ruff ships, so a new family arrives with the bump of
-# ruff's own pin rather than never. Section 5 of the organization standard
-# states the rule; `ignore` below is where every declined rule's reason
-# lives
+# ruff's own pin rather than never. Section 5 of the organization's
+# standard states the rule; `ignore` below is where every declined rule's
+# reason lives
 select = ["ALL"]
 # pylint's unspecified-encoding, a preview rule: a call that omits the
 # encoding takes the locale's, which is cp1252 on Windows

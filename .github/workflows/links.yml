@@ -8,8 +8,8 @@ name: links
 # a page that moved is found here or by a reader.
 #
 # The checkout, the lychee run and its token are btclib-org/.github's
-# reusable-links.yml, called at a tagged commit (section 10 of
-# btclib-org/.github's README.md)
+# reusable-links.yml, called at a tagged commit (section 10 of the
+# organization's standard)
 
 on:
   schedule:
