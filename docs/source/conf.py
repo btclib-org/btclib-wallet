@@ -131,7 +131,7 @@ source_suffix = [".rst", ".md"]
 # two derive from the heading text, becomes an xref to a target no page
 # has, and -W fails the build. Six is every level markdown heads at,
 # which makes the number a fixed point rather than one re-derived from
-# files that move: section 2 of the organization standard says so, and
+# files that move: section 2 of the organization's standard says so, and
 # names a depth read off this tree's own headings as the rejected
 # alternative. Part of what such a
 # re-derivation would read is not this tree's to hold still either --
@@ -154,11 +154,11 @@ exclude_patterns: list[str] = []
 
 # furo: content first, the navigation in the left sidebar and the page's
 # own contents in the right, light and dark from one setting -- the shape
-# a reference generated from docstrings has. Section 2 of the organization
-# standard is where it was weighed against shibuya, whose landing pages
-# and announcement bars are surface this tree would carry and not use;
-# sphinx_rtd_theme is where a Read the Docs project starts by default,
-# which is a reason to find it in a tree rather than to keep it
+# a reference generated from docstrings has. Section 2 of the
+# organization's standard is where it was weighed against shibuya, whose
+# landing pages and announcement bars are surface this tree would carry
+# and not use; sphinx_rtd_theme is where a Read the Docs project starts by
+# default, which is a reason to find it in a tree rather than to keep it
 html_theme = "furo"
 
 # no html_static_path: this project overrides no stylesheet and ships no
@@ -181,7 +181,7 @@ html_theme = "furo"
 # lifted out of the tree that makes it correct, and myst resolves not one
 # of those links. README.md links it as BLOB plus its path, PyPI
 # resolving no relative link against the tree (section 2 of the
-# organization standard), and myst renders that as a link to GitHub.
+# organization's standard), and myst renders that as a link to GitHub.
 #
 # What myst emits for a relative link is the reason this needs code
 # rather than a warning filter: a target myst cannot resolve becomes an

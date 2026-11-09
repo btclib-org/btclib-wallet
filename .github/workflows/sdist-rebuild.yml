@@ -14,7 +14,7 @@ name: sdist-rebuild
 #
 # The checkout at the tag, the rebuild and the verification are
 # btclib-org/.github's reusable-sdist-rebuild.yml, called at a tagged
-# commit (section 10 of btclib-org/.github's README.md)
+# commit (section 10 of the organization's standard)
 
 on:
   schedule:

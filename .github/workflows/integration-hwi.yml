@@ -126,10 +126,10 @@ jobs:
       # and installed by the same script: btclib-org/.github's
       # install_bitcoind.py, which its reusable-integration-bitcoind.yml
       # runs for that job. Checked out beside this tree rather than over
-      # it, `path:` keeping the two apart. It reads `main`, as section 10
-      # of btclib-org/.github's README.md has a tree's own job do, and the
-      # checkout is sparse, so what lands is .github/scripts and that
-      # repository's root files
+      # it, `path:` keeping the two apart. It reads `main`, as section 10 of
+      # the organization's standard has a tree's own job do, and the
+      # checkout is sparse, so what lands is .github/scripts and
+      # btclib-org/.github's root files
       - name: Check out btclib-org/.github's scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

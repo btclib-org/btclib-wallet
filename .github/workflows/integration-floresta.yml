@@ -16,9 +16,9 @@ name: integration-floresta
 # `tests/integration/` is integration-bitcoind.yml's, and electrs's is
 # integration-electrs.yml's.
 #
-# The trigger is a pull request touching a path `paths:` lists, the push
-# to main, and the dispatch. There is no schedule: the calendar of section
-# 10 of btclib-org/.github gives a workflow its day, and this one has none.
+# The trigger is a pull request touching a path `paths:` lists, the push to
+# main, and the dispatch. There is no schedule: the calendar of section 10 of
+# the organization's standard gives a workflow its day, and this one has none.
 #
 # Pinned like integration-bitcoind.yml's node:
 #

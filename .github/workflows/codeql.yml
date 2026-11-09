@@ -7,8 +7,8 @@ name: codeql
 # cannot review. Here the languages, the query suite, the schedule and the
 # action versions are read the way the rest of CI is read. The init, the
 # build of the database and the upload are btclib-org/.github's
-# reusable-codeql.yml, called at a tagged commit (section 10 of
-# btclib-org/.github's README.md).
+# reusable-codeql.yml, called at a tagged commit (section 10 of the
+# organization's standard).
 #
 # Default setup and an advanced workflow are exclusive, and the collision
 # is at the upload: `init` succeeds and the upload is refused, so a run
@@ -56,7 +56,7 @@ concurrency:
 
 jobs:
   # the analysis itself is btclib-org/.github's, called at a tagged commit
-  # (section 10 of btclib-org/.github's README.md); what stays here is the
+  # (section 10 of the organization's standard); what stays here is the
   # trigger, the schedule, the concurrency group and the aggregate job
   # below. No inputs: this tree and every sibling
   # carrying codeql.yml scan the same two languages the same way, and an
@@ -127,31 +127,31 @@ jobs:
       actions: read # the run's job listing, which contents: read misses
     steps:
       # the run's own job listing rather than `needs.*.result`, which is
-      # section 10 of the organization standard's shape for a workflow
-      # nothing calls: a matrix cell that died in *Set up job* is a
-      # `failure` row in the listing where `needs.analyze.result` does not
-      # carry it (btclib-org/btclib#1001). The price is a step per
+      # the shape section 10 of the organization's standard gives a
+      # workflow nothing calls: a matrix cell that died in *Set up job* is
+      # a `failure` row in the listing where `needs.analyze.result` does
+      # not carry it (btclib-org/btclib#1001). The price is a step per
       # workflow rather than one shared with test.yml's aggregate, `needs`
       # reaching nothing outside its own workflow -- and test.yml keeps
       # `needs`, release.yml calling it
       #
       # the allowlist in the script names "success" and "skipped", both of them,
       # whatever this workflow's own jobs can report today: section 10 of
-      # the organization standard fixes the two names rather than letting
-      # them follow the jobs (btclib-org/.github#990). What the jobs can
-      # report is a condition and not a property -- analyze still declines
-      # while draft, and the step below fails outright on the same flag
-      # before this listing ever runs, so a draft's "skipped" analyze row
-      # never reaches the allowlist. No job here is conditional on the
-      # diff otherwise, there being no `changes` job, so nothing else
-      # produces a "skipped" row while that holds, and a job added later
-      # does. A narrowed allowlist is sound while it holds and expires
-      # with nothing watching: what would say it had stopped matching the
-      # run is this check failing on the first run that legitimately
-      # skips, and here that is a red "codeql: every job passed" rather
-      # than a blocked merge, that context not being one main's rule
-      # requires -- REPOSITORY.md's *Required checks on main* is where the
-      # rule is read back from the endpoint
+      # the organization's standard fixes the two names rather than
+      # letting them follow the jobs (btclib-org/.github#990). What the
+      # jobs can report is a condition and not a property -- analyze still
+      # declines while draft, and the step below fails outright on the
+      # same flag before this listing ever runs, so a draft's "skipped"
+      # analyze row never reaches the allowlist. No job here is
+      # conditional on the diff otherwise, there being no `changes` job,
+      # so nothing else produces a "skipped" row while that holds, and a
+      # job added later does. A narrowed allowlist is sound while it holds
+      # and expires with nothing watching: what would say it had stopped
+      # matching the run is this check failing on the first run that
+      # legitimately skips, and here that is a red "codeql: every job
+      # passed" rather than a blocked merge, that context not being one
+      # main's rule requires -- REPOSITORY.md's *Required checks on main*
+      # is where the rule is read back from the endpoint
       # a skipped required check reads as passing, so the draft flag
       # moves from the job's own `if:` above into this first step: the
       # job still runs while draft, and reports a failure instead of a
@@ -164,7 +164,7 @@ jobs:
       # the script is btclib-org/.github's, served from there at main under a
       # `path:` of its own and sparse on .github/scripts, so no copy of it is
       # kept in this tree: the wait and the verdict are tested where it lives
-      # (section 10 of that repository's README.md)
+      # (section 10 of the organization's standard)
       - name: Check out the check script
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
