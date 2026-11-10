@@ -508,11 +508,13 @@ def test_a_coinbase_matures_after_100_blocks(ledger: Ledger, chain: FakeChain) -
     assert info.details == (TxDetail("generate", 0, 5_000_000),)
     assert info.amount == 5_000_000
     # a reorganization takes it out of the chain: at depth 0 it is
-    # immature, so it adds nothing, as bitcoind v32.1 reports it
+    # immature, so it adds nothing, as bitcoind v32.1 reports it, and
+    # abandoned, as Core's `blockDisconnected` leaves it
     chain.invalidate(1)
     chain.mine(count=101)
     ledger.sync()
     info = ledger.transaction(coinbase.id)
+    assert info.wallet_tx.state is TxState.ABANDONED
     assert info.details == (TxDetail("orphan", 0, 5_000_000),)
     assert info.amount == 0
     assert ledger.balances() == Balances(0, 0, 0, 0)

@@ -7,9 +7,10 @@
 Core's wallet is the oracle. The node's wallet `twin` holds the very
 descriptors the ledger holds, keys included, so both watch the same
 scripts. After each step -- a mempool arrival, a confirmation, a coinbase,
-a spend and its replacement, a broadcast the node refuses, a reorganization, an
-unload and load, and a node restart -- the ledger is synced and its
-answers are compared with what `twin` answers.
+a spend and its replacement, a broadcast the node refuses, a reorganization, a
+double spend taken through a reorganization, an unload and load, and a
+node restart -- the ledger is synced and its answers are compared with
+what `twin` answers.
 
 The node is this module's own, so that it can be restarted; it refuses
 a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
@@ -167,8 +168,12 @@ def _compare(node: Node, ledger: Ledger) -> None:
         assert info.amount == _sats(core["amount"])
         assert info.fee == (-_sats(core["fee"]) if "fee" in core else None)
         assert info.confirmations == core["confirmations"]
-        if core["confirmations"] == 0:
+        if core["confirmations"] <= 0:
             assert info.trusted == core["trusted"]
+        conflicts = {bytes.fromhex(txid) for txid in core["walletconflicts"]}
+        assert info.wallet_conflicts == conflicts
+        abandoned = {d["abandoned"] for d in core["details"]}
+        assert abandoned <= {info.wallet_tx.state is TxState.ABANDONED}
     last = twin.call("getwalletinfo")["lastprocessedblock"]
     assert ledger.tip is not None
     assert ledger.tip.block_id.hex() == last["hash"]
@@ -291,6 +296,42 @@ def test_the_ledger_answers_what_cores_wallet_answers(
     ledger.sync()
     _compare(node, ledger)
 
+    # a double spend: the ledger's spend is in the mempool when a block
+    # holding another spend of all its coins is mined, and one block on
+    # top, as wallet_txn_doublespend's --mineblock variant reads -2
+    pending = ledger.spend([_miner_output(node, ledger.balances().trusted // 3)])
+    ledger.sync()
+    _compare(node, ledger)
+    double = _double_spend(node, ledger, pending)
+    address = node.wallet("miner").call("getnewaddress")
+    block = node.client.call(
+        "generateblock", [address, [double.serialize(include_witness=True).hex()]]
+    )["hash"]
+    _mine(node)
+    ledger.sync()
+    info = ledger.transaction(pending.id)
+    assert info.wallet_tx.state is TxState.CONFLICTED
+    assert (info.confirmations, info.wallet_conflicts) == (-2, frozenset({double.id}))
+    _compare(node, ledger)
+    # a reorganization takes the double spend's block out: it goes back to
+    # the mempool, and the spend is no longer conflicted
+    node.client.call("invalidateblock", [block])
+    node.client.call("generateblock", [address, []])
+    ledger.sync()
+    assert ledger.transaction(pending.id).wallet_tx.state is TxState.INACTIVE
+    assert ledger.transaction(double.id).wallet_tx.state is TxState.MEMPOOL
+    _compare(node, ledger)
+    # abandoned in both wallets, then conflicted again by the double
+    # spend's next block, which replaces the mark
+    ledger.abandon(pending.id)
+    node.wallet("twin").call("abandontransaction", [pending.id.hex()])
+    assert ledger.transaction(pending.id).wallet_tx.state is TxState.ABANDONED
+    _compare(node, ledger)
+    _mine(node)
+    ledger.sync()
+    assert ledger.transaction(pending.id).confirmations == -1
+    _compare(node, ledger)
+
     # an unload and a load: the same answers, and no read of the node
     answers = (ledger.balances(), ledger.utxos(0), ledger.transactions, ledger.tip)
     ledger.close()
@@ -325,6 +366,21 @@ def _value_spent(ledger: Ledger, tx_in: TxIn) -> int:
     """Return the value of the ledger's output an input spends."""
     parent = ledger.transaction(tx_in.prev_out.tx_id).wallet_tx.tx
     return parent.vout[tx_in.prev_out.vout].value
+
+
+def _double_spend(node: Node, ledger: Ledger, spend: Tx) -> Tx:
+    """Return a spend of every coin `spend` spends, paying the miner.
+
+    Taking every coin, it leaves none that `spend` alone spends: Core's
+    wallet stops counting a transaction the mempool conflicts with as a
+    spender (`isMempoolConflicted`), which the ledger does not track.
+    """
+    value = sum(_value_spent(ledger, tx_in) for tx_in in spend.vin) - 10_000
+    unsigned = Tx(
+        vin=[TxIn(tx_in.prev_out) for tx_in in spend.vin],
+        vout=[_miner_output(node, value)],
+    )
+    return extract_tx(finalize(ledger.sign(Psbt.from_tx(unsigned))))
 
 
 def _replacement(ledger: Ledger, spend: Tx) -> Tx:
