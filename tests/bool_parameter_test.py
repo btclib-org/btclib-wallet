@@ -73,6 +73,7 @@ from typing import Any
 
 import pytest
 from btclib.b58 import p2pkh
+from btclib.fee import FeeRate
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import ScriptPubKey
 from btclib.tx.out_point import OutPoint
@@ -129,7 +130,7 @@ from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
 from tests.fetch.peer_chain_test import Chain, ScriptedPeer
-from tests.ledger.conftest import FakeChain, source
+from tests.ledger.conftest import FakeChain, script_of, source
 from tests.psbt import frost_test as psbt_frost_test
 from tests.psbt import musig2_test as psbt_musig2_test
 from tests.psbt import psbt_cases
@@ -290,6 +291,32 @@ def _received_by_a_ledger(method: str, **kwargs: Any) -> object:
         address = ledger.new_address()
         asked = address if method == "received_by_address" else ""
         return getattr(ledger, method)(asked, **kwargs)
+
+
+def _spent_by_a_ledger(method: str, **kwargs: Any) -> object:
+    """Ask a ledger of one confirmed coin to fund or spend, or to bump a spend.
+
+    The ledger, its file and its chain are new, and closed after.
+    """
+    chain = FakeChain()
+    with (
+        TemporaryDirectory() as tmp,
+        Ledger.create(
+            Path(tmp) / "ledger.sqlite",
+            "regtest",
+            chain,
+            broadcaster=chain,
+            fallback_fee_rate=FeeRate.from_sats_per_vbyte(2),
+        ) as ledger,
+    ):
+        ledger.add_source(source(), lookahead=3)
+        payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
+        chain.mine([payment])
+        ledger.sync()
+        outputs = [TxOut(30_000, source(branches=(0,)).script_pub_key(0, 7))]
+        if method in {"fund", "spend"}:
+            return getattr(ledger, method)(outputs, **kwargs)
+        return getattr(ledger, method)(ledger.spend(outputs).id, **kwargs)
 
 
 _KINDS = (
@@ -490,6 +517,15 @@ _KINDS = (
             partial(_received_by_a_ledger, method),
         )
         for method in ("received_by_address", "received_by_label")
+    ),
+    # the sequence each input is given: BIP125's signal or none
+    *(
+        _Case(
+            f"btclib_wallet.ledger.ledger.Ledger.{method}",
+            "replaceable",
+            partial(_spent_by_a_ledger, method),
+        )
+        for method in ("bump", "bump_psbt", "fund", "spend")
     ),
 )
 

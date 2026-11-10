@@ -18,9 +18,11 @@ from enum import Enum
 from btclib.tx import OutPoint, Tx, TxOut
 
 from btclib_wallet.fetch.history import BlockRef
+from btclib_wallet.psbt.psbt import Psbt
 
 __all__ = [
     "Balances",
+    "BumpedPsbt",
     "GroupedAddress",
     "SyncResult",
     "TxDetail",
@@ -59,12 +61,21 @@ class WalletTx:
     `block` is the block that confirms it where `state` is `CONFIRMED`,
     the block that conflicts with it where `state` is `CONFLICTED`, and
     `None` otherwise. `seq` is the order the ledger first recorded it in.
+    `comment` and `comment_to` are what its spender wrote with it, which
+    Core's `gettransaction` reports as `comment` and `to`. `replaces` is
+    the id of the transaction a bump made it to replace, and
+    `replaced_by` the id of the bump that replaces it: Core's
+    `replaces_txid` and `replaced_by_txid`.
     """
 
     tx: Tx
     state: TxState
     block: BlockRef | None
     seq: int
+    comment: str | None = None
+    comment_to: str | None = None
+    replaces: bytes | None = None
+    replaced_by: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -85,7 +96,7 @@ class Balances:
 class Utxo:
     """An unspent output of the ledger, as `listunspent` reports it.
 
-    `safe` is Core's: the transaction is trusted. `source`, `branch` and
+    `safe` is Core's, as `Ledger.utxos` defines it. `source`, `branch` and
     `index` are the position of the source that pays to the output.
     """
 
@@ -149,6 +160,23 @@ class TxInfo:
     trusted: bool
     details: tuple[TxDetail, ...]
     wallet_conflicts: frozenset[bytes]
+
+
+@dataclass(frozen=True)
+class BumpedPsbt:
+    """The unsigned replacement of a transaction, as `psbtbumpfee` answers.
+
+    `replaces` is the id of the transaction it replaces, `old_fee` that
+    transaction's fee and `fee` the replacement's, in satoshi.
+    `change_index` is the output that takes the change, None where there
+    is none.
+    """
+
+    psbt: Psbt
+    replaces: bytes
+    old_fee: int
+    fee: int
+    change_index: int | None
 
 
 @dataclass(frozen=True)

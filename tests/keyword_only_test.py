@@ -257,12 +257,25 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.hwi:HwiSigner.sign_psbt": ["allowed_sig_hash_types"],
     "btclib_wallet.ledger:Ledger.add_source": ["lookahead", "label"],
     "btclib_wallet.ledger:Ledger.balances": ["include_nonmempool"],
+    "btclib_wallet.ledger:Ledger.bump": [
+        "conf_target",
+        "outputs",
+        "original_change_index",
+        "replaceable",
+    ],
+    "btclib_wallet.ledger:Ledger.bump_psbt": [
+        "conf_target",
+        "outputs",
+        "original_change_index",
+        "replaceable",
+    ],
     "btclib_wallet.ledger:Ledger.create": [
         "broadcaster",
         "fee_estimator",
         "relay_fee_reader",
         "fallback_fee_rate",
     ],
+    "btclib_wallet.ledger:Ledger.fund": ["replaceable"],
     "btclib_wallet.ledger:Ledger.load": [
         "broadcaster",
         "fee_estimator",
@@ -278,6 +291,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.ledger:Ledger.new_address": ["label"],
     "btclib_wallet.ledger:Ledger.received_by_address": ["include_immature_coinbase"],
     "btclib_wallet.ledger:Ledger.received_by_label": ["include_immature_coinbase"],
+    "btclib_wallet.ledger:Ledger.spend": ["comment", "comment_to", "replaceable"],
     "btclib_wallet.ledger:Ledger.utxos": [
         "include_immature_coinbase",
         "include_locked",

@@ -19,6 +19,7 @@ one layer above them and above `fetch`:
 from btclib_wallet.ledger.ledger import LOOKAHEAD, MAX_UNLOCK_TIME, Ledger
 from btclib_wallet.ledger.records import (
     Balances,
+    BumpedPsbt,
     GroupedAddress,
     SyncResult,
     TxDetail,
@@ -35,6 +36,7 @@ __all__ = [
     "LOOKAHEAD",
     "MAX_UNLOCK_TIME",
     "Balances",
+    "BumpedPsbt",
     "GroupedAddress",
     "Ledger",
     "SyncResult",

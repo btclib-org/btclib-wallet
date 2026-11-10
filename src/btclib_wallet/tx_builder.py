@@ -105,6 +105,14 @@ DEFAULT_MAX_FEE = 10_000_000
 DEFAULT_MAX_FEE_RATE = _DEFAULT_MAX_FEE_RATE
 
 
+class _ShortfallError(BTClibValueError):
+    """The inputs do not cover the outputs and the fee.
+
+    The one refusal of `build_psbt` that another input can answer, which
+    `Ledger.bump_psbt` does.
+    """
+
+
 @dataclass(frozen=True)
 class FundedPsbt:
     """A psbt whose fee is paid, and what paying it decided.
@@ -383,6 +391,6 @@ def build_psbt(
     if remainder < owed:
         err_msg = f"the inputs are worth {total_in} satoshi, "
         err_msg += f"where the outputs and the fee need {total_out + owed}"
-        raise BTClibValueError(err_msg)
+        raise _ShortfallError(err_msg)
     _assert_fee_within(remainder, vsize, max_fee, max_fee_rate)
     return FundedPsbt(psbt, remainder, change_index)

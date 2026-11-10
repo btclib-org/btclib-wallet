@@ -181,9 +181,18 @@ class FakeChain:
         return ScriptHistory(BlockRef(start, self.blocks[start][0]), tip, tuple(txs))
 
     def broadcast(self, tx: Tx) -> bytes:
-        """Take the transaction into the mempool, or refuse it."""
+        """Take the transaction into the mempool, or refuse it.
+
+        A transaction taken replaces each one in the mempool spending one
+        of its inputs, as a node's full RBF does; their descendants stay,
+        a test removing them where it needs to.
+        """
         if self.refuse:
             raise FetchError(self.refuse)
+        spent = {tx_in.prev_out for tx_in in tx.vin}
+        for other in list(self.mempool.values()):
+            if any(tx_in.prev_out in spent for tx_in in other.vin):
+                del self.mempool[other.id]
         self.known[tx.id] = tx
         self.mempool[tx.id] = tx
         return tx.id

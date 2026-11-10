@@ -18,10 +18,11 @@ at a time, each step in its own SQLite transaction, by the steps
 when the file is opened.
 
 The file holds everything a load answers from: the sources, the
-positions handed out, every transaction with its state and block, the
-blocks synced through, the tip, and the labels. Each source's private
-keys are written in plain text, as an unencrypted Core wallet writes its
-own, until `Ledger.encrypt` encrypts them. In an encrypted file a source
+positions handed out, every transaction with its state, block, comments
+and the bump that links it to another, the blocks synced through, the
+tip, and the labels. Each source's private keys are written in plain
+text, as an unencrypted Core wallet writes its own, until
+`Ledger.encrypt` encrypts them. In an encrypted file a source
 that holds private keys is written as what a locked ledger reads: its
 descriptors as `descriptors.normalized` writes them, which derive every
 script with no private key, and no key. The descriptors it was added
@@ -107,12 +108,14 @@ _SCHEMA = (
 )
 
 
-def _add_encryption(db: sqlite3.Connection) -> None:
-    """Take format 1 to 2: a source's ciphertext column, and the master key.
+def _to_format_2(db: sqlite3.Connection) -> None:
+    """Take format 1 to 2: encryption, and a transaction's comments and bump.
 
-    Every source keeps its id and its keys in plain text, with no
-    ciphertext, and the file has no master key: it is unencrypted, as
-    format 1 is.
+    A source's ciphertext column and the master key: every source keeps
+    its id and its keys in plain text, with no ciphertext, and the file
+    has no master key, so it is unencrypted, as format 1 is. A
+    transaction's `comment`, `comment_to`, `replaces` and `replaced_by`
+    columns: every transaction has none of them, as in format 1.
     """
     db.execute("ALTER TABLE sources ADD COLUMN encrypted BLOB")
     db.execute(
@@ -120,10 +123,17 @@ def _add_encryption(db: sqlite3.Connection) -> None:
         " kdf TEXT NOT NULL, n INTEGER NOT NULL, r INTEGER NOT NULL,"
         " p INTEGER NOT NULL, salt BLOB NOT NULL, encrypted BLOB NOT NULL)"
     )
+    for column in (
+        "comment TEXT",
+        "comment_to TEXT",
+        "replaces BLOB",
+        "replaced_by BLOB",
+    ):
+        db.execute(f"ALTER TABLE txs ADD COLUMN {column}")
 
 
 # the step that takes a file from the version of its key to the next one
-_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {1: _add_encryption}
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {1: _to_format_2}
 
 
 @dataclass(frozen=True)
@@ -435,7 +445,8 @@ class _Store:
     def txs(self, network: str) -> list[WalletTx]:
         """Return every transaction, its outputs labelled for `network`."""
         rows = self._db.execute(
-            "SELECT raw, state, height, block_id, seq FROM txs ORDER BY seq"
+            "SELECT raw, state, height, block_id, seq, comment, comment_to,"
+            " replaces, replaced_by FROM txs ORDER BY seq"
         )
         return [
             WalletTx(
@@ -443,8 +454,22 @@ class _Store:
                 TxState(state),
                 None if height is None else BlockRef(height, block_id),
                 seq,
+                comment,
+                comment_to,
+                replaces,
+                replaced_by,
             )
-            for raw, state, height, block_id, seq in rows
+            for (
+                raw,
+                state,
+                height,
+                block_id,
+                seq,
+                comment,
+                comment_to,
+                replaces,
+                replaced_by,
+            ) in rows
         ]
 
     def blocks(self) -> dict[int, bytes]:
@@ -596,7 +621,7 @@ class _Store:
 
     def _upsert_txs(self, txs: Iterable[WalletTx]) -> None:
         self._db.executemany(
-            "INSERT OR REPLACE INTO txs VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO txs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     wtx.tx.id,
@@ -605,6 +630,10 @@ class _Store:
                     None if wtx.block is None else wtx.block.height,
                     None if wtx.block is None else wtx.block.block_id,
                     wtx.seq,
+                    wtx.comment,
+                    wtx.comment_to,
+                    wtx.replaces,
+                    wtx.replaced_by,
                 )
                 for wtx in txs
             ],
