@@ -4,10 +4,10 @@
 
 """The wallets whose output is the hash of one key, and who signs for it.
 
-`btclib.ecc.bms` says it in its own docstring -- "at signing time, a
-wallet infrastructure is required to access the private key corresponding
-to a given address" -- and then has none to reach for. This module is
-that infrastructure, and no more of it than the sentence asks for: a
+`btclib.ecc.bms` signs a message with a private key it is handed, but cannot
+find the key for an address: at signing time something has to map the
+address back to the private key behind it, and `bms` has nothing to ask.
+This module is that something, and no more of it than that needs: a
 wallet holds a key source, hands out addresses, remembers what each was
 derived from, and answers which private key signs for one.
 `sign(address, msg)` is what the three together buy, a message signature
