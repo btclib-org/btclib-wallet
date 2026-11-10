@@ -16,6 +16,8 @@ the caller's: a `Ledger` takes paths.
 from __future__ import annotations
 
 import os
+import platform
+import re
 import sqlite3
 import stat
 from dataclasses import replace
@@ -29,6 +31,14 @@ from btclib.tx import TxOut
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, store
 from tests.ledger.conftest import LOOKAHEAD, FakeChain, script_of, source
+
+_PYPY = platform.python_implementation() == "PyPy"
+# what a copy SQLite refuses to write raises: PyPy's `Connection.backup`
+# calls `.decode` on a C string where SQLite reports a failure (ISS
+# btclib-org/btclib-wallet#763)
+_COPY_REFUSALS: tuple[type[Exception], ...] = (
+    (BTClibValueError, AttributeError) if _PYPY else (BTClibValueError,)
+)
 
 
 def _answers(ledger: Ledger) -> tuple[Any, ...]:
@@ -121,6 +131,16 @@ def test_a_backup_refuses_anything_at_its_path(
         ledger.backup(b"ledger.bak")  # type: ignore[arg-type]
 
 
+def test_a_backup_into_a_missing_directory_is_refused(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """The system's own refusal, with nothing made."""
+    target = tmp_path / "missing" / "ledger.bak"
+    with pytest.raises(FileNotFoundError):
+        ledger.backup(target)
+    assert not target.parent.exists()
+
+
 def test_a_backup_that_cannot_open_its_file_leaves_none(
     ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -142,7 +162,8 @@ def test_a_copy_that_cannot_write_names_the_copy_and_leaves_none(
     """A write SQLite refuses, as on a full disk: the backup is not blamed.
 
     The new file is opened read-only, so SQLite refuses the first page
-    written, on a backup and on a restore alike.
+    written, on a backup and on a restore alike. `_COPY_REFUSALS` says
+    what PyPy raises instead; the file is removed all the same.
     """
     backup = tmp_path / "ledger.bak"
     ledger.backup(backup)
@@ -153,22 +174,30 @@ def test_a_copy_that_cannot_write_names_the_copy_and_leaves_none(
 
     monkeypatch.setattr(store, "_connect", read_only)
     second = tmp_path / "second.bak"
-    with pytest.raises(BTClibValueError, match="cannot copy into .*readonly"):
+    with pytest.raises(_COPY_REFUSALS) as refused:
         ledger.backup(second)
+    assert _PYPY or re.match("cannot copy into .*readonly", str(refused.value))
     assert not second.exists()
     restored = tmp_path / "restored.sqlite"
-    with pytest.raises(BTClibValueError, match="cannot copy into .*readonly"):
+    with pytest.raises(_COPY_REFUSALS) as refused:
         Ledger.restore(backup, restored, "regtest", chain)
+    assert _PYPY or re.match("cannot copy into .*readonly", str(refused.value))
     assert not restored.exists()
 
 
+@pytest.mark.parametrize("secure_delete", [0, 1])
 def test_a_backup_keeps_the_old_bytes_of_freed_pages(
-    ledger: Ledger, path: Path, tmp_path: Path
+    ledger: Ledger, path: Path, tmp_path: Path, secure_delete: int
 ) -> None:
-    """A row deleted from the file is still in the backup's pages."""
+    """A row deleted from the file is in the backup's freed pages.
+
+    Unless the delete zeroed them: `PRAGMA secure_delete`, which some
+    builds of SQLite turn on by default, so the test sets it either way.
+    """
     secret = b"a deleted secret " * 300
     db = sqlite3.connect(path)
     try:
+        db.execute(f"PRAGMA secure_delete = {secure_delete}")
         with db:
             db.execute("CREATE TABLE scratch(x BLOB)")
             db.execute("INSERT INTO scratch VALUES (?)", (secret,))
@@ -178,7 +207,8 @@ def test_a_backup_keeps_the_old_bytes_of_freed_pages(
         db.close()
     backup = tmp_path / "ledger.bak"
     ledger.backup(backup)
-    assert b"a deleted secret " * 10 in backup.read_bytes()
+    kept = b"a deleted secret " * 10 in backup.read_bytes()
+    assert kept is not bool(secure_delete)
 
 
 def test_a_restored_ledger_syncs_on_from_its_tip(

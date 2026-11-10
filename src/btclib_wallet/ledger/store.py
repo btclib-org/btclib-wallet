@@ -180,7 +180,11 @@ def _new_file(path: str | PathLike[str]) -> None:
     """
     try:
         Path(path).touch(mode=0o600, exist_ok=False)
-    except FileExistsError:
+    except OSError as e:
+        # Windows refuses to make a file over a directory as a
+        # PermissionError, not a FileExistsError
+        if not (isinstance(e, FileExistsError) or Path(path).exists()):
+            raise
         raise BTClibValueError(f"the ledger file exists: {path}") from None
 
 
