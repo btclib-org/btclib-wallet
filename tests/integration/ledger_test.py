@@ -12,7 +12,8 @@ double spend taken through a reorganization, an unload and load, and a
 node restart -- the ledger is synced and its answers are compared with
 what `twin` answers: its balances, coins and transactions, and its
 labels, what each address and label received, and its address groupings.
-A ledger restored from a backup is compared the same way.
+A ledger restored from a backup, and an encrypted one, are compared the
+same way.
 
 The node is this module's own, so that it can be restarted; it refuses
 a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
@@ -57,6 +58,9 @@ CHANGE = f"wpkh({XPRV}/84h/1h/0h/1/*)"
 # shows none of the conflicts the first test's ledger saw happen
 BACKUP_RECEIVE = f"wpkh({XPRV}/84h/1h/1h/0/*)"
 BACKUP_CHANGE = f"wpkh({XPRV}/84h/1h/1h/1/*)"
+# and another, for the encrypted ledger's test
+ENCRYPTED_RECEIVE = f"wpkh({XPRV}/84h/1h/2h/0/*)"
+ENCRYPTED_CHANGE = f"wpkh({XPRV}/84h/1h/2h/1/*)"
 # the node's own floor, 2 sat/vB, and the fallback the ledger pays above it
 MIN_RELAY = "0.00002"
 FALLBACK = FeeRate.from_sats_per_vbyte(5)
@@ -481,6 +485,46 @@ def test_a_restored_backup_answers_what_cores_wallet_answers(
     with restored:
         restored.sync()
         _compare(node, restored, "backup-twin")
+
+
+def test_an_encrypted_ledger_answers_locked_and_spends_unlocked(
+    node: Node, tmp_path: Path
+) -> None:
+    """Locked, it answers as its twin does; unlocked, the node takes its spend.
+
+    Core's wallet_encryption.py at bitcoin/bitcoin@f0de87f040 (lines
+    40-58): encrypted, the wallet refuses to sign until unlocked.
+    """
+    path = tmp_path / "ledger.sqlite"
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    _create_twin(node, "encrypted-twin", ENCRYPTED_RECEIVE, ENCRYPTED_CHANGE)
+    with Ledger.create(path, "regtest", fetcher) as ledger:
+        ledger.add_source(_source(ENCRYPTED_RECEIVE, ENCRYPTED_CHANGE))
+        _pay_ledger(node, ledger)
+        _mine(node)
+        ledger.sync()
+        ledger.encrypt("passphrase")
+    assert XPRV.encode() not in path.read_bytes()
+    with Ledger.load(
+        path,
+        "regtest",
+        fetcher,
+        broadcaster=fetcher,
+        fee_estimator=fetcher,
+        fallback_fee_rate=FALLBACK,
+    ) as ledger:
+        _pay_ledger(node, ledger)
+        _mine(node)
+        ledger.sync()
+        _compare(node, ledger, "encrypted-twin")
+        payment = _miner_output(node, ledger.balances().trusted // 3)
+        with pytest.raises(ValueError, match="the ledger is locked"):
+            ledger.spend([payment])
+        ledger.unlock_keys("passphrase", 60)
+        ledger.spend([payment])
+        _mine(node)
+        ledger.sync()
+        _compare(node, ledger, "encrypted-twin")
 
 
 def _value_spent(ledger: Ledger, tx_in: TxIn) -> int:

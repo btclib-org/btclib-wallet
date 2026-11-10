@@ -12,10 +12,11 @@ one layer above them and above `fetch`:
   them from a `HistoryReader` when its caller calls `sync`, answers Bitcoin
   Core's wallet questions of them, and spends from them;
 - `records` is what it answers in;
-- `store` is its SQLite file and how the file says what it is.
+- `store` is its SQLite file and how the file says what it is;
+- `crypto` is what its private keys are encrypted with.
 """
 
-from btclib_wallet.ledger.ledger import LOOKAHEAD, Ledger
+from btclib_wallet.ledger.ledger import LOOKAHEAD, MAX_UNLOCK_TIME, Ledger
 from btclib_wallet.ledger.records import (
     Balances,
     GroupedAddress,
@@ -32,6 +33,7 @@ __all__ = [
     "APPLICATION_ID",
     "FORMAT_VERSION",
     "LOOKAHEAD",
+    "MAX_UNLOCK_TIME",
     "Balances",
     "GroupedAddress",
     "Ledger",

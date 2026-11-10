@@ -44,6 +44,17 @@ are the recommended install beside it, and ecc's
 [SECURITY.md](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 says what happens without them.
 
+A ledger's encryption at rest, `Ledger.encrypt`, needs the
+`cryptography` package, which an install on Windows arm64 leaves out:
+its release in `uv.lock` has no wheel there. Without it a ledger works
+unencrypted, and refuses to encrypt and to load an encrypted file. The
+`encryption` extra asks for it on every platform, built from source
+where there is no wheel, which needs OpenSSL:
+
+```shell
+python -m pip install --upgrade "btclib-wallet[encryption]"
+```
+
 ## An address from a mnemonic
 
 ```python

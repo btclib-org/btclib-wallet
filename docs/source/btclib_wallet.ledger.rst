@@ -4,6 +4,13 @@ btclib\_wallet.ledger package
 Submodules
 ----------
 
+btclib\_wallet.ledger.crypto module
+-----------------------------------
+
+.. automodule:: btclib_wallet.ledger.crypto
+   :members:
+   :show-inheritance:
+
 btclib\_wallet.ledger.ledger module
 -----------------------------------
 

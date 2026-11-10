@@ -186,6 +186,7 @@ def test_a_sources_repr_holds_no_private_key() -> None:
     held = store._Source(
         {branch: str(wallet.descriptor(branch)) for branch in wallet.branches},
         dict(wallet.prv_keys or {}),
+        None,
         LOOKAHEAD,
         0,
         False,
