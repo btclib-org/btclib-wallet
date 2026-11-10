@@ -289,6 +289,7 @@ used to teach and to prototype as much as to build.
 
 `btclib_wallet.ledger` writes each source's extended private keys into
 its SQLite file unencrypted, as an unencrypted Bitcoin Core wallet does,
-until ISS btclib-org/btclib-wallet#717 encrypts them. Whoever reads the
-file can spend the coins. The file is made readable by its owner alone
-where the system has POSIX permissions.
+until ISS btclib-org/btclib-wallet#717 encrypts them. So does every file
+`Ledger.backup` writes and every copy `Ledger.restore` makes. Whoever
+reads one of them can spend the coins. Each is made readable by its
+owner alone where the system has POSIX permissions.

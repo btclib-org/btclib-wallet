@@ -145,8 +145,9 @@ syncs from a `fetch.HistoryReader` when its caller calls `sync`, and
 spends through `coin_selection`, `tx_builder` and a `fetch.Broadcaster`.
 So it imports both `wallet/` and `fetch/`, and neither imports it. It
 writes one SQLite file, through the standard library's `sqlite3`, which
-holds everything a load answers from; `ledger.store`'s docstring says
-how the file names its format and version.
+holds everything a load answers from, and copies it into a new file when
+its caller asks for a backup; `ledger.store`'s docstring says how the
+file names its format and version.
 
 ## Discreet log contracts
 

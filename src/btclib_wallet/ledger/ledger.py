@@ -125,6 +125,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from os import PathLike
+from pathlib import Path
 from types import TracebackType
 from typing import Self
 
@@ -157,7 +158,7 @@ from btclib_wallet.ledger.records import (
     Utxo,
     WalletTx,
 )
-from btclib_wallet.ledger.store import _Source, _Store, _SyncWrite
+from btclib_wallet.ledger.store import _copy_backup, _Source, _Store, _SyncWrite
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import estimated_input_sizes, miniscript_sizer
@@ -218,10 +219,10 @@ class _Read:
 class Ledger:
     """A set of descriptor wallets, their transactions, and their file.
 
-    Made by `create` or `load`, never directly. The reader is the backend
-    `sync` reads the chain from. The broadcaster, the fee estimator and
-    the relay fee reader are what `fund` and `spend` use, each where the
-    backend has it.
+    Made by `create`, `load` or `restore`, never directly. The reader is
+    the backend `sync` reads the chain from. The broadcaster, the fee
+    estimator and the relay fee reader are what `fund` and `spend` use,
+    each where the backend has it.
     """
 
     def __init__(
@@ -334,6 +335,60 @@ class Ledger:
             store.close()
             raise
         return ledger
+
+    @classmethod
+    def restore(
+        cls,
+        backup: str | PathLike[str],
+        path: str | PathLike[str],
+        network: str,
+        reader: HistoryReader,
+        *,
+        broadcaster: Broadcaster | None = None,
+        fee_estimator: FeeEstimator | None = None,
+        relay_fee_reader: RelayFeeReader | None = None,
+        fallback_fee_rate: FeeRate | None = None,
+    ) -> Ledger:
+        """Copy the backup at `backup` into a new file at `path`, and load it.
+
+        Core's `restorewallet`, which copies the backup and loads the copy
+        (`RestoreWallet`, src/wallet/wallet.cpp:459-536 at
+        bitcoin/bitcoin@f0de87f040, the v32.1 tag). A missing backup, a
+        file already at `path`, and a backup that is no ledger file of
+        `network` are refused, with nothing left at `path`. The ledger
+        reads no backend here: its next `sync` reads from the tip the
+        backup holds. On a node that pruned blocks from that tip up,
+        `BitcoinCoreFetcher` fails that sync with a `FetchError`, where
+        Core refuses the restore itself.
+        """
+        assert_type(backup, (str, PathLike), "backup")
+        assert_type(path, (str, PathLike), "path")
+        assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
+        network = validated_network_name(network)
+        _copy_backup(backup, path)
+        try:
+            return cls.load(
+                path,
+                network,
+                reader,
+                broadcaster=broadcaster,
+                fee_estimator=fee_estimator,
+                relay_fee_reader=relay_fee_reader,
+                fallback_fee_rate=fallback_fee_rate,
+            )
+        except BaseException:
+            Path(path).unlink(missing_ok=True)
+            raise
+
+    def backup(self, path: str | PathLike[str]) -> None:
+        """Write a copy of the ledger's file into a new file at `path`.
+
+        Core's `backupwallet`. Anything at `path` is refused, the ledger's
+        own file included, and nothing is written there. `store` says what
+        the copy holds; `restore` reads it.
+        """
+        assert_type(path, (str, PathLike), "path")
+        self._store.backup(path)
 
     def close(self) -> None:
         """Close the file; the ledger answers nothing after this."""
