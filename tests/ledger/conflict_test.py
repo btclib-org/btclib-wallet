@@ -331,6 +331,22 @@ def test_resubmit_broadcasts_again_what_is_neither_abandoned_nor_in_a_block(
         assert _state(loaded, second) is TxState.MEMPOOL
 
 
+def test_resubmit_leaves_what_a_block_conflicts_with(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """The conflicted spend and its child stay out; an inactive spend goes."""
+    spend, child, _, y = _conflicted(ledger, chain)
+    other = ledger.spend([_outside()])
+    assert {tx_in.prev_out for tx_in in other.vin} == {y}
+    chain.mempool.clear()
+    ledger.sync()
+    assert _state(ledger, other) is TxState.INACTIVE
+    assert ledger.resubmit() == {}
+    assert set(chain.mempool) == {other.id}
+    assert _state(ledger, spend) is TxState.CONFLICTED
+    assert _state(ledger, child) is TxState.CONFLICTED
+
+
 def test_a_ledger_with_no_broadcaster_does_not_resubmit(
     chain: FakeChain, path: Path
 ) -> None:

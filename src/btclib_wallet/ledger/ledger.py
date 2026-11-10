@@ -1249,7 +1249,7 @@ def _mark_conflicts(txs: dict[bytes, WalletTx]) -> None:
         txid: wtx.tx for txid, wtx in txs.items() if wtx.state is not TxState.CONFIRMED
     }
     for tx in _parents_first(unconfirmed):
-        blocks = [
+        if blocks := [
             block
             for tx_in in tx.vin
             for block in (
@@ -1257,8 +1257,7 @@ def _mark_conflicts(txs: dict[bytes, WalletTx]) -> None:
                 _conflicting_block(txs.get(tx_in.prev_out.tx_id)),
             )
             if block is not None
-        ]
-        if blocks:
+        ]:
             block = min(blocks, key=lambda b: b.height)
             txs[tx.id] = replace(txs[tx.id], state=TxState.CONFLICTED, block=block)
 
