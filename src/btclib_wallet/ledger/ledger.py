@@ -47,7 +47,37 @@ The mempool part of the answers replaces the one the ledger held. A
 transaction that was in the mempool or in a block and is in neither
 now is kept as `TxState.INACTIVE`, not dropped: the mempool replaced it,
 refused it or evicted it (test/functional/wallet_balance.py:174-180 and
-214-225).
+214-225). A coinbase (*Abandon*) and a transaction a block conflicts
+with (*Conflicts*) are the exceptions.
+
+**Conflicts.** A transaction in a block that spends an input of a
+transaction in no block makes that one `TxState.CONFLICTED` with the
+block, and each of its descendants not in a block, as Core's
+`MarkConflicted` does (src/wallet/wallet.cpp:1235-1252 and 1372-1400 at
+bitcoin/bitcoin@f0de87f040, the v32.1 tag). Where several blocks
+conflict with one transaction, the lowest is its block. Its
+confirmations are minus the depth of that block. A reorganization that
+disconnects the block makes it inactive again, as Core's
+`blockDisconnected` does (:1599-1644). The ledger holds only what its
+`HistoryReader` answers, so a conflict is found only where the
+conflicting transaction touches the ledger's scripts: a payment to the
+ledger whose input a block spends in a transaction paying elsewhere goes
+inactive, not conflicted.
+
+**Abandon.** `abandon` marks an inactive transaction `ABANDONED`, and
+each inactive descendant, in the file, as Core's `AbandonTransaction`
+does (:1342-1370). A sync that finds an abandoned transaction in the
+mempool or a block clears its own mark only, and a conflict replaces
+it. A coinbase a reorganization takes out of its block is abandoned, as
+Core's `blockDisconnected` leaves it. An abandoned or conflicted
+transaction counts in no balance and gives no coin, and the coins it
+spends count and can be spent again.
+
+**Resubmission.** `resubmit` broadcasts again each transaction in no
+block that is neither conflicted nor abandoned, as Core does on load
+and from time to time (:2147-2180). Here it runs only when its caller
+calls it: the ledger broadcasts nothing that `spend` or `resubmit` was
+not called for.
 
 **What is checked of an unconfirmed transaction** (ISS
 btclib-org/btclib-wallet#642). A backend can report a mempool
@@ -598,6 +628,7 @@ class Ledger:
         window, scripts = self._windows_for(self._handed | read.used)
         _admit(txs, confirmed, mempool)
         _drop_unverified(txs, scripts)
+        _mark_conflicts(txs)
         upserted = tuple(wtx for txid, wtx in txs.items() if self._txs.get(txid) != wtx)
         deleted = tuple(txid for txid in self._txs if txid not in txs)
         self._store.write_sync(
@@ -630,10 +661,14 @@ class Ledger:
         return tx_out.script_pub_key.script in self._scripts
 
     def _depth(self, wtx: WalletTx) -> int:
-        """Core's `GetTxDepthInMainChain`: confirmations, 0 in no block."""
+        """Core's `GetTxDepthInMainChain`: confirmations, 0 in no block.
+
+        A conflicted transaction's depth is minus its block's.
+        """
         if wtx.block is None or self._tip is None:
             return 0
-        return self._tip.height - wtx.block.height + 1
+        depth = self._tip.height - wtx.block.height + 1
+        return -depth if wtx.state is TxState.CONFLICTED else depth
 
     def _is_immature(self, wtx: WalletTx) -> bool:
         """Core's `IsTxImmatureCoinBase`: an orphan, at depth 0, is too.
@@ -729,8 +764,9 @@ class Ledger:
         """Return the unspent outputs, as Core's `AvailableCoins` filters them.
 
         `listunspent` is the defaults. An output is left out where a
-        transaction of the ledger spends it, in any state; where its own
-        transaction is in no block and not in the mempool; where it is
+        transaction of the ledger that is neither abandoned nor
+        conflicted spends it; where its own transaction is in no block
+        and not in the mempool, a conflicted one included; where it is
         locked, unless `include_locked`; where it is an immature coinbase,
         unless `include_immature_coinbase`; and where its transaction is
         not trusted and `include_unsafe` is False.
@@ -748,11 +784,11 @@ class Ledger:
             safe = self._is_trusted(wtx, trusted_set)
             skipped = (
                 (self._is_immature(wtx) and not include_immature_coinbase)
-                or (depth == 0 and wtx.state is not TxState.MEMPOOL)
+                or (depth <= 0 and wtx.state is not TxState.MEMPOOL)
                 or (not safe and not include_unsafe)
                 or depth < min_depth
                 or (outpoint in self._locked and not include_locked)
-                or outpoint in spends
+                or _how_spent(spends.get(outpoint, [])) is not None
             )
             if not skipped:
                 source, branch, index = self._scripts[tx_out.script_pub_key.script]
@@ -782,10 +818,14 @@ class Ledger:
 
         `txid` is in display order, as `Tx.id` returns it.
         """
+        return self._info(self._held(txid), set(), self._spends())
+
+    def _held(self, txid: bytes) -> WalletTx:
+        """Return a transaction held, refusing an id of none."""
         assert_type(txid, bytes, "txid")
         if txid not in self._txs:
             raise BTClibValueError(f"not a ledger transaction: {txid.hex()}")
-        return self._info(self._txs[txid], set())
+        return self._txs[txid]
 
     @property
     def transactions(self) -> tuple[TxInfo, ...]:
@@ -794,21 +834,30 @@ class Ledger:
         Core's `listtransactions`, one `TxInfo` per transaction.
         """
         trusted: set[bytes] = set()
+        spends = self._spends()
         ordered = sorted(self._txs.values(), key=lambda wtx: wtx.seq)
-        return tuple(self._info(wtx, trusted) for wtx in ordered)
+        return tuple(self._info(wtx, trusted, spends) for wtx in ordered)
 
-    def _info(self, wtx: WalletTx, trusted: set[bytes]) -> TxInfo:
+    def _info(
+        self,
+        wtx: WalletTx,
+        trusted: set[bytes],
+        spends: Mapping[OutPoint, Sequence[WalletTx]],
+    ) -> TxInfo:
         """Return Core's `gettransaction` figures of a transaction.
 
         Its details are `CachedTxGetAmounts` with the change left out
         (src/wallet/receive.cpp:165-191 at bitcoin/bitcoin@f0de87f040, the
         v32.1 tag): where the transaction spends the ledger's coins, each
         output that is not change is sent, the ledger's own included, and
-        each output of the ledger is received.
+        each output of the ledger is received. A conflicted transaction
+        lists no output received, as Core's `ListTransactions` lists none
+        below depth 0 (src/wallet/rpc/transactions.cpp:355).
         """
         tx = wtx.tx
         debit = self._debit(tx)
         immature = self._is_immature(wtx)
+        depth = self._depth(wtx)
         details: list[TxDetail] = []
         credit = 0
         for vout, tx_out in enumerate(tx.vout):
@@ -819,7 +868,7 @@ class Ledger:
                 continue
             if debit:
                 details.append(TxDetail("send", vout, -tx_out.value))
-            if owned:
+            if owned and depth >= 0:
                 details.append(TxDetail(self._category(wtx), vout, tx_out.value))
         fee = None
         amount = credit - debit
@@ -830,9 +879,15 @@ class Ledger:
             wtx,
             amount,
             fee,
-            self._depth(wtx),
+            depth,
             self._is_trusted(wtx, trusted),
             tuple(details),
+            frozenset(
+                other.tx.id
+                for tx_in in tx.vin
+                for other in spends.get(tx_in.prev_out, ())
+                if other.tx.id != tx.id
+            ),
         )
 
     def _category(self, wtx: WalletTx) -> str:
@@ -1019,6 +1074,52 @@ class Ledger:
         self._txs[tx.id] = wtx
         return tx
 
+    # -- abandon and resubmit ---------------------------------------------
+
+    def abandon(self, txid: bytes) -> None:
+        """Abandon an inactive transaction, and its inactive descendants.
+
+        Core's `abandontransaction`: the coins they spend count, and can
+        be spent, again. The mark is written to the file. A transaction
+        confirmed, conflicted or in the mempool is refused, and an
+        abandoned one is left as it is. `txid` is in display order.
+        """
+        wtx = self._held(txid)
+        if wtx.state in (TxState.CONFIRMED, TxState.CONFLICTED, TxState.MEMPOOL):
+            err_msg = f"a {wtx.state.value} transaction cannot be abandoned:"
+            raise BTClibValueError(f"{err_msg} {txid.hex()}")
+        txs = dict(self._txs)
+        _abandon(txid, txs)
+        self._store.upsert_txs(w for t, w in txs.items() if self._txs[t] != w)
+        self._txs = txs
+
+    def resubmit(self) -> dict[bytes, FetchError]:
+        """Broadcast again what is in the mempool or inactive; return refusals.
+
+        Core's `ResubmitWalletTransactions`, run only when the caller
+        calls it: each transaction in the mempool or inactive, in the
+        order it was recorded. One the broadcaster accepts is in the
+        mempool. One it refuses stays as it was, and its refusal is
+        returned under its id rather than raised, so that one refusal
+        does not hold back the others.
+        """
+        if self._broadcaster is None:
+            raise BTClibValueError("no broadcaster: the ledger cannot send")
+        refused: dict[bytes, FetchError] = {}
+        accepted: list[WalletTx] = []
+        for wtx in sorted(self._txs.values(), key=lambda w: w.seq):
+            if wtx.state not in (TxState.MEMPOOL, TxState.INACTIVE):
+                continue
+            try:
+                self._broadcaster.broadcast(wtx.tx)
+            except FetchError as e:
+                refused[wtx.tx.id] = e
+                continue
+            accepted.append(replace(wtx, state=TxState.MEMPOOL))
+        self._store.upsert_txs(accepted)
+        self._txs.update((wtx.tx.id, wtx) for wtx in accepted)
+        return refused
+
 
 def _script(tx_out: TxOut) -> bytes:
     return tx_out.script_pub_key.script
@@ -1051,15 +1152,18 @@ def _disconnected(
 ) -> tuple[dict[bytes, WalletTx], dict[int, bytes]]:
     """Return copies with the blocks above `fork_height` taken out.
 
-    A transaction confirmed in one of them is inactive until the answers
-    say where it is now.
+    A transaction confirmed in one of them, or conflicted by one, is
+    inactive until the answers say where it is now; a coinbase is
+    abandoned, as Core's `blockDisconnected` leaves it, since it can be
+    in no mempool.
     """
     txs = dict(txs)
     if fork_height is None:
         return txs, dict(blocks)
     for txid, wtx in txs.items():
         if wtx.block is not None and wtx.block.height > fork_height:
-            txs[txid] = replace(wtx, state=TxState.INACTIVE, block=None)
+            state = TxState.ABANDONED if wtx.tx.is_coinbase else TxState.INACTIVE
+            txs[txid] = replace(wtx, state=state, block=None)
     return txs, {h: b for h, b in blocks.items() if h <= fork_height}
 
 
@@ -1123,8 +1227,73 @@ def _drop_unverified(
             _remove_with_descendants(tx.id, txs)
 
 
+def _mark_conflicts(txs: dict[bytes, WalletTx]) -> None:
+    """Mark conflicted each transaction a block conflicts with.
+
+    A transaction in no block is conflicted with the lowest block holding
+    a transaction that spends one of its inputs, or that one of its
+    parents is conflicted with. Parents are marked first, so that a child
+    finds them marked. Nothing here clears a conflict: `_disconnected`
+    does, when the block goes.
+    """
+    spent_in: dict[OutPoint, BlockRef] = {}
+    for wtx in txs.values():
+        if (
+            wtx.state is TxState.CONFIRMED
+            and wtx.block is not None
+            and not wtx.tx.is_coinbase
+        ):
+            for tx_in in wtx.tx.vin:
+                spent_in[tx_in.prev_out] = wtx.block
+    unconfirmed = {
+        txid: wtx.tx for txid, wtx in txs.items() if wtx.state is not TxState.CONFIRMED
+    }
+    for tx in _parents_first(unconfirmed):
+        blocks = [
+            block
+            for tx_in in tx.vin
+            for block in (
+                spent_in.get(tx_in.prev_out),
+                _conflicting_block(txs.get(tx_in.prev_out.tx_id)),
+            )
+            if block is not None
+        ]
+        if blocks:
+            block = min(blocks, key=lambda b: b.height)
+            txs[tx.id] = replace(txs[tx.id], state=TxState.CONFLICTED, block=block)
+
+
+def _conflicting_block(wtx: WalletTx | None) -> BlockRef | None:
+    """Return the block a transaction is conflicted with, None if none."""
+    if wtx is None or wtx.state is not TxState.CONFLICTED:
+        return None
+    return wtx.block
+
+
+def _abandon(txid: bytes, txs: dict[bytes, WalletTx]) -> None:
+    """Mark a transaction abandoned, and its descendants.
+
+    As Core's `RecursiveUpdateTxState` walks them: the walk marks an
+    inactive transaction and goes on to its children, and stops at any
+    other.
+    """
+    children: dict[bytes, list[bytes]] = {}
+    for child_id, child in txs.items():
+        for tx_in in child.tx.vin:
+            children.setdefault(tx_in.prev_out.tx_id, []).append(child_id)
+    todo = [txid]
+    while todo:
+        wtx = txs[todo.pop()]
+        if wtx.state is TxState.INACTIVE:
+            txs[wtx.tx.id] = replace(wtx, state=TxState.ABANDONED)
+            todo.extend(children.get(wtx.tx.id, ()))
+
+
 def _how_spent(spenders: Sequence[WalletTx]) -> TxState | None:
-    """Core's `HowSpent`: the strongest state of the spenders, None if none."""
+    """Core's `HowSpent`: the strongest state of the spenders, None if none.
+
+    An abandoned or a conflicted spender counts as none.
+    """
     states = {wtx.state for wtx in spenders}
     return next(
         (
