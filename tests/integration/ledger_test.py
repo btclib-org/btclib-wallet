@@ -10,8 +10,9 @@ scripts. After each step -- a mempool arrival, a confirmation, a coinbase,
 a spend and its replacement, a broadcast the node refuses, a reorganization, a
 double spend taken through a reorganization, an unload and load, and a
 node restart -- the ledger is synced and its answers are compared with
-what `twin` answers. A ledger restored from a backup is compared the
-same way.
+what `twin` answers: its balances, coins and transactions, and its
+labels, what each address and label received, and its address groupings.
+A ledger restored from a backup is compared the same way.
 
 The node is this module's own, so that it can be restarted; it refuses
 a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
@@ -21,7 +22,7 @@ ledger from its matured balance, never a fixed amount.
 from __future__ import annotations
 
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -29,7 +30,9 @@ from typing import Any
 
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient
+from bitcoin_core_rpc import RpcError as CoreRpcError
 from btclib.amount import btc_from_sats, sats_from_btc
+from btclib.exceptions import BTClibValueError
 from btclib.fee import FeeRate
 from btclib.script import ScriptPubKey
 from btclib.tx import Tx, TxIn, TxOut
@@ -188,6 +191,63 @@ def _compare(node: Node, ledger: Ledger, twin_name: str = "twin") -> None:
     assert ledger.tip is not None
     assert ledger.tip.block_id.hex() == last["hash"]
     assert ledger.tip.height == last["height"]
+    _compare_labels(twin, ledger)
+
+
+def _answer(call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Return what a call answers, None where it refuses."""
+    try:
+        return call(*args, **kwargs)
+    except (BTClibValueError, CoreRpcError):
+        return None
+
+
+def _compare_labels(twin: BitcoinCoreRpcClient, ledger: Ledger) -> None:
+    """Assert the ledger's labels, totals and groupings are `twin`'s."""
+    for purpose in (None, "receive", "send"):
+        args = [] if purpose is None else [purpose]
+        assert ledger.labels(purpose) == tuple(twin.call("listlabels", args))
+    asked = [(minconf, immature) for minconf in (0, 1) for immature in (False, True)]
+    for label in ledger.labels():
+        core = twin.call("getaddressesbylabel", [label])
+        expected = {address: entry["purpose"] for address, entry in core.items()}
+        assert ledger.addresses_by_label(label) == expected
+        for minconf, immature in asked:
+            received = _answer(
+                ledger.received_by_label,
+                label,
+                minconf,
+                include_immature_coinbase=immature,
+            )
+            core = _answer(twin.call, "getreceivedbylabel", [label, minconf, immature])
+            assert received == (None if core is None else _sats(core))
+    addresses = {
+        tx_out.script_pub_key.address
+        for info in ledger.transactions
+        for tx_out in info.wallet_tx.tx.vout
+        if ledger.position_of(tx_out.script_pub_key) is not None
+    }
+    for address in addresses:
+        labels = twin.call("getaddressinfo", [address])["labels"]
+        assert ledger.label_of(address) == (labels[0] if labels else None)
+        for minconf, immature in asked:
+            received = ledger.received_by_address(
+                address, minconf, include_immature_coinbase=immature
+            )
+            core = twin.call("getreceivedbyaddress", [address, minconf, immature])
+            assert received == _sats(core)
+    expected_groups = {
+        frozenset(
+            (entry[0], _sats(entry[1]), entry[2] if len(entry) > 2 else None)
+            for entry in group
+        )
+        for group in twin.call("listaddressgroupings")
+    }
+    found_groups = {
+        frozenset((entry.address, entry.amount, entry.label) for entry in group)
+        for group in ledger.address_groupings
+    }
+    assert found_groups == expected_groups
 
 
 def _pay_ledger(node: Node, ledger: Ledger) -> str:
