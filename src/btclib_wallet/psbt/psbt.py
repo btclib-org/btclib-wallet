@@ -2627,9 +2627,8 @@ def _sig_hash_from_psbt_in(
     redeem script: any version from 2 to 16, or a version 1 program that
     is not p2tr, which `type_and_payload` calls `witness_unknown`.
     Bitcoin Core's VerifyWitnessProgram checks no signature for one, so
-    the legacy hash is a hash no signature for it commits to. Core's
-    SignStep refuses to sign every such program but the anchor, which
-    Core calls ANCHOR and spends with no signature.
+    the legacy hash is a hash no signature for it commits to.
+    `_sign_ecdsa_input` says what Core's signer does with one.
 
     sig_hash.from_tx is the same dispatch for a *signed* transaction, and
     cannot serve here: it reads the redeem script out of the input's
@@ -2928,10 +2927,16 @@ def _sign_ecdsa_input(
     holds nothing for never reaches `ecdsa_sig_hash` to be refused for a
     reason that is not key_manager's.
 
-    A witness program `_sig_hash_from_psbt_in` has no rule for is skipped
-    as nothing to sign, whatever key_manager holds: no partial signature
-    of it commits to anything. Bitcoin Core's SignStep leaves such an
-    input unsigned too, and signs the others.
+    A witness program `_sig_hash_from_psbt_in` has no rule for is
+    skipped as nothing to sign, whatever key_manager holds: no rule
+    checks a partial signature of it. Bitcoin Core signs none either:
+    SignStep refuses to sign every such program but the anchor, and Core
+    spends only the bare anchor, with no signature
+    (src/script/sign.cpp:655-658, 722-723 and 815,
+    src/script/solver.cpp:169-171, src/script/interpreter.cpp:2000-2008
+    and src/policy/policy.h:126 at bitcoin/bitcoin@f0de87f040). FillPSBT
+    goes on to sign the other inputs (src/psbt.cpp:756 and
+    src/wallet/scriptpubkeyman.cpp:1447-1450 at the same commit).
 
     SIGHASH_SINGLE with no output at the input's index is refused for
     every kind signed here, as Bitcoin Core's signer does: the signature
