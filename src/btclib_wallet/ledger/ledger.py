@@ -631,8 +631,16 @@ class Ledger:
         _assert_label(label)
         self._write_label(script, label)
 
-    def _entry(self, script: bytes) -> tuple[str, str] | None:
-        """Return a script's label and purpose, None where it has no label."""
+    def _receive_ends(self) -> dict[int, int]:
+        """Return the next index of each source's branch 0, by source id."""
+        return {source: self._next_index(source, 0) for source in self._sources}
+
+    def _entry(self, script: bytes, ends: Mapping[int, int]) -> tuple[str, str] | None:
+        """Return a script's label and purpose, None where it has no label.
+
+        `ends` is what `_receive_ends` returns. A caller asking of many
+        scripts reads it once: each read scans every position handed out.
+        """
         if script in self._labels:
             return self._labels[script]
         position = self._scripts.get(script)
@@ -640,15 +648,16 @@ class Ledger:
             return None
         source_id, _, index = position
         ranged = self._sources[source_id].descriptor(0).is_ranged
-        if ranged and index >= self._next_index(source_id, 0):
+        if ranged and index >= ends[source_id]:
             return None
         return ("", _RECEIVE) if self._address(script) else None
 
     def _address_book(self) -> dict[bytes, tuple[str, str]]:
         """Return the label and purpose of each script that has a label."""
         book: dict[bytes, tuple[str, str]] = {}
+        ends = self._receive_ends()
         for script in self._scripts.keys() | self._labels.keys():
-            entry = self._entry(script)
+            entry = self._entry(script, ends)
             if entry is not None:
                 book[script] = entry
         return book
@@ -668,7 +677,7 @@ class Ledger:
         (src/wallet/rpc/addresses.cpp:550-555 at bitcoin/bitcoin@f0de87f040,
         the v32.1 tag).
         """
-        entry = self._entry(self._script_of(address))
+        entry = self._entry(self._script_of(address), self._receive_ends())
         return None if entry is None else entry[0]
 
     def labels(self, purpose: str | None = None) -> tuple[str, ...]:
@@ -869,9 +878,9 @@ class Ledger:
     def _owned(self, tx_out: TxOut) -> bool:
         return tx_out.script_pub_key.script in self._scripts
 
-    def _is_change(self, tx_out: TxOut) -> bool:
+    def _is_change(self, tx_out: TxOut, ends: Mapping[int, int]) -> bool:
         """Whether the output pays the ledger a script with no label."""
-        return self._owned(tx_out) and self._entry(_script(tx_out)) is None
+        return self._owned(tx_out) and self._entry(_script(tx_out), ends) is None
 
     def _depth(self, wtx: WalletTx) -> int:
         """Core's `GetTxDepthInMainChain`: confirmations, 0 in no block.
@@ -1031,7 +1040,7 @@ class Ledger:
 
         `txid` is in display order, as `Tx.id` returns it.
         """
-        return self._info(self._held(txid), set(), self._spends())
+        return self._info(self._held(txid), set(), self._spends(), self._receive_ends())
 
     def _held(self, txid: bytes) -> WalletTx:
         """Return a transaction held, refusing an id of none."""
@@ -1048,14 +1057,16 @@ class Ledger:
         """
         trusted: set[bytes] = set()
         spends = self._spends()
+        ends = self._receive_ends()
         ordered = sorted(self._txs.values(), key=lambda wtx: wtx.seq)
-        return tuple(self._info(wtx, trusted, spends) for wtx in ordered)
+        return tuple(self._info(wtx, trusted, spends, ends) for wtx in ordered)
 
     def _info(
         self,
         wtx: WalletTx,
         trusted: set[bytes],
         spends: Mapping[OutPoint, Sequence[WalletTx]],
+        ends: Mapping[int, int],
     ) -> TxInfo:
         """Return Core's `gettransaction` figures of a transaction.
 
@@ -1077,7 +1088,7 @@ class Ledger:
             owned = self._owned(tx_out)
             if owned and not immature:
                 credit += tx_out.value
-            if debit and self._is_change(tx_out):
+            if debit and self._is_change(tx_out, ends):
                 continue
             if debit:
                 details.append(TxDetail("send", vout, -tx_out.value))
@@ -1187,6 +1198,7 @@ class Ledger:
         in each are sorted by address.
         """
         merged: dict[bytes, set[bytes]] = {}
+        ends = self._receive_ends()
         for wtx in self._txs.values():
             tx = wtx.tx
             prevouts = [_prevout(tx_in, self._txs) for tx_in in tx.vin]
@@ -1199,7 +1211,7 @@ class Ledger:
                 spent += [
                     _script(o)
                     for o in tx.vout
-                    if self._is_change(o) and self._has_address(o)
+                    if self._is_change(o, ends) and self._has_address(o)
                 ]
             groups = [spent] + [[_script(o)] for o in tx.vout if self._has_address(o)]
             for group in groups:
@@ -1213,7 +1225,7 @@ class Ledger:
         for joined_scripts in {frozenset(scripts) for scripts in merged.values()}:
             entries = []
             for script in joined_scripts:
-                entry = self._entry(script)
+                entry = self._entry(script, ends)
                 entries.append(
                     GroupedAddress(
                         self._address(script),
