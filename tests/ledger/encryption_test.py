@@ -763,7 +763,7 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
 def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
     chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch, relock: str
 ) -> None:
-    """`add_source` encrypting a wallet's keys, the keys locked in another thread.
+    """`add_source` encrypting keys, the keys locked in another thread.
 
     The ledger's own thread runs `add_source`, since SQLite refuses its
     connection to any other, and `close` from another thread zeroes the
@@ -783,7 +783,7 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
             bytes(ledger._key),
             *(BIP32KeyData.b58decode(xprv).key[1:] for xprv in (XPRV, XPRV2)),
         ]
-        real = ledger_module._sealed
+        real = crypto._sealed
         relocked: list[BaseException | None] = []
 
         def relocks() -> None:
@@ -794,12 +794,12 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
             else:
                 relocked.append(None)
 
-        def held(*args: object) -> object:
+        def held(key: bytearray, plaintext: bytes | bytearray, aad: bytes) -> bytes:
             thread = threading.Thread(target=relocks, daemon=True)
             thread.start()
             thread.join(timeout=30)
             assert not thread.is_alive(), f"{relock} did not finish"
-            return real(*args)
+            return real(key, plaintext, aad)
 
         monkeypatch.setattr(ledger_module, "_sealed", held)
         with pytest.raises(BTClibValueError) as refusal:
