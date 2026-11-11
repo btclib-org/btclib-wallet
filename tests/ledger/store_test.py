@@ -420,7 +420,7 @@ def test_a_format_1_backup_is_restored(
 def test_a_format_1_file_of_another_network_is_left_at_format_1(
     chain: FakeChain, path: Path
 ) -> None:
-    """The network is checked before a step runs, so v2026.11.11 still opens it."""
+    """The network is checked before any step, so v2026.11.11 still opens it."""
     _format_1_file(path)
     with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
         Ledger.load(path, "testnet", chain)
