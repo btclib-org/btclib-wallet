@@ -76,6 +76,12 @@ def test_load_refuses_what_is_no_ledger_of_this_network(
     sqlite3.connect(other).close()
     with pytest.raises(BTClibValueError, match="application id 0x0"):
         Ledger.load(other, "regtest", chain)
+    # this package's header over no table
+    headed = tmp_path / "headed.sqlite"
+    _set_pragma(headed, "application_id", APPLICATION_ID)
+    _set_pragma(headed, "user_version", FORMAT_VERSION)
+    with pytest.raises(BTClibValueError, match="not a ledger file: no such table"):
+        Ledger.load(headed, "regtest", chain)
     Ledger.create(path, "regtest", chain).close()
     with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
         Ledger.load(path, "testnet", chain)
