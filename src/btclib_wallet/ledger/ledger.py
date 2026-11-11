@@ -2371,8 +2371,10 @@ def _assert_bump_arguments(
     if outputs is not None and not outputs:
         raise BTClibValueError("no outputs: name at least one")
     if outputs is not None and original_change_index is not None:
-        err_msg = "outputs and original_change_index are incompatible:"
-        err_msg += " name new outputs, or the change output to reuse"
+        err_msg = (
+            "outputs and original_change_index are incompatible:"
+            " name new outputs, or the change output to reuse"
+        )
         raise BTClibValueError(err_msg)
 
 
