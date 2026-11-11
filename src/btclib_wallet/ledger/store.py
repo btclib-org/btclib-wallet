@@ -452,21 +452,27 @@ class _Store:
         A source with keys in plain text is refused where the file is
         encrypted, which another ledger on the same file may have done
         since this one loaded it. The check follows the write, inside its
-        transaction, so that no encryption comes between the two.
+        transaction, so that no encryption comes between the two. So is
+        an id another ledger on the file wrote since `next_source_id`
+        read it.
         """
         with self._db:
-            self._db.execute(
-                "INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    source_id,
-                    _descriptors_text(source.descriptors),
-                    json.dumps(dict(source.prv_keys)),
-                    source.encrypted,
-                    source.lookahead,
-                    source.birth,
-                    int(source.scanned),
-                ),
-            )
+            try:
+                self._db.execute(
+                    "INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        source_id,
+                        _descriptors_text(source.descriptors),
+                        json.dumps(dict(source.prv_keys)),
+                        source.encrypted,
+                        source.lookahead,
+                        source.birth,
+                        int(source.scanned),
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                err_msg = f"source {source_id} was written by another ledger"
+                raise BTClibValueError(f"{err_msg}: load it again") from None
             if source.prv_keys and self.master_key() is not None:
                 err_msg = "the ledger file is encrypted: no key is written in"
                 raise BTClibValueError(f"{err_msg} plain text; load it again")

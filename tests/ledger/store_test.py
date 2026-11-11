@@ -227,3 +227,29 @@ def test_a_source_column_that_is_no_json_object_is_refused(
     with pytest.raises(BTClibValueError, match=err_msg) as e:
         Ledger.load(path, "regtest", chain)
     assert_secret_free(e.value, [XPRV])
+
+
+def test_a_source_id_another_ledger_took_meanwhile_is_refused(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two ledgers on one file, the second adding between the first's two steps.
+
+    The first reads the next id, the second writes a source under it,
+    and the first's write is refused, not raised as SQLite's error. The
+    file keeps the second's source.
+    """
+    with (
+        Ledger.create(path, "regtest", chain) as first,
+        Ledger.load(path, "regtest", chain) as second,
+    ):
+        write = first._store.add_source
+
+        def between(source_id: int, written: store._Source) -> None:
+            assert second.add_source(source("wpkh({}/84h/1h/1h/{}/*)")) == source_id
+            write(source_id, written)
+
+        monkeypatch.setattr(first._store, "add_source", between)
+        with pytest.raises(BTClibValueError, match="source 0 was written by another"):
+            first.add_source(source())
+    with Ledger.load(path, "regtest", chain) as ledger:
+        assert len(ledger.sources) == 1
