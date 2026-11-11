@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import stat
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -426,6 +427,44 @@ def test_a_format_1_file_of_another_network_is_left_at_format_1(
         Ledger.load(path, "testnet", chain)
     assert _pragma(path, "user_version") == 1
     assert "master_key" not in _layout(path)
+
+
+def _meanwhile(monkeypatch: pytest.MonkeyPatch, other: Callable[[], None]) -> None:
+    """Run `other` once, after a load first reads the file's version."""
+    pragma = store._pragma
+    ran: list[bool] = []
+
+    def then_other(db: sqlite3.Connection, name: str) -> int:
+        value = pragma(db, name)
+        if name == "user_version" and not ran:
+            ran.append(True)
+            other()
+        return value
+
+    monkeypatch.setattr(store, "_pragma", then_other)
+
+
+def test_a_file_another_ledger_migrated_meanwhile_is_loaded(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two ledgers load one format-1 file: the second finds it migrated."""
+    _format_1_file(path)
+    _meanwhile(monkeypatch, lambda: Ledger.load(path, "regtest", chain).close())
+    with Ledger.load(path, "regtest", chain) as ledger:
+        assert len(ledger.sources) == len(_FORMAT_1_SOURCES)
+    assert _pragma(path, "user_version") == FORMAT_VERSION
+
+
+def test_a_file_a_later_release_migrated_meanwhile_is_refused(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The version read again before a step is checked as the first one."""
+    _format_1_file(path)
+    newer = FORMAT_VERSION + 1
+    _meanwhile(monkeypatch, lambda: _set_pragma(path, "user_version", newer))
+    with pytest.raises(BTClibValueError, match=f"ledger format {newer} is newer"):
+        Ledger.load(path, "regtest", chain)
+    assert _pragma(path, "user_version") == newer
 
 
 def test_v2026_11_11_refuses_a_file_of_this_release(

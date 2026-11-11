@@ -196,10 +196,7 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     if application_id != APPLICATION_ID:
         err_msg = f"not a ledger file: application id {application_id:#x}"
         raise BTClibValueError(err_msg)
-    if version > FORMAT_VERSION:
-        err_msg = f"ledger format {version} is newer than this release's"
-        err_msg += f" {FORMAT_VERSION}"
-        raise BTClibValueError(err_msg)
+    _assert_not_newer(version)
     # every format has `meta`: a file of another network is refused before
     # a step runs, and left at its version
     row = db.execute("SELECT value FROM meta WHERE key = 'network'").fetchone()
@@ -208,15 +205,29 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     if row[0] != network:
         raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
     while version < FORMAT_VERSION:
-        if version not in _MIGRATIONS:
-            raise BTClibValueError(f"no migration from ledger format {version}")
         # an explicit BEGIN: the sqlite3 module opens a transaction before
-        # a DML statement alone, so a step's DDL would commit as it runs
+        # a DML statement alone, so a step's DDL would commit as it runs.
+        # IMMEDIATE takes the write lock before the version is read again:
+        # another ledger may have migrated the file since the read above
         with db:
-            db.execute("BEGIN")
+            db.execute("BEGIN IMMEDIATE")
+            version = _pragma(db, "user_version")
+            _assert_not_newer(version)
+            if version == FORMAT_VERSION:
+                break
+            if version not in _MIGRATIONS:
+                raise BTClibValueError(f"no migration from ledger format {version}")
             _MIGRATIONS[version](db)
             version += 1
             db.execute(f"PRAGMA user_version = {version}")
+
+
+def _assert_not_newer(version: int) -> None:
+    """Refuse a file of a format a later release writes."""
+    if version > FORMAT_VERSION:
+        err_msg = f"ledger format {version} is newer than this release's"
+        err_msg += f" {FORMAT_VERSION}"
+        raise BTClibValueError(err_msg)
 
 
 def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
