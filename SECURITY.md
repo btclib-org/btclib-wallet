@@ -313,19 +313,17 @@ permissions.
     wrote before, so those are to be destroyed or kept as safe as the
     keys. A backup taken after holds only their ciphertext.
 - **The file and a backup taken after the encryption hold no byte of a
-    key in plain text**, through SQLite's `secure_delete` and its
-    rollback journal, as `btclib_wallet.ledger.store` says
-    (`tests/ledger/encryption_test.py` searches every file for them). A
-    ledger opens a file another program set to WAL mode in the rollback
-    journal, since in WAL mode the pages an encryption replaces stay in
-    the file until a checkpoint.
-    SQLite's rollback journal holds the pages a transaction changes, as
-    they were, and SQLite deletes it once the transaction ends. The disk
-    blocks a deleted journal used, and what a copy-on-write file system
-    or an SSD keeps of overwritten blocks, are outside the file and can
-    keep a key written before the encryption. A ledger loaded before
-    another encrypted the file writes no key into it in plain text, and
-    a file holding plain keys beside a master key is refused at load.
+    key in plain text**, through SQLite's `secure_delete` and its rollback
+    journal. `btclib_wallet.ledger.store` says how, and what becomes of a
+    file in WAL mode (`tests/ledger/encryption_test.py` searches every
+    file for them). SQLite's rollback journal holds the pages a
+    transaction changes, as they were, and SQLite deletes it once the
+    transaction ends. The disk blocks a deleted journal used, and what a
+    copy-on-write file system or an SSD keeps of overwritten blocks, are
+    outside the file and can keep a key written before the encryption. A
+    ledger loaded before another encrypted the file writes no key into it
+    in plain text, and a file holding plain keys beside a master key is
+    refused at load.
 - **While unlocked, the master key is in the process's memory.**
     `btclib_wallet.ledger.ledger`'s docstring says what holds it and the
     keys it decrypts, when each is zeroed, and why the master key
