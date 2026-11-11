@@ -406,7 +406,7 @@ def test_an_address_no_longer_than_a_bech32m_string_should_be() -> None:
 def test_an_hrp_that_is_not_a_silent_payment_one_is_refused() -> None:
     """A segwit hrp on a silent payment payload is not an address."""
     payload = bytes_from_point(mult(_B_SCAN_PRV)) + bytes_from_point(mult(_B_SPEND_PRV))
-    with pytest.raises(BTClibValueError, match="invalid hrp"):
+    with pytest.raises(BTClibValueError, match="^invalid hrp: 'bc'$"):
         silent_payments.keys_from_address(_reencoded(0, payload, "bc"))
 
 

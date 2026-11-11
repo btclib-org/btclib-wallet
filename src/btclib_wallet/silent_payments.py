@@ -100,6 +100,8 @@ from ecc.curves import (
 from ecc.hashes import tagged_hash
 from ecc.ssa import point_from_bip340pub_key_var
 
+from btclib_wallet._refusal import _quoted
+
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
 # which nothing calls: every call is behind `is_libsecp256k1_serving`,
@@ -330,7 +332,7 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
     except Base58Bech32ValueError as e:
         raise BTClibValueError(str(e)) from e
     if hrp not in {_MAINNET_HRP, _TESTNET_HRP, _REGTEST_HRP}:
-        raise BTClibValueError(f"invalid hrp: {hrp}")
+        raise BTClibValueError(f"invalid hrp: {_quoted(hrp)}")
 
     # `bech32_decode` reads no version off the data part and does not
     # require one to be there
