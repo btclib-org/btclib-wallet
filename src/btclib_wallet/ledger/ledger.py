@@ -9,8 +9,9 @@
 that pays to or spends from their scripts. It answers what Core's wallet
 RPCs answer of them -- `balances` (`getbalances`, and `getbalance`'s
 `trusted`), `utxos` (`listunspent`), `transaction` and `transactions`
-(`gettransaction`, `listtransactions`) -- and spends from them. It reads
-the chain only when its caller calls `sync`; nothing runs between calls.
+(`gettransaction`, `listtransactions`) -- and spends from them. It keeps
+labels on addresses, as the last paragraph says. It reads the chain only
+when its caller calls `sync`; nothing runs between calls.
 
 **What a source is.** A `DescriptorWallet`, one descriptor per branch:
 branch 0 receives and branch 1, where there is one, takes change. The
@@ -34,10 +35,10 @@ it, highest first, until an answer starts from a block it holds. The
 blocks above that one are disconnected, and their transactions are what
 the new answer says they are. A source whose history has not been read
 yet is read from its birth height, and so is a position that a payment
-the sync finds brings into the window. A position that `new_address` or
-`fund` brings into the window is read from the tip on, at the next sync:
-a payment to it in an earlier block is not found, as Core's
-`TopUpWithDB` reads no earlier block either: it hands the new scripts to
+the sync finds brings into the window. A position that comes into the
+window between two syncs is read from the tip on, at the next sync: a
+payment to it in an earlier block is not found, as Core's `TopUpWithDB`
+reads no earlier block either: it hands the new scripts to
 `TopUpCallback`, which only caches them
 (src/wallet/scriptpubkeyman.cpp:1109-1169 and
 src/wallet/wallet.cpp:4560-4571 at bitcoin/bitcoin@f0de87f040, the v32.1
@@ -87,16 +88,16 @@ in no block that spends an output the ledger owns is verified with
 btclib's script engine, against every output the transaction spends that
 the ledger holds. The check runs at the end of each sync, against the
 scripts the windows reach once that sync has moved them, and again
-whenever the scripts watched grow: by `add_source`, `new_address` or
-`fund`. A transaction that fails leaves the ledger with its unconfirmed
-descendants, or is kept out. A taproot input commits to every output the
-transaction spends, so a spend of a taproot output of the ledger beside
-an output the ledger does not hold fails the check. What stays
-unverified: an incoming unconfirmed transaction spends no coin of the
-ledger, so nothing of it is checked; a spend of the ledger's coin whose
-parent the backend has not reported, until it does; and a transaction a
-backend reports in a block, since a `HistoryReader` answers no proof
-that the block holds it (ISS btclib-org/btclib-wallet#737).
+whenever the scripts watched grow between two syncs. A transaction that
+fails leaves the ledger with its unconfirmed descendants, or is kept
+out. A taproot input commits to every output the transaction spends, so
+a spend of a taproot output of the ledger beside an output the ledger
+does not hold fails the check. What stays unverified: an incoming
+unconfirmed transaction spends no coin of the ledger, so nothing of it
+is checked; a spend of the ledger's coin whose parent the backend has
+not reported, until it does; and a transaction a backend reports in a
+block, since a `HistoryReader` answers no proof that the block holds it
+(ISS btclib-org/btclib-wallet#737).
 
 **Balances.** Core's `GetBalance` and `CachedTxIsTrusted`
 (src/wallet/receive.cpp:205-295 at bitcoin/bitcoin@f0de87f040, the v32.1
@@ -117,6 +118,32 @@ the node's mempool minimum. A spend with no rate, no estimate and no fallback is
 refused, as Core's is with `-fallbackfee=0`. `spend` funds, signs and
 records the transaction as inactive before it broadcasts it, so one the
 node refuses stays, and counts as `nonmempool`.
+
+**Labels.** Core's address book (src/wallet/wallet.h:238-278 at
+bitcoin/bitcoin@f0de87f040, the v32.1 tag). A label is kept by script,
+in the file, on an address of the ledger or of anybody else on its
+network. Its purpose is `receive` where the ledger watches the script
+when the label is set, and `send` otherwise, as `setlabel` sets it
+(src/wallet/rpc/addresses.cpp:146-150). Until one is set, an address of
+branch 0 has the label "" once it or a later index of its branch is
+handed out or paid to, or where its descriptor is not ranged, as Core
+labels each receiving address it hands out, imports, sees paid or skips
+below one paid (src/wallet/wallet.cpp:1275-1280 and 3849-3865, and
+src/wallet/scriptpubkeyman.cpp:1171-1197). `new_address` on a ranged
+branch 0 sets the label it is given, "" where it is given none, over any
+label the address had, with the purpose `receive`, as Core's
+`GetNewDestination` does (src/wallet/wallet.cpp:2640-2654). An address
+of another branch has no label until one is set. Change is an output to
+the ledger's script with no label, as Core's `ScriptIsChange` reads it
+(src/wallet/receive.cpp:52-72), so a label makes a change address a
+receiving one. A script with no address, as `pk()` pays to, has no
+label, is change, and is in no answer about labels or groupings. The
+name `*` is refused, as `LabelFromValue` refuses it
+(src/wallet/rpc/util.cpp:101-110). What an address or a label received
+is Core's `GetReceived` (src/wallet/rpc/coins.cpp:21-77): every output
+paying the ledger's scripts, change included, in each transaction deep
+enough. `address_groupings` is `GetAddressBalances` and
+`GetAddressGroupings` (src/wallet/receive.cpp:297-416).
 """
 
 from __future__ import annotations
@@ -144,6 +171,7 @@ from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.coin_selection import Candidate, select_coins
 from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
+from btclib_wallet.fetch.balance import script_pub_key_for_network
 from btclib_wallet.fetch.broadcaster import Broadcaster
 from btclib_wallet.fetch.fee_estimator import FeeEstimator
 from btclib_wallet.fetch.fetcher import tx_for_network
@@ -151,6 +179,7 @@ from btclib_wallet.fetch.history import BlockRef, HistoryReader, ScriptHistory
 from btclib_wallet.fetch.relay_fees import RelayFeeReader
 from btclib_wallet.ledger.records import (
     Balances,
+    GroupedAddress,
     SyncResult,
     TxDetail,
     TxInfo,
@@ -186,6 +215,13 @@ _SYNC_ATTEMPTS = 3
 
 # where an output of the ledger is: its source, branch and index
 _Position = tuple[int, int, int]
+
+# Core's two purposes of an address book entry, its own address's and
+# anybody else's
+_RECEIVE = "receive"
+_SEND = "send"
+# the third purpose `listlabels` accepts, which nothing here sets
+_REFUND = "refund"
 
 
 class _TipMovedError(Exception):
@@ -250,6 +286,7 @@ class Ledger:
         self._scripts: dict[bytes, _Position] = {}
         self._window: dict[tuple[int, int], int] = {}
         self._locked: set[OutPoint] = set()
+        self._labels: dict[bytes, tuple[str, str]] = {}
         self._txs: dict[bytes, WalletTx] = {}
         self._blocks: dict[int, bytes] = {}
         self._tip: BlockRef | None = None
@@ -323,11 +360,12 @@ class Ledger:
                     source.prv_keys or None,
                 )
                 ledger._attach(source_id, wallet, source)
-            for position in store.handed_out():
-                ledger._hand_out(position)
+            # no address is asked for: a script `pk()` pays to has none
+            ledger._handed.update(store.handed_out())
             ledger._txs = {wtx.tx.id: wtx for wtx in store.txs(network)}
             ledger._blocks = store.blocks()
             ledger._tip = store.tip()
+            ledger._labels = store.labels()
             ledger._extend_windows()
         except BaseException:
             # what the file holds was refused: it is closed, as `_Store.open`
@@ -413,6 +451,7 @@ class Ledger:
         birth_height: int | None = 0,
         *,
         lookahead: int = LOOKAHEAD,
+        label: str | None = None,
     ) -> int:
         """Add a wallet of descriptors, and return its source id.
 
@@ -422,7 +461,11 @@ class Ledger:
         `fetch.start_height_for_time` turns a birth time into a height.
         The wallet is written to the file whole, its private keys
         included, and `load` builds it again from its descriptors and
-        keys.
+        keys. `label` is set on the one address of branch 0, where its
+        script has one, and refused where that branch is ranged or
+        missing, as Core refuses a label on a ranged descriptor
+        (src/wallet/rpc/backup.cpp:213-216 at bitcoin/bitcoin@f0de87f040,
+        the v32.1 tag).
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
@@ -431,6 +474,10 @@ class Ledger:
         if wallet.network != self.network:
             err_msg = f"a {wallet.network} wallet in a {self.network} ledger"
             raise BTClibValueError(err_msg)
+        if label is not None:
+            _assert_label(label)
+            if 0 not in wallet.branches or wallet.descriptor(0).is_ranged:
+                raise BTClibValueError("a label needs one address on branch 0")
         scanned = birth_height is None
         birth = birth_height
         if birth is None:
@@ -445,6 +492,10 @@ class Ledger:
         source_id = self._store.add_source(source)
         self._attach(source_id, wallet, source)
         self._extend_windows()
+        if label is not None:
+            script = wallet.script_pub_key(0, 0).script
+            if self._address(script):
+                self._write_label(script, label)
         return source_id
 
     def _attach(
@@ -523,17 +574,30 @@ class Ledger:
             return source, branch, 0
         return source, branch, self._next_index(source, branch)
 
-    def new_address(self, source: int = 0, branch: int = 0) -> str:
+    def new_address(
+        self, source: int = 0, branch: int = 0, *, label: str | None = None
+    ) -> str:
         """Hand out the next address of a branch, and remember it.
 
         Core's `getnewaddress`. The next index is one past the highest
         handed out or paid to. A branch whose descriptor is not ranged
-        has one address, which is handed out every time.
+        has one address, which is handed out every time. `label` is set
+        on the address, replacing any it had. On a ranged branch 0, one
+        not given is "", as the module docstring says.
         """
+        if label is not None:
+            _assert_label(label)
         position = self._new_position(source, branch)
         address = self._hand_out(position)
         self._store.add_handed_out([position])
         self._extend_windows()
+        receiving = branch == 0 and self._sources[source].descriptor(0).is_ranged
+        if label is None and receiving:
+            label = ""
+        if label is not None:
+            self._write_label(
+                self._sources[source].script_pub_key(branch, position[2]).script, label
+            )
         return address
 
     def new_change_address(self, source: int = 0) -> str:
@@ -551,6 +615,111 @@ class Ledger:
         """
         assert_type(script_pub_key, ScriptPubKey, "script_pub_key")
         return self._scripts.get(script_pub_key.script)
+
+    # -- the labels -------------------------------------------------------
+
+    def _script_of(self, address: str) -> bytes:
+        """Return the script of an address of the ledger's network."""
+        return script_pub_key_for_network(address, self.network).script
+
+    def _write_label(self, script: bytes, label: str) -> None:
+        """Set a script's label, its purpose read from what is watched now."""
+        purpose = _RECEIVE if script in self._scripts else _SEND
+        self._store.set_label(script, label, purpose)
+        self._labels[script] = (label, purpose)
+
+    def set_label(self, address: str, label: str) -> None:
+        """Set the label of an address, the ledger's or anybody else's.
+
+        Core's `setlabel`. A label the address had is replaced.
+        """
+        script = self._script_of(address)
+        _assert_label(label)
+        self._write_label(script, label)
+
+    def _receive_ends(self) -> dict[int, int]:
+        """Return the next index of each source's branch 0, by source id."""
+        return {source: self._next_index(source, 0) for source in self._sources}
+
+    def _entry(self, script: bytes, ends: Mapping[int, int]) -> tuple[str, str] | None:
+        """Return a script's label and purpose, None where it has no label.
+
+        `ends` is what `_receive_ends` returns. A caller asking of many
+        scripts reads it once: each read scans every position handed out.
+        """
+        if script in self._labels:
+            return self._labels[script]
+        position = self._scripts.get(script)
+        if position is None or position[1] != 0:
+            return None
+        source_id, _, index = position
+        ranged = self._sources[source_id].descriptor(0).is_ranged
+        if ranged and index >= ends[source_id]:
+            return None
+        return ("", _RECEIVE) if self._address(script) else None
+
+    def _address_book(self) -> dict[bytes, tuple[str, str]]:
+        """Return the label and purpose of each script that has a label."""
+        book: dict[bytes, tuple[str, str]] = {}
+        ends = self._receive_ends()
+        for script in self._scripts.keys() | self._labels.keys():
+            entry = self._entry(script, ends)
+            if entry is not None:
+                book[script] = entry
+        return book
+
+    def _address(self, script: bytes) -> str:
+        """Return the address of a script, "" where it has none."""
+        return ScriptPubKey(script, self.network).address
+
+    def _has_address(self, tx_out: TxOut) -> bool:
+        """Whether the output pays the ledger a script with an address."""
+        return self._owned(tx_out) and self._address(_script(tx_out)) != ""
+
+    def label_of(self, address: str) -> str | None:
+        """Return the label of an address, None where it has none.
+
+        The `labels` that Core's `getaddressinfo` reports
+        (src/wallet/rpc/addresses.cpp:550-555 at bitcoin/bitcoin@f0de87f040,
+        the v32.1 tag).
+        """
+        entry = self._entry(self._script_of(address), self._receive_ends())
+        return None if entry is None else entry[0]
+
+    def labels(self, purpose: str | None = None) -> tuple[str, ...]:
+        """Return each label in use, sorted, Core's `listlabels`.
+
+        A `purpose`, `receive` or `send`, keeps the labels of the
+        addresses of that purpose.
+        """
+        assert_type(purpose, (str, type(None)), "purpose")
+        if purpose not in (None, "", _RECEIVE, _SEND, _REFUND):
+            raise BTClibValueError(f"invalid purpose: {purpose}")
+        purpose = purpose or None
+        return tuple(
+            sorted(
+                {
+                    label
+                    for label, entry_purpose in self._address_book().values()
+                    if purpose in (None, entry_purpose)
+                }
+            )
+        )
+
+    def addresses_by_label(self, label: str) -> dict[str, str]:
+        """Return the purpose of each address with the label.
+
+        Core's `getaddressesbylabel`. A label no address has is refused.
+        """
+        _assert_label(label)
+        found = {
+            self._address(script): purpose
+            for script, (entry_label, purpose) in self._address_book().items()
+            if entry_label == label
+        }
+        if not found:
+            raise BTClibValueError(f"no address has the label {label}")
+        return found
 
     # -- the sync ---------------------------------------------------------
 
@@ -715,6 +884,10 @@ class Ledger:
     def _owned(self, tx_out: TxOut) -> bool:
         return tx_out.script_pub_key.script in self._scripts
 
+    def _is_change(self, tx_out: TxOut, ends: Mapping[int, int]) -> bool:
+        """Whether the output pays the ledger a script with no label."""
+        return self._owned(tx_out) and self._entry(_script(tx_out), ends) is None
+
     def _depth(self, wtx: WalletTx) -> int:
         """Core's `GetTxDepthInMainChain`: confirmations, 0 in no block.
 
@@ -873,7 +1046,7 @@ class Ledger:
 
         `txid` is in display order, as `Tx.id` returns it.
         """
-        return self._info(self._held(txid), set(), self._spends())
+        return self._info(self._held(txid), set(), self._spends(), self._receive_ends())
 
     def _held(self, txid: bytes) -> WalletTx:
         """Return a transaction held, refusing an id of none."""
@@ -890,14 +1063,16 @@ class Ledger:
         """
         trusted: set[bytes] = set()
         spends = self._spends()
+        ends = self._receive_ends()
         ordered = sorted(self._txs.values(), key=lambda wtx: wtx.seq)
-        return tuple(self._info(wtx, trusted, spends) for wtx in ordered)
+        return tuple(self._info(wtx, trusted, spends, ends) for wtx in ordered)
 
     def _info(
         self,
         wtx: WalletTx,
         trusted: set[bytes],
         spends: Mapping[OutPoint, Sequence[WalletTx]],
+        ends: Mapping[int, int],
     ) -> TxInfo:
         """Return Core's `gettransaction` figures of a transaction.
 
@@ -919,7 +1094,7 @@ class Ledger:
             owned = self._owned(tx_out)
             if owned and not immature:
                 credit += tx_out.value
-            if debit and owned and self._scripts[_script(tx_out)][1] != 0:
+            if debit and self._is_change(tx_out, ends):
                 continue
             if debit:
                 details.append(TxDetail("send", vout, -tx_out.value))
@@ -952,6 +1127,139 @@ class Ledger:
         if wtx.state is not TxState.CONFIRMED:
             return "orphan"
         return "immature" if self._is_immature(wtx) else "generate"
+
+    def received_by_address(
+        self,
+        address: str,
+        min_depth: int = 1,
+        *,
+        include_immature_coinbase: bool = False,
+    ) -> int:
+        """Return what the address received, in satoshi.
+
+        Core's `getreceivedbyaddress`, as the module docstring says. An
+        address the ledger does not watch is refused.
+        """
+        script = self._script_of(address)
+        _assert_height(min_depth, "min_depth")
+        assert_type(include_immature_coinbase, bool, "include_immature_coinbase")
+        if script not in self._scripts:
+            raise BTClibValueError(f"not an address of the ledger: {address}")
+        return self._received({script}, min_depth, include_immature_coinbase)
+
+    def received_by_label(
+        self,
+        label: str,
+        min_depth: int = 1,
+        *,
+        include_immature_coinbase: bool = False,
+    ) -> int:
+        """Return what the ledger's addresses with the label received.
+
+        Core's `getreceivedbylabel`. A label no address has is refused,
+        and so is one that only addresses of others have.
+        """
+        _assert_label(label)
+        _assert_height(min_depth, "min_depth")
+        assert_type(include_immature_coinbase, bool, "include_immature_coinbase")
+        scripts = {
+            script
+            for script, (entry_label, _) in self._address_book().items()
+            if entry_label == label
+        }
+        if not scripts:
+            raise BTClibValueError(f"no address has the label {label}")
+        owned = scripts & self._scripts.keys()
+        if not owned:
+            raise BTClibValueError(f"no address of the ledger has the label {label}")
+        return self._received(owned, min_depth, include_immature_coinbase)
+
+    def _received(
+        self, scripts: set[bytes], min_depth: int, include_immature_coinbase: bool
+    ) -> int:
+        """Core's `GetReceived`: what the scripts received, deep enough.
+
+        A coinbase in no block is left out at any depth asked.
+        """
+        total = 0
+        for wtx in self._txs.values():
+            depth = self._depth(wtx)
+            if (
+                depth < min_depth
+                or (wtx.tx.is_coinbase and depth < 1)
+                or (self._is_immature(wtx) and not include_immature_coinbase)
+            ):
+                continue
+            total += sum(o.value for o in wtx.tx.vout if _script(o) in scripts)
+        return total
+
+    @property
+    def address_groupings(self) -> tuple[tuple[GroupedAddress, ...], ...]:
+        """The ledger's addresses, grouped as spent together.
+
+        Core's `listaddressgroupings`. Addresses whose outputs one
+        transaction spends are in one group, with the change it pays;
+        each address paid is in a group, alone where nothing joins it.
+        A script with no address is left out. The groups and the addresses
+        in each are sorted by address.
+        """
+        merged: dict[bytes, set[bytes]] = {}
+        ends = self._receive_ends()
+        for wtx in self._txs.values():
+            tx = wtx.tx
+            prevouts = [_prevout(tx_in, self._txs) for tx_in in tx.vin]
+            spent = [
+                _script(prevout)
+                for prevout in prevouts
+                if prevout is not None and self._has_address(prevout)
+            ]
+            if spent:
+                spent += [
+                    _script(o)
+                    for o in tx.vout
+                    if self._is_change(o, ends) and self._has_address(o)
+                ]
+            groups = [spent] + [[_script(o)] for o in tx.vout if self._has_address(o)]
+            for group in groups:
+                joined = set(group)
+                for script in group:
+                    joined |= merged.get(script, set())
+                for script in joined:
+                    merged[script] = joined
+        balances = self._address_balances()
+        found = []
+        for joined_scripts in {frozenset(scripts) for scripts in merged.values()}:
+            entries = []
+            for script in joined_scripts:
+                entry = self._entry(script, ends)
+                entries.append(
+                    GroupedAddress(
+                        self._address(script),
+                        balances.get(script, 0),
+                        None if entry is None else entry[0],
+                    )
+                )
+            found.append(tuple(sorted(entries, key=lambda e: e.address)))
+        return tuple(sorted(found, key=lambda group: group[0].address))
+
+    def _address_balances(self) -> dict[bytes, int]:
+        """Core's `GetAddressBalances`: what each script holds unspent.
+
+        An output counts where its transaction is trusted and no immature
+        coinbase. Trusted is confirmed unless it spends the ledger's coins,
+        which is Core's depth check here too.
+        """
+        spends = self._spends()
+        trusted: set[bytes] = set()
+        balances: dict[bytes, int] = {}
+        for wtx, vout, tx_out in self._outputs():
+            if not self._is_trusted(wtx, trusted) or self._is_immature(wtx):
+                continue
+            spent = _how_spent(spends.get(OutPoint(wtx.tx.id, vout), []))
+            value = 0 if spent is not None else tx_out.value
+            script = _script(tx_out)
+            balances[script] = balances.get(script, 0) + value
+        return balances
 
     # -- the spender ------------------------------------------------------
 
@@ -1113,7 +1421,12 @@ class Ledger:
         Core's `send`. The transaction is recorded as inactive before it
         is broadcast, and as in the mempool once the broadcaster accepts
         it. A refusal is raised as the broadcaster raises it, and leaves
-        the transaction in the ledger as inactive.
+        the transaction in the ledger as inactive. Each position of the
+        ledger it pays is handed out once the broadcaster accepts it, as
+        Core's wallet marks the scripts a transaction pays used when the
+        mempool reports it (src/wallet/wallet.cpp:1263-1280 at
+        bitcoin/bitcoin@f0de87f040, the v32.1 tag): a refusal hands out
+        nothing.
         """
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
@@ -1127,7 +1440,19 @@ class Ledger:
         wtx = replace(wtx, state=TxState.MEMPOOL)
         self._store.upsert_txs([wtx])
         self._txs[tx.id] = wtx
+        self._hand_out_paid([tx])
         return tx
+
+    def _hand_out_paid(self, txs: Iterable[Tx]) -> None:
+        """Hand out each position of the ledger the transactions pay."""
+        paid = {
+            self._scripts[_script(o)] for tx in txs for o in tx.vout if self._owned(o)
+        }
+        if new := sorted(paid - self._handed):
+            # no address is asked for, as `load` asks none
+            self._handed.update(new)
+            self._store.add_handed_out(new)
+            self._extend_windows()
 
     # -- abandon and resubmit ---------------------------------------------
 
@@ -1154,9 +1479,10 @@ class Ledger:
         Core's `ResubmitWalletTransactions`, run only when the caller
         calls it: each transaction in the mempool or inactive, in the
         order it was recorded. One the broadcaster accepts is in the
-        mempool. One it refuses stays as it was, and its refusal is
-        returned under its id rather than raised, so that one refusal
-        does not hold back the others.
+        mempool, and hands out what it pays, as `spend` says. One it
+        refuses stays as it was, and its refusal is returned under its
+        id rather than raised, so that one refusal does not hold back
+        the others.
         """
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
@@ -1173,11 +1499,20 @@ class Ledger:
             accepted.append(replace(wtx, state=TxState.MEMPOOL))
         self._store.upsert_txs(accepted)
         self._txs.update((wtx.tx.id, wtx) for wtx in accepted)
+        self._hand_out_paid(wtx.tx for wtx in accepted)
         return refused
 
 
 def _script(tx_out: TxOut) -> bytes:
     return tx_out.script_pub_key.script
+
+
+def _assert_label(label: str) -> None:
+    """Refuse what is not a label, and the name `*`."""
+    if not isinstance(label, str):
+        raise BTClibTypeError(f"invalid label type: {type(label).__name__}")
+    if label == "*":
+        raise BTClibValueError("invalid label name: *")
 
 
 def _assert_height(value: int, name: str) -> None:

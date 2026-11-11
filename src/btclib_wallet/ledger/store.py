@@ -19,9 +19,9 @@ when the file is opened.
 
 The file holds everything a load answers from: the sources, the
 positions handed out, every transaction with its state and block, the
-blocks synced through, and the tip. Each source's private keys are
-written in plain text, as an unencrypted Core wallet writes its own:
-ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
+blocks synced through, the tip, and the labels. Each source's private
+keys are written in plain text, as an unencrypted Core wallet writes its
+own: ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
 journal and its freed pages can keep old bytes after a write.
 
 Every write a sync makes is one SQLite transaction, so a process killed
@@ -76,6 +76,10 @@ _SCHEMA = (
         " state TEXT NOT NULL, height INTEGER, block_id BLOB, seq INTEGER NOT NULL)"
     ),
     "CREATE TABLE blocks(height INTEGER PRIMARY KEY, block_id BLOB NOT NULL)",
+    (
+        "CREATE TABLE labels(script BLOB PRIMARY KEY, label TEXT NOT NULL,"
+        " purpose TEXT NOT NULL)"
+    ),
 )
 
 # the step that takes a file from the version of its key to the next one
@@ -350,6 +354,19 @@ class _Store:
         if not rows:
             return None
         return BlockRef(int(rows["tip_height"]), bytes.fromhex(rows["tip_id"]))
+
+    def labels(self) -> dict[bytes, tuple[str, str]]:
+        """Return the label and the purpose of each script given one."""
+        rows = self._db.execute("SELECT script, label, purpose FROM labels")
+        return {script: (label, purpose) for script, label, purpose in rows}
+
+    def set_label(self, script: bytes, label: str, purpose: str) -> None:
+        """Write a script's label and purpose, replacing any it had."""
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO labels VALUES (?, ?, ?)",
+                (script, label, purpose),
+            )
 
     def add_source(self, source: _Source) -> int:
         """Write a source, and return its id."""

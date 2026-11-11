@@ -21,6 +21,7 @@ from btclib_wallet.fetch.history import BlockRef
 
 __all__ = [
     "Balances",
+    "GroupedAddress",
     "SyncResult",
     "TxDetail",
     "TxInfo",
@@ -95,6 +96,20 @@ class Utxo:
     source: int
     branch: int
     index: int
+
+
+@dataclass(frozen=True)
+class GroupedAddress:
+    """One address of a group `listaddressgroupings` reports.
+
+    `amount` is what its unspent outputs hold, in satoshi, counted as
+    Core's `GetAddressBalances` counts it. `label` is `None` where the
+    address has none, as change has none.
+    """
+
+    address: str
+    amount: int
+    label: str | None
 
 
 @dataclass(frozen=True)
