@@ -804,9 +804,16 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
             assert all(psbt_in.partial_sigs for psbt_in in signed.inputs)
 
 
-@pytest.mark.parametrize("relock", ["lock_keys", "close"])
+@pytest.mark.parametrize(
+    "relock, refused",
+    [("lock_keys", True), ("close", True), ("unlock_keys", False)],
+)
 def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
-    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch, relock: str
+    chain: FakeChain,
+    path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relock: str,
+    refused: bool,
 ) -> None:
     """`add_source` encrypting keys, the keys locked in another thread.
 
@@ -815,7 +822,9 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
     key before SQLite refuses it. What was encrypted may be under zeros,
     so the call is refused as a ledger locked during it, holds neither
     the keys nor the passphrase, and writes nothing: the file unlocks and
-    holds one source.
+    holds one source. A new `unlock_keys` from another thread reads the
+    file first, so SQLite refuses it before it zeroes the key, and the
+    source is added: the file unlocks and holds two.
     """
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(PASSPHRASE)
@@ -830,10 +839,15 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
         ]
         real = crypto._sealed
         relocked: list[BaseException | None] = []
+        calls: dict[str, Callable[[], None]] = {
+            "lock_keys": ledger.lock_keys,
+            "close": ledger.close,
+            "unlock_keys": lambda: ledger.unlock_keys(PASSPHRASE, 600),
+        }
 
         def relocks() -> None:
             try:
-                getattr(ledger, relock)()
+                calls[relock]()
             except sqlite3.ProgrammingError as refusal:
                 relocked.append(refusal)
             else:
@@ -847,15 +861,18 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
             return real(key, plaintext, aad)
 
         monkeypatch.setattr(ledger_module, "_sealed", held)
-        with pytest.raises(BTClibValueError) as refusal:
-            ledger.add_source(_wallet(XPRV2))
-        assert str(refusal.value) == ledger_module._LOCKED_DURING
-        assert_secret_free(refusal.value, secrets)
+        if refused:
+            with pytest.raises(BTClibValueError) as refusal:
+                ledger.add_source(_wallet(XPRV2))
+            assert str(refusal.value) == ledger_module._LOCKED_DURING
+            assert_secret_free(refusal.value, secrets)
+        else:
+            assert ledger.add_source(_wallet(XPRV2)) == 1
         (outcome,) = relocked
         assert (outcome is None) == (relock == "lock_keys")
     with _loaded(path, chain) as ledger:
         ledger.unlock_keys(PASSPHRASE, 60)
-        assert len(ledger.sources) == 1
+        assert len(ledger.sources) == (1 if refused else 2)
 
 
 class _Waited:
