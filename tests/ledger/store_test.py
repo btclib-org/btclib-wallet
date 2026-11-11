@@ -417,6 +417,17 @@ def test_a_format_1_backup_is_restored(
     assert _pragma(backup, "user_version") == 1
 
 
+def test_a_format_1_file_of_another_network_is_left_at_format_1(
+    chain: FakeChain, path: Path
+) -> None:
+    """The network is checked before a step runs, so v2026.11.11 still opens it."""
+    _format_1_file(path)
+    with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
+        Ledger.load(path, "testnet", chain)
+    assert _pragma(path, "user_version") == 1
+    assert "master_key" not in _layout(path)
+
+
 def test_v2026_11_11_refuses_a_file_of_this_release(
     chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -200,6 +200,13 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
         err_msg = f"ledger format {version} is newer than this release's"
         err_msg += f" {FORMAT_VERSION}"
         raise BTClibValueError(err_msg)
+    # every format has `meta`: a file of another network is refused before
+    # a step runs, and left at its version
+    row = db.execute("SELECT value FROM meta WHERE key = 'network'").fetchone()
+    if row is None:
+        raise BTClibValueError("not a ledger file: it names no network")
+    if row[0] != network:
+        raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
     while version < FORMAT_VERSION:
         if version not in _MIGRATIONS:
             raise BTClibValueError(f"no migration from ledger format {version}")
@@ -210,11 +217,6 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
             _MIGRATIONS[version](db)
             version += 1
             db.execute(f"PRAGMA user_version = {version}")
-    row = db.execute("SELECT value FROM meta WHERE key = 'network'").fetchone()
-    if row is None:
-        raise BTClibValueError("not a ledger file: it names no network")
-    if row[0] != network:
-        raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
 
 
 def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
