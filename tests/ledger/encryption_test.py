@@ -844,22 +844,21 @@ def test_keys_locked_from_another_thread_mid_unlock_report_locked(
         either = threading.Event()
         monkeypatch.setattr(ledger, "_key_lock", _Waited(either))
         real = ledger_module._now
-        threads: list[threading.Thread] = []
 
         def locks() -> None:
             ledger.lock_keys()
             either.set()
 
+        thread = threading.Thread(target=locks, daemon=True)
+
         def now() -> int:
-            if not threads:
-                threads.append(threading.Thread(target=locks, daemon=True))
-                threads[0].start()
-                assert either.wait(timeout=30), "lock_keys never ran"
+            # `unlock_keys` calls `_now` once
+            thread.start()
+            assert either.wait(timeout=30), "lock_keys never ran"
             return real()
 
         monkeypatch.setattr(ledger_module, "_now", now)
         ledger.unlock_keys(PASSPHRASE, 600)
-        (thread,) = threads
         thread.join(timeout=30)
         assert not thread.is_alive(), "lock_keys did not finish"
         assert ledger._key is None

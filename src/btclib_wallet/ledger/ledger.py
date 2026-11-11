@@ -1901,8 +1901,9 @@ class Ledger:
         """Whether `key` is the master key held, and so was never zeroed.
 
         `_drop_key` and `unlock_keys` zero a key and let go of it under
-        one lock, and a key let go is never held again. So a key held when this reads it,
-        under that lock, was whole for anything that read it before.
+        one lock, and a key let go is never held again. So a key held
+        when this reads it, under that lock, was whole for anything that
+        read it before.
         """
         with self._key_lock:
             return self._key is key
