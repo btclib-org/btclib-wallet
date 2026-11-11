@@ -77,8 +77,8 @@ spends count and can be spent again.
 **Resubmission.** `resubmit` broadcasts again each transaction in no
 block that is neither conflicted nor abandoned, as Core does on load
 and from time to time (:2147-2180). Here it runs only when its caller
-calls it: the ledger broadcasts nothing that `spend` or `resubmit` was
-not called for.
+calls it: the ledger broadcasts nothing that `spend`, `bump` or
+`resubmit` was not called for.
 
 **What is checked of an unconfirmed transaction** (ISS
 btclib-org/btclib-wallet#642). A backend can report a mempool
@@ -142,9 +142,11 @@ change output of at least Core's `min_viable_change` at
 `DEFAULT_DISCARD_FEE` (src/wallet/spend.cpp:1187-1192), and otherwise
 fee, which the output then pays that much less of.
 Where the inputs fall short, confirmed coins are added, the largest
-first, where Core runs its coin selection over what is short
-(`SelectCoins`, src/wallet/spend.cpp:811-845); neither adds an
-unconfirmed one (feebumper.cpp:313-314). With no rate of the caller's, the
+first, where Core runs its coin selection over what is short, the
+replaced transaction's inputs preset (`SelectCoins`,
+src/wallet/spend.cpp:811-845): `select_coins` takes no preset input.
+Neither adds an unconfirmed one (feebumper.cpp:313-314). With no rate of
+the caller's, the
 rate is the replaced transaction's own, one sat/kvB more, plus the
 larger of the node's incremental rate and `WALLET_INCREMENTAL_RELAY_FEE`,
 raised to the rate for `conf_target` where that is higher: the
@@ -342,6 +344,9 @@ _WALLET_INCREMENTAL_FEE_RATE = FeeRate(sats_per_kvbyte=5_000)
 # Core's DEFAULT_DISCARD_FEE (src/wallet/wallet.h:108): the rate change
 # is weighed at, to say whether it is worth creating
 _DISCARD_FEE_RATE = FeeRate(sats_per_kvbyte=10_000)
+
+# Core's MAX_MONEY, in satoshi (src/consensus/amount.h:26)
+_MAX_MONEY = 21_000_000 * 100_000_000
 
 # Core's DEFAULT_INCREMENTAL_RELAY_FEE (src/policy/policy.h:48): the
 # node's incremental rate where the ledger has no relay fee reader to ask
@@ -1744,11 +1749,14 @@ class Ledger:
         transaction is recorded as inactive before it is broadcast, and
         as in the mempool once the broadcaster accepts it. A refusal is
         raised as the broadcaster raises it, and leaves the transaction in
-        the ledger as inactive. Each position of the ledger it pays is
-        handed out once the broadcaster accepts it, as Core's wallet marks
-        the scripts a transaction pays used when the mempool reports it
-        (src/wallet/wallet.cpp:1263-1280 at bitcoin/bitcoin@f0de87f040,
-        the v32.1 tag): a refusal hands out nothing.
+        the ledger as inactive. Each position of the ledger it pays other
+        than the change is handed out once the broadcaster accepts it, as
+        Core's wallet marks the scripts a transaction pays used when the
+        mempool reports it (src/wallet/wallet.cpp:1263-1280 at
+        bitcoin/bitcoin@f0de87f040, the v32.1 tag); the change is handed
+        out by the call that builds the psbt, as Core keeps its change
+        address once it creates the transaction
+        (src/wallet/spend.cpp:1432-1434).
         """
         assert_type(comment, (str, type(None)), "comment")
         assert_type(comment_to, (str, type(None)), "comment_to")
@@ -2109,15 +2117,18 @@ class Ledger:
         Core's `ResubmitWalletTransactions`, run only when the caller
         calls it: each transaction in the mempool or inactive, in the
         order it was recorded. One the broadcaster accepts is in the
-        mempool, and hands out what it pays, as `spend` says. One it
-        refuses stays as it was, and its refusal is returned under its
-        id rather than raised, so that one refusal does not hold back
-        the others.
+        mempool, and hands out what it pays, as `spend` says; where it is
+        a bump, the transaction it replaces is inactive, as *Fee bumping*
+        in the module docstring says. One it refuses keeps its state
+        unless a replacement of it is accepted, and its refusal is
+        returned under its id rather than raised, so that one refusal
+        does not hold back the others.
         """
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
         refused: dict[bytes, FetchError] = {}
-        accepted: list[WalletTx] = []
+        accepted: list[Tx] = []
+        written: dict[bytes, WalletTx] = {}
         for wtx in sorted(self._txs.values(), key=lambda w: w.seq):
             if wtx.state not in (TxState.MEMPOOL, TxState.INACTIVE):
                 continue
@@ -2126,10 +2137,15 @@ class Ledger:
             except FetchError as e:
                 refused[wtx.tx.id] = e
                 continue
-            accepted.append(replace(wtx, state=TxState.MEMPOOL))
-        self._store.upsert_txs(accepted)
-        self._txs.update((wtx.tx.id, wtx) for wtx in accepted)
-        self._hand_out_paid(wtx.tx for wtx in accepted)
+            accepted.append(wtx.tx)
+            written[wtx.tx.id] = replace(wtx, state=TxState.MEMPOOL)
+            if wtx.replaces is not None:
+                replaced = written.get(wtx.replaces) or self._txs.get(wtx.replaces)
+                if replaced is not None and replaced.state is TxState.MEMPOOL:
+                    written[wtx.replaces] = replace(replaced, state=TxState.INACTIVE)
+        self._store.upsert_txs(written.values())
+        self._txs.update(written)
+        self._hand_out_paid(accepted)
         return refused
 
     # -- encryption ---------------------------------------------------------
@@ -2409,7 +2425,8 @@ def _least_change(script: ScriptPubKey, spend_weight: int) -> int:
     the v32.1 tag). The discard rate is `_DISCARD_FEE_RATE`, where Core
     takes the lower of that and its estimate for the longest target it
     tracks, not below the dust relay rate (`GetDiscardRate`,
-    src/wallet/fees.cpp:90-100).
+    src/wallet/fees.cpp:90-100): a `FeeEstimator` answers the target it
+    is asked for, and names no longest target.
     """
     spend_fee = fee_from_vsize(ceil(spend_weight / 4), _DISCARD_FEE_RATE)
     return max(spend_fee + 1, dust_threshold(script.script, _DISCARD_FEE_RATE))
@@ -2437,13 +2454,15 @@ def _fee_from_change(
     Core refuses it.
     """
     # psbts at no fee rate: the fee of each is what the inputs hold over
-    # its outputs, and a shortfall is refused by the first
+    # its outputs, and a shortfall is refused by the first. They have no
+    # fee ceiling: what the first holds over may be change, and the fee
+    # this returns is checked against the ceilings below
     no_rate = FeeRate(sats_per_kvbyte=0)
     outputs = [TxOut(value, change.script_pub_key)]
-    probe = build_psbt(list(inputs), outputs, no_rate, None, sizer=miniscript_sizer)
+    probe = _probe(inputs, outputs, no_rate)
     if probe.fee >= least_change:
         outputs.append(TxOut(probe.fee, new_script))
-        probe = build_psbt(list(inputs), outputs, no_rate, None, sizer=miniscript_sizer)
+        probe = _probe(inputs, outputs, no_rate)
     psbt = probe.psbt
     vsize = psbt.vsize_estimate(miniscript_sizer)
     fee = fee_from_vsize(vsize, rate)
@@ -2456,6 +2475,26 @@ def _fee_from_change(
     psbt.outputs[0].amount = amount
     psbt.assert_valid()
     return FundedPsbt(psbt, fee, 1 if len(outputs) > 1 else None)
+
+
+def _probe(
+    inputs: Sequence[PsbtIn], outputs: list[TxOut], no_rate: FeeRate
+) -> FundedPsbt:
+    """Return `build_psbt`'s psbt at `no_rate`, with no change and no ceiling.
+
+    Its ceilings are Core's `MAX_MONEY` (src/consensus/amount.h:26 at
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag), which no fee exceeds,
+    and that much per virtual byte.
+    """
+    return build_psbt(
+        list(inputs),
+        outputs,
+        no_rate,
+        None,
+        sizer=miniscript_sizer,
+        max_fee=_MAX_MONEY,
+        max_fee_rate=FeeRate(sats_per_kvbyte=_MAX_MONEY * 1000),
+    )
 
 
 def _assert_replaces(old_fee: int, fee: int, vsize: int, incremental: FeeRate) -> None:

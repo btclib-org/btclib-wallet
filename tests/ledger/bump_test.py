@@ -28,7 +28,14 @@ from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_size import miniscript_sizer
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
-from tests.ledger.conftest import ONE_SAT, XPRV, FakeChain, script_of, source
+from tests.ledger.conftest import (
+    ONE_SAT,
+    XPRV,
+    FakeChain,
+    script_of,
+    source,
+    tampered,
+)
 
 RBF = 0xFFFFFFFD
 NON_RBF = 0xFFFFFFFE
@@ -270,6 +277,25 @@ def test_the_change_index_names_the_output_taking_the_change(
         ledger.bump_psbt(spent.id, outputs=[_outside()], original_change_index=0)
 
 
+def test_a_change_address_given_a_label_is_paid_whole(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """Core's `OutputIsChange` (src/wallet/feebumper.cpp:258), not the branch.
+
+    A label makes the change address a receiving one, as *Labels* in the
+    ledger's docstring says: the bump pays it whole and opens new change.
+    """
+    _funded(ledger, chain)
+    _funded(ledger, chain)
+    spent = ledger.spend([_outside()])
+    assert ledger.position_of(spent.vout[1].script_pub_key) == (0, 1, 0)
+    ledger.set_label(ledger.sources[0].address(1, 0), "savings")
+    bumped = ledger.bump(spent.id)
+    assert bumped.vout[:2] == spent.vout
+    assert ledger.position_of(bumped.vout[2].script_pub_key) == (0, 1, 1)
+    assert len(bumped.vin) == 2
+
+
 def test_dust_change_goes_to_the_fee(ledger: Ledger, chain: FakeChain) -> None:
     """Lines 512-533: change below the dust threshold is not created."""
     _funded(ledger, chain)
@@ -306,6 +332,38 @@ def test_a_fee_above_the_ceiling_is_refused(ledger: Ledger, chain: FakeChain) ->
     spent = ledger.spend([_outside()])
     with pytest.raises(BTClibValueError, match="exceeds"):
         ledger.bump_psbt(spent.id, _rate(11_000))
+
+
+@pytest.mark.parametrize("coin", [None, 20_000_000])
+def test_change_paid_to_itself_above_the_ceiling_is_refused(
+    ledger: Ledger, chain: FakeChain, coin: int | None
+) -> None:
+    """Lines 535-548 where every output is change, a coin added or not.
+
+    The fee is checked once the surplus is change: Core's -maxtxfee and
+    -maxfeerate defaults.
+    """
+    _funded(ledger, chain, 50_000_000 if coin is None else 100_000)
+    spent = ledger.spend([_outside()])
+    change = spent.vout[1].script_pub_key
+    value = 40_000_000
+    if coin is not None:
+        _funded(ledger, chain, coin)
+        value = 5_000_000
+    with pytest.raises(BTClibValueError, match="exceeds max_fee_rate"):
+        ledger.bump_psbt(spent.id, _rate(11_000), outputs=[TxOut(value, change)])
+
+
+def test_a_sweep_to_change_above_the_fee_ceiling_is_refused(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """Lines 535-548: every output change, the fee above -maxtxfee."""
+    coins = [_funded(ledger, chain, 100_000_000) for _ in range(20)]
+    change = ledger.sources[0].script_pub_key(1, 0)
+    vin = [TxIn(OutPoint(c.id, 0), sequence=RBF) for c in coins]
+    swept = _sent(ledger, chain, vin, [TxOut(20 * 100_000_000 - 20_000, change)])
+    with pytest.raises(BTClibValueError, match="exceeds max_fee,"):
+        ledger.bump_psbt(swept.id, _rate(9_000))
 
 
 def test_every_output_change_pays_the_fee(ledger: Ledger, chain: FakeChain) -> None:
@@ -399,6 +457,25 @@ def test_change_paid_back_to_itself_keeps_what_is_left_as_change(
     assert len(again.vin) == 2
     assert again.vout[0].value + _fee(ledger, again) == 150_000
     assert again.vout[1].value == 50_000
+
+
+def test_a_coin_added_to_change_paid_to_itself_comes_back_as_change(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """What the coin holds over the change is change, not a fee too high.
+
+    Measured before the fee is, so `build_psbt`'s ceilings, Core's
+    -maxtxfee and -maxfeerate defaults, are not asked of it.
+    """
+    _funded(ledger, chain)
+    spent = ledger.spend([_outside()])
+    change = spent.vout[1].script_pub_key
+    _funded(ledger, chain, 20_000_000)
+    bumped = ledger.bump(spent.id, _rate(20), outputs=[TxOut(150_000, change)])
+    assert len(bumped.vin) == 2
+    assert bumped.vout[0].value + _fee(ledger, bumped) == 150_000
+    assert bumped.vout[1].value == 100_000 + 20_000_000 - 150_000
+    _assert_fee_amount(_fee(ledger, bumped), bumped.vsize, _rate(20))
 
 
 def test_a_descendant_is_refused_and_an_abandoned_one_is_not(
@@ -538,6 +615,99 @@ def test_a_refused_replacement_stays_linked_and_inactive(
     assert _wtx(ledger, spent).replaced_by == refused.tx.id
 
 
+def test_a_refused_replacement_resubmitted_takes_the_replaced_ones_place(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """Accepted by `resubmit`, the bump leaves what it replaced inactive.
+
+    As `bump` leaves it once the broadcaster takes the replacement; an
+    abandoned one stays abandoned.
+    """
+    _funded(ledger, chain)
+    _funded(ledger, chain)
+    spent = ledger.spend([_outside()])
+    chain.refuse = "insufficient fee"
+    with pytest.raises(FetchError, match="insufficient fee"):
+        ledger.bump(spent.id)
+    refused = _wtx(ledger, spent).replaced_by
+    assert refused is not None
+    chain.refuse = ""
+    assert ledger.resubmit() == {}
+    assert set(chain.mempool) == {refused}
+    assert ledger.transaction(refused).wallet_tx.state is TxState.MEMPOOL
+    assert _wtx(ledger, spent).state is TxState.INACTIVE
+    ledger.sync()
+    assert _wtx(ledger, spent).state is TxState.INACTIVE
+    # one abandoned, bumped, refused, then resubmitted
+    abandoned = ledger.spend([_outside()])
+    del chain.mempool[abandoned.id]
+    ledger.sync()
+    ledger.abandon(abandoned.id)
+    chain.refuse = "insufficient fee"
+    with pytest.raises(FetchError, match="insufficient fee"):
+        ledger.bump(abandoned.id, _rate(5))
+    again = _wtx(ledger, abandoned).replaced_by
+    assert again is not None
+    chain.refuse = ""
+    assert ledger.resubmit() == {}
+    assert ledger.transaction(again).wallet_tx.state is TxState.MEMPOOL
+    assert _wtx(ledger, abandoned).state is TxState.ABANDONED
+
+
+def test_a_resubmitted_original_refused_is_left_by_its_replacement(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """The original refused, its replacement taken: the original is inactive.
+
+    Its refusal is still returned.
+    """
+    _funded(ledger, chain)
+    _funded(ledger, chain)
+    spent = ledger.spend([_outside()])
+    chain.refuse = "insufficient fee"
+    with pytest.raises(FetchError, match="insufficient fee"):
+        ledger.bump(spent.id)
+    replacement = _wtx(ledger, spent).replaced_by
+    assert replacement is not None
+    chain.refuse = ""
+    taken = chain.broadcast
+
+    def picky(tx: Tx) -> bytes:
+        if tx.id == spent.id:
+            raise FetchError("mempool min fee not met")
+        return taken(tx)
+
+    chain.broadcast = picky  # type: ignore[method-assign]
+    refused = ledger.resubmit()
+    assert list(refused) == [spent.id]
+    assert _wtx(ledger, spent).state is TxState.INACTIVE
+    assert ledger.transaction(replacement).wallet_tx.state is TxState.MEMPOOL
+
+
+def test_a_refusal_hands_out_the_change_and_nothing_else(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """As Core keeps its change address once it creates the transaction.
+
+    src/wallet/spend.cpp:1432-1434; what else is paid is handed out only
+    once the broadcaster accepts it.
+    """
+    for _ in range(3):
+        _funded(ledger, chain)
+    receive = ledger.sources[0].script_pub_key(0, 3)
+    chain.refuse = "refused"
+    with pytest.raises(FetchError, match="refused"):
+        ledger.spend([_outside(), TxOut(20_000, receive)])
+    assert ledger.new_change_address() == ledger.sources[0].address(1, 1)
+    assert ledger.new_address() == ledger.sources[0].address(0, 3)
+    chain.refuse = ""
+    spent = ledger.spend([_outside()])
+    chain.refuse = "refused"
+    with pytest.raises(FetchError, match="refused"):
+        ledger.bump(spent.id, outputs=[_outside(20_000)])
+    assert ledger.new_change_address() == ledger.sources[0].address(1, 4)
+
+
 def test_a_locked_ledger_bumps_nothing(ledger: Ledger, chain: FakeChain) -> None:
     """Lines 733-741, and Core's `psbtbumpfee` refused too.
 
@@ -625,6 +795,31 @@ def test_an_input_the_ledger_does_not_hold_is_refused(
     ledger.sync()
     with pytest.raises(BTClibValueError, match="input 1 spends an output"):
         ledger.bump_psbt(mixed.id)
+
+
+def test_a_forged_spend_of_the_ledgers_coin_is_not_bumped(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """ISS btclib-org/btclib-wallet#642: the sync keeps it out of the ledger.
+
+    The backend reports a spend of the ledger's coin whose signature does
+    not verify; neither `bump` nor `bump_psbt` finds it. The honest one,
+    reported instead, is bumped.
+    """
+    payment = _funded(ledger, chain)
+    change = TxOut(69_000, ledger.sources[0].script_pub_key(1, 0))
+    unsigned = Tx(vin=[TxIn(OutPoint(payment.id, 0))], vout=[_outside(), change])
+    honest = extract_tx(finalize(ledger.sign(Psbt.from_tx(unsigned))))
+    forged = tampered(honest)
+    assert forged.id == honest.id
+    chain.mempool[forged.id] = chain.known[forged.id] = forged
+    ledger.sync()
+    for bump in (ledger.bump, ledger.bump_psbt):
+        with pytest.raises(BTClibValueError, match="not a ledger transaction"):
+            bump(forged.id)
+    chain.mempool[honest.id] = chain.known[honest.id] = honest
+    ledger.sync()
+    assert ledger.bump_psbt(honest.id).replaces == honest.id
 
 
 def test_bump_arguments_are_checked(ledger: Ledger, chain: FakeChain) -> None:
