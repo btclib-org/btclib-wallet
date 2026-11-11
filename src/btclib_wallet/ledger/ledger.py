@@ -567,12 +567,13 @@ class Ledger:
         included, and `load` builds it again from its descriptors and
         keys. In an encrypted ledger its keys are written encrypted, as
         `store` says, and a wallet holding keys is refused while the
-        ledger is locked, where it is locked while the call runs, and
-        where its scripts need a private key at every index (a hardened
-        ``/*h``), which a locked ledger could not derive. `label` is set
-        on the one address of branch 0, where its script has one, and
-        refused where that branch is ranged or missing, as Core refuses a
-        label on a ranged descriptor (src/wallet/rpc/backup.cpp:213-216 at
+        ledger is locked, where a lock in another thread zeroed the
+        master key while its keys were encrypted, and where its scripts
+        need a private key at every index (a hardened ``/*h``), which a
+        locked ledger could not derive. `label` is set on the one address
+        of branch 0, where its script has one, and refused where that
+        branch is ranged or missing, as Core refuses a label on a ranged
+        descriptor (src/wallet/rpc/backup.cpp:213-216 at
         bitcoin/bitcoin@f0de87f040, the v32.1 tag).
         """
         assert_type(wallet, DescriptorWallet, "wallet")
