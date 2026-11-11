@@ -192,6 +192,8 @@ LOCK_TIME_THRESHOLD = 500_000_000
 # 0xfc is reserved for proprietary use, and needs no constant of its own:
 # explicit support for proprietary (and por) is unnecessary,
 # see https://github.com/bitcoin/bips/pull/1038
+# 0x09, BIP127's PSBT_IN_POR_COMMITMENT, has no constant either: it stays
+# in `unknown`, as Bitcoin Core keeps it
 
 
 def _deserialize_witness_utxo(k: bytes, v: bytes, type_: str) -> TxOut:
