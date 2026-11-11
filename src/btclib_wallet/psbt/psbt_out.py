@@ -486,7 +486,9 @@ class PsbtOut:
             elif k[:1] == PSBT_OUT_TAP_INTERNAL_KEY:
                 taproot_internal_key = deserialize_bytes(k, v, "taproot internal key")
             elif k[:1] == PSBT_OUT_TAP_TREE:
-                taproot_tree = parse_taproot_tree(v)
+                taproot_tree = parse_taproot_tree(
+                    deserialize_bytes(k, v, "taproot tree")
+                )
             elif (sp_field := _SP_FIELDS.get(k[:1])) is not None:
                 # one branch for BIP375's pair, and a table beside it: the
                 # dispatch was at C901's limit, and the two differ in
