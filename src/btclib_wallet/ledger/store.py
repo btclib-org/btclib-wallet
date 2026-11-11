@@ -155,10 +155,12 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     if mode != "ro":
         try:
             db.execute("PRAGMA journal_mode = DELETE")
-        except sqlite3.OperationalError as e:
+        except sqlite3.DatabaseError as e:
             db.close()
-            err_msg = f"cannot open the ledger file {path} in rollback-journal mode"
-            raise BTClibValueError(f"{err_msg}: {e}") from None
+            if isinstance(e, sqlite3.OperationalError):
+                err_msg = f"cannot open the ledger file {path} in rollback-journal mode"
+                raise BTClibValueError(f"{err_msg}: {e}") from None
+            raise BTClibValueError(f"not a ledger file: {e}") from None
     return db
 
 
