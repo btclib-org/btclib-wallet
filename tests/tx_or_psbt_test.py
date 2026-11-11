@@ -140,8 +140,8 @@ def test_only_ascii_whitespace_is_dropped() -> None:
     """Around the text and inside it, as `bytes.fromhex` skips it.
 
     Anything else `str.split()` would have dropped is refused, as the
-    `BTClibValueError` this module answers with: a character outside
-    ASCII reaches base64 as a `ValueError` of its own.
+    `BTClibValueError` this module answers with, a character outside
+    ASCII by its position before any whitespace is dropped.
     """
     assert tx_or_psbt_from_any(string.whitespace + TX_HEX + string.whitespace) == TX
     for pad in NOT_STRIPPED:

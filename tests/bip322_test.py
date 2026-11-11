@@ -914,7 +914,7 @@ def test_b64decode_refuses_what_is_not_base64() -> None:
         bip322.Sig.b64decode("smp not base64 at all")
     with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
         bip322.Sig.b64decode("full!!!!")
-    with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
+    with pytest.raises(BTClibValueError, match="non-ascii character in base64"):
         bip322.Sig.b64decode("pof☃")
 
     # a character outside the base64 alphabet embedded in an otherwise
@@ -944,7 +944,9 @@ def test_only_ascii_whitespace_is_stripped_from_a_signature() -> None:
     for addr, text in ((segwit, sig), (p2pkh(WIF_PUB), legacy)):
         assert bip322.verify(msg, addr, string.whitespace + text + string.whitespace)
         for pad in NOT_STRIPPED:
-            with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
+            with pytest.raises(
+                BTClibValueError, match="(invalid|non-ascii character in) base64"
+            ):
                 bip322.verify(msg, addr, pad + text + pad)
 
 

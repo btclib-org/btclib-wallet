@@ -60,6 +60,7 @@ from btclib.network import network_from_name, network_from_xkeyversion
 from btclib.utils import assert_type, bytes_from_octets
 from ecc.curves import scalar_from_prv_key
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -157,25 +158,6 @@ _NSEC_HRP = "nsec"
 # BIP85-DRNG-SHAKE256's seed size, which the BIP fixes at the HMAC's own
 # output and requires to be exactly that
 _DRNG_SEED_SIZE = 64
-
-
-# a refused value at most this long is quoted: too short to be a key
-_QUOTED_MAX = 16
-
-
-def _quoted(value: int | str) -> str:
-    """Return a refused parameter as a refusal may print it.
-
-    `words` and `lang` are parameters of a function that also takes the
-    root key, and a caller's mistake can put the key in either.
-    """
-    # an int past the interpreter's digit limit has no str
-    if isinstance(value, int) and not -(10**_QUOTED_MAX) < value < 10**_QUOTED_MAX:
-        return f"a value of more than {_QUOTED_MAX} digits"
-    text = str(value)
-    if len(text) > _QUOTED_MAX:
-        return f"a value of {len(text)} characters"
-    return repr(value)
 
 
 def _assert_valid_der_path(indexes: list[int]) -> None:
@@ -290,6 +272,8 @@ def mnemonic_from_root_key(
     # a type check first: the membership test below would refuse a
     # hashable one as a value and let an unhashable one leave as a builtin
     assert_type(words, int, "words")
+    # `words` and `lang` are parameters of a function that also takes the
+    # root key, and a caller's mistake can put the key in either
     if words not in _ENTROPY_BYTES:
         err_msg = f"invalid number of words: {_quoted(words)}; "
         err_msg += f"expected: {sorted(_ENTROPY_BYTES)}"

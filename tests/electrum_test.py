@@ -247,11 +247,11 @@ def test_requests_refuse_a_number_that_is_not_an_integer(value: object) -> None:
 
 def test_requests_refuse_a_negative_height_or_count() -> None:
     """The protocol names these as non-negative integers."""
-    with pytest.raises(BTClibValueError, match="invalid height: -1 < 0"):
+    with pytest.raises(BTClibValueError, match="invalid height: a negative int"):
         block_header_request(1, -1)
-    with pytest.raises(BTClibValueError, match="invalid start_height: -1 < 0"):
+    with pytest.raises(BTClibValueError, match="invalid start_height: a negative int"):
         block_headers_request(1, -1, 1)
-    with pytest.raises(BTClibValueError, match="invalid count: -1 < 0"):
+    with pytest.raises(BTClibValueError, match="invalid count: a negative int"):
         block_headers_request(1, 0, -1)
 
 
@@ -394,7 +394,7 @@ def test_decode_response_refuses_a_json_value_that_is_not_an_object() -> None:
 
 def test_decode_response_refuses_a_mismatched_id() -> None:
     """A reply answering a different request is refused, not returned."""
-    with pytest.raises(BTClibValueError, match="does not answer request 1"):
+    with pytest.raises(BTClibValueError, match="does not answer request an int"):
         decode_response(reply(id=2, result="ok"), 1)
 
 
@@ -403,7 +403,7 @@ def test_decode_response_refuses_a_bool_id_equal_under_python_equality() -> None
 
     Issue btclib-org/btclib#2298.
     """
-    with pytest.raises(BTClibValueError, match="does not answer request 1"):
+    with pytest.raises(BTClibValueError, match="does not answer request an int"):
         decode_response(reply(id=True, result="ok"), 1)
 
 
@@ -412,7 +412,7 @@ def test_decode_response_refuses_a_float_id_equal_under_python_equality() -> Non
 
     Issue btclib-org/btclib#2298.
     """
-    with pytest.raises(BTClibValueError, match="does not answer request 1"):
+    with pytest.raises(BTClibValueError, match="does not answer request an int"):
         decode_response(reply(id=1.0, result="ok"), 1)
 
 
@@ -454,7 +454,7 @@ def test_decode_response_raises_rpc_error_for_a_null_id_error() -> None:
 
 def test_decode_response_refuses_a_null_id_with_no_error() -> None:
     """A `null` id with no `error` member is still an ordinary mismatch."""
-    with pytest.raises(BTClibValueError, match="does not answer request 1"):
+    with pytest.raises(BTClibValueError, match="does not answer request an int"):
         decode_response(reply(id=None, result="ok"), 1)
 
 
@@ -766,13 +766,13 @@ def test_estimate_fee_response_refuses_a_non_number_result(result: object) -> No
 _HUGE = 10**5000
 
 
-class _Unprintable(str):
-    """A string whose `__str__` raises."""
+class _Unmeasurable(str):
+    """A string whose `__len__` raises."""
 
     __slots__ = ()
 
     @override
-    def __str__(self) -> str:
+    def __len__(self) -> int:
         raise RuntimeError
 
 
@@ -788,13 +788,13 @@ class _Unprintable(str):
             "invalid height: a negative int of 16610 bits < 0",
         ),
         (
-            lambda: transaction_get_request(1, _Unprintable("x")),
-            "invalid tx_id: a _Unprintable str[(][)] cannot write",
+            lambda: transaction_get_request(1, _Unmeasurable("x")),
+            "^invalid tx_id: an _Unmeasurable$",
         ),
     ],
-    ids=["huge request id", "negative huge height", "unprintable tx_id"],
+    ids=["huge request id", "negative huge height", "unmeasurable tx_id"],
 )
-def test_a_refusal_describes_a_value_str_cannot_write(
+def test_a_refusal_describes_a_value_str_or_len_cannot_read(
     call: Callable[[], object], message: str
 ) -> None:
     """Refused as this library's error, the value described and not quoted."""

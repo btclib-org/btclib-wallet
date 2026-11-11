@@ -224,6 +224,24 @@ HAS_SIG_HASH_SINGLE = 0b0000_0100
 _FINAL_SEQUENCE = 0xFFFFFFFF
 
 
+def _non_ascii_position(text: str) -> int:
+    """Return the position of the first character outside ASCII."""
+    return next(i for i, char in enumerate(text) if ord(char) > 127)
+
+
+def _ascii_text(s: String, what: str) -> str:
+    """Return the text of a String, refusing a character outside ASCII.
+
+    `str_from_string` refuses such a byte by its position in the input, and
+    a str is refused here the same way, before anything is stripped from it.
+    """
+    text = str_from_string(s, what)
+    if not text.isascii():
+        position = _non_ascii_position(text)
+        raise BTClibValueError(f"non-ascii character in {what} at position {position}")
+    return text
+
+
 def _b64decode(text: str) -> bytes:
     """Return the bytes the text is the canonical base64 encoding of.
 
@@ -242,13 +260,18 @@ def _b64decode(text: str) -> bytes:
     `validate=True` is what refuses a character outside the alphabet,
     which `b64decode` otherwise drops. A refusal is a `BTClibValueError`
     saying what base64 found, and never quotes the text, which can carry
-    key material.
+    key material. A character outside ASCII is refused before the codec,
+    whose own error chains a `UnicodeEncodeError` that holds the whole
+    text. A caller that strips or cuts the text first refuses one with
+    `_ascii_text`, so that the position is the one in what its own caller
+    passed.
     """
+    if not text.isascii():
+        refused = f"non-ascii character at position {_non_ascii_position(text)}"
+        raise BTClibValueError(f"invalid base64 encoding: {refused}")
     try:
         decoded = base64.b64decode(text, validate=True)
-    # binascii.Error, and the ValueError of a str carrying a character
-    # outside ASCII
-    except ValueError as e:
+    except ValueError as e:  # binascii.Error
         raise BTClibValueError(f"invalid base64 encoding: {e}") from e
     if base64.b64encode(decoded).decode("ascii") != text:
         raise BTClibValueError("invalid base64 encoding: not canonical")
@@ -1606,7 +1629,7 @@ class Psbt:
         wrapped in lines.
         """
         # ASCII whitespace alone (issue #102)
-        psbt_str = str_from_string(psbt_str, "base64 psbt").strip(string.whitespace)
+        psbt_str = _ascii_text(psbt_str, "base64 psbt").strip(string.whitespace)
         # canonical base64 alone (issues #108 and #114)
         psbt_decoded = _b64decode(psbt_str)
         return cls.parse(psbt_decoded, check_validity=check_validity)

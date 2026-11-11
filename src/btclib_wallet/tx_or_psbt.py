@@ -31,7 +31,12 @@ from btclib.exceptions import BTClibValueError
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets
 
-from btclib_wallet.psbt.psbt import PSBT_MAGIC_BYTES, Psbt, _b64decode
+from btclib_wallet.psbt.psbt import (
+    PSBT_MAGIC_BYTES,
+    Psbt,
+    _b64decode,
+    _non_ascii_position,
+)
 
 __all__ = [
     "tx_or_psbt_from_any",
@@ -47,6 +52,12 @@ def _octets_from_text(text: str) -> bytes:
     every letter, so a base64 string is almost never hex, and BIP174's
     magic makes one of them start with `cHNidP8`.
     """
+    # before the whitespace is dropped, so that the position is the one in
+    # the text as given
+    if not text.isascii():
+        position = _non_ascii_position(text)
+        err_msg = f"neither hex nor base64: non-ascii character at position {position}"
+        raise BTClibValueError(err_msg)
     # ASCII whitespace and nothing else is dropped, since base64 arrives
     # wrapped as often as not -- and bytes.fromhex skips exactly that set
     # anyway, so this only makes the two consistent (issue #102)
