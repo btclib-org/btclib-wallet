@@ -28,32 +28,39 @@ authors = [{ name = "The btclib developers", email = "devs@btclib.org" }]
 requires-python = ">=3.11"
 dependencies = [
     # the protocol package every module here is written against. The
-    # floor is the first release with `ScriptFlag.MINIMALIF_ALL`, which
-    # `bip322` needs to hold legacy scripts to BIP322's MINIMALIF rule:
-    # below it `bip322` fails at import.
+    # floor is the first release that runs on ecc 2026.11.8, the one
+    # before it importing `ecc.ecc`. It also carries
+    # `ScriptFlag.MINIMALIF_ALL`, which `bip322` needs to hold legacy
+    # scripts to BIP322's MINIMALIF rule.
     #
     # It carries the `_var` names this tree calls (`is_p2ms_var`,
     # `output_pubkey_from_merkle_root_var` and the others), imports `ecc`
     # in place of `btclib_ecc`, and carries `Tx.parse_without_witness`
     # (issue #196) and the fixes of GHSA-9r97-9x22-2pp4,
     # GHSA-rw95-w37r-537w, GHSA-9fr5-46w5-5f9r and GHSA-c6h8-5hv5-3gv7
-    "btclib>=2026.10.30",
+    "btclib>=2026.11.10",
     # the curve arithmetic and the signature schemes this tree imports
-    # directly: `ecc.curves`, `ecc.ecc` less `bms`, which stays btclib's
-    # own, `ecc.hashes`'s `tagged_hash` and `reduce_to_hlen`, and
-    # `ecc.exceptions`. The floor is the release this tree is tested
-    # against: the `deps-oldest` workflow resolves the lowest direct
-    # versions and runs the suite on them. Its `secp256k1` extra is past
-    # GHSA-8h6f-34jj-7p6c, and it exports `curves.add`, the sum of
-    # secret points `silent_payments.output_key` needs. The bindings stay
-    # requested through `btclib[secp256k1]` below
-    "ecc>=2026.11.2",
+    # directly: `ecc.curves`, ecc's scheme modules less `bms`, which
+    # stays btclib's own, `ecc.hashes`'s `tagged_hash` and
+    # `reduce_to_hlen`, and `ecc.exceptions`. The floor is the first
+    # release with no `ecc.ecc`, which btclib 2026.11.10 requires, and
+    # the release this tree is tested against: the `deps-oldest` workflow
+    # resolves the lowest direct versions and runs the suite on them. Its
+    # `secp256k1` extra is past GHSA-8h6f-34jj-7p6c, and it exports
+    # `curves.add`, the sum of secret points `silent_payments.output_key`
+    # needs. The bindings stay requested through `btclib[secp256k1]`
+    # below
+    "ecc>=2026.11.8",
     # the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed, which
     # `bip85` and the four seed-to-key functions under
     # `btclib_wallet.mnemonic` build on. The floor is the release whose
     # `electrum.old_master_prv_key_from_mnemonic` derives a key from a
     # pre-2.0 mnemonic whose hex seed has an odd number of characters
     "bip39-slip39>=2026.11.2",
+    # the Base58Check and bech32 codecs this tree imports directly. The
+    # floor is the first release whose `bech32_encode` and `bech32_decode`
+    # take `limit`, which `bolt11` passes as None
+    "base58-bech32>=2026.10.23",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
@@ -121,7 +128,7 @@ classifiers = [
 # `silentpayments.scan_outputs` refuses a cache of labels holding a tweak
 # outside [1, n-1]: `tests/silent_payments_test.py` asks that of the
 # bindings, called directly
-secp256k1 = ["btclib[secp256k1]>=2026.10.30", "btclib-secp256k1>=0.8.0.13"]
+secp256k1 = ["btclib[secp256k1]>=2026.11.10", "btclib-secp256k1>=0.8.0.13"]
 
 [project.urls]
 homepage = "https://btclib.org/btclib-wallet/"
@@ -142,7 +149,7 @@ pull_requests = "https://github.com/btclib-org/btclib-wallet/pulls"
 # no default extra, so an extra alone would leave `uv sync` resolving a
 # btclib without the bindings, which is half a suite -- the tests marked
 # `bindings` compare the two implementations against each other
-bindings = ["btclib[secp256k1]>=2026.10.30", "btclib-secp256k1>=0.8.0.13"]
+bindings = ["btclib[secp256k1]>=2026.11.10", "btclib-secp256k1>=0.8.0.13"]
 # what runs the suite, without what the suite delegates to: `test` is the
 # two together, while `harness` alone is the environment a run without
 # the bindings builds. uv's `--no-group` suppresses a group that was
@@ -212,12 +219,6 @@ dev = [
 # log names -- section 1 of the organization's standard has the
 # argument, section 15 the commands that measure it
 required-version = ">=0.13.4"
-# the lock held below two releases whose new parameter types mypy refuses
-# here: ecc 2026.11.7 types the variable-time integers `ecc.alias.Public`,
-# and btclib 2026.11.2 types `ScriptPubKey.network` as `str | Network`.
-# uv reads this when it locks; the package's metadata does not carry it.
-# Issue #735 adopts both types and drops the constraint
-constraint-dependencies = ["btclib<2026.11.2", "ecc<2026.11.7"]
 
 [tool.uv.build-backend]
 # `module-name` is not written: it defaults to `project.name` normalized,

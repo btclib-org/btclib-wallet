@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from btclib.bech32 import encode as bech32_encode
+from base58_bech32.bech32 import bech32_encode
 from btclib.exceptions import BTClibValueError
 from hypothesis import example, given
 from hypothesis import strategies as st
@@ -276,7 +276,7 @@ def test_invoice_refuses_an_amount_over_4300_digits() -> None:
     """An amount `int()` cannot read leaves as the contract says."""
     for digits in ("9" * 5000, "0" * 5000 + "1"):
         words = [0] * (7 + _SIGNATURE_WORDS)
-        invoice = bech32_encode("lnbc" + digits + "m", words, 1).decode()
+        invoice = bech32_encode("lnbc" + digits + "m", words, m=1, limit=None).decode()
         _assert_contract(Bolt11Invoice.from_invoice, invoice)
 
 

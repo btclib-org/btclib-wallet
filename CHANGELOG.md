@@ -24,6 +24,85 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.11
+
+### ecc 2026.11.8 and btclib 2026.11.10 are the floors
+
+The schemes come from ecc's top level and `bms` from `btclib.bms`. The
+lock holds btclib 2026.11.10, ecc 2026.11.11 and btclib-secp256k1
+0.8.0.14 (closes #729, #720, #731, #735).
+
+### The Base58Check and bech32 codecs come from base58-bech32
+
+A direct dependency, at 2026.10.23 or later. A refusal of theirs that a
+caller's input reaches leaves as `BTClibValueError` or
+`BTClibTypeError` (issue #731).
+
+### btclib-secp256k1 0.8.0.13 is the floor of the `secp256k1` extra
+
+The first release whose `silentpayments.scan_outputs` refuses a label
+tweak outside [1, n-1] (issue #735).
+
+### `bip322.sign` takes a WIF
+
+As `btclib.bms.sign` does (closes #733).
+
+### `combine` and `join` AND the undefined tx-modifiable bits
+
+As Core's `combinepsbt` does (closes #686).
+
+### Esplora's history read is bounded
+
+`EsploraFetcher.get_history` reads at most `max_pages` pages a script,
+and skips a mempool transaction gone mid-read (closes #699).
+
+### `RelayFeeReader` and `start_height_for_time`
+
+A node's relay fee floors, and the height a wallet born at a given time
+has history from (closes #711).
+
+### `btclib_wallet.ledger` keeps descriptor wallets' transactions and coins
+
+A `Ledger` syncs from a `HistoryReader`, answers by Core's wallet rules,
+spends, marks conflicts, abandons, keeps labels, backs up and restores
+(issue #712, #713, #714, #716, #642).
+
+### `PSBT_IN_POR_COMMITMENT` stays in `unknown`
+
+No code changes: a test pins it, as Core keeps it (closes #622).
+
+### The silent-payment rule on a shared scan key is in the docstrings
+
+(closes #705).
+
+### Core is cited at the release `integration-bitcoind.yml` pins
+
+(issue #645). Two hardened children of one xprv are an agreement with
+Core (closes #718), and the history reorg test runs on a regtest node of
+its own (closes #722).
+
+### The intersphinx inventories map the siblings' stable docs
+
+(closes #723).
+
+### `deps-latest`, `deps-oldest`, `links` and `os-windows` fixed on `main`
+
+(issue #735). HWI and Speculos install without the project's uv
+configuration (issue #735).
+
+### The README's status badges sit in a Status section at its end
+
+(issue btclib-org/.github#1856).
+
+### The tree names the organization's standard as section 11 asks
+
+The shared files take btclib-org/.github's citation of the standard
+(issue btclib-org/.github#1856, issue btclib-org/.github#2137).
+
+### `CONTRIBUTING.md` takes btclib-org/.github's shared part
+
+(issue btclib-org/.github#2088).
+
 ## v2026.11.7
 
 ### Esplora, Electrum and Core's REST list a script's history

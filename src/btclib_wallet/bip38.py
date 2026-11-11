@@ -34,12 +34,12 @@ WIF row landed: this module has no format of its own to hand back, `network` is
 always "mainnet" for it, since nothing in a BIP38 record names one.
 
 **Why the cipher is a parameter.** BIP38 encrypts with AES-256 in ECB --
-each 16-byte block on its own, no chaining -- and `ecc.ecc.ecies`'s
-module docstring has the argument in full for why btclib ships none of
-its own: a table-driven block cipher leaks its key through cache timing,
-and shipping one anyway is a worse answer than shipping none. `encrypt`
-and `decrypt` here take `encrypt_block` / `decrypt_block` callables for
-that reason, the same shape `ecies.encrypt` and `ecies.decrypt` take for
+each 16-byte block on its own, no chaining -- and `ecc.ecies`'s module
+docstring has the argument in full for why btclib ships none of its own:
+a table-driven block cipher leaks its key through cache timing, and
+shipping one anyway is a worse answer than shipping none. `encrypt` and
+`decrypt` here take `encrypt_block` / `decrypt_block` callables for that
+reason, the same shape `ecies.encrypt` and `ecies.decrypt` take for
 AES-128-CBC. `new_key_pair`, the printer's half of EC-multiply, takes
 `encrypt_block` too, being the one function of the four that calls the
 cipher forward rather than back.
@@ -82,10 +82,10 @@ import secrets
 import unicodedata
 from collections.abc import Callable
 
+from base58_bech32.base58 import b58decode_check, b58encode_check
+from base58_bech32.exceptions import Base58Bech32TypeError, Base58Bech32ValueError
 from btclib.alias import Integer, Octets, String
 from btclib.b58 import address_from_h160
-from btclib.base58 import decode as base58_decode
-from btclib.base58 import encode as base58_encode
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -179,6 +179,21 @@ def _password_bytes(password: str) -> bytes:
     raise BTClibValueError("invalid password: not encodable as UTF-8")
 
 
+def _payload_from_base58(text: String, size: int) -> bytes:
+    """Return the `size` bytes a Base58Check string carries.
+
+    The codec refuses with `Base58Bech32TypeError` and
+    `Base58Bech32ValueError`, which leave here as the `BTClibTypeError` and
+    the `BTClibValueError` this package refuses with, the message kept.
+    """
+    try:
+        return b58decode_check(text, out_size=size)
+    except Base58Bech32TypeError as e:
+        raise BTClibTypeError(str(e)) from e
+    except Base58Bech32ValueError as e:
+        raise BTClibValueError(str(e)) from e
+
+
 def _xor(a: bytes, b: bytes) -> bytes:
     return bytes(x ^ y for x, y in zip(a, b, strict=True))
 
@@ -256,7 +271,7 @@ def encrypt(
         + encrypted_half_1
         + encrypted_half_2
     )
-    return base58_encode(payload).decode("ascii")
+    return b58encode_check(payload).decode("ascii")
 
 
 def _decrypt_no_ec(
@@ -346,7 +361,7 @@ def intermediate_code(
     )
     passpoint = bytes_from_point(mult(_scalar(passfactor)), compressed=True)
 
-    return base58_encode(magic + owner_entropy + passpoint).decode("ascii")
+    return b58encode_check(magic + owner_entropy + passpoint).decode("ascii")
 
 
 def new_key_pair(
@@ -367,7 +382,7 @@ def new_key_pair(
     tests, since two calls sharing one reuse the same key.
     """
     assert_type(compressed, bool, "compressed")
-    payload = base58_decode(int_code, _INT_CODE_SIZE)
+    payload = _payload_from_base58(int_code, _INT_CODE_SIZE)
     magic, owner_entropy, passpoint_sec = payload[:8], payload[8:16], payload[16:49]
     if magic not in (_MAGIC_NO_LOT_SEQ, _MAGIC_LOT_SEQ):
         raise BTClibValueError(f"invalid intermediate code magic: 0x{magic.hex()}")
@@ -420,7 +435,7 @@ def new_key_pair(
         + encrypted_part_2
     )
     address = address_from_h160("p2pkh", hash160(sec), "mainnet")
-    return base58_encode(out_payload).decode("ascii"), address
+    return b58encode_check(out_payload).decode("ascii"), address
 
 
 def _decrypt_ec(
@@ -500,7 +515,7 @@ def decrypt(
     `NotAPrvKeyError` and `InvalidPrvKeyError` are the split
     `b58.prv_key_data_from_wif` makes for a WIF.
     """
-    payload = base58_decode(encrypted_key, _ENC_KEY_SIZE)
+    payload = _payload_from_base58(encrypted_key, _ENC_KEY_SIZE)
     prefix = payload[:2]
     if prefix == _NO_EC_PREFIX:
         return _decrypt_no_ec(payload, password, decrypt_block)

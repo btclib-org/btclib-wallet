@@ -18,6 +18,7 @@ one layer above them and above `fetch`:
 from btclib_wallet.ledger.ledger import LOOKAHEAD, Ledger
 from btclib_wallet.ledger.records import (
     Balances,
+    GroupedAddress,
     SyncResult,
     TxDetail,
     TxInfo,
@@ -32,6 +33,7 @@ __all__ = [
     "FORMAT_VERSION",
     "LOOKAHEAD",
     "Balances",
+    "GroupedAddress",
     "Ledger",
     "SyncResult",
     "TxDetail",

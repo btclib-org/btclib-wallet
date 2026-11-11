@@ -27,8 +27,8 @@ from btclib.utils import (
     bytesio_from_binarydata,
     fields_from_json_object,
 )
+from ecc import dsa
 from ecc.curves import sec_point
-from ecc.ecc import dsa
 
 from btclib_wallet.bip32.key_origin import (
     BIP32KeyOrigin,
@@ -189,9 +189,11 @@ _V2_FIELDS = {
 # a height and a time
 LOCK_TIME_THRESHOLD = 500_000_000
 
-# 0xfc is reserved for proprietary use, and needs no constant of its own:
-# explicit support for proprietary (and por) is unnecessary,
-# see https://github.com/bitcoin/bips/pull/1038
+# 0xfc (reserved for proprietary use) and 0x09 (BIP127's
+# PSBT_IN_POR_COMMITMENT) need no constant of their own: explicit
+# support for either is unnecessary, see
+# https://github.com/bitcoin/bips/pull/1038, and Bitcoin Core too keeps
+# 0x09 in `unknown`
 
 
 def _deserialize_witness_utxo(k: bytes, v: bytes, type_: str) -> TxOut:

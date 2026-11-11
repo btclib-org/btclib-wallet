@@ -4,15 +4,14 @@
 
 """The wallets whose output is the hash of one key, and who signs for it.
 
-`btclib.ecc.bms` says it in its own docstring -- "at signing time, a
-wallet infrastructure is required to access the private key corresponding
-to a given address" -- and then has none to reach for. This module is
-that infrastructure, and no more of it than the sentence asks for: a
-wallet holds a key source, hands out addresses, remembers what each was
-derived from, and answers which private key signs for one.
-`sign(address, msg)` is what the three together buy, a message signature
-addressed by *address*, which `bms.sign` cannot offer because it has no
-way to find the key.
+`btclib.bms` says it in its own docstring -- "the signer needs the
+private key behind the address, from a wallet or supplied directly" --
+and holds no wallet itself. This module is that wallet, and no more of
+it than the sentence asks for: a wallet holds a key source, hands out
+addresses, remembers what each was derived from, and answers which
+private key signs for one. `sign(address, msg)` is what the three
+together buy, a message signature addressed by *address*, which
+`bms.sign` cannot offer because it has no way to find the key.
 
 Two key sources, one class each. `BIP32KeyWallet` takes an extended key
 and the BIP44 account path it sits on, and derives the addresses of the
@@ -44,9 +43,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from btclib import b58
+from btclib import b58, bms
 from btclib.alias import Octets, String
-from btclib.ecc import bms
 from btclib.exceptions import BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.network import network_from_xkeyversion

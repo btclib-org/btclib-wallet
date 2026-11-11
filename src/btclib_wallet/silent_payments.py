@@ -59,7 +59,7 @@ secret is derived from. None of the three is a function here; the module
 docstring is where they are stated, and `btclib.script.sig_hash` is where
 the flags are.
 
-secp256k1 and sha256 are not parameters, as in `ecc.ecc.musig2`:
+secp256k1 and sha256 are not parameters, as in `ecc.musig2`:
 BIP352 is defined for that pair, and the 33-byte compressed points, the
 32-byte scalars and the three tags below are its serialization.
 """
@@ -70,9 +70,10 @@ import string
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from base58_bech32.bech32 import BECH32_M_CONST, bech32_decode, bech32_encode
+from base58_bech32.exceptions import Base58Bech32ValueError
 from btclib.alias import Integer, NetworkType, Octets, Point, String
 from btclib.b32 import power_of_2_base_conversion
-from btclib.bech32 import BECH32_M_CONST, decode, encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.network import network_type_from_network, validated_network_name
@@ -80,6 +81,7 @@ from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
 from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_string
+from ecc.alias import Public
 from ecc.curves import (
     PubKey,
     TweakChain,
@@ -95,8 +97,8 @@ from ecc.curves import (
     secp256k1,
     sum_var,
 )
-from ecc.ecc.ssa import point_from_bip340pub_key_var
 from ecc.hashes import tagged_hash
+from ecc.ssa import point_from_bip340pub_key_var
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -275,12 +277,13 @@ def address_from_keys(B_scan: PubKey, B_m: PubKey, network: str = "mainnet") -> 
     payload = bytes_from_point(point_from_pub_key(B_scan), secp256k1)
     payload += bytes_from_point(point_from_pub_key(B_m), secp256k1)
     data = [_VERSION, *power_of_2_base_conversion(payload, 8, 5)]
-    # bech32m by the constant and not by the leading value: `encode`
+    # bech32m by the constant and not by the leading value: `bech32_encode`
     # reads the witness version of a segwit address off data[0] to choose
     # between bech32 and bech32m, and here data[0] is a silent payment
     # version -- 0, which would pick the bech32 constant and produce a
     # string no BIP352 implementation accepts
-    return encode(_hrp_from_network(network), data, BECH32_M_CONST).decode("ascii")
+    hrp = _hrp_from_network(network)
+    return bech32_encode(hrp, data, m=BECH32_M_CONST).decode("ascii")
 
 
 def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
@@ -315,19 +318,22 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
     if len(addr) > _MAX_ADDRESS_SIZE:
         err_msg = f"invalid address length: {len(addr)} > {_MAX_ADDRESS_SIZE}"
         raise BTClibValueError(err_msg)
-    # `decode` is handed the string as it came, so that its refusal of
-    # mixed case reaches the caller. bech32 is ASCII, and anything else is
-    # refused here: a `decode` that lowers the string before reading its
+    # `bech32_decode` is handed the string as it came, so that its refusal
+    # of mixed case reaches the caller. bech32 is ASCII, and anything else
+    # is refused here: a decoder that lowers the string before reading its
     # alphabet takes U+212A KELVIN SIGN for "k" (issue btclib-org/btclib#2347)
     if not addr.isascii():
         raise BTClibValueError("non-ASCII character in address")
 
-    hrp, data = decode(addr, BECH32_M_CONST)
+    try:
+        hrp, data, _ = bech32_decode(addr, m=BECH32_M_CONST)
+    except Base58Bech32ValueError as e:
+        raise BTClibValueError(str(e)) from e
     if hrp not in {_MAINNET_HRP, _TESTNET_HRP, _REGTEST_HRP}:
         raise BTClibValueError(f"invalid hrp: {hrp}")
 
-    # `decode` was given the checksum constant, so it did not read a
-    # version off the data part and did not require one to be there
+    # `bech32_decode` reads no version off the data part and does not
+    # require one to be there
     if not data:
         raise BTClibValueError("empty data in silent payment address")
     version = data[0]
@@ -624,8 +630,8 @@ def shared_secret(scalar: Integer, point: PubKey) -> Point:
     without the round trip through one. The point itself is the answer,
     which is why `ecdh.shared_secret` of the bindings is no substitute --
     it hashes, and BIP352 tags this point with a counter of its own;
-    `ecc.ecc.dh` has that verdict for all four of the library's
-    ECDH-shaped computations.
+    `ecc.dh` has that verdict for all four of the library's ECDH-shaped
+    computations.
 
     The octets arrive unproven, as `ecc.ecies.derive_keys` takes them:
     `mult_pub_key`'s own multiplication is the proof, refusing what is not
@@ -1095,7 +1101,8 @@ def _scan(
     found = []
     for k in range(min(len(remaining), K_MAX)):
         t_k = _output_tweak(secret, k)
-        P_k = chain.point(t_k)
+        # variable time in t_k, which a scan may be: the docstring says why
+        P_k = chain.point(Public(t_k))
         x_only_P_k = _x_only(P_k)
         # (position, output, label tweak or None) of the output taken
         match = _earliest_match(P_k, x_only_P_k, remaining, label_points, label_map)
@@ -1288,7 +1295,7 @@ def prv_key_from_tweak(b_spend: Integer, prv_key_tweak: int) -> int:
 
     b_spend plus the tweak `scan_outputs` reported, modulo n. The taproot
     output is x-only, so a signer negates this key if it has to; that is
-    BIP340's business and `ecc.ecc.ssa.sign` does it.
+    BIP340's business and `ecc.ssa.sign` does it.
     """
     d = (
         scalar_from_prv_key(b_spend) + scalar_from_prv_key(prv_key_tweak)

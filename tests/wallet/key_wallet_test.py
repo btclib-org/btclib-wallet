@@ -11,8 +11,7 @@ import types
 from typing import Any
 
 import pytest
-from btclib import b58
-from btclib.ecc import bms
+from btclib import b58, bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
 from ecc.curves import bytes_from_prv_key_int, set_libsecp256k1_serving

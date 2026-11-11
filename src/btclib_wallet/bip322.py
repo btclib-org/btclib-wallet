@@ -4,8 +4,8 @@
 
 """BIP322 signed messages: a script is satisfied, not a key recovered.
 
-`ecc.bms` signs with a key and lets the verifier recover it, which is why
-it can only speak about the addresses that *are* a public key hash --
+`btclib.bms` signs with a key and lets the verifier recover it, which is
+why it can only speak about the addresses that *are* a public key hash --
 p2pkh, and by Electrum's extension the two p2wpkh spellings. A taproot
 address is a tweaked BIP340 key and a p2wsh address is a hash of a
 script, and no recovery flag names either.
@@ -49,8 +49,8 @@ and `Sig` holds whichever came:
 A signature with no prefix is read as *simple*, which BIP322 allows for
 compatibility with the implementations that predate the prefixes. The
 *legacy* variant is BMS: `assert_as_valid` hands a 65-byte compact
-signature to `ecc.bms`, and only for a p2pkh address, the BIP restricting
-it to that one.
+signature to `btclib.bms`, and only for a p2pkh address, the BIP
+restricting it to that one.
 
 Verification answers three states, as the BIP does. Valid is a return;
 invalid is a `ValueError` or a `RuntimeError` of btclib's or of
@@ -104,10 +104,10 @@ import base64
 import string
 from dataclasses import dataclass
 
+from btclib import bms
 from btclib.alias import Octets, String
 from btclib.b58 import prv_key_data_from_wif
 from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
-from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
@@ -130,8 +130,8 @@ from btclib.script.taproot import output_prvkey_from_merkle_root, output_pubkey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, bytes_from_octets, str_from_string
+from ecc import dsa, ssa
 from ecc.curves import bytes_from_prv_key_int
-from ecc.ecc import dsa, ssa
 from ecc.exceptions import EccRuntimeError
 from ecc.hashes import tagged_hash
 
@@ -364,10 +364,11 @@ class Sig:
         what BIP322 says a verifier may assume of the implementations
         that predate them.
         """
-        # the coercion before the strip, as in `ecc.bms.Sig.b64decode`
-        # and for its reason: what is neither text nor bytes left
-        # `bip322.verify` as an AttributeError about a missing method
-        # rather than as a refusal of the argument (issue btclib-org/btclib#814)
+        # the coercion before the strip, as in
+        # `btclib.bms.Sig.b64decode` and for its reason: what is neither
+        # text nor bytes left `bip322.verify` as an AttributeError about
+        # a missing method rather than as a refusal of the argument
+        # (issue btclib-org/btclib#814)
         #
         # ASCII whitespace alone (issue #102)
         text = str_from_string(data, "base64 signature").strip(string.whitespace)
@@ -716,11 +717,11 @@ def _assert_structurally_valid_(addr: String, sig: Sig | String) -> None:
     thing the keyword decides.
 
     `check_validity=False` leaves the value half of the signature where
-    it belongs, as in `ecc.bms._assert_structurally_valid_`:
+    it belongs, as in `btclib.bms._assert_structurally_valid_`:
     `assert_as_valid` reads the text again with its checks on, below,
     inside the try.
 
-    The message is not asked here, as in `ecc.bms`: it is what the
+    The message is not asked here, as in `btclib.bms`: it is what the
     signature is verified about, and issue btclib-org/btclib#814 is where that
     was settled.
     """

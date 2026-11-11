@@ -102,7 +102,7 @@ intersphinx_cache_limit = 0
 # than a nitpick_ignore_regex that would give the check up entirely:
 #
 # - a name an annotation spells the way the module imported it --
-#   `Octets` from btclib.alias, `musig2.` for ecc.ecc.musig2 -- which
+#   `Octets` from btclib.alias, `musig2.` for ecc.musig2 -- which
 #   btclib's own build resolves by searching its own objects, where an
 #   inventory answers the full name alone. `Mnemonic`, which
 #   btclib_wallet.mnemonic imports from bip39_slip39.mnemonic under

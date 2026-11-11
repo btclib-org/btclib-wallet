@@ -14,8 +14,8 @@ from btclib.exceptions import BTClibValueError
 from btclib.script import Witness
 from btclib.script.sig_hash import SIG_HASH_TYPES
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dsa
 from ecc.curves import sec_point, secp256k1
-from ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn
@@ -140,6 +140,30 @@ def test_key_type_tables_name_every_field() -> None:
     assert (
         len(_SERIALIZED_FIELDS) == len(_WHOLE_VALUE_FIELDS) + len(_KEY_DATA_FIELDS) + 1
     )
+
+
+def test_a_por_commitment_stays_unknown_and_round_trips() -> None:
+    """BIP127's PSBT_IN_POR_COMMITMENT, key type 0x09, has no field.
+
+    Bitcoin Core's input parser has no case for it and keeps it in
+    `unknown`; so does this package, and the commitment comes back byte
+    for byte.
+    Issue btclib-org/btclib-wallet#622.
+    """
+    commitment = b"Proof of Reserves: btclib"
+    entry = b"\x01\x09" + bytes([len(commitment)]) + commitment
+    raw = entry + PSBT_SEPARATOR
+
+    psbt_in = PsbtIn.parse(raw)
+    assert psbt_in == PsbtIn(unknown={b"\x09": commitment})
+    assert psbt_in.serialize() == raw
+
+    tx = Tx(vin=[TxIn(OutPoint(b"\x01" * 32, 0))], vout=[TxOut(1, b"\x51")])
+    psbt_bytes = Psbt.from_tx(tx, inputs=[psbt_in]).serialize()
+    assert entry in psbt_bytes
+    psbt = Psbt.parse(psbt_bytes)
+    assert psbt.inputs[0].unknown == {b"\x09": commitment}
+    assert psbt.serialize() == psbt_bytes
 
 
 def test_a_finalized_input_drops_everything_the_finalizer_consumed() -> None:
@@ -312,7 +336,7 @@ def test_scripts_are_rendered_as_asm_and_hex() -> None:
     }
     assert PsbtIn.from_dict(old) == psbt_in
 
-    with pytest.raises(BTClibValueError, match="asm does not match hex: "):
+    with pytest.raises(BTClibValueError, match="^asm does not match hex$"):
         PsbtIn.from_dict(
             {**dict_, "witness_script": {"asm": "OP_1", "hex": witness_script}}
         )

@@ -32,8 +32,8 @@ from btclib.script.engine import verify_transaction
 from btclib.script.taproot import input_script_sig, tree_helper
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
+from ecc import dsa, ssa
 from ecc.curves import sec_point
-from ecc.ecc import dsa, ssa
 from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
@@ -566,7 +566,8 @@ def test_combining_keeps_the_flags_no_more_permissive_than_they_were() -> None:
     Has SIGHASH_SINGLE bit their OR, each in the direction that cannot
     invent permission: a Signer clears a modifiable bit when it adds a
     signature a change would break, and sets the third when the
-    signature it added is a SIGHASH_SINGLE one.
+    signature it added is a SIGHASH_SINGLE one. The undefined bits are
+    AND-ed, as Bitcoin Core's Merge does.
     """
     both = _bip370_psbt(
         "1 input, 2 output updated PSBTv2, with all defined PSBT_GLOBAL_TX_MODIFIABLE"
@@ -580,10 +581,20 @@ def test_combining_keeps_the_flags_no_more_permissive_than_they_were() -> None:
     # SIGHASH_SINGLE one of the psbt that has it survives
     assert combined.tx_modifiable == INPUTS_MODIFIABLE | HAS_SIG_HASH_SINGLE
 
-    # an undefined bit is nobody's to drop
-    undefined = deepcopy(both)
-    undefined.tx_modifiable = 0b1000
-    assert combine([deepcopy(both), undefined]).tx_modifiable == 0b1100
+    # the undefined bits are AND-ed too: these are the flags Bitcoin
+    # Core's combinepsbt returns for the same pairs, in either order
+    for flags, expected in (
+        ((0b0000_1011, 0b0000_0011), 0b0000_0011),
+        ((0b0000_1000, None), 0b0000_0000),
+        ((0b0000_1000, 0b0000_0111), 0b0000_0100),
+        ((0b1111_1000, 0b0001_1000), 0b0001_1000),
+        ((0b1111_1111, None), 0b0000_0100),
+    ):
+        pair = [deepcopy(both), deepcopy(both)]
+        for psbt, flag in zip(pair, flags, strict=True):
+            psbt.tx_modifiable = flag
+        assert combine(deepcopy(pair)).tx_modifiable == expected
+        assert combine(pair[::-1]).tx_modifiable == expected
 
     # a psbt with no field at all is "nothing may be modified", so it
     # clears the two bits of the psbt it is combined with
@@ -3158,7 +3169,9 @@ def test_what_a_signer_cannot_be_given_a_hash_for() -> None:
     with pytest.raises(BTClibValueError, match="SIGHASH_DEFAULT is not an ECDSA"):
         ecdsa_sig_hash(asking_for_default, 0)
 
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x4"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 3 bits"
+    ):
         ecdsa_sig_hash(psbt, 0, hash_type=4)
 
 
@@ -3301,10 +3314,14 @@ def test_combining_refuses_an_invalid_copy_the_merge_would_drop() -> None:
     first.inputs[0].sig_hash_type = 1
     later = deepcopy(first)
     later.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 7 bits"
+    ):
         later.assert_valid()
 
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 7 bits"
+    ):
         combine([first, later])
 
 
@@ -4667,6 +4684,13 @@ def test_an_answer_that_loosens_tx_modifiable_is_refused() -> None:
     returned.tx_modifiable = OUTPUTS_MODIFIABLE
     assert_signatures_only(request, returned)
 
+    # an undefined bit goes the same way, the combine AND-ing it
+    request.tx_modifiable, returned.tx_modifiable = 0b0000_1000, 0
+    assert_signatures_only(request, returned)
+    request.tx_modifiable, returned.tx_modifiable = 0, 0b0000_1000
+    with pytest.raises(BTClibValueError, match="tx_modifiable is more permissive"):
+        assert_signatures_only(request, returned)
+
 
 def test_an_answer_that_changes_the_fallback_lock_time_is_refused() -> None:
     """Inert for this psbt, and a field that travels all the same.
@@ -5901,7 +5925,9 @@ def test_extract_tx_without_check_validity_does_not_assert_valid() -> None:
     """`check_validity=False` skips `assert_valid` where the scripts run."""
     psbt, _ = _finalized_psbt("p2wpkh")
     psbt.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 7 bits"
+    ):
         extract_tx(psbt)
     assert extract_tx(psbt, check_validity=False) is not None
 

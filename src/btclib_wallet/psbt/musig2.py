@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""The three roles BIP373 defines, over `ecc.ecc.musig2`.
+"""The three roles BIP373 defines, over `ecc.musig2`.
 
 https://github.com/bitcoin/bips/blob/master/bip-0373.mediawiki
 
@@ -21,7 +21,7 @@ BIP373's own:
 
 **Where the secret nonce lives is the caller's business, and this module
 holds nothing.** `nonce_gen` hands back the `bytearray` that
-`ecc.ecc.musig2.sign` consumes, and `partial_sign` takes it back;
+`ecc.musig2.sign` consumes, and `partial_sign` takes it back;
 between the two rounds it is in the caller's hands and never in the psbt,
 which travels. That is not squeamishness about serialization: a secnonce
 that signs twice hands out the private key by elementary algebra, and a
@@ -49,8 +49,8 @@ publishes a vector for each:
 
 `session_context` is where those four are read off the psbt, and it is
 public because a signer needs it for what BIP327 asks beyond signing:
-`ecc.ecc.musig2.partial_sig_verify_` against another signer's nonce.
-It returns the `KeyAggContext` it built the session on, alongside the
+`ecc.musig2.partial_sig_verify_` against another signer's nonce. It
+returns the `KeyAggContext` it built the session on, alongside the
 session itself: `partial_sigs_agg` is a caller that needs the tweaked
 key, and the alternative -- aggregating the participants over again to
 get it -- is the quadratic shape issue btclib-org/btclib#1046 fixed.
@@ -66,9 +66,9 @@ from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160
 from btclib.script import type_and_payload
 from btclib.utils import assert_type, bytes_from_octets
+from ecc import musig2, ssa
 from ecc.curves import scalar_from_prv_key, secp256k1
 from ecc.curves.sec_point import bytes_from_point
-from ecc.ecc import musig2, ssa
 from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32 import BIP328_CHAIN_CODE, pub_key_derivation_tweaks
@@ -286,11 +286,11 @@ def _script_key(psbt_in: PsbtIn, leaf_hash: bytes) -> bytes:
 class Session(NamedTuple):
     """A BIP327 session, and the `KeyAggContext` it was built on.
 
-    `context` is what `ecc.ecc.musig2.sign` and `partial_sig_verify_`
-    take. `key_agg_ctx` is the aggregation `_session_parts` already did to
-    reach it -- handed back rather than left for a caller that needs the
-    tweaked key, `x_only_pub_key` included, to aggregate the participants
-    a second time.
+    `context` is what `ecc.musig2.sign` and `partial_sig_verify_` take.
+    `key_agg_ctx` is the aggregation `_session_parts` already did to reach
+    it -- handed back rather than left for a caller that needs the tweaked
+    key, `x_only_pub_key` included, to aggregate the participants a second
+    time.
     """
 
     context: musig2.SessionContext
@@ -306,7 +306,7 @@ def session_context(
     for this session, so every signer that has published one is in it: a
     context built before the last nonce arrives is a different context,
     and the partial signatures made against the two do not add up.
-    `ecc.ecc.musig2.partial_sig_verify_` is what catches that, and
+    `ecc.musig2.partial_sig_verify_` is what catches that, and
     this is what it takes.
     """
     aggregate_pub_key = bytes_from_octets(aggregate_pub_key, MUSIG2_PUB_KEY_SIZE)
@@ -423,7 +423,7 @@ def partial_sign(
     """Write the partial signature of round 2, and return it.
 
     The Signer role, second half. The secnonce is consumed by
-    `ecc.ecc.musig2.sign`, which zeroes it: this function cannot be
+    `ecc.musig2.sign`, which zeroes it: this function cannot be
     called twice with one nonce, and that is the point.
 
     The signature is verified before it is written, against the session

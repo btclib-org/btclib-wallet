@@ -11,7 +11,9 @@ body:
         transaction, and every module with a counterparty outside the
         process: a device, a node, a server, a file from another wallet.
         An encoding, a consensus rule or a signature scheme belongs in
-        [btclib](https://github.com/btclib-org/btclib/issues) instead.
+        [btclib](https://github.com/btclib-org/btclib/issues) instead, and
+        a Base58Check or bech32 codec in
+        [base58-bech32](https://github.com/btclib-org/base58-bech32/issues).
 
   - type: textarea
     id: what

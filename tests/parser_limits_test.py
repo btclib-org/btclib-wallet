@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from btclib.bech32 import encode as bech32_encode
+from base58_bech32.bech32 import bech32_encode
 from btclib.exceptions import BTClibValueError
 
 from btclib_wallet import descriptors
@@ -44,7 +44,7 @@ _PADDED_ONE = "0" * 5000 + "1"
 def _invoice_with_amount(digits: str) -> str:
     """Return an invoice text, valid as bech32, with `digits` as its amount."""
     words = [0] * (7 + _SIGNATURE_WORDS)
-    return bech32_encode("lnbc" + digits + "m", words, 1).decode()
+    return bech32_encode("lnbc" + digits + "m", words, m=1, limit=None).decode()
 
 
 LONG_NUMBER_CASES: dict[str, Callable[[], Any]] = {

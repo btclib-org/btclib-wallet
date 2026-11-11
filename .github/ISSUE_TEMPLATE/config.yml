@@ -17,8 +17,12 @@ contact_links:
   - name: Bug in a key, a script, a transaction or a signature
     url: https://github.com/btclib-org/btclib/issues
     about: >
-      The protocol this package builds on is btclib's: the encodings, the
-      consensus rules and the signature schemes.
+      The protocol this package builds on is btclib's: the encodings
+      other than Base58Check and bech32, the consensus rules and the
+      signature schemes.
+  - name: Bug in the Base58Check or bech32 codec
+    url: https://github.com/btclib-org/base58-bech32/issues
+    about: The Base58Check and bech32 codecs are base58-bech32's.
   - name: Bug in Bitcoin Core's rpc client
     url: https://github.com/btclib-org/bitcoin-core-rpc/issues
     about: What talks to a node over JSON-RPC is bitcoin-core-rpc's.

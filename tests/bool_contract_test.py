@@ -48,8 +48,8 @@ from btclib.key import PrvKeyData, PubKeyData
 from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import Tx, TxIn
+from ecc import ecdsa_adaptor
 from ecc.curves import mult
-from ecc.ecc import ecdsa_adaptor
 
 from btclib_wallet import bip322, dlc
 from btclib_wallet.dlc import oracle

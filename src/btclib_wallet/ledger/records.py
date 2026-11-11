@@ -6,9 +6,8 @@
 
 `TxState` is the state Bitcoin Core gives a wallet transaction
 (src/wallet/transaction.h:33-81 at bitcoin/bitcoin@f0de87f040, the v32.1
-tag), less the two that ISS
-btclib-org/btclib-wallet#713 adds: a conflict with a block, and the
-abandoned flag of an inactive transaction.
+tag), with the abandoned flag of Core's inactive state as a state of its
+own.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from btclib_wallet.fetch.history import BlockRef
 
 __all__ = [
     "Balances",
+    "GroupedAddress",
     "SyncResult",
     "TxDetail",
     "TxInfo",
@@ -37,20 +37,28 @@ class TxState(Enum):
     `INACTIVE` is a transaction neither in a block of the chain nor in
     the last mempool read: one the mempool replaced, refused or evicted,
     or one a reorganization took out of a block and the mempool did not
-    take back. It is kept, not dropped.
+    take back. It is kept, not dropped. `ABANDONED` is an inactive
+    transaction its caller abandoned, or a descendant of one
+    (`Ledger.abandon`), or a coinbase a reorganization took out of its
+    block. `CONFLICTED` is a transaction that a transaction
+    in a block conflicts with, by spending one of its inputs or an input
+    of one of its ancestors.
     """
 
     CONFIRMED = "confirmed"
     MEMPOOL = "mempool"
     INACTIVE = "inactive"
+    ABANDONED = "abandoned"
+    CONFLICTED = "conflicted"
 
 
 @dataclass(frozen=True)
 class WalletTx:
     """A transaction the ledger holds, its state, and its order.
 
-    `block` is the block that confirms it, and `None` unless `state` is
-    `CONFIRMED`. `seq` is the order the ledger first recorded it in.
+    `block` is the block that confirms it where `state` is `CONFIRMED`,
+    the block that conflicts with it where `state` is `CONFLICTED`, and
+    `None` otherwise. `seq` is the order the ledger first recorded it in.
     """
 
     tx: Tx
@@ -91,6 +99,20 @@ class Utxo:
 
 
 @dataclass(frozen=True)
+class GroupedAddress:
+    """One address of a group `listaddressgroupings` reports.
+
+    `amount` is what its unspent outputs hold, in satoshi, counted as
+    Core's `GetAddressBalances` counts it. `label` is `None` where the
+    address has none, as change has none.
+    """
+
+    address: str
+    amount: int
+    label: str | None
+
+
+@dataclass(frozen=True)
 class TxDetail:
     """One line of `gettransaction`'s details.
 
@@ -114,7 +136,10 @@ class TxInfo:
     it matures, and an orphaned one, in no block, nothing at all. Its
     `details` still list what it pays. `fee` is what it pays, and
     `None` unless it spends one of the ledger's coins. `confirmations`
-    is 0 for a transaction in no block.
+    is 0 for a transaction in no block, and minus the depth of the
+    conflicting block for a conflicted one. `wallet_conflicts` is Core's
+    `walletconflicts`: the ids of the other transactions of the ledger
+    that spend one of its inputs, whatever their state.
     """
 
     wallet_tx: WalletTx
@@ -123,6 +148,7 @@ class TxInfo:
     confirmations: int
     trusted: bool
     details: tuple[TxDetail, ...]
+    wallet_conflicts: frozenset[bytes]
 
 
 @dataclass(frozen=True)

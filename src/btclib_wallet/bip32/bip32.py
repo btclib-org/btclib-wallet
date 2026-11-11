@@ -30,7 +30,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from btclib import base58
+from base58_bech32.base58 import b58decode_check, b58encode_check
+from base58_bech32.exceptions import Base58Bech32ValueError
 from btclib.alias import BinaryData, Octets, Point, String
 from btclib.exceptions import BTClibTypeError, BTClibValueError, InvalidPrvKeyError
 from btclib.hashes import hash160
@@ -53,6 +54,7 @@ from btclib.utils import (
     int_from_json_number,
     is_integer,
 )
+from ecc.alias import Public
 from ecc.curves import (
     Curve,
     bytes_from_point,
@@ -116,7 +118,7 @@ _REQUIRED_LENGTH = 78
 
 @functools.lru_cache(maxsize=2048)
 def _cached_base58_decode(address: String) -> bytes:
-    """Return `base58.decode(address)`, memoized on the xprv/xpub string.
+    """Return `b58decode_check(address)`, memoized on the xprv/xpub string.
 
     `derive` decodes its `xkey` argument fresh on every call, and a
     caller deriving many indices or paths from one account key -- what
@@ -149,15 +151,17 @@ def _cached_base58_decode(address: String) -> bytes:
     `b58decode` still has to construct a fresh one on every call. Bytes
     are the one result here nobody can mutate by accident.
 
-    Every refusal is raised outside the `except`. A bad checksum and a
-    non-ASCII character are cut to fixed text: for a mistyped xprv
-    `base58.decode` quotes the right checksum, a hash of the key, and for
-    a non-ASCII one the character and its position in the key.
+    Every refusal is raised outside the `except`, as the
+    `BTClibValueError` this package refuses with: the codec raises
+    `Base58Bech32ValueError`. A refusal of a bad checksum or of a
+    non-ASCII character keeps only its text before a colon, so that no
+    checksum, which is a hash of the key, and no character of the key can
+    follow it.
     """
     try:
-        return base58.decode(address)
-    except BTClibValueError as e:
-        # the other messages of `base58.decode` quote nothing of the key
+        return b58decode_check(address)
+    except Base58Bech32ValueError as e:
+        # the other messages of `b58decode_check` quote nothing of the key
         refusal = str(e).split(": ", maxsplit=1)[0]
         if not refusal.startswith(("invalid checksum", "non-ascii character")):
             refusal = str(e)
@@ -215,7 +219,8 @@ def _assert_valid_key(version: bytes, key: bytes) -> None:
         # chain, so the message below states the error on its own, independent
         # of curve_group's own "invalid x-coordinate" wording
         x = int.from_bytes(key[1:], byteorder="big", signed=False)
-        if not is_x_coordinate_var(x, secp256k1):
+        # `Public`: the xpub version says these bytes are a public key
+        if not is_x_coordinate_var(Public(x), secp256k1):
             # the value may be a private scalar: only its prefix is quoted
             err_msg = f"invalid public key: not a point, prefix 0x{key[:1].hex()}"
             raise BTClibValueError(err_msg)
@@ -374,7 +379,7 @@ class BIP32KeyData:
     def b58encode(self, *, check_validity: bool = True) -> str:
         """Return the Base58Check text, the xprv/xpub spelling."""
         data_binary = self.serialize(check_validity=check_validity)
-        return base58.encode(data_binary).decode("ascii")
+        return b58encode_check(data_binary).decode("ascii")
 
     @classmethod
     def parse(
@@ -412,7 +417,7 @@ class BIP32KeyData:
     ) -> BIP32KeyData:
         """Build a BIP32KeyData from its xprv/xpub Base58Check text.
 
-        The type is asked here rather than left to `base58.decode`, which
+        The type is asked here rather than left to `b58decode_check`, which
         does ask it: the cache in front of that call keys on the argument,
         so anything unhashable -- a list, or a mutable buffer -- would
         leave a complaint about hashing instead of the refusal decoding

@@ -14,12 +14,13 @@ from hashlib import shake_256
 from typing import Any
 
 import pytest
-from btclib import base58
+from base58_bech32.base58 import b58decode_check, b58encode_check
 from btclib.b58 import p2pkh
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.key import PubKeyData
 from btclib.network import NETWORKS
+from ecc.alias import Public
 from ecc.curves import (
     # its module holds the `mod_sqrt_var` the lift calls, and patching it
     # to raise is how the test below pins that validating an xpub takes no
@@ -31,7 +32,7 @@ from ecc.curves import (
     point_from_octets_var,
 )
 from ecc.curves import secp256k1 as ec
-from ecc.ecc.musig2 import key_agg_var
+from ecc.musig2 import key_agg_var
 
 from btclib_wallet.bip32 import (
     BIP328_CHAIN_CODE,
@@ -193,7 +194,7 @@ def test_an_xkey_decodes_however_its_text_is_held() -> None:
 
     They used to be refused outright, with "invalid base58 string type:
     bytearray", by a check written against the narrower `String` -- and
-    written there rather than left to `base58.decode` for a reason the
+    written there rather than left to `b58decode_check` for a reason the
     widening does not remove: the `lru_cache` in front of the decoding
     keys on the argument, a bytearray cannot key one at all, and a
     memoryview of one raises `ValueError: cannot hash writable
@@ -337,7 +338,7 @@ def test_serialization() -> None:
     xkey = "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi"
     xkey_data = BIP32KeyData.b58decode(xkey)
 
-    decoded_key = base58.decode(xkey, 78)
+    decoded_key = b58decode_check(xkey, out_size=78)
     assert xkey_data.version == decoded_key[:4]
     assert xkey_data.depth == decoded_key[4]
     assert xkey_data.parent_fingerprint == decoded_key[5:9]
@@ -482,7 +483,7 @@ def test_public_key_validation_does_not_lift(
 
     monkeypatch.setattr(sys.modules[CurveGroup.__module__], "mod_sqrt_var", refuse)
     with pytest.raises(AssertionError, match="was computed"):
-        ec.y_var(ec.G[0])
+        ec.y_var(Public(ec.G[0]))
 
     xpub = "xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy"
     assert BIP32KeyData.b58decode(xpub).b58encode() == xpub
@@ -490,8 +491,10 @@ def test_public_key_validation_does_not_lift(
 
     # 0x02 || 7, the x of no point: BIP32 test vector #5's "invalid
     # pubkey 0200...07"
-    decoded = base58.decode(xpub)
-    bad_xpub = base58.encode(decoded[:45] + b"\x02" + (7).to_bytes(32, "big"), 78)
+    decoded = b58decode_check(xpub)
+    bad_xpub = b58encode_check(
+        decoded[:45] + b"\x02" + (7).to_bytes(32, "big"), in_size=78
+    )
     err_msg = "^invalid public key: not a point, prefix 0x02$"
     with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         BIP32KeyData.b58decode(bad_xpub)
@@ -591,10 +594,10 @@ def test_derive_validates_before_it_changes_the_depth() -> None:
     accept what `b58decode` refuses.
     """
     root_xpub = xpub_from_xprv(rootxprv_from_seed("5b56c417303faa3fcba7e57400e120a0"))
-    raw = bytearray(base58.decode(root_xpub))
+    raw = bytearray(b58decode_check(root_xpub))
     assert raw[4] == 0  # depth
     raw[9:13] = (7).to_bytes(4, "big")  # a non-zero index at depth zero
-    bad = base58.encode(bytes(raw), 78)
+    bad = b58encode_check(bytes(raw), in_size=78)
 
     err_msg = "zero depth with non-zero index: 7"
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -680,15 +683,15 @@ def test_derive_exceptions() -> None:
 
     rootxprv = "xprv9s21ZrQH143K2ZP8tyNiUtgoezZosUkw9hhir2JFzDhcUWKz8qFYk3cxdgSFoCMzt8E2Ubi1nXw71TLhwgCfzqFHfM5Snv4zboSebePRmLS"
 
-    temp = base58.decode(rootxprv)
-    bad_xprv = base58.encode(temp[:45] + b"\x02" + temp[46:], 78)
+    temp = b58decode_check(rootxprv)
+    bad_xprv = b58encode_check(temp[:45] + b"\x02" + temp[46:], in_size=78)
     err_msg = "invalid private key prefix: "
     with pytest.raises(BTClibValueError, match=err_msg):
         derive(bad_xprv, 0x80000000)
 
     xpub = xpub_from_xprv(rootxprv)
-    temp = base58.decode(xpub)
-    bad_xpub = base58.encode(temp[:45] + b"\x00" + temp[46:], 78)
+    temp = b58decode_check(xpub)
+    bad_xpub = b58encode_check(temp[:45] + b"\x00" + temp[46:], in_size=78)
     err_msg = r"invalid public key prefix not in \(0x02, 0x03\): "
     with pytest.raises(BTClibValueError, match=err_msg):
         derive(bad_xpub, 0x80000000)
@@ -1563,7 +1566,7 @@ def test_b58decode_strips_a_string_and_not_bytes() -> None:
     """A string is whitespace-stripped before decoding.
 
     `isinstance(address, str)` negated would strip bytes instead of
-    strings and leave a padded string for base58.decode to choke on --
+    strings and leave a padded string for b58decode_check to choke on --
     nothing downstream surfaces the swap without checking the string
     path directly.
     """

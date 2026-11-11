@@ -255,7 +255,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "capabilities",
     ],
     "btclib_wallet.hwi:HwiSigner.sign_psbt": ["allowed_sig_hash_types"],
-    "btclib_wallet.ledger:Ledger.add_source": ["lookahead"],
+    "btclib_wallet.ledger:Ledger.add_source": ["lookahead", "label"],
     "btclib_wallet.ledger:Ledger.balances": ["include_nonmempool"],
     "btclib_wallet.ledger:Ledger.create": [
         "broadcaster",
@@ -269,6 +269,15 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "relay_fee_reader",
         "fallback_fee_rate",
     ],
+    "btclib_wallet.ledger:Ledger.restore": [
+        "broadcaster",
+        "fee_estimator",
+        "relay_fee_reader",
+        "fallback_fee_rate",
+    ],
+    "btclib_wallet.ledger:Ledger.new_address": ["label"],
+    "btclib_wallet.ledger:Ledger.received_by_address": ["include_immature_coinbase"],
+    "btclib_wallet.ledger:Ledger.received_by_label": ["include_immature_coinbase"],
     "btclib_wallet.ledger:Ledger.utxos": [
         "include_immature_coinbase",
         "include_locked",
@@ -362,8 +371,8 @@ def _resolve(label: str) -> Any:
     """Import `module:Class.method` or `module:function` back to the object.
 
     The colon is the split point rather than the last dot: a module name
-    is dotted too (`btclib.ecc.dsa`), so the pair is stored apart instead
-    of concatenated and re-split.
+    is dotted too (`btclib.script.taproot`), so the pair is stored apart
+    instead of concatenated and re-split.
     """
     module_name, _, attr_path = label.partition(":")
     obj: Any = import_module(module_name)

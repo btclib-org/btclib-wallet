@@ -19,12 +19,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from base58_bech32.bech32 import bech32_encode
 from btclib.b32 import power_of_2_base_conversion
-from btclib.bech32 import encode as bech32_encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
 from ecc.curves import secp256k1
-from ecc.ecc.dsa import Sig, sign_recoverable_
+from ecc.dsa import Sig, sign_recoverable_
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
 from tests import load, vector_id
@@ -89,7 +89,7 @@ def test_bolt11_own_valid_examples(vector: dict[str, Any]) -> None:
     # BOLT11 does not fix field order across tags, so a byte-exact round
     # trip is only expected against the invoice's own case; two of the
     # vectors are the same invoice with the ascii letters upper-cased,
-    # which `bech32.encode` never reproduces
+    # which `bech32_encode` never reproduces
     assert invoice.to_invoice() == vector["invoice"].lower()
 
 
@@ -149,6 +149,21 @@ def test_sign_and_decode_round_trip() -> None:
     assert decoded.metadata == b"\x01\xfa\xfa\xf0"
     assert (31, (1, 2, 3)) in decoded.tagged_fields
     assert decoded.to_invoice() == text
+
+
+def test_an_invoice_longer_than_the_codec_default_limit_round_trips() -> None:
+    """An invoice past the codec's default length is signed and decoded."""
+    invoice = Bolt11Invoice.sign(
+        _PRV_KEY,
+        "mainnet",
+        1700000000,
+        payment_hash=bytes(32),
+        payment_secret=b"\x11" * 32,
+        description="x" * 639,
+    )
+    text = invoice.to_invoice()
+    assert len(text) > 1023
+    assert Bolt11Invoice.from_invoice(text) == invoice
 
 
 def test_sign_derives_the_payee_from_the_private_key() -> None:
@@ -370,6 +385,29 @@ def test_bolt11_coerces_the_network_name_regardless_of_check_validity() -> None:
         check_validity=False,
     )
     assert invoice.network == "mainnet"
+
+
+@pytest.mark.parametrize(
+    "word, error, err_msg",
+    [
+        (32, BTClibValueError, "^invalid 5-bit value: 32$"),
+        ("0", BTClibTypeError, "^invalid 5-bit value type: str$"),
+    ],
+)
+def test_to_invoice_refuses_an_unchecked_word_as_btclib_does(
+    word: object, error: type[Exception], err_msg: str
+) -> None:
+    """A word of an unchecked invoice reaches the codec, refused as btclib's."""
+    invoice = Bolt11Invoice(
+        "mainnet",
+        0,
+        [(1, (word,) * 52), (16, (0,) * 52), (13, _pow_2_words(b"d"))],  # type: ignore[list-item]
+        Sig(1, 1, check_validity=False),
+        0,
+        check_validity=False,
+    )
+    with pytest.raises(error, match=err_msg):
+        invoice.to_invoice()
 
 
 def test_bolt11_two_spellings_of_one_network_are_equal_and_hash_alike() -> None:
@@ -633,14 +671,14 @@ def test_sign_with_an_explicit_zero_expiry() -> None:
 
 def test_from_invoice_refuses_a_non_lightning_prefix() -> None:
     """A bech32 string with no `ln` prefix is refused."""
-    text = bech32_encode("abc", [0] * 10, m=1).decode("ascii")
+    text = bech32_encode("abc", [0] * 10, m=1, limit=None).decode("ascii")
     with pytest.raises(BTClibValueError, match="not a lightning invoice prefix"):
         Bolt11Invoice.from_invoice(text)
 
 
 def test_from_invoice_refuses_an_unknown_network_prefix() -> None:
     """A `ln` prefix naming no known network is refused."""
-    text = bech32_encode("lnxx", [0] * 10, m=1).decode("ascii")
+    text = bech32_encode("lnxx", [0] * 10, m=1, limit=None).decode("ascii")
     with pytest.raises(BTClibValueError, match="unknown network prefix"):
         Bolt11Invoice.from_invoice(text)
 
@@ -651,7 +689,7 @@ def test_from_invoice_refuses_a_truncated_tagged_field_header() -> None:
     # words: long enough to pass the length check, too short to hold even
     # one tagged field header
     data = [0] * 7 + [0, 0] + [0] * 104
-    text = bech32_encode("lnbc", data, m=1).decode("ascii")
+    text = bech32_encode("lnbc", data, m=1, limit=None).decode("ascii")
     with pytest.raises(BTClibValueError, match="truncated tagged field header"):
         Bolt11Invoice.from_invoice(text)
 
@@ -660,7 +698,7 @@ def test_from_invoice_refuses_a_tagged_field_overrunning_the_data_part() -> None
     """A stated data_length longer than what remains is refused."""
     # tag 1, data_length words (31, 31) = 1023, with nothing after them
     data = [0] * 7 + [1, 31, 31] + [0] * 104
-    text = bech32_encode("lnbc", data, m=1).decode("ascii")
+    text = bech32_encode("lnbc", data, m=1, limit=None).decode("ascii")
     with pytest.raises(BTClibValueError, match="overruns the data part"):
         Bolt11Invoice.from_invoice(text)
 
@@ -745,7 +783,7 @@ def _signed(
     s = secp256k1.n - sig.s if high_s else sig.s
     sig_bytes = sig.r.to_bytes(32, "big") + s.to_bytes(32, "big")
     words += power_of_2_base_conversion(list(sig_bytes + bytes([recovery_id])), 8, 5)
-    return bech32_encode(hrp, words, m=1).decode("ascii")
+    return bech32_encode(hrp, words, m=1, limit=None).decode("ascii")
 
 
 _P = (1, _pow_2_words(bytes(32)))

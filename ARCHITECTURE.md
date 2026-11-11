@@ -11,29 +11,32 @@ expectations hold is the [assurance case](./ASSURANCE_CASE.md).
 ## The dependencies
 
 btclib is the protocol: the curve arithmetic, the signature schemes, the
-codecs, scripts and transactions. This package imports it and re-exports
-nothing of it — a name btclib defines is imported from btclib, never from
-here — and nothing in btclib imports this package. `tests/all_test.py`
-holds the first half: a module exporting a name it does not define fails
-it unless `REEXPORTED` records the name, and no entry there is btclib's;
-`tests/imports_test.py` adds that every import of a unit that moved here
-names this package rather than btclib's copy. The second half is
-btclib's own: its `pyproject.toml` does not depend on this package, and
-`test_btclib_imports_nothing_of_btclib_wallet` in `tests/imports_test.py`
-holds it here. The
-edge is btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
-`src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on it
-and on [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc),
-row 6: dependencies point one way, down that table, so nothing in
-`btclib` or in `bitcoin-core-rpc` imports this package either.
+codecs other than Base58Check and bech32, scripts and transactions. This
+package imports it and re-exports nothing of it — a name btclib defines
+is imported from btclib, never from here — and nothing in btclib imports
+this package. `tests/all_test.py` holds the first half: a module
+exporting a name it does not define fails it unless `REEXPORTED` records
+the name, and no entry there is btclib's; `tests/imports_test.py` adds
+that every import of a unit that moved here names this package rather
+than btclib's copy. The second half is btclib's own: its
+`pyproject.toml` does not depend on this package, and
+`test_btclib_imports_nothing_of_btclib_wallet` in
+`tests/imports_test.py` holds it here. The edge is
+btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
+`src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on
+it and on
+[bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), row
+6: dependencies point one way, down that table, so nothing in `btclib`
+or in `bitcoin-core-rpc` imports this package either.
 `btclib_wallet.fetch` publishes `bitcoin-core-rpc`'s clients and
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
-This package also depends on `ecc` directly — row 2 of that table —
-because every package declares every distribution whose names it imports
-rather than relying on btclib's re-export of them; `pyproject.toml`'s
-comment beside the dependency names what this package imports from it.
+This package also depends on `ecc` directly — row 2 of that table — and
+on `base58-bech32`, because every package declares every distribution
+whose names it imports rather than relying on btclib to depend on it;
+`pyproject.toml`'s comment beside each dependency names what this
+package imports from it.
 
 It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports
@@ -52,7 +55,7 @@ counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol opens nothing, and stays btclib's
 unless this package is its only user, as it is of Electrum's.
 
-What this package signs, it signs through `ecc.ecc`, so the
+What this package signs, it signs through `ecc`'s schemes, so the
 dispatch to the libsecp256k1 bindings
 (`ecc.curves.curve._libsecp256k1_serves`) and where constant time
 ends are ecc's, stated in its
@@ -145,8 +148,9 @@ syncs from a `fetch.HistoryReader` when its caller calls `sync`, and
 spends through `coin_selection`, `tx_builder` and a `fetch.Broadcaster`.
 So it imports both `wallet/` and `fetch/`, and neither imports it. It
 writes one SQLite file, through the standard library's `sqlite3`, which
-holds everything a load answers from; `ledger.store`'s docstring says
-how the file names its format and version.
+holds everything a load answers from, and copies it into a new file when
+its caller asks for a backup; `ledger.store`'s docstring says how the
+file names its format and version.
 
 ## Discreet log contracts
 
@@ -175,10 +179,10 @@ calls through HWI's JSON command line; nothing of `hwilib` itself is
 imported, so the subprocess is the whole of the dependency.
 
 `bip322.py` signs a message by satisfying the address's script rather
-than by a key the verifier recovers, as `btclib.ecc.bms` does: the
-signature spends a virtual output paying to that address, and
-`script.engine` verifies it, so a taproot, p2wsh or multisig address can
-sign. `fuzz/fuzz_bip322.py` fuzzes its decoder.
+than by a key the verifier recovers, as `btclib.bms` does: the signature
+spends a virtual output paying to that address, and `script.engine`
+verifies it, so a taproot, p2wsh or multisig address can sign.
+`fuzz/fuzz_bip322.py` fuzzes its decoder.
 
 ## Reaching outside the process
 

@@ -129,7 +129,7 @@ from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
 from tests.fetch.peer_chain_test import Chain, ScriptedPeer
-from tests.ledger.conftest import FakeChain
+from tests.ledger.conftest import FakeChain, source
 from tests.psbt import frost_test as psbt_frost_test
 from tests.psbt import musig2_test as psbt_musig2_test
 from tests.psbt import psbt_cases
@@ -278,6 +278,18 @@ def _asked_of_a_ledger(method: str, **kwargs: Any) -> object:
         Ledger.create(Path(tmp) / "ledger.sqlite", "regtest", FakeChain()) as ledger,
     ):
         return getattr(ledger, method)(**kwargs)
+
+
+def _received_by_a_ledger(method: str, **kwargs: Any) -> object:
+    """Ask a ledger of one source about its first address, labelled ""."""
+    with (
+        TemporaryDirectory() as tmp,
+        Ledger.create(Path(tmp) / "ledger.sqlite", "regtest", FakeChain()) as ledger,
+    ):
+        ledger.add_source(source(), lookahead=1)
+        address = ledger.new_address()
+        asked = address if method == "received_by_address" else ""
+        return getattr(ledger, method)(asked, **kwargs)
 
 
 _KINDS = (
@@ -470,6 +482,14 @@ _KINDS = (
             partial(_asked_of_a_ledger, "utxos"),
         )
         for flag in ("include_immature_coinbase", "include_locked", "include_unsafe")
+    ),
+    *(
+        _Case(
+            f"btclib_wallet.ledger.ledger.Ledger.{method}",
+            "include_immature_coinbase",
+            partial(_received_by_a_ledger, method),
+        )
+        for method in ("received_by_address", "received_by_label")
     ),
 )
 

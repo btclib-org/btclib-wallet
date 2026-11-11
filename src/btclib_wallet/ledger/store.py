@@ -19,13 +19,19 @@ when the file is opened.
 
 The file holds everything a load answers from: the sources, the
 positions handed out, every transaction with its state and block, the
-blocks synced through, and the tip. Each source's private keys are
-written in plain text, as an unencrypted Core wallet writes its own:
-ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
+blocks synced through, the tip, and the labels. Each source's private
+keys are written in plain text, as an unencrypted Core wallet writes its
+own: ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
 journal and its freed pages can keep old bytes after a write.
 
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.
+
+A backup is a new file written through SQLite's backup API, as Core's
+`SQLiteDatabase::Backup` writes one (src/wallet/sqlite.cpp:356-381 at
+bitcoin/bitcoin@f0de87f040): a copy of every page of the file as one
+read sees it, freed pages included. So it holds what the file holds,
+private keys included, and the old bytes its freed pages keep.
 """
 
 from __future__ import annotations
@@ -70,6 +76,10 @@ _SCHEMA = (
         " state TEXT NOT NULL, height INTEGER, block_id BLOB, seq INTEGER NOT NULL)"
     ),
     "CREATE TABLE blocks(height INTEGER PRIMARY KEY, block_id BLOB NOT NULL)",
+    (
+        "CREATE TABLE labels(script BLOB PRIMARY KEY, label TEXT NOT NULL,"
+        " purpose TEXT NOT NULL)"
+    ),
 )
 
 # the step that takes a file from the version of its key to the next one
@@ -166,6 +176,62 @@ def _pragma(db: sqlite3.Connection, name: str) -> int:
     return int(db.execute(f"PRAGMA {name}").fetchone()[0])
 
 
+def _new_file(path: str | PathLike[str]) -> None:
+    """Make an empty file at `path`, refusing anything there.
+
+    A directory and a link are refused too. The file is its owner's
+    alone where the system has POSIX permissions.
+    """
+    try:
+        Path(path).touch(mode=0o600, exist_ok=False)
+    except OSError as e:
+        # Windows refuses to make a file over a directory as a
+        # PermissionError, not a FileExistsError
+        if not (isinstance(e, FileExistsError) or Path(path).exists()):
+            raise
+        raise BTClibValueError(f"the ledger file exists: {path}") from None
+
+
+def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
+    """Write the pages of `db` into a new file at `path`.
+
+    A copy that fails after making the file removes it. A failure of
+    SQLite's is refused naming `path`, SQLite's own text saying what
+    failed, as a full disk or a file it cannot write.
+    """
+    _new_file(path)
+    target: sqlite3.Connection | None = None
+    try:
+        target = _connect(path, "rw")
+        db.backup(target)
+    except BaseException as e:
+        if target is not None:
+            target.close()
+        Path(path).unlink(missing_ok=True)
+        if isinstance(e, sqlite3.DatabaseError):
+            raise BTClibValueError(f"cannot copy into {path}: {e}") from None
+        raise
+    target.close()
+
+
+def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None:
+    """Copy the file at `backup` into a new file at `path`.
+
+    Read-only on `backup`; a missing `backup` and one SQLite cannot read
+    are refused before anything is made at `path`, and `_copy` says the
+    rest. What the copy holds is `_Store.open`'s to check.
+    """
+    source = _connect(backup, "ro")
+    try:
+        try:
+            source.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        except sqlite3.DatabaseError as e:
+            raise BTClibValueError(f"not a ledger file: {e}") from None
+        _copy(source, path)
+    finally:
+        source.close()
+
+
 class _Store:
     """The open file, read and written in the shapes the ledger uses."""
 
@@ -182,10 +248,7 @@ class _Store:
         written in one SQLite transaction. A create that fails after
         making the file removes it, so nothing is left at `path`.
         """
-        try:
-            Path(path).touch(mode=0o600, exist_ok=False)
-        except FileExistsError:
-            raise BTClibValueError(f"the ledger file exists: {path}") from None
+        _new_file(path)
         db: sqlite3.Connection | None = None
         try:
             db = _connect(path, "rw")
@@ -224,6 +287,10 @@ class _Store:
     def close(self) -> None:
         """Close the file."""
         self._db.close()
+
+    def backup(self, path: str | PathLike[str]) -> None:
+        """Write a copy of the file into a new file at `path`."""
+        _copy(self._db, path)
 
     def sources(self) -> list[tuple[int, _Source]]:
         """Return every source, in the order it was added."""
@@ -287,6 +354,19 @@ class _Store:
         if not rows:
             return None
         return BlockRef(int(rows["tip_height"]), bytes.fromhex(rows["tip_id"]))
+
+    def labels(self) -> dict[bytes, tuple[str, str]]:
+        """Return the label and the purpose of each script given one."""
+        rows = self._db.execute("SELECT script, label, purpose FROM labels")
+        return {script: (label, purpose) for script, label, purpose in rows}
+
+    def set_label(self, script: bytes, label: str, purpose: str) -> None:
+        """Write a script's label and purpose, replacing any it had."""
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO labels VALUES (?, ?, ?)",
+                (script, label, purpose),
+            )
 
     def add_source(self, source: _Source) -> int:
         """Write a source, and return its id."""

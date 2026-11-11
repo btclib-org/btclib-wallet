@@ -160,7 +160,7 @@ jobs:
           ref: ${{ steps.btclib-version.outputs.ref }}
           path: upstream-btclib
           persist-credentials: false
-          sparse-checkout: tests/strategies
+          sparse-checkout: src/btclib/testing
       - name: Install bitcoind
         id: bitcoind
         run: |
@@ -183,7 +183,7 @@ jobs:
         env:
           BTCLIB_BITCOIND: ${{ steps.bitcoind.outputs.path }}
           BTCLIB_BTCLIB_STRATEGIES: >-
-            ${{ github.workspace }}/upstream-btclib/tests/strategies/__init__.py
+            ${{ github.workspace }}/upstream-btclib/src/btclib/testing/strategies.py
         run: |
           export BTCLIB_INTEGRATION=1
           export BTCLIB_PSBT_INTEROP=1

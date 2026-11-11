@@ -77,8 +77,8 @@ from btclib.utils import (
     list_from_json_array,
     str_from_string,
 )
+from ecc import dsa, ssa
 from ecc.curves import sec_point
-from ecc.ecc import dsa, ssa
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet.bip32 import (
@@ -1786,24 +1786,24 @@ def _combined_tx_modifiable(psbts: Sequence[Psbt]) -> int | None:
     SIGHASH_SINGLE bit their OR -- each in the direction that keeps the
     combined psbt no more permissive than either half.
 
-    The five undefined bits are OR-ed with the third: nobody here knows
-    what they mean, and dropping a flag somebody set is the change with
-    consequences. None when no psbt carries the field, so that a combine
-    of psbts without it does not invent one.
+    The undefined bits are AND-ed with the two modifiable ones, as
+    Bitcoin Core's PartiallySignedTransaction::Merge does (src/psbt.cpp,
+    bitcoin/bitcoin@f0de87f040): it ANDs every bit and then sets the Has
+    SIGHASH_SINGLE one to the OR. BIP370 does not say what a Combiner
+    does with them, so the combined psbt is the one Core's
+    `combinepsbt` returns. None when no psbt carries the field, so that
+    a combine of psbts without it does not invent one.
     """
-    flags = [psbt.tx_modifiable for psbt in psbts if psbt.tx_modifiable is not None]
-    if not flags:
+    if all(psbt.tx_modifiable is None for psbt in psbts):
         return None
-    modifiable = INPUTS_MODIFIABLE | OUTPUTS_MODIFIABLE
     # a psbt with no field at all is "nothing may be modified", which is
-    # what the AND has to see for the bits it takes
+    # what the AND has to see, as Core's value_or(0) does
     and_bits = 0xFF
+    or_bits = 0
     for psbt in psbts:
         and_bits &= psbt.tx_modifiable or 0
-    or_bits = 0
-    for value in flags:
-        or_bits |= value
-    return (and_bits & modifiable) | (or_bits & ~modifiable & 0xFF)
+        or_bits |= psbt.tx_modifiable or 0
+    return (and_bits & ~HAS_SIG_HASH_SINGLE) | (or_bits & HAS_SIG_HASH_SINGLE)
 
 
 def _combine_musig2_participants(
