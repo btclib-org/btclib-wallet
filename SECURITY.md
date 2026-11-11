@@ -313,9 +313,12 @@ permissions.
     wrote before, so those are to be destroyed or kept as safe as the
     keys. A backup taken after holds only their ciphertext.
 - **The file and a backup taken after the encryption hold no byte of a
-    key in plain text**, through SQLite's `secure_delete`, as
-    `btclib_wallet.ledger.store` says
-    (`tests/ledger/encryption_test.py` searches every file for them).
+    key in plain text**, through SQLite's `secure_delete` and its
+    rollback journal, as `btclib_wallet.ledger.store` says
+    (`tests/ledger/encryption_test.py` searches every file for them). A
+    ledger opens a file another program set to WAL mode in the rollback
+    journal, since in WAL mode the pages an encryption replaces stay in
+    the file until a checkpoint.
     SQLite's rollback journal holds the pages a transaction changes, as
     they were, and SQLite deletes it once the transaction ends. The disk
     blocks a deleted journal used, and what a copy-on-write file system

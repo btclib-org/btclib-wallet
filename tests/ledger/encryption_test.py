@@ -249,6 +249,51 @@ def test_secure_delete_is_what_zeroes_the_keys_replaced(
         assert (left > 0) is (pragma == "OFF")
 
 
+def test_a_file_another_program_set_to_wal_keeps_no_key_byte(
+    chain: FakeChain, tmp_path: Path
+) -> None:
+    """A ledger opens a WAL file in rollback-journal mode, then encrypts it.
+
+    In WAL mode the pages an encryption replaces stay in the main file
+    until a checkpoint, `secure_delete` or not, so the search runs with
+    the ledger still open.
+    """
+    directory = tmp_path / "ledger"
+    directory.mkdir()
+    path = directory / "ledger.sqlite"
+    secrets = _secrets(XPRV)
+    _created(path, chain, _wallet(XPRV)).close()
+    with contextlib.closing(sqlite3.connect(path)) as other:
+        assert other.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
+    with _loaded(path, chain) as ledger:
+        assert ledger._store._db.execute("PRAGMA journal_mode").fetchone() == (
+            "delete",
+        )
+        # the control: the file holds the keys the search looks for
+        assert _key_bytes(directory, secrets)["ledger.sqlite"] > 0
+        ledger.encrypt(PASSPHRASE)
+        assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
+
+
+def test_a_wal_file_open_in_another_program_is_refused(
+    chain: FakeChain, tmp_path: Path
+) -> None:
+    """A WAL file that cannot leave WAL mode is not opened.
+
+    Another connection reading it keeps it in WAL mode, where an
+    encryption would leave the replaced keys in the main file. SQLite
+    waits for that read for its busy timeout before it refuses.
+    """
+    path = tmp_path / "ledger.sqlite"
+    _created(path, chain, _wallet(XPRV)).close()
+    with contextlib.closing(sqlite3.connect(path)) as other:
+        assert other.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
+        other.execute("BEGIN")
+        other.execute("SELECT COUNT(*) FROM sources").fetchone()
+        with pytest.raises(BTClibValueError, match="in rollback-journal mode"):
+            _loaded(path, chain)
+
+
 _KILLED = """
 import os, signal, sys
 from btclib_wallet.ledger import Ledger, crypto

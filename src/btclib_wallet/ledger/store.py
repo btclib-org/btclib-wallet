@@ -33,7 +33,12 @@ Every connection turns SQLite's `secure_delete` on, so what a write
 replaces or deletes is overwritten with zeros, in the file and in its
 freed pages, as the measurement on ISS btclib-org/btclib-wallet#623
 asks. SECURITY.md's *A ledger's keys at rest* says what that leaves
-outside the file.
+outside the file. That holds in SQLite's rollback-journal mode, which
+every connection that writes sets: in WAL mode the pages a write
+replaces stay in the main file until a checkpoint, `secure_delete` or
+not. So a file another program set to WAL goes back to the rollback
+journal when it is opened, and one that another connection reads, which
+keeps it in WAL mode, is refused.
 
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.
@@ -147,6 +152,13 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     except sqlite3.OperationalError as e:
         raise BTClibValueError(f"cannot open the ledger file {path}: {e}") from None
     db.execute("PRAGMA secure_delete = ON")
+    if mode != "ro":
+        try:
+            db.execute("PRAGMA journal_mode = DELETE")
+        except sqlite3.OperationalError as e:
+            db.close()
+            err_msg = f"cannot open the ledger file {path} in rollback-journal mode"
+            raise BTClibValueError(f"{err_msg}: {e}") from None
     return db
 
 
