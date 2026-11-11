@@ -10,8 +10,9 @@ alike, and after each step -- payments to labelled addresses, a label
 on an address of somebody else, a spend joining two coins, a spend
 paying a labelled change address, a payment past an index never handed
 out, a spend to the ledger's own address, a label changed, an immature
-coinbase, an unload and a load -- the ledger is compared with `twin`
-as `ledger_test._compare` compares them.
+coinbase, a label on an address before it is handed out, an unload and
+a load -- the ledger is compared with `twin` as `ledger_test._compare`
+compares them.
 """
 
 from __future__ import annotations
@@ -142,8 +143,22 @@ def test_the_labels_answer_what_cores_wallet_answers(
     _compare(node, ledger)
 
     # an immature coinbase to a labelled address
-    node.client.call("generatetoaddress", [1, _labelled(node, ledger, "coinbase")])
+    coinbase = _labelled(node, ledger, "coinbase")
+    node.client.call("generatetoaddress", [1, coinbase])
     ledger.sync()
+    _compare(node, ledger)
+
+    # a label on the next address, which handing it out replaces with "",
+    # as `getnewaddress` does
+    position = ledger.position_of(ScriptPubKey.from_address(coinbase))
+    assert position is not None
+    upcoming = wallet.address(0, position[2] + 1)
+    ledger.set_label(upcoming, "pre")
+    node.wallet("twin").call("setlabel", [upcoming, "pre"])
+    _compare(node, ledger)
+    assert ledger.new_address() == upcoming
+    assert node.wallet("twin").call("getnewaddress") == upcoming
+    assert ledger.label_of(upcoming) == ""
     _compare(node, ledger)
 
     # an unload and a load: the same labels

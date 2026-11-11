@@ -68,6 +68,36 @@ def test_a_receiving_address_has_the_empty_label(ledger: Ledger) -> None:
     assert ledger.addresses_by_label("c") == {change: "receive"}
 
 
+def test_a_new_address_replaces_the_label_it_had(ledger: Ledger) -> None:
+    """Core's `getnewaddress` sets its label, "" by default, over any."""
+    first = ledger.sources[0].address(0, 0)
+    ledger.set_label(first, "pre")
+    assert ledger.new_address() == first
+    assert ledger.label_of(first) == ""
+    assert ledger.labels() == ("",)
+    # a send label on an address of a source added later
+    later = source("wpkh({}/84h/1h/2h/{}/*)", (0, 1))
+    ledger.set_label(later.address(0, 0), "f")
+    later_id = ledger.add_source(later, lookahead=LOOKAHEAD)
+    assert ledger.addresses_by_label("f") == {later.address(0, 0): "send"}
+    assert ledger.new_address(later_id) == later.address(0, 0)
+    assert ledger.addresses_by_label("") == {
+        first: "receive",
+        later.address(0, 0): "receive",
+    }
+    # a change address, and the one address of a branch not ranged, keep it
+    ledger.set_label(later.address(1, 0), "c")
+    assert ledger.new_change_address(later_id) == later.address(1, 0)
+    fixed = _fixed()
+    ledger.set_label(fixed.address(0, 0), "x")
+    fixed_id = ledger.add_source(fixed, lookahead=LOOKAHEAD)
+    assert ledger.new_address(fixed_id) == fixed.address(0, 0)
+    assert (
+        ledger.label_of(later.address(1, 0)),
+        ledger.label_of(fixed.address(0, 0)),
+    ) == ("c", "x")
+
+
 def test_labels_are_read_back_after_a_load(
     ledger: Ledger, chain: FakeChain, path: Path
 ) -> None:

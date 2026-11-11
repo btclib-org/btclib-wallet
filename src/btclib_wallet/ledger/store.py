@@ -19,9 +19,9 @@ when the file is opened.
 
 The file holds everything a load answers from: the sources, the
 positions handed out, every transaction with its state and block, the
-blocks synced through, the tip, and the labels. Each source's private keys are
-written in plain text, as an unencrypted Core wallet writes its own:
-ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
+blocks synced through, the tip, and the labels. Each source's private
+keys are written in plain text, as an unencrypted Core wallet writes its
+own: ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
 journal and its freed pages can keep old bytes after a write.
 
 Every write a sync makes is one SQLite transaction, so a process killed

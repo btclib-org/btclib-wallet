@@ -129,9 +129,12 @@ branch 0 has the label "" once it or a later index of its branch is
 handed out or paid to, or where its descriptor is not ranged, as Core
 labels each receiving address it hands out, imports, sees paid or skips
 below one paid (src/wallet/wallet.cpp:1275-1280 and 3849-3865, and
-src/wallet/scriptpubkeyman.cpp:1171-1197). An address of another branch
-has no label until one is set. Change is an output to the ledger's
-script with no label, as Core's `ScriptIsChange` reads it
+src/wallet/scriptpubkeyman.cpp:1171-1197). `new_address` on a ranged
+branch 0 sets the label it is given, "" where it is given none, over any
+label the address had, with the purpose `receive`, as Core's
+`GetNewDestination` does (src/wallet/wallet.cpp:2640-2654). An address
+of another branch has no label until one is set. Change is an output to
+the ledger's script with no label, as Core's `ScriptIsChange` reads it
 (src/wallet/receive.cpp:52-72), so a label makes a change address a
 receiving one. A script with no address, as `pk()` pays to, has no
 label, is change, and is in no answer about labels or groupings. The
@@ -579,8 +582,8 @@ class Ledger:
         Core's `getnewaddress`. The next index is one past the highest
         handed out or paid to. A branch whose descriptor is not ranged
         has one address, which is handed out every time. `label` is set
-        on the address; without one, an address of branch 0 has the label
-        "", as the module docstring says.
+        on the address, replacing any it had. On a ranged branch 0, one
+        not given is "", as the module docstring says.
         """
         if label is not None:
             _assert_label(label)
@@ -588,6 +591,9 @@ class Ledger:
         address = self._hand_out(position)
         self._store.add_handed_out([position])
         self._extend_windows()
+        receiving = branch == 0 and self._sources[source].descriptor(0).is_ranged
+        if label is None and receiving:
+            label = ""
         if label is not None:
             self._write_label(
                 self._sources[source].script_pub_key(branch, position[2]).script, label
