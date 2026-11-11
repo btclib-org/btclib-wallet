@@ -232,12 +232,7 @@ def test_sign_coerces_the_network_name() -> None:
 
 
 def test_sign_refuses_an_unknown_network_with_a_value_error() -> None:
-    """`sign` refuses what `_hrp`'s own dict lookup would otherwise KeyError on.
-
-    `KeyError` is a `LookupError`, not a `BTClibException`, so no
-    `except BTClibValueError` written against this library would have
-    caught it.
-    """
+    """`sign` refuses a network BOLT11 has no prefix for, name quoted."""
     with pytest.raises(BTClibValueError, match="not a lightning network: 'testnet4'"):
         Bolt11Invoice.sign(
             _PRV_KEY,
@@ -351,6 +346,30 @@ def test_assert_valid_refuses_an_unknown_network() -> None:
             0,
             check_validity=False,
         ).assert_valid()
+
+
+@pytest.mark.parametrize("network", ["bogus", "testnet4"])
+def test_unchecked_invoice_of_an_unknown_network_is_refused_on_use(
+    network: str,
+) -> None:
+    """An unchecked network is refused where the prefix is written.
+
+    A `KeyError` is a `LookupError`, not a `BTClibException`, so no
+    `except BTClibValueError` written against this library would catch it.
+    """
+    invoice = Bolt11Invoice(
+        network,
+        0,
+        [(1, (0,) * 52), (16, (0,) * 52), (13, _pow_2_words(b"d"))],
+        Sig(1, 1, check_validity=False),
+        0,
+        check_validity=False,
+    )
+    err_msg = f"not a lightning network: '{network}'"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        invoice.to_invoice()
+    with pytest.raises(BTClibValueError, match=err_msg):
+        _ = invoice.payee
 
 
 def test_bolt11_coerces_the_network_name() -> None:
