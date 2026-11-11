@@ -6643,7 +6643,7 @@ def test_sign_skips_a_witness_program_of_no_known_rule(
 
     Issue btclib-org/btclib-wallet#747; `_sign_ecdsa_input` says why. A
     witness utxo beside it passes the Signer's pre-flight, as it does
-    beside any other witness program: `_signable_payload` says why.
+    beside a p2tr one: `_signable_payload` says why.
     """
     psbt = _psbt_spending_a_witness_unknown_input(program, wrapped=wrapped)
     if with_witness_utxo:

@@ -880,10 +880,11 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
 
     p2tr and `witness_unknown` are accepted because they are witness
     kinds, which is the whole of the rule: BIP174 wrote the rule when
-    witness v0 was the only witness there was. p2tr only unwrapped,
-    there being no p2sh-wrapped taproot spend -- and a redeem script
-    beside one is refused by the hash160 the caller checks next, 20
-    bytes never equalling the 32 of an output key.
+    witness v0 was the only witness there was. A p2tr script is a
+    taproot output only unwrapped, BIP341 leaving a p2sh-wrapped one
+    unencumbered, and a redeem script beside a bare one is refused by
+    the hash160 the caller checks next, 20 bytes never equalling the 32
+    of an output key.
 
     A `witness_unknown` input passes so that `sign` reaches the other
     inputs, `_sign_ecdsa_input` skipping this one. Bitcoin Core's
