@@ -11,29 +11,32 @@ expectations hold is the [assurance case](./ASSURANCE_CASE.md).
 ## The dependencies
 
 btclib is the protocol: the curve arithmetic, the signature schemes, the
-codecs, scripts and transactions. This package imports it and re-exports
-nothing of it — a name btclib defines is imported from btclib, never from
-here — and nothing in btclib imports this package. `tests/all_test.py`
-holds the first half: a module exporting a name it does not define fails
-it unless `REEXPORTED` records the name, and no entry there is btclib's;
-`tests/imports_test.py` adds that every import of a unit that moved here
-names this package rather than btclib's copy. The second half is
-btclib's own: its `pyproject.toml` does not depend on this package, and
-`test_btclib_imports_nothing_of_btclib_wallet` in `tests/imports_test.py`
-holds it here. The
-edge is btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
-`src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on it
-and on [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc),
-row 6: dependencies point one way, down that table, so nothing in
-`btclib` or in `bitcoin-core-rpc` imports this package either.
+codecs other than Base58Check and bech32, scripts and transactions. This
+package imports it and re-exports nothing of it — a name btclib defines
+is imported from btclib, never from here — and nothing in btclib imports
+this package. `tests/all_test.py` holds the first half: a module
+exporting a name it does not define fails it unless `REEXPORTED` records
+the name, and no entry there is btclib's; `tests/imports_test.py` adds
+that every import of a unit that moved here names this package rather
+than btclib's copy. The second half is btclib's own: its
+`pyproject.toml` does not depend on this package, and
+`test_btclib_imports_nothing_of_btclib_wallet` in
+`tests/imports_test.py` holds it here. The edge is
+btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
+`src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on
+it and on
+[bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), row
+6: dependencies point one way, down that table, so nothing in `btclib`
+or in `bitcoin-core-rpc` imports this package either.
 `btclib_wallet.fetch` publishes `bitcoin-core-rpc`'s clients and
 transport under its own names, and `tests/all_test.py`'s `REEXPORTED`
 records each of them.
 
-This package also depends on `ecc` directly — row 2 of that table —
-because every package declares every distribution whose names it imports
-rather than relying on btclib's re-export of them; `pyproject.toml`'s
-comment beside the dependency names what this package imports from it.
+This package also depends on `ecc` directly — row 2 of that table — and
+on `base58-bech32`, because every package declares every distribution
+whose names it imports rather than relying on btclib to depend on it;
+`pyproject.toml`'s comment beside each dependency names what this
+package imports from it.
 
 It depends on `bip39-slip39` too, which holds the BIP39, SLIP39 and
 Electrum mnemonic schemes from the entropy to the seed and imports

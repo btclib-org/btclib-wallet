@@ -35,8 +35,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
+from base58_bech32.base58 import b58decode_check
 from btclib import b58
-from btclib.base58 import decode as base58_decode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS, network_from_name, xpubversions_from_network
 from btclib.utils import assert_type, bytes_from_octets, is_integer
@@ -1224,7 +1224,7 @@ def _read_key(
         pub_key=pub_key,
         x_only=was_x_only,
         hardening=origin_hardening or _HARDENING,
-        wif_prefix=b"" if _HEX.fullmatch(key) else base58_decode(key)[:1],
+        wif_prefix=b"" if _HEX.fullmatch(key) else b58decode_check(key)[:1],
     )
     if compressed and not key_expression.is_compressed:
         raise BTClibValueError("uncompressed public keys are not allowed here")

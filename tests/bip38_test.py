@@ -30,8 +30,8 @@ import secrets
 from types import ModuleType
 
 import pytest
+from base58_bech32.base58 import b58decode_check
 from btclib.b58 import address_from_h160, prv_key_data_from_wif
-from btclib.base58 import decode as base58_decode
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -197,7 +197,7 @@ def test_ec_no_lot_seq_vectors(
     fixed vector by overriding `owner_salt` with the one the vector's own
     encoding carries -- it is random otherwise, which is the point of it.
     """
-    owner_entropy = base58_decode(int_code, 49)[8:16]
+    owner_entropy = b58decode_check(int_code, out_size=49)[8:16]
     assert bip38.intermediate_code(password, owner_salt=owner_entropy) == int_code
 
     prv_key = prv_key_data_from_wif(wif)
@@ -244,7 +244,7 @@ def test_ec_lot_seq_vectors(
     password: str, lot: int, sequence: int, int_code: str, encrypted: str, wif: str
 ) -> None:
     """Reproduce a lot/sequence intermediate code, and decrypt its record."""
-    owner_entropy = base58_decode(int_code, 49)[8:16]
+    owner_entropy = b58decode_check(int_code, out_size=49)[8:16]
     owner_salt = owner_entropy[:4]
     assert int.from_bytes(owner_entropy[4:], "big") == lot * 4096 + sequence
 
@@ -542,6 +542,15 @@ def test_password_must_be_a_str(bad_password: object) -> None:
     """A password is text, unlike every other octet parameter of this module."""
     with pytest.raises(BTClibTypeError):
         bip38.encrypt(1, bad_password, _encrypt_block)  # type: ignore[arg-type]
+
+
+def test_a_record_that_is_no_string_is_a_btclib_type_error() -> None:
+    """The codec's type refusal leaves as this package's, its message kept."""
+    err_msg = "^invalid base58 string type: int$"
+    with pytest.raises(BTClibTypeError, match=err_msg):
+        bip38.decrypt(1, "pw", _decrypt_block)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match=err_msg):
+        bip38.new_key_pair(1, _encrypt_block)  # type: ignore[arg-type]
 
 
 def test_encrypt_refuses_a_cipher_that_returns_the_wrong_size() -> None:

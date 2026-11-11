@@ -31,6 +31,7 @@ publishes no way to build one.
 
 from __future__ import annotations
 
+from base58_bech32.base58 import BITCOIN_ALPHABET
 from btclib.exceptions import InvalidPrvKeyError, NotAPrvKeyError
 from btclib.hashes import sha256
 from btclib.key import PrvKeyData
@@ -39,11 +40,9 @@ from btclib.utils import assert_type
 
 __all__ = ["prv_key_data_from_minikey"]
 
-# base58's own alphabet, matched here as a plain character set rather than
-# imported from btclib.base58: that module's _ALPHABET is private to it,
-# and reaching for it would buy nothing a minikey needs -- this module
-# checks characters, never runs the base58 decoder that alphabet feeds
-_ALPHABET = frozenset("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+# base58's alphabet as a set of characters: this module checks the
+# characters of a minikey, and never runs the base58 decoder
+_ALPHABET = frozenset(BITCOIN_ALPHABET.decode("ascii"))
 
 # electrum/bitcoin.py:758-759 (spesmilo/electrum, pinned at 342bca3a):
 # "Minikeys are typically 22 or 30 characters, but this routine permits
