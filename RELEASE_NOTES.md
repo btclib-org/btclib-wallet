@@ -9,6 +9,78 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.11
+
+A fresh install of 2026.11.7 does not work: most of its modules,
+`bip32`, `psbt` and `descriptors` among them, fail at import.
+It declares `btclib>=2026.10.30` and `ecc>=2026.11.2` with no upper
+bound, so an install resolves ecc 2026.11.8 or later, which has no
+`ecc.ecc`, and btclib 2026.11.10, which has no `btclib.ecc`,
+`btclib.base58` or `btclib.bech32`. `import btclib_wallet` succeeds,
+since the package imports a module only when it is first asked for, and
+`import btclib_wallet.bip32` raises
+`ImportError: cannot import name 'base58' from 'btclib'`. This release
+runs on both.
+
+- **btclib 2026.11.10 and ecc 2026.11.8 are the floors**
+  ([ISS 729](https://github.com/btclib-org/btclib-wallet/issues/729),
+  [ISS 720](https://github.com/btclib-org/btclib-wallet/issues/720),
+  [ISS 735](https://github.com/btclib-org/btclib-wallet/issues/735)).
+  ecc's schemes are imported from its top level, `from ecc import dsa`,
+  and `bms` from `btclib.bms`. Act on it if you install 2026.11.7:
+  upgrade, or pin `btclib<2026.11.10` and `ecc<2026.11.8`, with which
+  its modules import. Act on it if you pin btclib or ecc below the
+  floors: raise the pins, and read btclib's and ecc's notes, whose
+  breaking changes reach you with them.
+- **base58-bech32 is a dependency, at 2026.10.23 or later**
+  ([ISS 731](https://github.com/btclib-org/btclib-wallet/issues/731)).
+  The Base58Check and bech32 codecs come from it, and a refusal of
+  theirs that your input reaches leaves as `BTClibValueError` or
+  `BTClibTypeError`. A silent-payment address that verifies only as
+  bech32 is refused with `invalid checksum: BECH32_1_CONST verifies`,
+  and a BOLT11 invoice that verifies only as bech32m with
+  `invalid checksum: BECH32_M_CONST verifies`, where both said
+  `invalid checksum`. Act on it if you match that message: match the
+  new ones.
+- **The `secp256k1` extra needs btclib-secp256k1 0.8.0.13**, the first
+  release whose `silentpayments.scan_outputs` refuses a label tweak
+  outside [1, n-1]. Act on it if you pin the bindings below it: raise
+  the pin.
+- **`bip322.sign` takes a WIF as a `str`**
+  ([ISS 733](https://github.com/btclib-org/btclib-wallet/issues/733)),
+  as `btclib.bms.sign` does, beside a `PrvKeyData`. Bytes and an int
+  are refused. Nothing to act on: a call that worked still works.
+- **`combine` and `join` AND the undefined bits of
+  `PSBT_GLOBAL_TX_MODIFIABLE`**
+  ([ISS 686](https://github.com/btclib-org/btclib-wallet/issues/686)),
+  as Core's `combinepsbt` does, a psbt without the field counting as 0.
+  They ORed them. `assert_signatures_only` accepts an answer that clears
+  an undefined bit the request set, and refuses one that sets an
+  undefined bit the request had clear. Act on it if you set those bits:
+  expect them cleared unless every psbt sets them.
+- **`EsploraFetcher.get_history` reads at most `max_pages` pages of
+  confirmed transactions a script**
+  ([ISS 699](https://github.com/btclib-org/btclib-wallet/issues/699)).
+  A script whose pages do not end within the bound, and a page longer
+  than Esplora's, is a `FetchError`, and no history is returned. A
+  mempool transaction the explorer no longer has when it is asked for is
+  skipped. Act on it if a script of yours has a longer history: pass a
+  larger `max_pages`.
+- **`btclib_wallet.ledger` keeps descriptor wallets' transactions and
+  coins in a SQLite file**
+  ([ISS 712](https://github.com/btclib-org/btclib-wallet/issues/712)).
+  The file holds the private keys in plain text, as do its backups and
+  restored copies, as `SECURITY.md` says. Act on it if you use a
+  `Ledger`: keep its file and every backup where only you can read
+  them.
+- **`fetch.RelayFeeReader` reads a node's relay fee floors, and
+  `fetch.start_height_for_time` maps a birth time to a height**
+  ([ISS 711](https://github.com/btclib-org/btclib-wallet/issues/711)).
+  `BitcoinCoreFetcher` and `BitcoinCoreRestFetcher` implement the
+  first.
+
+`CHANGELOG.md`'s own `v2026.11.11` section has the rest.
+
 ## v2026.11.7
 
 - **`bip322` refuses a signature whose legacy or P2SH script runs an
