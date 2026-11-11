@@ -878,12 +878,21 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     p2sh one -- the hash160 the caller checks that redeem script
     against. A non_witness_utxo alone leaves every kind open.
 
-    p2tr is one of the three because it is a witness kind, which is the
-    whole of the rule: BIP174 wrote the rule when witness v0 was the
-    only witness there was. Only unwrapped, there being no p2sh-wrapped
-    taproot spend -- and a redeem script beside one is refused by the
-    hash160 the caller checks next, 20 bytes never equalling the 32 of
-    an output key.
+    p2tr and `witness_unknown` are accepted because they are witness
+    kinds, which is the whole of the rule: BIP174 wrote the rule when
+    witness v0 was the only witness there was. p2tr only unwrapped,
+    there being no p2sh-wrapped taproot spend -- and a redeem script
+    beside one is refused by the hash160 the caller checks next, 20
+    bytes never equalling the 32 of an output key.
+
+    A `witness_unknown` input passes so that `sign` reaches the other
+    inputs, `_sign_ecdsa_input` skipping this one. Bitcoin Core's
+    SignPSBTInput refuses neither utxo field for such an input, and
+    FillPSBT goes on to the next input on an INCOMPLETE answer, counting
+    this one signed only where PSBTInputSigned finds a final script
+    (src/psbt.cpp:547-550 and 664-683, and
+    src/wallet/scriptpubkeyman.cpp:1447-1457 at
+    bitcoin/bitcoin@f0de87f040).
     """
     prev_out = _prev_out(psbt_in)
     if prev_out is None:
@@ -894,8 +903,11 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     if psbt_in.witness_utxo is not None:
         if script_type == "p2sh":
             script_type, _ = type_and_payload(psbt_in.redeem_script)
-        if script_type not in {"p2wpkh", "p2wsh", "p2tr"}:
-            raise BTClibValueError("script type not in ('p2wpkh', 'p2wsh', 'p2tr')")
+        if script_type not in {"p2wpkh", "p2wsh", "p2tr", "witness_unknown"}:
+            err_msg = (
+                "script type not in ('p2wpkh', 'p2wsh', 'p2tr', 'witness_unknown')"
+            )
+            raise BTClibValueError(err_msg)
     return payload
 
 
