@@ -38,7 +38,9 @@ every connection that writes sets: in WAL mode the pages a write
 replaces stay in the main file until a checkpoint, `secure_delete` or
 not. So a file another program set to WAL goes back to the rollback
 journal when it is opened, and one another connection has open and has
-read, which keeps it in WAL mode, is refused.
+read, which keeps it in WAL mode, is refused. A program can also set WAL
+while a ledger has the file open, so `_Store.encrypt` reads the mode in
+its own transaction and refuses any but the rollback journal.
 
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.
@@ -480,7 +482,8 @@ class _Store:
         reads and the ciphertext; it is written in one SQLite
         transaction with the master key. A file another ledger encrypted,
         or gave a source with keys this one does not know of, is refused,
-        and nothing is written.
+        and so is one another program set to WAL mode since it was opened,
+        for the reason the module's docstring gives. Nothing is written.
         """
         with self._db:
             try:
@@ -490,6 +493,12 @@ class _Store:
                 )
             except sqlite3.IntegrityError:
                 raise BTClibValueError("the ledger file is encrypted already") from None
+            # read under the write's lock, which no switch of the mode can
+            # take: another program may have set WAL since the file opened
+            mode = self._db.execute("PRAGMA journal_mode").fetchone()[0]
+            if mode != "delete":
+                err_msg = f"the ledger file is in {mode} mode, where the keys"
+                raise BTClibValueError(f"{err_msg} replaced stay: load it again")
             self._db.executemany(
                 "UPDATE sources SET descriptors = ?, prv_keys = '{}', encrypted = ?"
                 " WHERE id = ?",

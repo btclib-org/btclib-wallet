@@ -275,6 +275,32 @@ def test_a_file_another_program_set_to_wal_keeps_no_key_byte(
         assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
 
 
+def test_a_file_set_to_wal_while_open_is_not_encrypted(
+    chain: FakeChain, tmp_path: Path
+) -> None:
+    """Another program sets WAL after the ledger opened the file.
+
+    The ledger's connection follows the file into WAL mode at its next
+    transaction, so `encrypt` refuses and writes nothing. Loaded again,
+    the file is back in the rollback journal and encrypts with no key
+    byte left.
+    """
+    directory = tmp_path / "ledger"
+    directory.mkdir()
+    path = directory / "ledger.sqlite"
+    secrets = _secrets(XPRV)
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        with contextlib.closing(sqlite3.connect(path)) as other:
+            assert other.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
+        with pytest.raises(BTClibValueError, match="in wal mode"):
+            ledger.encrypt(PASSPHRASE)
+        assert ledger.unlocked_until is None
+    with _loaded(path, chain) as ledger:
+        assert ledger.unlocked_until is None
+        ledger.encrypt(PASSPHRASE)
+        assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
+
+
 def test_a_wal_file_open_in_another_program_is_refused(
     chain: FakeChain, tmp_path: Path
 ) -> None:
