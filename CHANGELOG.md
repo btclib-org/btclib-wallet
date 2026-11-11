@@ -69,7 +69,7 @@ spends, marks conflicts, abandons, keeps labels, backs up and restores
 
 ### `PSBT_IN_POR_COMMITMENT` stays in `unknown`
 
-Tests only, as Core keeps it (closes #622).
+No code changes: a test pins it, as Core keeps it (closes #622).
 
 ### The silent-payment rule on a shared scan key is in the docstrings
 

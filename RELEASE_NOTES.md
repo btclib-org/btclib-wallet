@@ -11,7 +11,8 @@ before upgrading, rather than a digit.
 
 ## v2026.11.11
 
-A fresh install of 2026.11.7 does not work: its modules fail at import.
+A fresh install of 2026.11.7 does not work: most of its modules,
+`bip32`, `psbt` and `descriptors` among them, fail at import.
 It declares `btclib>=2026.10.30` and `ecc>=2026.11.2` with no upper
 bound, so an install resolves ecc 2026.11.8 or later, which has no
 `ecc.ecc`, and btclib 2026.11.10, which has no `btclib.ecc`,
