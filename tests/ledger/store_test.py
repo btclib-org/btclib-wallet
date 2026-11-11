@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sqlite3
 import stat
@@ -253,3 +254,21 @@ def test_a_source_id_another_ledger_took_meanwhile_is_refused(
             first.add_source(source())
     with Ledger.load(path, "regtest", chain) as ledger:
         assert len(ledger.sources) == 1
+
+
+def test_another_constraint_on_a_new_source_is_no_ledgers(
+    chain: FakeChain, path: Path
+) -> None:
+    """A constraint the file added refuses the source as no ledger's file.
+
+    Only a source id already taken is another ledger's write; a unique
+    index another program put on the lookahead is the file's own.
+    """
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        db.execute("CREATE UNIQUE INDEX one_lookahead ON sources(lookahead)")
+    with Ledger.load(path, "regtest", chain) as ledger:
+        err_msg = "not a ledger file: UNIQUE constraint failed: sources.lookahead"
+        with pytest.raises(BTClibValueError, match=err_msg):
+            ledger.add_source(source("wpkh({}/84h/1h/1h/{}/*)"))

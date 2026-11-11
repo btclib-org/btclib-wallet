@@ -166,6 +166,15 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     return db
 
 
+def _taken(e: sqlite3.IntegrityError) -> bool:
+    """Whether an insert failed on a row already under its primary key.
+
+    Only that is another ledger's write: any other constraint, as a
+    trigger or an index another program added, is the file's own.
+    """
+    return e.sqlite_errorname == "SQLITE_CONSTRAINT_PRIMARYKEY"
+
+
 def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     """Refuse a file that is not a ledger of `network`; migrate an older one."""
     application_id = _pragma(db, "application_id")
@@ -470,7 +479,9 @@ class _Store:
                         int(source.scanned),
                     ),
                 )
-            except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError as e:
+                if not _taken(e):
+                    raise BTClibValueError(f"not a ledger file: {e}") from None
                 err_msg = f"source {source_id} was written by another ledger"
                 raise BTClibValueError(f"{err_msg}: load it again") from None
             if source.prv_keys and self.master_key() is not None:
@@ -497,7 +508,9 @@ class _Store:
                     "INSERT INTO master_key VALUES (0, 'scrypt', ?, ?, ?, ?, ?)",
                     _master_key_row(master_key),
                 )
-            except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError as e:
+                if not _taken(e):
+                    raise BTClibValueError(f"not a ledger file: {e}") from None
                 raise BTClibValueError("the ledger file is encrypted already") from None
             # read under the write's lock, which no switch of the mode can
             # take: another program may have set WAL since the file opened

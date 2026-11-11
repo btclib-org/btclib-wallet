@@ -989,6 +989,25 @@ def test_a_lock_zeroes_the_master_key(
     assert key == bytearray(32)
 
 
+def test_another_constraint_on_the_master_key_is_no_ledgers(
+    chain: FakeChain, path: Path
+) -> None:
+    """A trigger the file added refuses the encryption as no ledger's file.
+
+    Only a master key already written is another ledger's encryption,
+    and nothing is written either way.
+    """
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        with contextlib.closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                "CREATE TRIGGER no_key BEFORE INSERT ON master_key"
+                " BEGIN SELECT RAISE(ABORT, 'refused'); END"
+            )
+        with pytest.raises(BTClibValueError, match="not a ledger file: refused"):
+            ledger.encrypt(PASSPHRASE)
+        assert ledger.unlocked_until is None
+
+
 def test_a_ledger_loaded_before_the_encryption_writes_no_plain_key(
     chain: FakeChain, tmp_path: Path
 ) -> None:
