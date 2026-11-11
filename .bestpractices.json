@@ -7,7 +7,7 @@
   "achieve_silver_status": "Met",
   "assurance_case_justification": "ASSURANCE_CASE.md states the threat model, the trust boundaries, the secure-design argument and the argument against common implementation weaknesses, citing the file, test or workflow behind each claim. https://github.com/btclib-org/btclib-wallet/blob/main/ASSURANCE_CASE.md",
   "assurance_case_status": "Met",
-  "automated_integration_testing_justification": "test.yml runs the suite, and integration-bitcoind.yml the regtest tests against Bitcoin Core, on every pull request and on pushes to main; both are required checks on main. https://github.com/btclib-org/btclib-wallet/blob/main/.github/workflows/test.yml",
+  "automated_integration_testing_justification": "integration-bitcoind.yml runs the regtest tests against Bitcoin Core on every pull request and push to main, with no path filter. test.yml runs the suite on every pull request and push to main that changes more than prose: its changes job skips the suite on a pull request that edits only the files its prose-pattern lists, and a push to main that changes only root Markdown files does not start it. Both are required checks on main. https://github.com/btclib-org/btclib-wallet/blob/main/.github/workflows/test.yml",
   "automated_integration_testing_status": "Met",
   "build_common_tools_justification": "https://github.com/btclib-org/btclib-wallet?tab=contributing-ov-file",
   "build_common_tools_status": "Met",
