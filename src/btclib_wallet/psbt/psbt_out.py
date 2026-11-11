@@ -180,6 +180,13 @@ def _serialized_taproot_fields(psbt_out: PsbtOut) -> list[bytes]:
     return serialized
 
 
+def _check_key_has_no_data(k: bytes, what: str) -> None:
+    """Refuse a key carrying data beyond its type, as BIP-174 does."""
+    if len(k) != 1:
+        err_msg = f"invalid {what} key length: {len(k)}"
+        raise BTClibValueError(err_msg)
+
+
 @dataclass
 class PsbtOut:
     """The per-output map of a psbt: one field per BIP174/BIP370 key type.
@@ -486,6 +493,7 @@ class PsbtOut:
             elif k[:1] == PSBT_OUT_TAP_INTERNAL_KEY:
                 taproot_internal_key = deserialize_bytes(k, v, "taproot internal key")
             elif k[:1] == PSBT_OUT_TAP_TREE:
+                _check_key_has_no_data(k, "taproot tree")
                 taproot_tree = parse_taproot_tree(v)
             elif (sp_field := _SP_FIELDS.get(k[:1])) is not None:
                 # one branch for BIP375's pair, and a table beside it: the
