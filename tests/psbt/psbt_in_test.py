@@ -142,6 +142,30 @@ def test_key_type_tables_name_every_field() -> None:
     )
 
 
+def test_a_por_commitment_stays_unknown_and_round_trips() -> None:
+    """BIP127's PSBT_IN_POR_COMMITMENT, key type 0x09, has no field.
+
+    Bitcoin Core's input parser has no case for it and keeps it in
+    `unknown`; so does this package, and the commitment comes back byte
+    for byte.
+    Issue btclib-org/btclib-wallet#622.
+    """
+    commitment = b"Proof of Reserves: btclib"
+    entry = b"\x01\x09" + bytes([len(commitment)]) + commitment
+    raw = entry + PSBT_SEPARATOR
+
+    psbt_in = PsbtIn.parse(raw)
+    assert psbt_in == PsbtIn(unknown={b"\x09": commitment})
+    assert psbt_in.serialize() == raw
+
+    tx = Tx(vin=[TxIn(OutPoint(b"\x01" * 32, 0))], vout=[TxOut(1, b"\x51")])
+    psbt_bytes = Psbt.from_tx(tx, inputs=[psbt_in]).serialize()
+    assert entry in psbt_bytes
+    psbt = Psbt.parse(psbt_bytes)
+    assert psbt.inputs[0].unknown == {b"\x09": commitment}
+    assert psbt.serialize() == psbt_bytes
+
+
 def test_a_finalized_input_drops_everything_the_finalizer_consumed() -> None:
     """BIP174: what a finalizer consumed is not carried beside its result.
 
