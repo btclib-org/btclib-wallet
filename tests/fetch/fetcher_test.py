@@ -214,7 +214,9 @@ def test_block_header_height_accepts_a_non_negative_int(height: int) -> None:
 
 def test_block_header_height_refuses_a_negative_height() -> None:
     """Refuse a negative height, before any backend is asked."""
-    with pytest.raises(BTClibValueError, match="invalid height: -1"):
+    with pytest.raises(
+        BTClibValueError, match="^invalid height: a negative int of 1 bits < 0$"
+    ):
         block_header_height(-1)
 
 
