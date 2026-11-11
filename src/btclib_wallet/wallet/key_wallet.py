@@ -9,10 +9,9 @@ private key behind the address, from a wallet or supplied directly" --
 and holds no wallet itself. This module is that wallet, and no more of
 it than the sentence asks for: a wallet holds a key source, hands out
 addresses, remembers what each was derived from, and answers which
-private key signs for one. `sign(address, msg)`
-is what the three together buy, a message signature addressed by
-*address*, which `bms.sign` cannot offer because it has no way to find
-the key.
+private key signs for one. `sign(address, msg)` is what the three
+together buy, a message signature addressed by *address*, which
+`bms.sign` cannot offer because it has no way to find the key.
 
 Two key sources, one class each. `BIP32KeyWallet` takes an extended key
 and the BIP44 account path it sits on, and derives the addresses of the
