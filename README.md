@@ -17,10 +17,11 @@ btclib library.
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/14813/baseline)](https://www.bestpractices.dev/projects/14813)
 
 [btclib](https://github.com/btclib-org/btclib) is the protocol: the
-encodings, the scripts, the transactions and the signature schemes, what
-a node consumes. This package is what a wallet does with them, and every
-module with a counterparty outside the process — a device, a node, a
-server, a file from another wallet. It depends on btclib and on
+encodings other than Base58Check and bech32, the scripts, the
+transactions and the signature schemes, what a node consumes. This
+package is what a wallet does with them, and every module with a
+counterparty outside the process — a device, a node, a server, a file
+from another wallet. It depends on btclib and on
 [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), and
 re-exports nothing of btclib's: a name btclib defines is imported from
 btclib.

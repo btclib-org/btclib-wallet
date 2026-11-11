@@ -41,7 +41,8 @@ from dataclasses import fields, is_dataclass, replace
 from typing import Any, SupportsIndex, cast
 
 import pytest
-from btclib import b58, base58
+from base58_bech32.base58 import b58decode_check, b58encode_check
+from btclib import b58
 from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
@@ -4675,9 +4676,9 @@ def test_a_template_refusal_echoes_no_private_key(template: str, message: str) -
 
 def _reencoded(xkey: str, start: int, octets: bytes) -> str:
     """Return `xkey` with `octets` written at `start`, and a new checksum."""
-    payload = bytearray(base58.decode(xkey, 78))
+    payload = bytearray(b58decode_check(xkey, out_size=78))
     payload[start : start + len(octets)] = octets
-    return base58.encode(bytes(payload)).decode("ascii")
+    return b58encode_check(bytes(payload)).decode("ascii")
 
 
 # an xprv damaged in one character or one field, and text that is no key

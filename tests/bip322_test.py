@@ -21,7 +21,8 @@ from functools import partial
 from typing import Any
 
 import pytest
-from btclib import b58, base58
+from base58_bech32.base58 import b58decode_check, b58encode_check
+from btclib import b58
 from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
@@ -649,14 +650,14 @@ def test_sign_refuses_a_key_that_is_neither_a_wif_nor_parsed() -> None:
 
 def _wif_payload(scalar: bytes, flag: bytes) -> str:
     """Return the mainnet WIF spelling of a scalar and a compression byte."""
-    return base58.encode(b"\x80" + scalar + flag).decode("ascii")
+    return b58encode_check(b"\x80" + scalar + flag).decode("ascii")
 
 
 _SCALAR = b58.prv_key_data_from_wif(WIF).q.to_bytes(32, "big")
 _N = secp256k1.n.to_bytes(32, "big")
 _XPRV = rootxprv_from_seed(bytes.fromhex("8f6e1b9a2c4d7e3f0a5b6c8d9e1f2a3b"))
 # the key field of an xprv is 0x00 and the 32-byte key, last in its payload
-_XPRV_KEY = base58.decode(_XPRV)[-32:]
+_XPRV_KEY = b58decode_check(_XPRV)[-32:]
 
 # a string a caller may pass for a key, each one character or one field
 # away from a WIF, the refusal its reading ends in, and the key it holds

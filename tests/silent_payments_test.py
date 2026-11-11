@@ -29,8 +29,8 @@ from hashlib import sha256
 from typing import Any, cast
 
 import pytest
+from base58_bech32.bech32 import BECH32_M_CONST, bech32_encode
 from btclib.b32 import power_of_2_base_conversion
-from btclib.bech32 import BECH32_M_CONST, encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
@@ -279,7 +279,7 @@ def _address(m: int | None = None, network: str = "mainnet") -> str:
 def _reencoded(version: int, payload: bytes, hrp: str = "sp") -> str:
     """Compose an address out of a version and a payload, valid or not."""
     data = [version, *power_of_2_base_conversion(payload, 8, 5)]
-    return encode(hrp, data, BECH32_M_CONST).decode("ascii")
+    return bech32_encode(hrp, data, m=BECH32_M_CONST).decode("ascii")
 
 
 def test_the_address_round_trip_on_every_network() -> None:
@@ -412,15 +412,14 @@ def test_an_hrp_that_is_not_a_silent_payment_one_is_refused() -> None:
 
 
 def test_an_address_with_no_data_part_is_refused() -> None:
-    """`decode` does not require one when the checksum constant is given.
+    """An empty data part is refused here, not by the codec.
 
-    Which is what passing it costs: the segwit spelling reads the witness
-    version off the first data value to pick between bech32 and bech32m,
-    and refuses an empty data part on the way. Here the constant is
-    BIP352's whatever the version, so nothing else asks.
+    `bech32_decode` reads no version off the data part and returns an
+    empty one as it came, so without this refusal reading the version
+    would raise `IndexError`.
     """
     with pytest.raises(BTClibValueError, match="empty data"):
-        silent_payments.keys_from_address(encode("sp", [], BECH32_M_CONST))
+        silent_payments.keys_from_address(bech32_encode("sp", [], m=BECH32_M_CONST))
 
 
 def test_version_31_is_refused_and_the_others_are_read() -> None:

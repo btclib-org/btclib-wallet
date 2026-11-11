@@ -70,9 +70,10 @@ import string
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from base58_bech32.bech32 import BECH32_M_CONST, bech32_decode, bech32_encode
+from base58_bech32.exceptions import Base58Bech32ValueError
 from btclib.alias import Integer, NetworkType, Octets, Point, String
 from btclib.b32 import power_of_2_base_conversion
-from btclib.bech32 import BECH32_M_CONST, decode, encode
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.network import network_type_from_network, validated_network_name
@@ -275,12 +276,13 @@ def address_from_keys(B_scan: PubKey, B_m: PubKey, network: str = "mainnet") -> 
     payload = bytes_from_point(point_from_pub_key(B_scan), secp256k1)
     payload += bytes_from_point(point_from_pub_key(B_m), secp256k1)
     data = [_VERSION, *power_of_2_base_conversion(payload, 8, 5)]
-    # bech32m by the constant and not by the leading value: `encode`
+    # bech32m by the constant and not by the leading value: `bech32_encode`
     # reads the witness version of a segwit address off data[0] to choose
     # between bech32 and bech32m, and here data[0] is a silent payment
     # version -- 0, which would pick the bech32 constant and produce a
     # string no BIP352 implementation accepts
-    return encode(_hrp_from_network(network), data, BECH32_M_CONST).decode("ascii")
+    hrp = _hrp_from_network(network)
+    return bech32_encode(hrp, data, m=BECH32_M_CONST).decode("ascii")
 
 
 def keys_from_address(address: String) -> tuple[Point, Point, NetworkType]:
@@ -315,19 +317,22 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
     if len(addr) > _MAX_ADDRESS_SIZE:
         err_msg = f"invalid address length: {len(addr)} > {_MAX_ADDRESS_SIZE}"
         raise BTClibValueError(err_msg)
-    # `decode` is handed the string as it came, so that its refusal of
-    # mixed case reaches the caller. bech32 is ASCII, and anything else is
-    # refused here: a `decode` that lowers the string before reading its
+    # `bech32_decode` is handed the string as it came, so that its refusal
+    # of mixed case reaches the caller. bech32 is ASCII, and anything else
+    # is refused here: a decoder that lowers the string before reading its
     # alphabet takes U+212A KELVIN SIGN for "k" (issue btclib-org/btclib#2347)
     if not addr.isascii():
         raise BTClibValueError("non-ASCII character in address")
 
-    hrp, data = decode(addr, BECH32_M_CONST)
+    try:
+        hrp, data, _ = bech32_decode(addr, m=BECH32_M_CONST)
+    except Base58Bech32ValueError as e:
+        raise BTClibValueError(str(e)) from e
     if hrp not in {_MAINNET_HRP, _TESTNET_HRP, _REGTEST_HRP}:
         raise BTClibValueError(f"invalid hrp: {hrp}")
 
-    # `decode` was given the checksum constant, so it did not read a
-    # version off the data part and did not require one to be there
+    # `bech32_decode` reads no version off the data part and does not
+    # require one to be there
     if not data:
         raise BTClibValueError("empty data in silent payment address")
     version = data[0]

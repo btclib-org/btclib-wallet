@@ -27,7 +27,10 @@ fix.
 
 This package is built on [btclib](https://github.com/btclib-org/btclib),
 which holds the primitives — the curve arithmetic, the signature
-schemes, the codecs, scripts and transactions — and on
+schemes, the codecs other than Base58Check and bech32, scripts and
+transactions — and on
+[base58-bech32](https://github.com/btclib-org/base58-bech32), which
+holds the Base58Check and bech32 codecs, and on
 [bitcoin-core-rpc](https://github.com/btclib-org/bitcoin-core-rpc), which
 is the client the Bitcoin Core backends of `btclib_wallet.fetch` talk
 through, and on

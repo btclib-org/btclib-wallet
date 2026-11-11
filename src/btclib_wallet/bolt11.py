@@ -9,19 +9,18 @@ https://github.com/lightning/bolts/blob/master/11-payment-encoding.md
 A BOLT11 invoice is bech32 over a human-readable part (network and
 optional amount) and a data part (timestamp, tagged fields, recoverable
 ECDSA signature) -- every piece of which is arithmetic this tree already
-has: `bech32` for the codec, `b32` and `b58` for the fallback on-chain
-address, `ecc.dsa` for the signature and payee recovery, `hashes.sha256`
-for the message digest.
+has: `base58_bech32.bech32` for the codec, `b32` and `b58` for the
+fallback on-chain address, `ecc.dsa` for the signature and payee
+recovery, `hashes.sha256` for the message digest.
 
-**Explicit `m`, always.** `bech32.decode`'s default picks bech32 against
-bech32m off the first data word as if it were a witness version
-(`_m_from_wit_ver`); an invoice's first data words are timestamp bits,
-which is not a witness version at all, so the default would misread most
-invoices. BOLT11 is bech32 alone -- BIP350 (bech32m) postdates it and the
-BOLT never adopted it -- so both directions here call `bech32.decode` and
-`bech32.encode` with `m=1` explicitly. The 90-character bound BIP173
-addresses carry is not a concern either: `bech32.py` never enforced it,
-`b32.py` does, and this module imports `bech32` and not `b32`'s bound.
+**Explicit `m` and no `limit`, always.** BOLT11 is bech32 alone --
+BIP350 (bech32m) postdates it and the BOLT never adopted it. Without `m`,
+`bech32_decode` accepts a bech32m checksum too, and `bech32_encode` picks
+the constant off the first data word as if it were a witness version,
+where an invoice's first data words are timestamp bits. So both
+directions here pass `m=BECH32_1_CONST`. A tagged field's length is ten
+bits, up to 1023 words, so an invoice can be longer than the codec's
+default `limit` allows, and both pass `limit=None`.
 
 **The wire format's own source of truth is `tagged_fields`, in the order
 the invoice carried them.** BOLT11 does not fix an order across different
@@ -82,6 +81,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from base58_bech32.bech32 import BECH32_1_CONST, bech32_decode, bech32_encode
+from base58_bech32.exceptions import Base58Bech32TypeError, Base58Bech32ValueError
 from btclib.alias import Integer, Octets
 from btclib.b32 import (
     address_from_witness,
@@ -90,9 +91,7 @@ from btclib.b32 import (
     witness_from_address,
 )
 from btclib.b58 import address_from_h160, h160_from_address
-from btclib.bech32 import decode as _bech32_decode
-from btclib.bech32 import encode as _bech32_encode
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
 from btclib.network import normalized_network_name
 from btclib.utils import assert_type, bytes_from_octets, int_from_integer, is_integer
@@ -724,7 +723,15 @@ class Bolt11Invoice:
             + bytes([self.recovery_id])
         )
         data_words += _bytes_to_words(sig_bytes)
-        return _bech32_encode(hrp, data_words, m=1).decode("ascii")
+        # the words of an invoice built with check_validity=False reach
+        # the codec unchecked, and its refusal leaves as this package's
+        try:
+            text = bech32_encode(hrp, data_words, m=BECH32_1_CONST, limit=None)
+        except Base58Bech32TypeError as e:
+            raise BTClibTypeError(str(e)) from e
+        except Base58Bech32ValueError as e:
+            raise BTClibValueError(str(e)) from e
+        return text.decode("ascii")
 
     @classmethod
     def from_invoice(
@@ -736,7 +743,10 @@ class Bolt11Invoice:
         invoice is text, like `Bip21.parse`'s own `uri`.
         """
         assert_type(invoice, str, "invoice")
-        hrp, data = _bech32_decode(invoice, m=1)
+        try:
+            hrp, data, _ = bech32_decode(invoice, m=BECH32_1_CONST, limit=None)
+        except Base58Bech32ValueError as e:
+            raise BTClibValueError(str(e)) from e
         network, amount_msat = _parse_hrp(hrp)
 
         if len(data) < 7 + _SIGNATURE_WORDS:
