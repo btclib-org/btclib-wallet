@@ -660,7 +660,7 @@ def test_a_call_running_in_any_thread_keeps_the_key(
 
         def blocked(txid: bytes) -> None:
             entered.set()
-            release.wait()
+            assert release.wait(timeout=30), "transaction was not released"
             raise BTClibValueError(f"unknown txid: {txid.hex()}")
 
         def asks() -> None:
@@ -668,14 +668,17 @@ def test_a_call_running_in_any_thread_keeps_the_key(
                 ledger.transaction(bytes(32))
 
         monkeypatch.setattr(ledger, "_held", blocked)
-        thread = threading.Thread(target=asks)
+        thread = threading.Thread(target=asks, daemon=True)
         thread.start()
-        entered.wait()
-        clock.tick(10)
-        assert ledger.locked == frozenset()
-        assert ledger._key is key
-        release.set()
-        thread.join()
+        try:
+            assert entered.wait(timeout=30), "transaction never reached the hook"
+            clock.tick(10)
+            assert ledger.locked == frozenset()
+            assert ledger._key is key
+        finally:
+            release.set()
+            thread.join(timeout=30)
+        assert not thread.is_alive(), "transaction did not finish"
         assert ledger._running == 0
         assert ledger.unlocked_until == 0
         assert key == bytearray(32)
@@ -721,7 +724,7 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
         def held(*args: object) -> object:
             if threading.current_thread() is not threading.main_thread():
                 entered.set()
-                release.wait()
+                assert release.wait(timeout=30), "sign was not released"
             return real(*args)
 
         monkeypatch.setattr(target, where, held)
@@ -733,15 +736,18 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
             except BTClibValueError as refusal:
                 outcomes.append(refusal)
 
-        thread = threading.Thread(target=signs)
+        thread = threading.Thread(target=signs, daemon=True)
         thread.start()
-        entered.wait()
-        if relock == "lock_keys":
-            ledger.lock_keys()
-        else:
-            ledger.unlock_keys(PASSPHRASE, 600)
-        release.set()
-        thread.join()
+        try:
+            assert entered.wait(timeout=30), "sign never reached the hook"
+            if relock == "lock_keys":
+                ledger.lock_keys()
+            else:
+                ledger.unlock_keys(PASSPHRASE, 600)
+        finally:
+            release.set()
+            thread.join(timeout=30)
+        assert not thread.is_alive(), "sign did not finish"
         if refused:
             (refusal,) = outcomes
             assert isinstance(refusal, BTClibValueError)
