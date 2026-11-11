@@ -37,8 +37,8 @@ outside the file. That holds in SQLite's rollback-journal mode, which
 every connection that writes sets: in WAL mode the pages a write
 replaces stay in the main file until a checkpoint, `secure_delete` or
 not. So a file another program set to WAL goes back to the rollback
-journal when it is opened, and one that another connection reads, which
-keeps it in WAL mode, is refused.
+journal when it is opened, and one another connection has open and has
+read, which keeps it in WAL mode, is refused.
 
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.

@@ -280,9 +280,10 @@ def test_a_wal_file_open_in_another_program_is_refused(
 ) -> None:
     """A WAL file that cannot leave WAL mode is not opened.
 
-    Another connection reading it keeps it in WAL mode, where an
-    encryption would leave the replaced keys in the main file. SQLite
-    waits for that read for its busy timeout before it refuses.
+    Another connection that has it open and has read it keeps it in WAL
+    mode, where an encryption would leave the replaced keys in the main
+    file. SQLite refuses at once: leaving WAL mode does not wait on the
+    busy timeout.
     """
     path = tmp_path / "ledger.sqlite"
     _created(path, chain, _wallet(XPRV)).close()
