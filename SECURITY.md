@@ -162,7 +162,9 @@ used to teach and to prototype as much as to build.
     copied by the interpreter meanwhile. `bip32._cached_base58_decode`
     extends this by one step for an xprv string handed to a derivation:
     the decoded key stays reachable from that cache, bounded by its
-    `maxsize`, past whatever reference the caller itself still holds.
+    `maxsize`, past whatever reference the caller itself still holds. A
+    ledger's master key is held in a buffer it zeroes, as *A ledger's
+    keys at rest* says.
 - **`btclib_wallet.bip38` has no MAC.** It takes AES-256 as two callables,
     for the reason btclib's `ecies` takes its cipher that way, and its
     cipher's resistance to side channels is whatever the caller passed
@@ -288,11 +290,53 @@ used to teach and to prototype as much as to build.
     with btclib's script engine. `btclib_wallet.ledger.ledger`'s
     docstring says when, and what stays unverified.
 
-## A ledger's file holds its keys in plain text
+## A ledger's keys at rest
 
 `btclib_wallet.ledger` writes each source's extended private keys into
-its SQLite file unencrypted, as an unencrypted Bitcoin Core wallet does,
-until ISS btclib-org/btclib-wallet#717 encrypts them. So does every file
-`Ledger.backup` writes and every copy `Ledger.restore` makes. Whoever
-reads one of them can spend the coins. Each is made readable by its
-owner alone where the system has POSIX permissions.
+its SQLite file in plain text, as an unencrypted Bitcoin Core wallet
+does, until `Ledger.encrypt` encrypts them under a passphrase. So does
+every file `Ledger.backup` writes and every copy `Ledger.restore` makes.
+Whoever reads one of them before the encryption can spend the coins.
+Each is made readable by its owner alone where the system has POSIX
+permissions.
+
+- **What is encrypted is the private keys, and only them**, under a
+    master key the passphrase encrypts: `btclib_wallet.ledger.crypto`
+    says with what, and how, and README's *Installing* names the extra
+    the encryption needs. The descriptors, which name the extended
+    public keys, the addresses handed out, every transaction and the tip
+    stay plain, as in an encrypted Core wallet: whoever reads the file
+    learns the wallet's history and balance, and can watch it, but
+    cannot spend from it.
+- **A backup taken before the encryption keeps the keys in plain
+    text.** Encrypting a ledger encrypts none of the files `backup`
+    wrote before, so those are to be destroyed or kept as safe as the
+    keys. A backup taken after holds only their ciphertext.
+- **The file and a backup taken after the encryption hold no byte of a
+    key in plain text**, through SQLite's `secure_delete` and its rollback
+    journal. `btclib_wallet.ledger.store` says how, and what becomes of a
+    file in WAL mode (`tests/ledger/encryption_test.py` searches every
+    file for them). SQLite's rollback journal holds the pages a
+    transaction changes, as they were, and SQLite deletes it once the
+    transaction ends. The disk blocks a deleted journal used, and what a
+    copy-on-write file system or an SSD keeps of overwritten blocks, are
+    outside the file and can keep a key written before the encryption. A
+    ledger loaded before another encrypted the file writes no key into it
+    in plain text, and a file holding plain keys beside a master key is
+    refused at load.
+- **While unlocked, the master key is in the process's memory.**
+    `btclib_wallet.ledger.ledger`'s docstring says what holds it and the
+    keys it decrypts, when each is zeroed, and why the master key
+    outlives its timeout. The parsed keys are Python objects that nothing
+    zeroes, as *Where constant time ends* says of every secret.
+- **The passphrase is what protects the keys.** scrypt makes each guess
+    cost what `crypto` sets, and a passphrase short enough to guess is
+    guessed offline from a copy of the file. A wrong passphrase and a
+    damaged master key both fail its tag, so neither is told from the
+    other.
+- **A new passphrase keeps the master key.** `change_passphrase`
+    encrypts the same master key again, as Core's
+    `ChangeWalletPassphrase` does (src/wallet/wallet.cpp:647-677 at
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag). So a backup taken before
+    the change, with the passphrase it had, decrypts the keys of every
+    source a later copy of the file holds, those added since included.

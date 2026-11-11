@@ -144,17 +144,54 @@ is Core's `GetReceived` (src/wallet/rpc/coins.cpp:21-77): every output
 paying the ledger's scripts, change included, in each transaction deep
 enough. `address_groupings` is `GetAddressBalances` and
 `GetAddressGroupings` (src/wallet/receive.cpp:297-416).
+
+**Encryption.** `encrypt` encrypts the private keys of every source
+under a passphrase, as Core's `encryptwallet` does, and leaves the
+ledger locked; the descriptors, the transactions and everything else
+the file holds stay plain, so a locked ledger syncs, answers, hands out
+addresses and funds a psbt. `unlock_keys` decrypts them for a number of
+seconds, `lock_keys` locks them again, and `change_passphrase` encrypts
+the master key under a new passphrase. While locked, `sign` and `spend`
+are refused, and so is `add_source` of a wallet holding private keys,
+whose keys need the master key to be encrypted. `crypto` says how the
+keys are encrypted and `store` what the file holds.
+
+What a ledger holds of its keys while unlocked is the master key, in a
+buffer zeroed as *The relock* and `change_passphrase` say. An unlock
+and a signature decrypt the keys into a buffer zeroed once they are
+parsed, or at once where the tag fails. Copies remain, as `crypto`
+says.
+
+**The relock.** `lock_keys` and `close` zero the master key at once,
+even under a call running in another thread. The timeout is kept on the
+monotonic clock, as Core's relock runs on its scheduler's steady clock
+(src/scheduler.h:49-54 at bitcoin/bitcoin@f0de87f040, the v32.1 tag):
+a change of the system's time neither shortens nor lengthens an unlock.
+Nothing runs between calls: the master key is zeroed by the first call
+of a public method or property that starts after the timeout while no
+call of the ledger runs, in any thread, and outlives its timeout in
+memory until that call. So a call running as the timeout lapses keeps
+the key to its end, and a `spend` signs what it funded. A public member
+another one calls, as `spend` calls `fund` and `sign` and `fund` calls
+`utxos`, starts while its caller runs, so it zeroes nothing. Core's
+relock likewise waits for the wallet lock, which a call such as
+`sendtoaddress` holds to its end (src/wallet/rpc/encrypt.cpp:104 and
+src/wallet/rpc/spend.cpp:301 and 322 at the same commit).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+import functools
+import json
+import threading
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import Concatenate, ParamSpec, Self, TypeVar
 
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
@@ -169,7 +206,7 @@ from btclib.utils import assert_type, is_integer
 
 from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.coin_selection import Candidate, select_coins
-from btclib_wallet.descriptors import parse
+from btclib_wallet.descriptors import normalized, parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.balance import script_pub_key_for_network
 from btclib_wallet.fetch.broadcaster import Broadcaster
@@ -177,6 +214,17 @@ from btclib_wallet.fetch.fee_estimator import FeeEstimator
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef, HistoryReader, ScriptHistory
 from btclib_wallet.fetch.relay_fees import RelayFeeReader
+from btclib_wallet.ledger.crypto import (
+    _cipher,
+    _master_key,
+    _MasterKey,
+    _new_key,
+    _opened,
+    _sealed,
+    _unlocked,
+    _wipe,
+    _WrongKeyError,
+)
 from btclib_wallet.ledger.records import (
     Balances,
     GroupedAddress,
@@ -195,7 +243,7 @@ from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.tx_builder import FundedPsbt, build_psbt
 from btclib_wallet.wallet.descriptor_wallet import DescriptorWallet
 
-__all__ = ["LOOKAHEAD", "Ledger"]
+__all__ = ["LOOKAHEAD", "MAX_UNLOCK_TIME", "Ledger"]
 
 # Core's DEFAULT_KEYPOOL_SIZE: how many indexes past the next one to
 # hand out the ledger watches on each ranged branch
@@ -212,6 +260,45 @@ _LONG_TERM_FEE_RATE = FeeRate(sats_per_kvbyte=10_000)
 
 # how many times `sync` reads again after the tip moved between two reads
 _SYNC_ATTEMPTS = 3
+
+# the longest `unlock_keys` keeps the keys unlocked, in seconds: Core's
+# MAX_SLEEP_TIME (src/wallet/rpc/encrypt.cpp:63-67 at
+# bitcoin/bitcoin@f0de87f040, the v32.1 tag)
+MAX_UNLOCK_TIME = 100_000_000
+
+_LOCKED = "the ledger is locked: unlock its keys first"
+_LOCKED_DURING = "the ledger was locked while the call ran: unlock its keys again"
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _relocking(
+    method: Callable[Concatenate[Ledger, _P], _R],
+) -> Callable[Concatenate[Ledger, _P], _R]:
+    """Zero the master key before `method` runs, as *The relock* says.
+
+    *The relock* is a paragraph of the module's docstring. This
+    decorator wraps every public method and property of `Ledger` but
+    the constructors `create`, `load` and `restore`. The count of calls
+    running and the check of the timeout are under one lock, so that the
+    count is exact where threads run without the GIL.
+    """
+
+    @functools.wraps(method)
+    def relocked(ledger: Ledger, /, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with ledger._calls:
+            if ledger._running == 0:
+                ledger._relock_if_due()
+            ledger._running += 1
+        try:
+            return method(ledger, *args, **kwargs)
+        finally:
+            with ledger._calls:
+                ledger._running -= 1
+
+    return relocked
+
 
 # where an output of the ledger is: its source, branch and index
 _Position = tuple[int, int, int]
@@ -290,6 +377,20 @@ class Ledger:
         self._txs: dict[bytes, WalletTx] = {}
         self._blocks: dict[int, bytes] = {}
         self._tip: BlockRef | None = None
+        self._master_key: _MasterKey | None = None
+        self._encrypted: dict[int, bytes] = {}
+        self._key: bytearray | None = None
+        # the lock the master key is zeroed, let go of and set under, with
+        # the times it locks at, which `_holds` reads
+        self._key_lock = threading.Lock()
+        # when the keys lock: as `unlocked_until` reports it, and as
+        # *The relock* decides it
+        self._unlocked_until = 0
+        self._relock_at = 0.0
+        # how many public members are running, in every thread, and the
+        # lock `_relocking` reads and writes it under
+        self._running = 0
+        self._calls = threading.Lock()
 
     @classmethod
     def create(
@@ -351,14 +452,13 @@ class Ledger:
             fallback_fee_rate,
         )
         try:
+            ledger._master_key = store.master_key()
+            if ledger._master_key is not None:
+                # an encrypted file needs the cipher, refused here if missing
+                _cipher()
             for source_id, source in store.sources():
-                wallet = DescriptorWallet(
-                    {
-                        branch: parse(text, network, source.prv_keys)
-                        for branch, text in source.descriptors.items()
-                    },
-                    source.prv_keys or None,
-                )
+                ledger._hold_keys(source_id, source)
+                wallet = _wallet(source.descriptors, network, source.prv_keys)
                 ledger._attach(source_id, wallet, source)
             # no address is asked for: a script `pk()` pays to has none
             ledger._handed.update(store.handed_out())
@@ -418,6 +518,7 @@ class Ledger:
             Path(path).unlink(missing_ok=True)
             raise
 
+    @_relocking
     def backup(self, path: str | PathLike[str]) -> None:
         """Write a copy of the ledger's file into a new file at `path`.
 
@@ -428,8 +529,10 @@ class Ledger:
         assert_type(path, (str, PathLike), "path")
         self._store.backup(path)
 
+    @_relocking
     def close(self) -> None:
-        """Close the file; the ledger answers nothing after this."""
+        """Lock the keys and close the file; the ledger answers nothing then."""
+        self._drop_key()
         self._store.close()
 
     def __enter__(self) -> Self:
@@ -445,6 +548,7 @@ class Ledger:
 
     # -- the sources ------------------------------------------------------
 
+    @_relocking
     def add_source(
         self,
         wallet: DescriptorWallet,
@@ -461,11 +565,16 @@ class Ledger:
         `fetch.start_height_for_time` turns a birth time into a height.
         The wallet is written to the file whole, its private keys
         included, and `load` builds it again from its descriptors and
-        keys. `label` is set on the one address of branch 0, where its
-        script has one, and refused where that branch is ranged or
-        missing, as Core refuses a label on a ranged descriptor
-        (src/wallet/rpc/backup.cpp:213-216 at bitcoin/bitcoin@f0de87f040,
-        the v32.1 tag).
+        keys. In an encrypted ledger its keys are written encrypted, as
+        `store` says, and a wallet holding keys is refused while the
+        ledger is locked, where a lock in another thread zeroed the
+        master key while its keys were encrypted, and where its scripts
+        need a private key at every index (a hardened ``/*h``), which a
+        locked ledger could not derive. `label` is set on the one address
+        of branch 0, where its script has one, and refused where that
+        branch is ranged or missing, as Core refuses a label on a ranged
+        descriptor (src/wallet/rpc/backup.cpp:213-216 at
+        bitcoin/bitcoin@f0de87f040, the v32.1 tag).
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
@@ -482,14 +591,20 @@ class Ledger:
         birth = birth_height
         if birth is None:
             birth = 0 if self._tip is None else self._tip.height
-        source = _Source(
-            {branch: str(wallet.descriptor(branch)) for branch in wallet.branches},
-            dict(wallet.prv_keys or {}),
-            lookahead,
-            birth,
-            scanned,
-        )
-        source_id = self._store.add_source(source)
+        descriptors = {
+            branch: str(wallet.descriptor(branch)) for branch in wallet.branches
+        }
+        prv_keys = dict(wallet.prv_keys or {})
+        source_id = self._store.next_source_id()
+        encrypted = None
+        if self._master_key is not None and prv_keys:
+            descriptors, encrypted = self._sealed_source(wallet, source_id)
+            wallet = _wallet(descriptors, self.network, {})
+            prv_keys = {}
+        source = _Source(descriptors, prv_keys, encrypted, lookahead, birth, scanned)
+        self._store.add_source(source_id, source)
+        if encrypted is not None:
+            self._encrypted[source_id] = encrypted
         self._attach(source_id, wallet, source)
         self._extend_windows()
         if label is not None:
@@ -497,6 +612,22 @@ class Ledger:
             if self._address(script):
                 self._write_label(script, label)
         return source_id
+
+    def _sealed_source(
+        self, wallet: DescriptorWallet, source_id: int
+    ) -> tuple[dict[int, str], bytes]:
+        """Return a wallet's watched descriptors, and its keys encrypted.
+
+        A locked ledger is refused, and so is one whose master key
+        `lock_keys` or `close` in another thread zeroed while the keys
+        were encrypted: they may be under zeros.
+        """
+        key = self._assert_unlocked()
+        descriptors = _watched(wallet)
+        encrypted = _sealed(key, _plaintext(wallet), _aad(source_id))
+        if not self._holds(key):
+            raise BTClibValueError(_LOCKED_DURING)
+        return descriptors, encrypted
 
     def _attach(
         self, source_id: int, wallet: DescriptorWallet, source: _Source
@@ -509,8 +640,13 @@ class Ledger:
             self._unscanned.add(source_id)
 
     @property
+    @_relocking
     def sources(self) -> tuple[DescriptorWallet, ...]:
-        """The wallets of the ledger, in source id order."""
+        """The wallets of the ledger, in source id order.
+
+        In an encrypted ledger a wallet added with private keys is the
+        watch-only one `store` says the file holds.
+        """
         return tuple(self._sources[i] for i in sorted(self._sources))
 
     def _source(self, source: int) -> DescriptorWallet:
@@ -574,6 +710,7 @@ class Ledger:
             return source, branch, 0
         return source, branch, self._next_index(source, branch)
 
+    @_relocking
     def new_address(
         self, source: int = 0, branch: int = 0, *, label: str | None = None
     ) -> str:
@@ -600,6 +737,7 @@ class Ledger:
             )
         return address
 
+    @_relocking
     def new_change_address(self, source: int = 0) -> str:
         """Hand out the next address of the change branch, branch 1.
 
@@ -608,6 +746,7 @@ class Ledger:
         """
         return self.new_address(source, 1)
 
+    @_relocking
     def position_of(self, script_pub_key: ScriptPubKey) -> tuple[int, int, int] | None:
         """Return the source, branch and index paying to a script, or None.
 
@@ -628,6 +767,7 @@ class Ledger:
         self._store.set_label(script, label, purpose)
         self._labels[script] = (label, purpose)
 
+    @_relocking
     def set_label(self, address: str, label: str) -> None:
         """Set the label of an address, the ledger's or anybody else's.
 
@@ -676,6 +816,7 @@ class Ledger:
         """Whether the output pays the ledger a script with an address."""
         return self._owned(tx_out) and self._address(_script(tx_out)) != ""
 
+    @_relocking
     def label_of(self, address: str) -> str | None:
         """Return the label of an address, None where it has none.
 
@@ -686,6 +827,7 @@ class Ledger:
         entry = self._entry(self._script_of(address), self._receive_ends())
         return None if entry is None else entry[0]
 
+    @_relocking
     def labels(self, purpose: str | None = None) -> tuple[str, ...]:
         """Return each label in use, sorted, Core's `listlabels`.
 
@@ -706,6 +848,7 @@ class Ledger:
             )
         )
 
+    @_relocking
     def addresses_by_label(self, label: str) -> dict[str, str]:
         """Return the purpose of each address with the label.
 
@@ -724,6 +867,7 @@ class Ledger:
     # -- the sync ---------------------------------------------------------
 
     @property
+    @_relocking
     def tip(self) -> BlockRef | None:
         """The block the ledger is synced to, None before any sync.
 
@@ -731,6 +875,7 @@ class Ledger:
         """
         return self._tip
 
+    @_relocking
     def sync(self) -> SyncResult:
         """Read the chain from the tip the ledger holds, and record it.
 
@@ -948,6 +1093,7 @@ class Ledger:
                 if self._owned(tx_out):
                     yield wtx, vout, tx_out
 
+    @_relocking
     def balances(
         self, min_depth: int = 0, *, include_nonmempool: bool = True
     ) -> Balances:
@@ -981,6 +1127,7 @@ class Ledger:
                 nonmempool -= tx_out.value
         return Balances(trusted, pending, immature, nonmempool)
 
+    @_relocking
     def utxos(
         self,
         min_depth: int = 1,
@@ -1023,6 +1170,7 @@ class Ledger:
                 found.append(Utxo(outpoint, tx_out, depth, safe, source, branch, index))
         return tuple(found)
 
+    @_relocking
     def lock(self, outpoint: OutPoint) -> None:
         """Keep an output out of `fund` and `spend`, until `unlock`.
 
@@ -1031,16 +1179,19 @@ class Ledger:
         assert_type(outpoint, OutPoint, "outpoint")
         self._locked.add(outpoint)
 
+    @_relocking
     def unlock(self, outpoint: OutPoint) -> None:
         """Let a locked output be spent again."""
         assert_type(outpoint, OutPoint, "outpoint")
         self._locked.discard(outpoint)
 
     @property
+    @_relocking
     def locked(self) -> frozenset[OutPoint]:
         """The outputs locked, Core's `listlockunspent`."""
         return frozenset(self._locked)
 
+    @_relocking
     def transaction(self, txid: bytes) -> TxInfo:
         """Return what `gettransaction` reports of a transaction held.
 
@@ -1056,6 +1207,7 @@ class Ledger:
         return self._txs[txid]
 
     @property
+    @_relocking
     def transactions(self) -> tuple[TxInfo, ...]:
         """Every transaction held, in the order it was recorded.
 
@@ -1128,6 +1280,7 @@ class Ledger:
             return "orphan"
         return "immature" if self._is_immature(wtx) else "generate"
 
+    @_relocking
     def received_by_address(
         self,
         address: str,
@@ -1147,6 +1300,7 @@ class Ledger:
             raise BTClibValueError(f"not an address of the ledger: {address}")
         return self._received({script}, min_depth, include_immature_coinbase)
 
+    @_relocking
     def received_by_label(
         self,
         label: str,
@@ -1194,6 +1348,7 @@ class Ledger:
         return total
 
     @property
+    @_relocking
     def address_groupings(self) -> tuple[tuple[GroupedAddress, ...], ...]:
         """The ledger's addresses, grouped as spent together.
 
@@ -1314,6 +1469,7 @@ class Ledger:
         witness = Witness([b"\x00" * size for size in stack]) if stack else None
         return input_weight(b"\x00" * script_sig_size, witness)
 
+    @_relocking
     def fund(
         self, outputs: Sequence[TxOut], fee_rate: FeeRate | None = None
     ) -> FundedPsbt:
@@ -1375,15 +1531,18 @@ class Ledger:
             funded = FundedPsbt(psbt, funded.fee, funded.change_index)
         return funded
 
+    @_relocking
     def sign(self, psbt: Psbt) -> Psbt:
         """Return the psbt with every signature the ledger's keys can add.
 
         Core's `signrawtransactionwithwallet`, over a psbt: each input
         spending an output the ledger holds is updated with its source's
         scripts and key origins first. A source signs with the extended
-        private keys it was added with.
+        private keys it was added with. A locked ledger is refused.
         """
         assert_type(psbt, Psbt, "psbt")
+        if self._master_key is not None:
+            self._assert_unlocked()
         for i, tx_in in enumerate(psbt.tx.vin):
             held = _prevout(tx_in, self._txs)
             if held is not None and self._owned(held):
@@ -1397,7 +1556,7 @@ class Ledger:
     def _signers(self) -> list[SoftwareSigner]:
         """Return a signer per master fingerprint the sources hold keys of."""
         accounts: dict[bytes, dict[tuple[int, ...], str]] = {}
-        for wallet in self._sources.values():
+        for wallet in self._signing_wallets():
             prv_keys = wallet.prv_keys or {}
             for branch in wallet.branches:
                 for key in wallet.descriptor(branch).key_expressions:
@@ -1415,6 +1574,43 @@ class Ledger:
             for master, held in accounts.items()
         ]
 
+    def _signing_wallets(self) -> list[DescriptorWallet]:
+        """Return each source as it signs, an encrypted one decrypted."""
+        key = self._key
+        if key is None:
+            if self._master_key is not None:
+                raise BTClibValueError(_LOCKED_DURING)
+            return list(self._sources.values())
+        return [
+            self._decrypted(key, source_id) if source_id in self._encrypted else wallet
+            for source_id, wallet in self._sources.items()
+        ]
+
+    def _decrypted(self, key: bytearray, source_id: int) -> DescriptorWallet:
+        """Return a source as it was added, its keys decrypted under `key`.
+
+        A `key` zeroed in place, as `lock_keys` and a new `unlock_keys`
+        zero the one held, from another thread while this ran, is refused
+        as a ledger locked during the call, not as a damaged file.
+        """
+        try:
+            plaintext = _opened(key, self._encrypted[source_id], _aad(source_id))
+        except _WrongKeyError:
+            if not any(key):
+                raise BTClibValueError(_LOCKED_DURING) from None
+            err_msg = f"not a ledger file: source {source_id}'s keys do not decrypt"
+            raise BTClibValueError(err_msg) from None
+        try:
+            held = json.loads(plaintext)
+        finally:
+            _wipe(plaintext)
+        return _wallet(
+            {int(b): t for b, t in held["descriptors"].items()},
+            self.network,
+            held["prv_keys"],
+        )
+
+    @_relocking
     def spend(self, outputs: Sequence[TxOut], fee_rate: FeeRate | None = None) -> Tx:
         """Pay `outputs` from the ledger's coins, and broadcast the payment.
 
@@ -1430,6 +1626,8 @@ class Ledger:
         """
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
+        if self._master_key is not None:
+            self._assert_unlocked()
         funded = self.fund(outputs, fee_rate)
         tx = tx_for_network(extract_tx(finalize(self.sign(funded.psbt))), self.network)
         seq = max((wtx.seq for wtx in self._txs.values()), default=-1) + 1
@@ -1456,6 +1654,7 @@ class Ledger:
 
     # -- abandon and resubmit ---------------------------------------------
 
+    @_relocking
     def abandon(self, txid: bytes) -> None:
         """Abandon an inactive transaction, and its inactive descendants.
 
@@ -1473,6 +1672,7 @@ class Ledger:
         self._store.upsert_txs(w for t, w in txs.items() if self._txs[t] != w)
         self._txs = txs
 
+    @_relocking
     def resubmit(self) -> dict[bytes, FetchError]:
         """Broadcast again what is in the mempool or inactive; return refusals.
 
@@ -1501,6 +1701,279 @@ class Ledger:
         self._txs.update((wtx.tx.id, wtx) for wtx in accepted)
         self._hand_out_paid(wtx.tx for wtx in accepted)
         return refused
+
+    # -- encryption ---------------------------------------------------------
+
+    @_relocking
+    def encrypt(self, passphrase: str) -> None:
+        """Encrypt the private keys of every source, and lock them.
+
+        Core's `encryptwallet`, which refuses a wallet holding no private
+        key, an encrypted wallet and an empty passphrase, in that order
+        (src/wallet/rpc/encrypt.cpp:255-275 at bitcoin/bitcoin@f0de87f040,
+        the v32.1 tag). A source whose scripts need a private key at every
+        index, a hardened ``/*h``, is refused too: a locked ledger could
+        not derive them. The keys and the master key are written in one
+        SQLite transaction, so a process killed in it leaves the file
+        as it was.
+        """
+        assert_type(passphrase, str, "passphrase")
+        keyed = {
+            source_id: wallet
+            for source_id, wallet in self._sources.items()
+            if wallet.prv_keys
+        }
+        if not keyed and not self._encrypted:
+            raise BTClibValueError("no private key in the ledger: nothing to encrypt")
+        if self._master_key is not None:
+            raise BTClibValueError("the ledger is encrypted already")
+        if not passphrase:
+            raise BTClibValueError("the passphrase is empty")
+        watched = {source_id: _watched(wallet) for source_id, wallet in keyed.items()}
+        key = _new_key()
+        try:
+            master_key = _master_key(passphrase, key)
+            encrypted = {
+                source_id: _sealed(key, _plaintext(wallet), _aad(source_id))
+                for source_id, wallet in keyed.items()
+            }
+            self._store.encrypt(
+                master_key,
+                {
+                    source_id: (watched[source_id], encrypted[source_id])
+                    for source_id in keyed
+                },
+            )
+        finally:
+            _wipe(key)
+        self._master_key = master_key
+        self._encrypted = encrypted
+        for source_id, descriptors in watched.items():
+            self._sources[source_id] = _wallet(descriptors, self.network, {})
+
+    @_relocking
+    def unlock_keys(self, passphrase: str, timeout: int) -> None:
+        """Decrypt the keys, and keep them for `timeout` seconds.
+
+        Core's `walletpassphrase`: an unencrypted ledger, a negative
+        timeout and an empty passphrase are refused, a timeout above
+        `MAX_UNLOCK_TIME` is that, and a call while unlocked sets the
+        timeout anew (src/wallet/rpc/encrypt.cpp:48-89). A wrong
+        passphrase is refused, and so is a source whose keys the right
+        one does not decrypt.
+        """
+        assert_type(passphrase, str, "passphrase")
+        if not is_integer(timeout):
+            raise BTClibTypeError(f"invalid timeout type: {type(timeout).__name__}")
+        master_key = self._current_master_key()
+        if timeout < 0:
+            raise BTClibValueError(f"negative timeout: {timeout}")
+        timeout = min(timeout, MAX_UNLOCK_TIME)
+        if not passphrase:
+            raise BTClibValueError("the passphrase is empty")
+        key = _unlocked(passphrase, master_key)
+        if key is None:
+            raise BTClibValueError("the passphrase is wrong")
+        try:
+            # every source is decrypted once, as Core's `Unlock` checks
+            # its keys: a damaged ciphertext is refused here, not at a sign
+            for source_id in self._encrypted:
+                self._decrypted(key, source_id)
+        except BaseException:
+            _wipe(key)
+            raise
+        # the key and the times it locks at are set as one, so that a
+        # `lock_keys` in another thread finds both or neither
+        with self._key_lock:
+            if self._key is not None:
+                _wipe(self._key)
+            self._key = key
+            self._unlocked_until = _now() + timeout
+            self._relock_at = _monotonic() + timeout
+
+    @_relocking
+    def lock_keys(self) -> None:
+        """Lock the keys: zero the master key held. Core's `walletlock`."""
+        self._assert_encrypted()
+        self._drop_key()
+
+    @_relocking
+    def change_passphrase(self, old: str, new: str) -> None:
+        """Encrypt the master key under `new`.
+
+        Core's `walletpassphrasechange`: an unencrypted ledger, an empty
+        passphrase and a wrong `old` are refused
+        (src/wallet/rpc/encrypt.cpp:137-170). A change done leaves the
+        ledger locked or unlocked as it was. A change refused past the
+        check of an empty passphrase, a wrong `old` among the refusals,
+        locks the ledger, as Core's `ChangeWalletPassphrase` locks the
+        wallet before it reads `old` (src/wallet/wallet.cpp:653).
+
+        The master key is read from the file at each change and unlock,
+        so after another ledger on the file changed the passphrase, the
+        new one is asked for here too. A change written over one this
+        ledger did not read is refused, and writes nothing.
+        """
+        assert_type(old, str, "old")
+        assert_type(new, str, "new")
+        self._assert_encrypted()
+        if not old or not new:
+            raise BTClibValueError("the passphrase is empty")
+        try:
+            self._encrypt_master_key(old, new)
+        except BaseException:
+            self._drop_key()
+            raise
+
+    def _encrypt_master_key(self, old: str, new: str) -> None:
+        """Write the master key `old` decrypts encrypted under `new`."""
+        master_key = self._current_master_key()
+        key = _unlocked(old, master_key)
+        if key is None:
+            raise BTClibValueError("the passphrase is wrong")
+        try:
+            new_master_key = _master_key(new, key)
+        finally:
+            _wipe(key)
+        self._store.set_master_key(master_key, new_master_key)
+        self._master_key = new_master_key
+
+    @property
+    @_relocking
+    def unlocked_until(self) -> int | None:
+        """When the keys lock, in seconds since the epoch.
+
+        Core's `unlocked_until`: 0 while locked, None where the ledger is
+        not encrypted. It is wall-clock time, as Core reports it
+        (src/wallet/rpc/encrypt.cpp:89 at bitcoin/bitcoin@f0de87f040, the
+        v32.1 tag); when the keys lock is decided as the module's *The
+        relock* says.
+        """
+        if self._master_key is None:
+            return None
+        return self._unlocked_until
+
+    def _hold_keys(self, source_id: int, source: _Source) -> None:
+        """Hold a source's ciphertext read from the file, if it has one.
+
+        A ciphertext with no master key to decrypt it is refused, and so
+        are keys in plain text in an encrypted file.
+        """
+        err_msg = f"not a ledger file: source {source_id}'s keys"
+        if source.prv_keys and self._master_key is not None:
+            raise BTClibValueError(f"{err_msg} are plain in an encrypted file")
+        if source.encrypted is not None:
+            if self._master_key is None:
+                raise BTClibValueError(f"{err_msg} have no master key")
+            self._encrypted[source_id] = source.encrypted
+
+    def _current_master_key(self) -> _MasterKey:
+        """Return the master key as the file holds it now.
+
+        Another ledger on the file may have changed the passphrase since
+        this one loaded it: the passphrase asked for is the file's.
+        """
+        self._assert_encrypted()
+        master_key = self._store.master_key()
+        if master_key is None:
+            raise BTClibValueError("not a ledger file: its master key is gone")
+        self._master_key = master_key
+        return master_key
+
+    def _assert_encrypted(self) -> None:
+        """Refuse a ledger not encrypted."""
+        if self._master_key is None:
+            raise BTClibValueError("the ledger is not encrypted")
+
+    def _assert_unlocked(self) -> bytearray:
+        """Return the master key, refusing a locked ledger."""
+        self._assert_encrypted()
+        if self._key is None:
+            raise BTClibValueError(_LOCKED)
+        return self._key
+
+    def _relock_if_due(self) -> None:
+        """Zero the master key held where its timeout has passed."""
+        if self._key is not None and _monotonic() >= self._relock_at:
+            self._drop_key()
+
+    def _holds(self, key: bytearray) -> bool:
+        """Whether `key` is the master key held, and so was never zeroed.
+
+        `_drop_key` and `unlock_keys` zero a key and let go of it under
+        one lock, and a key let go is never held again. So a key held
+        when this reads it, under that lock, was whole for anything that
+        read it before.
+        """
+        with self._key_lock:
+            return self._key is key
+
+    def _drop_key(self) -> None:
+        """Zero the master key held, if any."""
+        with self._key_lock:
+            if self._key is not None:
+                _wipe(self._key)
+            self._key = None
+            self._unlocked_until = 0
+            self._relock_at = 0.0
+
+
+def _now() -> int:
+    """Return the time, in seconds since the epoch."""
+    return int(time.time())
+
+
+def _monotonic() -> float:
+    """Return the monotonic clock, in seconds."""
+    return time.monotonic()
+
+
+def _aad(source_id: int) -> bytes:
+    """Return the associated data of a source's ciphertext."""
+    return f"btclib-wallet ledger source {source_id}".encode()
+
+
+def _wallet(
+    descriptors: Mapping[int, str], network: str, prv_keys: Mapping[str, str]
+) -> DescriptorWallet:
+    """Return the wallet of a source's descriptors and keys."""
+    keys = dict(prv_keys)
+    return DescriptorWallet(
+        {branch: parse(text, network, keys) for branch, text in descriptors.items()},
+        keys or None,
+    )
+
+
+def _watched(wallet: DescriptorWallet) -> dict[int, str]:
+    """Return the descriptors of a wallet that derive with no private key.
+
+    `descriptors.normalized`, refused where a script still needs one:
+    each branch's first is derived with no key.
+    """
+    watched = {
+        branch: normalized(wallet.descriptor(branch), wallet.prv_keys)
+        for branch in wallet.branches
+    }
+    try:
+        for descriptor in watched.values():
+            DescriptorWallet(descriptor)
+    except BTClibValueError:
+        err_msg = "a descriptor needs a private key at every index:"
+        raise BTClibValueError(f"{err_msg} a locked ledger cannot watch it") from None
+    return {branch: str(descriptor) for branch, descriptor in watched.items()}
+
+
+def _plaintext(wallet: DescriptorWallet) -> bytes:
+    """Return what a source's ciphertext encrypts: its descriptors and keys."""
+    return json.dumps(
+        {
+            "descriptors": {
+                str(branch): str(wallet.descriptor(branch))
+                for branch in wallet.branches
+            },
+            "prv_keys": dict(wallet.prv_keys or {}),
+        }
+    ).encode()
 
 
 def _script(tx_out: TxOut) -> bytes:

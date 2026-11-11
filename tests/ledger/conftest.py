@@ -12,6 +12,7 @@ test mines, pays, reorganizes and refuses by hand.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 
@@ -42,6 +43,19 @@ XPRV = (
 # a small window, so that a test reaches past it in a few payments
 LOOKAHEAD = 5
 ONE_SAT = FeeRate.from_sats_per_vbyte(1)
+
+
+def without_cryptography(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put `cryptography` out of reach, as an install on Windows arm64 has it.
+
+    A module named None in `sys.modules` fails its import, and
+    `ledger.crypto` imports these at each call that needs them.
+    """
+    for name in (
+        "cryptography.exceptions",
+        "cryptography.hazmat.primitives.ciphers.aead",
+    ):
+        monkeypatch.setitem(sys.modules, name, None)
 
 
 def source(

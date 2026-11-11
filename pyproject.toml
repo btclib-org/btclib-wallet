@@ -65,6 +65,14 @@ dependencies = [
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself
     "bitcoin-core-rpc>=2026.9.3",
+    # the cipher of a ledger's private keys at rest, which `ledger.crypto`
+    # imports. The marker leaves out Windows arm64: the release in uv.lock
+    # ships no win_arm64 wheel, and its source build needs an OpenSSL that
+    # platform's runners lack. There a ledger works unencrypted, and the
+    # `encryption` extra below asks for it anyway. The floor is the first
+    # release with `AESGCM.decrypt_into`, which decrypts into a buffer the
+    # ledger can zero
+    "cryptography>=47.0.0; sys_platform != 'win32' or platform_machine != 'ARM64'",
     # `typing.override` is 3.12's and `typing.TypeIs` 3.13's, and the floor
     # is below both, so both come from the backport; the release that adds
     # `TypeIs` is the later of the two and the floor
@@ -129,6 +137,10 @@ classifiers = [
 # outside [1, n-1]: `tests/silent_payments_test.py` asks that of the
 # bindings, called directly
 secp256k1 = ["btclib[secp256k1]>=2026.11.10", "btclib-secp256k1>=0.8.0.13"]
+# the cipher of a ledger's encryption on every platform, Windows arm64
+# included, where the dependency above leaves it out and this builds it
+# from source
+encryption = ["cryptography>=47.0.0"]
 
 [project.urls]
 homepage = "https://btclib.org/btclib-wallet/"

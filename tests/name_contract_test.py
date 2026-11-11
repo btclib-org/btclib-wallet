@@ -172,8 +172,9 @@ def _argument_less_bools() -> dict[str, bool]:
 # - `close` and `clear` are each an action with a side effect
 # - `sync` talks to a peer and keeps what it hears
 # - `resubmit` broadcasts what it holds
+# - `lock_keys` zeroes the keys it holds
 _NOT_A_READ = ("assert_", "get_", "to_")
-_AN_ACTION = frozenset({"clear", "close", "resubmit", "sync"})
+_AN_ACTION = frozenset({"clear", "close", "lock_keys", "resubmit", "sync"})
 
 
 def _is_a_read(decorated: set[str]) -> bool:

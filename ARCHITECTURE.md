@@ -48,6 +48,13 @@ functions of `mnemonic/` below. A module here reaches a name of
 re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
+It depends on `cryptography`, except on Windows arm64, for the cipher a
+ledger's private keys are encrypted with: `ledger.crypto` imports it,
+and no other module does. `bip38` takes its cipher from its caller
+instead, since a table-driven cipher leaks its key through cache timing,
+as its docstring says; a ledger takes none, so that it opens its own
+file alone.
+
 The line between this package and btclib is Bitcoin Core's between
 `src/consensus` and `src/wallet`: what places a module here is everything
 from a seed to a signed, broadcast transaction, and every module with a
@@ -150,7 +157,8 @@ So it imports both `wallet/` and `fetch/`, and neither imports it. It
 writes one SQLite file, through the standard library's `sqlite3`, which
 holds everything a load answers from, and copies it into a new file when
 its caller asks for a backup; `ledger.store`'s docstring says how the
-file names its format and version.
+file names its format and version. `ledger.crypto` encrypts the private
+keys in it when its caller asks.
 
 ## Discreet log contracts
 

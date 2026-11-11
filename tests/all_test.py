@@ -175,7 +175,7 @@ CHILD_MODULES = {
     },
     "btclib_wallet.ledger": {
         "groups": [],
-        "unpublished": ["ledger", "records", "store"],
+        "unpublished": ["crypto", "ledger", "records", "store"],
     },
     "btclib_wallet.mnemonic": {
         "groups": ["bip39", "electrum", "slip39"],

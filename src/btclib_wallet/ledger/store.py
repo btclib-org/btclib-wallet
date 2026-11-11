@@ -21,8 +21,26 @@ The file holds everything a load answers from: the sources, the
 positions handed out, every transaction with its state and block, the
 blocks synced through, the tip, and the labels. Each source's private
 keys are written in plain text, as an unencrypted Core wallet writes its
-own: ISS btclib-org/btclib-wallet#717 encrypts them. SQLite's rollback
-journal and its freed pages can keep old bytes after a write.
+own, until `Ledger.encrypt` encrypts them. In an encrypted file a source
+that holds private keys is written as what a locked ledger reads: its
+descriptors as `descriptors.normalized` writes them, which derive every
+script with no private key, and no key. The descriptors it was added
+with and their private keys are one ciphertext beside them, and the
+master key that ciphertext is under is the `master_key` table's.
+`crypto` says how each is encrypted.
+
+Every connection turns SQLite's `secure_delete` on, so what a write
+replaces or deletes is overwritten with zeros, in the file and in its
+freed pages, as the measurement on ISS btclib-org/btclib-wallet#623
+asks. SECURITY.md's *A ledger's keys at rest* says what that leaves
+outside the file. That holds in SQLite's rollback-journal mode, which
+every connection that writes sets: in WAL mode the pages a write
+replaces stay in the main file until a checkpoint, `secure_delete` or
+not. So a file another program set to WAL goes back to the rollback
+journal when it is opened, and one another connection has open and has
+read, which keeps it in WAL mode, is refused. A program can also set WAL
+while a ledger has the file open, so `_Store.encrypt` reads the mode in
+its own transaction and refuses any but the rollback journal.
 
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.
@@ -30,8 +48,10 @@ mid-write leaves the file as the last whole sync left it.
 A backup is a new file written through SQLite's backup API, as Core's
 `SQLiteDatabase::Backup` writes one (src/wallet/sqlite.cpp:356-381 at
 bitcoin/bitcoin@f0de87f040): a copy of every page of the file as one
-read sees it, freed pages included. So it holds what the file holds,
-private keys included, and the old bytes its freed pages keep.
+read sees it, freed pages included, which `secure_delete` keeps
+zeroed. So it holds what the file holds: private keys in plain text
+where the ledger is not encrypted, and only their ciphertext where it
+is.
 """
 
 from __future__ import annotations
@@ -49,6 +69,7 @@ from btclib.tx import Tx
 
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
+from btclib_wallet.ledger.crypto import _assert_cost, _MasterKey
 from btclib_wallet.ledger.records import TxState, WalletTx
 
 __all__ = ["APPLICATION_ID", "FORMAT_VERSION"]
@@ -58,8 +79,11 @@ __all__ = ["APPLICATION_ID", "FORMAT_VERSION"]
 APPLICATION_ID = 0x62746C77
 
 # the format this release writes; a file carries it in `PRAGMA user_version`
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
+# format 1's tables, as v2026.11.11 wrote them: a new file is written as
+# format 1 and taken through `_MIGRATIONS`, so that it and a migrated file
+# are one layout
 _SCHEMA = (
     "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     (
@@ -82,8 +106,24 @@ _SCHEMA = (
     ),
 )
 
+
+def _add_encryption(db: sqlite3.Connection) -> None:
+    """Take format 1 to 2: a source's ciphertext column, and the master key.
+
+    Every source keeps its id and its keys in plain text, with no
+    ciphertext, and the file has no master key: it is unencrypted, as
+    format 1 is.
+    """
+    db.execute("ALTER TABLE sources ADD COLUMN encrypted BLOB")
+    db.execute(
+        "CREATE TABLE master_key(id INTEGER PRIMARY KEY CHECK (id = 0),"
+        " kdf TEXT NOT NULL, n INTEGER NOT NULL, r INTEGER NOT NULL,"
+        " p INTEGER NOT NULL, salt BLOB NOT NULL, encrypted BLOB NOT NULL)"
+    )
+
+
 # the step that takes a file from the version of its key to the next one
-_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {1: _add_encryption}
 
 
 @dataclass(frozen=True)
@@ -91,13 +131,17 @@ class _Source:
     """A source as the file holds it.
 
     `descriptors` is the text of each branch's descriptor, `prv_keys` the
-    mapping `descriptors.parse` fills. `birth` is the height its history
-    is read from, and `scanned` whether that read is done. The repr
-    leaves `prv_keys` out: its values are private keys.
+    mapping `descriptors.parse` fills. `encrypted` is None where the keys
+    are in `prv_keys`; in an encrypted file it is the ciphertext of the
+    descriptors the source was added with and their keys, and
+    `prv_keys` is empty. `birth` is the height its history is read
+    from, and `scanned` whether that read is done. The repr leaves
+    `prv_keys` out: its values are private keys.
     """
 
     descriptors: dict[int, str]
     prv_keys: dict[str, str] = field(repr=False)
+    encrypted: bytes | None = field(repr=False)
     lookahead: int
     birth: int
     scanned: bool
@@ -120,9 +164,29 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     """Open the file, `rw` refusing a missing one and `rwc` creating it."""
     uri = f"file:{quote(str(Path(path)))}?mode={mode}"
     try:
-        return sqlite3.connect(uri, uri=True)
+        db = sqlite3.connect(uri, uri=True)
     except sqlite3.OperationalError as e:
         raise BTClibValueError(f"cannot open the ledger file {path}: {e}") from None
+    db.execute("PRAGMA secure_delete = ON")
+    if mode != "ro":
+        try:
+            db.execute("PRAGMA journal_mode = DELETE")
+        except sqlite3.DatabaseError as e:
+            db.close()
+            if isinstance(e, sqlite3.OperationalError):
+                err_msg = f"cannot open the ledger file {path} in rollback-journal mode"
+                raise BTClibValueError(f"{err_msg}: {e}") from None
+            raise BTClibValueError(f"not a ledger file: {e}") from None
+    return db
+
+
+def _taken(e: sqlite3.IntegrityError) -> bool:
+    """Whether an insert failed on a row already under its primary key.
+
+    Only that is another ledger's write: any other constraint, as a
+    trigger or an index another program added, is the file's own.
+    """
+    return e.sqlite_errorname == "SQLITE_CONSTRAINT_PRIMARYKEY"
 
 
 def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
@@ -132,25 +196,38 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     if application_id != APPLICATION_ID:
         err_msg = f"not a ledger file: application id {application_id:#x}"
         raise BTClibValueError(err_msg)
-    if version > FORMAT_VERSION:
-        err_msg = f"ledger format {version} is newer than this release's"
-        err_msg += f" {FORMAT_VERSION}"
-        raise BTClibValueError(err_msg)
-    while version < FORMAT_VERSION:
-        if version not in _MIGRATIONS:
-            raise BTClibValueError(f"no migration from ledger format {version}")
-        # an explicit BEGIN: the sqlite3 module opens a transaction before
-        # a DML statement alone, so a step's DDL would commit as it runs
-        with db:
-            db.execute("BEGIN")
-            _MIGRATIONS[version](db)
-            version += 1
-            db.execute(f"PRAGMA user_version = {version}")
+    _assert_not_newer(version)
+    # every format has `meta`: a file of another network is refused before
+    # a step runs, and left at its version
     row = db.execute("SELECT value FROM meta WHERE key = 'network'").fetchone()
     if row is None:
         raise BTClibValueError("not a ledger file: it names no network")
     if row[0] != network:
         raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
+    while version < FORMAT_VERSION:
+        # an explicit BEGIN: the sqlite3 module opens a transaction before
+        # a DML statement alone, so a step's DDL would commit as it runs.
+        # IMMEDIATE takes the write lock before the version is read again:
+        # another ledger may have migrated the file since the read above
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            version = _pragma(db, "user_version")
+            _assert_not_newer(version)
+            if version == FORMAT_VERSION:
+                break
+            if version not in _MIGRATIONS:
+                raise BTClibValueError(f"no migration from ledger format {version}")
+            _MIGRATIONS[version](db)
+            version += 1
+            db.execute(f"PRAGMA user_version = {version}")
+
+
+def _assert_not_newer(version: int) -> None:
+    """Refuse a file of a format a later release writes."""
+    if version > FORMAT_VERSION:
+        err_msg = f"ledger format {version} is newer than this release's"
+        err_msg += f" {FORMAT_VERSION}"
+        raise BTClibValueError(err_msg)
 
 
 def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
@@ -169,6 +246,15 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
         err_msg += " is not a JSON object"
         raise BTClibValueError(err_msg)
     return decoded
+
+
+def _encrypted(value: object, source_id: int) -> bytes | None:
+    """Return a source's ciphertext, None where it has none."""
+    if value is not None and not isinstance(value, bytes):
+        err_msg = f"not a ledger file: source {source_id}'s encrypted keys"
+        err_msg += " are no blob"
+        raise BTClibValueError(err_msg)
+    return value
 
 
 def _pragma(db: sqlite3.Connection, name: str) -> int:
@@ -257,9 +343,11 @@ class _Store:
             with db:
                 db.execute("BEGIN")
                 db.execute(f"PRAGMA application_id = {APPLICATION_ID}")
-                db.execute(f"PRAGMA user_version = {FORMAT_VERSION}")
                 for statement in _SCHEMA:
                     db.execute(statement)
+                for version in range(1, FORMAT_VERSION):
+                    _MIGRATIONS[version](db)
+                db.execute(f"PRAGMA user_version = {FORMAT_VERSION}")
                 db.execute("INSERT INTO meta VALUES ('network', ?)", (network,))
         except BaseException:
             if db is not None:
@@ -295,7 +383,7 @@ class _Store:
     def sources(self) -> list[tuple[int, _Source]]:
         """Return every source, in the order it was added."""
         rows = self._db.execute(
-            "SELECT id, descriptors, prv_keys, lookahead, birth, scanned"
+            "SELECT id, descriptors, prv_keys, encrypted, lookahead, birth, scanned"
             " FROM sources ORDER BY id"
         )
         return [
@@ -309,13 +397,33 @@ class _Store:
                         ).items()
                     },
                     _decoded(prv_keys, source_id, "prv_keys"),
+                    _encrypted(encrypted, source_id),
                     lookahead,
                     birth,
                     bool(scanned),
                 ),
             )
-            for source_id, descriptors, prv_keys, lookahead, birth, scanned in rows
+            for source_id, descriptors, prv_keys, encrypted, lookahead, birth, scanned in (
+                rows
+            )
         ]
+
+    def master_key(self) -> _MasterKey | None:
+        """Return the encrypted master key, None in a file not encrypted."""
+        row = self._db.execute(
+            "SELECT kdf, n, r, p, salt, encrypted FROM master_key"
+        ).fetchone()
+        if row is None:
+            return None
+        kdf, n, r, p, salt, encrypted = row
+        if kdf != "scrypt":
+            raise BTClibValueError(f"not a ledger file: unknown kdf {kdf!r}")
+        if not all(isinstance(v, int) for v in (n, r, p)) or not all(
+            isinstance(v, bytes) for v in (salt, encrypted)
+        ):
+            raise BTClibValueError("not a ledger file: a malformed master key")
+        _assert_cost(n, r, p)
+        return _MasterKey(n, r, p, salt, encrypted)
 
     def handed_out(self) -> list[tuple[int, int, int]]:
         """Return every position handed out, as source, branch and index."""
@@ -368,26 +476,108 @@ class _Store:
                 (script, label, purpose),
             )
 
-    def add_source(self, source: _Source) -> int:
-        """Write a source, and return its id."""
-        source_id = int(
+    def next_source_id(self) -> int:
+        """Return the id the next source written gets."""
+        return int(
             self._db.execute("SELECT COALESCE(MAX(id) + 1, 0) FROM sources").fetchone()[
                 0
             ]
         )
+
+    def add_source(self, source_id: int, source: _Source) -> None:
+        """Write a source under the id `next_source_id` returned.
+
+        A source with keys in plain text is refused where the file is
+        encrypted, which another ledger on the same file may have done
+        since this one loaded it. The check follows the write, inside its
+        transaction, so that no encryption comes between the two. So is
+        an id another ledger on the file wrote since `next_source_id`
+        read it.
+        """
         with self._db:
-            self._db.execute(
-                "INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    source_id,
-                    json.dumps({str(b): t for b, t in source.descriptors.items()}),
-                    json.dumps(dict(source.prv_keys)),
-                    source.lookahead,
-                    source.birth,
-                    int(source.scanned),
-                ),
+            try:
+                self._db.execute(
+                    "INSERT INTO sources (id, descriptors, prv_keys, encrypted,"
+                    " lookahead, birth, scanned) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        source_id,
+                        _descriptors_text(source.descriptors),
+                        json.dumps(dict(source.prv_keys)),
+                        source.encrypted,
+                        source.lookahead,
+                        source.birth,
+                        int(source.scanned),
+                    ),
+                )
+            except sqlite3.IntegrityError as e:
+                if not _taken(e):
+                    raise BTClibValueError(f"not a ledger file: {e}") from None
+                err_msg = f"source {source_id} was written by another ledger"
+                raise BTClibValueError(f"{err_msg}: load it again") from None
+            if source.prv_keys and self.master_key() is not None:
+                err_msg = "the ledger file is encrypted: no key is written in"
+                raise BTClibValueError(f"{err_msg} plain text; load it again")
+
+    def encrypt(
+        self,
+        master_key: _MasterKey,
+        sources: Mapping[int, tuple[Mapping[int, str], bytes]],
+    ) -> None:
+        """Write the master key, and each source's ciphertext for its keys.
+
+        `sources` maps a source's id to the descriptors a locked ledger
+        reads and the ciphertext; it is written in one SQLite
+        transaction with the master key. A file another ledger encrypted,
+        or gave a source with keys this one does not know of, is refused,
+        and so is one another program set to WAL mode since it was opened,
+        for the reason the module's docstring gives. Nothing is written.
+        """
+        with self._db:
+            try:
+                self._db.execute(
+                    "INSERT INTO master_key VALUES (0, 'scrypt', ?, ?, ?, ?, ?)",
+                    _master_key_row(master_key),
+                )
+            except sqlite3.IntegrityError as e:
+                if not _taken(e):
+                    raise BTClibValueError(f"not a ledger file: {e}") from None
+                raise BTClibValueError("the ledger file is encrypted already") from None
+            # read under the write's lock, which no switch of the mode can
+            # take: another program may have set WAL since the file opened
+            mode = self._db.execute("PRAGMA journal_mode").fetchone()[0]
+            if mode != "delete":
+                err_msg = f"the ledger file is in {mode} mode, where the keys"
+                raise BTClibValueError(f"{err_msg} replaced stay: load it again")
+            self._db.executemany(
+                "UPDATE sources SET descriptors = ?, prv_keys = '{}', encrypted = ?"
+                " WHERE id = ?",
+                [
+                    (_descriptors_text(descriptors), encrypted, source_id)
+                    for source_id, (descriptors, encrypted) in sources.items()
+                ],
             )
-        return source_id
+            plain = self._db.execute(
+                "SELECT id FROM sources WHERE encrypted IS NULL AND prv_keys != '{}'"
+            ).fetchone()
+            if plain is not None:
+                err_msg = f"source {plain[0]} of the ledger file holds keys this"
+                raise BTClibValueError(f"{err_msg} ledger does not: load it again")
+
+    def set_master_key(self, old: _MasterKey, new: _MasterKey) -> None:
+        """Write the master key encrypted under a new passphrase.
+
+        The row is replaced only where it still holds `old`, so a change
+        another ledger wrote since `old` was read is refused, not lost.
+        """
+        with self._db:
+            changed = self._db.execute(
+                "UPDATE master_key SET n = ?, r = ?, p = ?, salt = ?, encrypted = ?"
+                " WHERE salt = ? AND encrypted = ?",
+                (*_master_key_row(new), old.salt, old.encrypted),
+            ).rowcount
+        if changed != 1:
+            err_msg = "the passphrase was changed by another ledger on the file"
+            raise BTClibValueError(f"{err_msg}: nothing is written")
 
     def add_handed_out(self, positions: Iterable[tuple[int, int, int]]) -> None:
         """Write positions handed out."""
@@ -448,6 +638,22 @@ class _Store:
             )
             self._insert_handed_out(write.handed_out)
             _write_tip(self._db, write.tip)
+
+
+def _master_key_row(master_key: _MasterKey) -> tuple[int, int, int, bytes, bytes]:
+    """Return the master key's columns after its id and kdf."""
+    return (
+        master_key.n,
+        master_key.r,
+        master_key.p,
+        master_key.salt,
+        master_key.encrypted,
+    )
+
+
+def _descriptors_text(descriptors: Mapping[int, str]) -> str:
+    """Return the JSON object a source's descriptors are written as."""
+    return json.dumps({str(b): t for b, t in descriptors.items()})
 
 
 def _write_tip(db: sqlite3.Connection, tip: BlockRef) -> None:

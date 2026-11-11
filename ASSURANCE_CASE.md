@@ -82,8 +82,8 @@ EOF
 ```
 
 Beside this package's imports of its own modules, its dependencies
-`btclib`, `ecc`, `bip39_slip39`, `bitcoin_core_rpc` and
-`typing_extensions`, and btclib's `btclib_secp256k1`, what it lists is
+`btclib`, `ecc`, `bip39_slip39`, `bitcoin_core_rpc`, `cryptography`
+and `typing_extensions`, and btclib's `btclib_secp256k1`, what it lists is
 the standard library: `subprocess` is `hwi.py`'s alone, `ssl` is
 `fetch.transport`'s, `socket` is `fetch.transport`'s and
 `fetch.peer_transport`'s, `urllib` is `bip21.py`'s percent-encoding of a
@@ -104,6 +104,9 @@ never a key or a nonce.
 - The caller's process, against a descriptor, a PSBT, a mnemonic or an
   extended key built to make a parser raise an exception this package
   does not document, or allocate without bound.
+- A ledger's private keys at rest, against whoever reads its file, or a
+  backup taken after `Ledger.encrypt`, without the passphrase.
+  SECURITY.md's *A ledger's keys at rest* says what stays plain.
 - A wallet's own ledger, against a change output imported as a receiving
   one or the reverse — `core_import.account_import_requests` marks a
   change chain `internal` for that reason, a mistake there being invisible
@@ -138,7 +141,8 @@ never a key or a nonce.
 - A party tampering with a distribution between this tree and the user.
 
 **What is not defended**, each stated in SECURITY.md's *Where constant
-time ends* and *A backend is trusted, and not every backend alike*:
+time ends*, *A backend is trusted, and not every backend alike* and *A
+ledger's keys at rest*:
 
 - side channels on the Python arithmetic btclib runs, and on the
   Python integer arithmetic this package computes itself for BIP352's
@@ -146,7 +150,11 @@ time ends* and *A backend is trusted, and not every backend alike*:
 - memory disclosure: secret material in a Python object is not zeroized,
   and `bip32._cached_base58_decode` keeps a decoded extended key
   reachable from its own cache past whatever reference the caller
-  released
+  released; an unlocked ledger's master key is in a buffer it zeroes,
+  and copies of what it decrypts are not
+- a ledger's keys in a backup taken before its encryption, in what the
+  file system keeps of blocks SQLite overwrote or freed, and under a
+  passphrase short enough to guess against scrypt's cost
 - a chosen-ciphertext attack on `bip38.decrypt`, which carries no MAC and
   cannot tell a wrong password from a right one before decrypting
 - the resistance to side channels of whatever cipher a caller passes
