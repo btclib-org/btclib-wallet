@@ -597,13 +597,7 @@ class Ledger:
         source_id = self._store.next_source_id()
         encrypted = None
         if self._master_key is not None and prv_keys:
-            key = self._assert_unlocked()
-            descriptors = _watched(wallet)
-            encrypted = _sealed(key, _plaintext(wallet), _aad(source_id))
-            if not self._holds(key):
-                # zeroed by `lock_keys` or `close` in another thread: what
-                # was encrypted may be under zeros, and is not written
-                raise BTClibValueError(_LOCKED_DURING)
+            descriptors, encrypted = self._sealed_source(wallet, source_id)
             wallet = _wallet(descriptors, self.network, {})
             prv_keys = {}
         source = _Source(descriptors, prv_keys, encrypted, lookahead, birth, scanned)
@@ -617,6 +611,22 @@ class Ledger:
             if self._address(script):
                 self._write_label(script, label)
         return source_id
+
+    def _sealed_source(
+        self, wallet: DescriptorWallet, source_id: int
+    ) -> tuple[dict[int, str], bytes]:
+        """Return a wallet's watched descriptors, and its keys encrypted.
+
+        A locked ledger is refused, and so is one whose master key
+        `lock_keys` or `close` in another thread zeroed while the keys
+        were encrypted: they may be under zeros.
+        """
+        key = self._assert_unlocked()
+        descriptors = _watched(wallet)
+        encrypted = _sealed(key, _plaintext(wallet), _aad(source_id))
+        if not self._holds(key):
+            raise BTClibValueError(_LOCKED_DURING)
+        return descriptors, encrypted
 
     def _attach(
         self, source_id: int, wallet: DescriptorWallet, source: _Source
