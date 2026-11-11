@@ -837,7 +837,9 @@ def test_the_values_the_v2_fields_may_hold() -> None:
     psbt.outputs[0].amount = 1
 
     psbt.tx_modifiable = 0x100
-    with pytest.raises(BTClibValueError, match="invalid tx modifiable: 256"):
+    with pytest.raises(
+        BTClibValueError, match="^invalid tx modifiable: an int of 9 bits$"
+    ):
         psbt.assert_valid()
     psbt.tx_modifiable = None
 
@@ -891,7 +893,9 @@ def test_the_v2_fields_are_valid_at_both_ends_of_their_range() -> None:
         psbt.fallback_lock_time = lock_time
         psbt.assert_valid()
     psbt.fallback_lock_time = -1
-    with pytest.raises(BTClibValueError, match="invalid fallback locktime: -1"):
+    with pytest.raises(
+        BTClibValueError, match="^invalid fallback locktime: a negative int of 1 bits$"
+    ):
         psbt.assert_valid()
 
 

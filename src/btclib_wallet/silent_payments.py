@@ -100,7 +100,7 @@ from ecc.curves import (
 from ecc.hashes import tagged_hash
 from ecc.ssa import point_from_bip340pub_key_var
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _message_text, _quoted
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -209,9 +209,9 @@ def _label_bytes(m: int) -> bytes:
     # `utils.is_integer`'s policy and matters here for the same reason: a
     # label read back out of json or a configuration file
     if not is_integer(m):
-        raise BTClibTypeError(f"non-integer label: {m}")
+        raise BTClibTypeError(f"non-integer label: {type(m).__name__}")
     if not 0 <= m <= _MAX_LABEL:
-        raise BTClibValueError(f"label not in 0..2^32-1: {m}")
+        raise BTClibValueError(f"label not in 0..2^32-1: {_message_text(m)}")
     return m.to_bytes(_LABEL_SIZE, "big")
 
 
