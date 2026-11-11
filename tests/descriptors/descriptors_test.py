@@ -52,7 +52,7 @@ from btclib.script.script import serialize
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from ecc.ecc import dsa, ssa
+from ecc import dsa, ssa
 from hypothesis import given
 from hypothesis import strategies as st
 from typing_extensions import override
@@ -4554,8 +4554,8 @@ UNECHOED = [
         f"tr({XPRV_ROOT},multi_a({WIF},{MUSIG_A_WIF}))",
         r"^invalid multi_a\(\) threshold: digits expected$",
     ),
-    # btclib's bech32 decoder, which an addr() argument behind a segwit
-    # prefix reaches (issue #94)
+    # the bech32 decoder btclib's `b32` calls, which an addr() argument
+    # behind a segwit prefix reaches (issue #94)
     (f"addr(bc1{WIF})", "^too short checksum$"),
     (f"addr(bc1{WIF}qqqqqqq)", "^mixed case$"),
     (f"addr(bc1{HEX_PRV}bqqqqqq)", "^invalid data character$"),

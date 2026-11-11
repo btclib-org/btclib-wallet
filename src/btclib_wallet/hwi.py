@@ -803,8 +803,8 @@ class HwiSigner:
         """Return the compact signature of a message: HWI's `signmessage`.
 
         `Octets` as everywhere else in btclib, so a `str` is the hex of the
-        message and bytes are the message: `ecc.bms` reads it that way and
-        the two have to agree, a signature being verified here against
+        message and bytes are the message: `btclib.bms` reads it that way
+        and the two have to agree, a signature being verified here against
         what was signed there.
 
         What goes on the command line is text, HWI's `signmessage` taking

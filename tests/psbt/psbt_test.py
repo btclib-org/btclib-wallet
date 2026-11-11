@@ -32,8 +32,8 @@ from btclib.script.engine import verify_transaction
 from btclib.script.taproot import input_script_sig, tree_helper
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
+from ecc import dsa, ssa
 from ecc.curves import sec_point
-from ecc.ecc import dsa, ssa
 from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
@@ -3169,7 +3169,9 @@ def test_what_a_signer_cannot_be_given_a_hash_for() -> None:
     with pytest.raises(BTClibValueError, match="SIGHASH_DEFAULT is not an ECDSA"):
         ecdsa_sig_hash(asking_for_default, 0)
 
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x4"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 3 bits"
+    ):
         ecdsa_sig_hash(psbt, 0, hash_type=4)
 
 
@@ -3312,10 +3314,14 @@ def test_combining_refuses_an_invalid_copy_the_merge_would_drop() -> None:
     first.inputs[0].sig_hash_type = 1
     later = deepcopy(first)
     later.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 7 bits"
+    ):
         later.assert_valid()
 
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 7 bits"
+    ):
         combine([first, later])
 
 
@@ -5919,7 +5925,9 @@ def test_extract_tx_without_check_validity_does_not_assert_valid() -> None:
     """`check_validity=False` skips `assert_valid` where the scripts run."""
     psbt, _ = _finalized_psbt("p2wpkh")
     psbt.inputs[0].sig_hash_type = 0x55  # type: ignore[assignment]
-    with pytest.raises(BTClibValueError, match="invalid sig_hash type: 0x55"):
+    with pytest.raises(
+        BTClibValueError, match="invalid sig_hash type: an int of 7 bits"
+    ):
         extract_tx(psbt)
     assert extract_tx(psbt, check_validity=False) is not None
 

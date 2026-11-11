@@ -1065,7 +1065,7 @@ Verdict: **identical but for a trailing newline**. Every case. The unsigned
 transactions are reproduced byte for byte. The signed ones are not, and their
 signatures are held to the script engine instead: a plain signature in them is
 not the deterministic one, with or without low-R grinding, and the adaptor
-signatures in their messages are in a layout `ecc.ecc.ecdsa_adaptor`
+signatures in their messages are in a layout `ecc.ecdsa_adaptor`
 does not parse.
 
 ### `tests/dlc/_data/test_vectors/`

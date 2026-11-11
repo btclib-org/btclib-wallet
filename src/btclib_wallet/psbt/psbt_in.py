@@ -27,8 +27,8 @@ from btclib.utils import (
     bytesio_from_binarydata,
     fields_from_json_object,
 )
+from ecc import dsa
 from ecc.curves import sec_point
-from ecc.ecc import dsa
 
 from btclib_wallet.bip32.key_origin import (
     BIP32KeyOrigin,

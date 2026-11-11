@@ -18,14 +18,14 @@ from base64 import b64encode
 from copy import deepcopy
 
 import pytest
+from btclib import bms
 from btclib.alias import Octets
-from btclib.ecc import bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dsa
 from ecc.curves import bytes_from_point, mult
-from ecc.ecc import dsa
 from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData, fingerprint

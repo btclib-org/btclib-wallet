@@ -1,6 +1,6 @@
 # BIP322 generic signed messages, mutated. The newest module in this directory's
 # scope -- it lands the same week as this profile -- and one whose whole point
-# is a signature an address cannot be recovered from, built out of `ecc.bms`,
+# is a signature an address cannot be recovered from, built out of `btclib.bms`,
 # `ecc.dsa`, `ecc.ssa`, `script.engine` and `psbt` already running under their
 # own coverage. Mutation testing on day one rather than after a defect report is
 # what btclib-org/btclib#219's question is for: whether the suite would notice a

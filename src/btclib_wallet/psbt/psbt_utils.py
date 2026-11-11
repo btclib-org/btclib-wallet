@@ -674,7 +674,7 @@ def assert_valid_sp_scan_key_map(
     claims to be could not have been computed against it.
 
     What is *not* checked here is that the value is the share it claims to
-    be. That is BIP374's answer, `ecc.ecc.dleq.verify_proof` over
+    be. That is BIP374's answer, `ecc.dleq.verify_proof` over
     the input keys, and asking it here would make a codec verify a proof.
     """
     for i, (scan_key, value) in enumerate(map_.items()):

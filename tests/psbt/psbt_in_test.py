@@ -14,8 +14,8 @@ from btclib.exceptions import BTClibValueError
 from btclib.script import Witness
 from btclib.script.sig_hash import SIG_HASH_TYPES
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dsa
 from ecc.curves import sec_point, secp256k1
-from ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn
@@ -336,7 +336,7 @@ def test_scripts_are_rendered_as_asm_and_hex() -> None:
     }
     assert PsbtIn.from_dict(old) == psbt_in
 
-    with pytest.raises(BTClibValueError, match="asm does not match hex: "):
+    with pytest.raises(BTClibValueError, match="^asm does not match hex$"):
         PsbtIn.from_dict(
             {**dict_, "witness_script": {"asm": "OP_1", "hex": witness_script}}
         )

@@ -42,7 +42,7 @@ from btclib.network import NETWORKS, network_from_name, xpubversions_from_networ
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 from ecc.curves import point_from_pub_key, secp256k1
 from ecc.curves.sec_point import bytes_from_point
-from ecc.ecc.musig2 import key_agg_var, key_sort
+from ecc.musig2 import key_agg_var, key_sort
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (

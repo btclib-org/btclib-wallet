@@ -25,7 +25,7 @@ from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import COINBASE_MATURITY
-from ecc.ecc import dsa
+from ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.bip32.bip32 import derive, prv_keyinfo_from_xprv, xpub_from_xprv

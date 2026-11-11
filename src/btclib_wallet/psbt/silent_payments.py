@@ -106,6 +106,7 @@ from btclib.script.taproot import (
     check_output_pubkey,
     output_pubkey_from_merkle_root_var,
 )
+from ecc import dleq
 from ecc.curves import (
     bytes_from_point,
     mult,
@@ -114,8 +115,7 @@ from ecc.curves import (
     scalar_from_prv_key,
     secp256k1,
 )
-from ecc.ecc import dleq
-from ecc.ecc.ssa import point_from_bip340pub_key_var
+from ecc.ssa import point_from_bip340pub_key_var
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.psbt.psbt import (

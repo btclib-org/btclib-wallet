@@ -62,13 +62,13 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from btclib import bms
 from btclib.alias import Octets, String
-from btclib.ecc import bms
 from btclib.exceptions import BTClibValueError
 from btclib.key import PrvKeyData
 from btclib.script.taproot import output_prvkey_from_merkle_root
 from btclib.utils import assert_type, bytes_from_octets
-from ecc.ecc import dsa, ssa
+from ecc import dsa, ssa
 
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
@@ -630,7 +630,7 @@ def sign_message(
     for, and which address a caller means is a fact about the key it asked
     for rather than about the signature that came back. What is checked is
     the one thing that matters -- the signature opens to that address --
-    and `ecc.bms.assert_as_valid` is the check.
+    and `btclib.bms.assert_as_valid` is the check.
     """
     signature = signer.sign_message(message, der_path)
     bms.assert_as_valid(message, address, signature)
@@ -894,8 +894,8 @@ class SoftwareSigner:
         """Return the BIP137 compact signature of a message, base64.
 
         The address the signature opens to is the p2pkh one of the key at
-        the path, which is what `ecc.bms` signs with by default and what
-        a caller checks it against.
+        the path, which is what `btclib.bms` signs with by default and
+        what a caller checks it against.
         """
         self._assert_open()
         if self.is_watch_only:

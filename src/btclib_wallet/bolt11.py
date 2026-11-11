@@ -96,7 +96,7 @@ from btclib.hashes import sha256
 from btclib.network import normalized_network_name
 from btclib.utils import assert_type, bytes_from_octets, int_from_integer, is_integer
 from ecc.curves import bytes_from_point, secp256k1
-from ecc.ecc.dsa import (
+from ecc.dsa import (
     Sig,
     gen_keys,
     recover_pub_key_,

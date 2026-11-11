@@ -30,8 +30,8 @@ from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.sig_hash import segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dlc_oracle, dsa
 from ecc.curves import bytes_from_point, mult, secp256k1
-from ecc.ecc import dlc_oracle, dsa
 
 from btclib_wallet import dlc
 from btclib_wallet.dlc import DlcParty, FundingInput

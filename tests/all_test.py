@@ -337,7 +337,7 @@ def test_psbt_exports_the_format_not_its_plumbing() -> None:
         "update_psbt_output",
     ]
 
-    # BIP373 is a role, so the module is the name, as ecc.ecc.musig2 is
+    # BIP373 is a role, so the module is the name, as ecc.musig2 is
     assert btclib_wallet.psbt.musig2.__name__ == "btclib_wallet.psbt.musig2"
     # and the same for the roles over a BIP445 session, whose fields are
     # btclib's own proprietary records rather than assigned type bytes

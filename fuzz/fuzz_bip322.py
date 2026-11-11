@@ -27,8 +27,8 @@ taken from the vendored `tests/_data/generated-test-vectors.json`:
 `smp`, `ful` and `pof`. The `pof` seed reaches `Psbt.parse`, this
 tree's own decoder and `fuzz_psbt.py`'s subject; `smp` and `ful` reach
 `Witness.parse` and `Tx.parse`, which stay btclib's. The legacy variant
-is not among the seeds, being `ecc.bms`'s compact signature rather than
-anything this method decodes.
+is not among the seeds, being `btclib.bms`'s compact signature rather
+than anything this method decodes.
 
 **What `b64decode` accepts is then written back.** A signature has more
 than one spelling: ASCII whitespace around it is stripped, a simple one

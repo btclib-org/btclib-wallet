@@ -190,8 +190,8 @@ jobs:
           uv venv --python "$HWI_PYTHON" hwi-env
           # --no-deps: the lock carries a cbor2 and a protobuf that HWI's
           # metadata refuses, and everything it needs is in the lock
-          # --no-config: the constraints of pyproject.toml's [tool.uv] are the
-          # project's, and --require-hashes refuses one that pins no version
+          # --no-config: a hashed install of HWI's own pins reads no
+          # configuration of the project's, pyproject.toml's [tool.uv] included
           uv pip install --python hwi-env/bin/python --require-hashes \
             --no-deps \
             --no-config \
@@ -449,8 +449,8 @@ jobs:
           uv venv --python "$HWI_PYTHON" hwi-env
           # --no-deps: the lock carries a cbor2 and a protobuf that HWI's
           # metadata refuses, and everything it needs is in the lock
-          # --no-config: the constraints of pyproject.toml's [tool.uv] are the
-          # project's, and --require-hashes refuses one that pins no version
+          # --no-config: a hashed install of HWI's own pins reads no
+          # configuration of the project's, pyproject.toml's [tool.uv] included
           uv pip install --python hwi-env/bin/python --require-hashes \
             --no-deps \
             --no-config \

@@ -38,8 +38,8 @@ from btclib.script import ScriptPubKey, Witness, serialize, taproot
 from btclib.script.script_pub_key import is_p2wpkh
 from btclib.script.taproot import output_pubkey_from_merkle_root_var
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dleq
 from ecc.curves import bytes_from_point, mult, secp256k1
-from ecc.ecc import dleq
 
 from btclib_wallet import silent_payments as sp
 from btclib_wallet.bip32 import (
