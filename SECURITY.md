@@ -336,3 +336,9 @@ permissions.
     guessed offline from a copy of the file. A wrong passphrase and a
     damaged master key both fail its tag, so neither is told from the
     other.
+- **A new passphrase keeps the master key.** `change_passphrase`
+    encrypts the same master key again, as Core's
+    `ChangeWalletPassphrase` does (src/wallet/wallet.cpp:647-677 at
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag). So a backup taken before
+    the change, with the passphrase it had, decrypts the keys of every
+    source a later copy of the file holds, those added since included.
