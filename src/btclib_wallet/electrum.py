@@ -52,6 +52,7 @@ arithmetic nor CVE-2017-12842's hardening.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import re
@@ -66,6 +67,7 @@ from btclib.block.merkle_proof import verify as verify_merkle_branch
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import bytes_from_octets, is_integer
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.exceptions import RpcError
 
 __all__ = [
@@ -101,43 +103,6 @@ __all__ = [
 # Exactly what is sent: `bytes.fromhex` would skip whitespace, and the
 # string and not its decoding goes on the wire.
 _TX_ID = re.compile(r"[0-9a-fA-F]{64}")
-
-
-def _message_text(value: object) -> str:
-    """Return the description of a value for a refusal's message, never raising.
-
-    No value is written out: an argument in the wrong place may be a key,
-    in an int, a str of its hex, a Decimal or a float of its digits, or
-    its bytes. Section 7 of the btclib-org standard, *A refusal carries
-    no secret*, lets a refusal print a value's type name and length, and
-    not its digits or characters.
-
-    An int, a bool excepted, is described by its sign and bit length.
-    Anything else, a bool included, is described by its type name, and
-    by its length where `len()` gives one: "a str of length 64", "an
-    object". The article is "an" before a name whose first letter, past
-    any underscore, is a vowel. This is what btclib's own `_message_text`
-    writes, copied since this package imports only btclib's public names.
-
-    Neither reads the value's `str()`. That of an int past
-    `sys.get_int_max_str_digits()` digits raises ValueError, which would
-    leave through the refusal the description is for.
-    """
-    if isinstance(value, int) and not isinstance(value, bool):
-        # int's own methods, not the value's: a subclass can override the
-        # comparison and bit_length
-        sign = "a negative" if int.__lt__(value, 0) else "an"
-        return f"{sign} int of {int.bit_length(value)} bits"
-    name = type(value).__name__
-    article = "an" if name.lstrip("_")[:1].lower() in tuple("aeiou") else "a"
-    description = f"{article} {name}"
-    # every Exception and not only TypeError: a `__len__` of the caller's
-    # own can raise anything, and no failure to describe a value may
-    # replace the refusal the description is for
-    try:
-        return f"{description} of length {len(value)}"  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001
-        return description
 
 
 def _assert_integer(value: object, what: str, *, non_negative: bool) -> None:
@@ -284,17 +249,21 @@ def decode_response(line: bytes, request_id: int) -> Any:
 def _decode_line(line: bytes) -> Any:
     """Read one bounded-depth JSON value, shared by single and batch replies."""
     if not isinstance(line, (bytes, bytearray)):
-        raise BTClibValueError(f"not a JSON-RPC line: {line!r}")
-    try:
+        raise BTClibValueError(f"not a JSON-RPC line: {_message_text(line)}")
+    # each refusal below is raised after `suppress`, so that no
+    # `__context__` holds the codec's error or the parser's: both hold the
+    # line
+    text: str | None = None
+    with contextlib.suppress(UnicodeDecodeError):
         text = line.decode("utf-8")
-    except UnicodeDecodeError as e:
-        raise BTClibValueError(f"not a JSON-RPC line: {line!r}") from e
+    if text is None:
+        err_msg = f"not a JSON-RPC line: {_message_text(line)}, not UTF-8"
+        raise BTClibValueError(err_msg)
     if _too_deep(text):
         raise BTClibValueError(f"not a JSON-RPC line: nested beyond {_MAX_NESTING}")
-    try:
+    with contextlib.suppress(TypeError, ValueError, RecursionError):
         return json.loads(text, parse_constant=_refuse_constant)
-    except (TypeError, ValueError, RecursionError) as e:
-        raise BTClibValueError(f"not a JSON-RPC line: {line!r}") from e
+    raise BTClibValueError(f"not a JSON-RPC line: {_message_text(line)}, not JSON")
 
 
 def _response_result(reply: object, request_id: int) -> Any:
@@ -616,9 +585,11 @@ def block_headers_response(line: bytes, request_id: int, count: int) -> list[byt
     answered (`BTClibValueError`). `max` is unread.
     """
     if not is_integer(count):
-        raise BTClibTypeError(f"block.headers: invalid count asked: {count!r}")
+        err_msg = f"block.headers: invalid count asked: {_message_text(count)}"
+        raise BTClibTypeError(err_msg)
     if count < 0:
-        raise BTClibValueError(f"block.headers: invalid count asked: {count!r}")
+        err_msg = f"block.headers: invalid count asked: {_message_text(count)}"
+        raise BTClibValueError(err_msg)
     result = decode_response(line, request_id)
     if not isinstance(result, dict):
         raise BTClibTypeError(f"block.headers: not an object: {result!r}")

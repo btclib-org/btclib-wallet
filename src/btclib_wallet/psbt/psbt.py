@@ -81,6 +81,7 @@ from ecc import dsa, ssa
 from ecc.curves import sec_point
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
     HdKeyPaths,
@@ -1293,12 +1294,15 @@ class Psbt:
                 if value is not None:
                     raise BTClibValueError(f"{name} is not allowed in a v0 psbt")
         if self.tx_modifiable is not None and not 0 <= self.tx_modifiable <= 0xFF:
-            raise BTClibValueError(f"invalid tx modifiable: {self.tx_modifiable}")
+            err_msg = f"invalid tx modifiable: {_message_text(self.tx_modifiable)}"
+            raise BTClibValueError(err_msg)
 
         if self.fallback_lock_time is not None and not (
             0 <= self.fallback_lock_time <= 0xFFFFFFFF
         ):
-            err_msg = f"invalid fallback locktime: {self.fallback_lock_time}"
+            err_msg = (
+                f"invalid fallback locktime: {_message_text(self.fallback_lock_time)}"
+            )
             raise BTClibValueError(err_msg)
 
         # the unsigned transaction is incomplete by construction, so it is
