@@ -276,7 +276,15 @@ def _amount_digits(amount_msat: int) -> str:
 
 
 def _hrp(network: str, amount_msat: int | None) -> str:
-    currency = _CURRENCY_FROM_NETWORK[network]
+    """Return the human-readable part, refusing a network with no prefix.
+
+    An invoice built with `check_validity=False` reaches here with its
+    network unchecked, and a bare `KeyError` from the lookup is no
+    `BTClibValueError`.
+    """
+    currency = _CURRENCY_FROM_NETWORK.get(network)
+    if currency is None:
+        raise BTClibValueError(f"not a lightning network: {network!r}")
     if amount_msat is None:
         return f"ln{currency}"
     return f"ln{currency}{_amount_digits(amount_msat)}"
@@ -805,15 +813,13 @@ class Bolt11Invoice:
             raise BTClibValueError(err_msg)
 
         # normalized once here, ahead of every read below: `_hrp` and
-        # `_fallback_field` take the raw parameter, and `_hrp` reads it
-        # through a bare `_CURRENCY_FROM_NETWORK[network]` lookup, so an
-        # unnormalized " MainNet " reached a bare `KeyError` before `cls`
-        # -- and `__init__`'s own coercion -- were ever called. The
-        # membership refusal below is not deferred to `assert_valid`
-        # either: the wire's currency prefix is part of the message this
-        # signs, so `sign` needs one whether or not `check_validity` later
-        # runs, where `Bolt11Invoice.__init__` can build an object
-        # `check_validity=False` leaves unchecked
+        # `_fallback_field` take the raw parameter, so an unnormalized
+        # " MainNet " would be refused before `cls` -- and `__init__`'s
+        # own coercion -- were ever called. The membership refusal below
+        # is not deferred to `assert_valid` either: the wire's currency
+        # prefix is part of the message this signs, so `sign` needs one
+        # whether or not `check_validity` later runs, and it comes before
+        # any key or field is built
         assert_type(network, str, "network")
         network = normalized_network_name(network)
         if network not in _CURRENCY_FROM_NETWORK:
