@@ -2608,7 +2608,7 @@ def _sig_hash_from_psbt_in(
     and travel in the taproot fields, so a partial signature beside a
     p2tr script_pub_key is not a signature this hash would check.
 
-    A non-witness spend described by a witness utxo alone is the case
+    A non-witness spend described by a witness utxo alone is a case
     that raises instead, being neither of those: the input says what is
     signed and says it on no authority. `PSBT_IN_WITNESS_UTXO` "should
     only be present for inputs which spend segwit outputs, including P2SH
@@ -2622,6 +2622,13 @@ def _sig_hash_from_psbt_in(
     bytes commits to a script_pub_key nobody vouched for, so the answer
     is an error rather than a hash, and rather than the None that would
     have the Finalizer skip the very signature it is checking.
+
+    A witness program this has no rule for raises too, bare or as the
+    redeem script: any version from 2 to 16, or a version 1 program that
+    is not p2tr, which `type_and_payload` calls `witness_unknown`.
+    Bitcoin Core's VerifyWitnessProgram checks no signature for one, so
+    the legacy hash is a hash no signature for it commits to, and Core's
+    SignStep refuses to sign it.
 
     sig_hash.from_tx is the same dispatch for a *signed* transaction, and
     cannot serve here: it reads the redeem script out of the input's
@@ -2645,6 +2652,11 @@ def _sig_hash_from_psbt_in(
 
     if not script or is_p2tr(script):
         return None
+    if type_and_payload(script)[0] == "witness_unknown":
+        # OP_1..OP_16 are 0x51..0x60
+        version = script[0] - 0x50
+        err_msg = f"input {vin_i}: no sig_hash rule for witness version {version}"
+        raise BTClibValueError(err_msg)
     if psbt_in.non_witness_utxo is None:
         err_msg = f"input {vin_i}: a witness utxo alone does not say what a "
         err_msg += "non-witness spend signs"
@@ -2721,8 +2733,9 @@ def ecdsa_sig_hash(psbt: Psbt, vin_i: int, *, hash_type: int | None = None) -> b
     a Finalizer checking a signature it was handed learns nothing from a
     psbt that does not say what was signed, while a Signer about to make
     one has to stop. Where it raises -- a non-witness spend described by
-    a witness utxo alone -- every caller stops, that being an input no
-    role may sign, verify or finalize.
+    a witness utxo alone, or a witness program it has no rule for --
+    every caller stops: such an input has no partial signature to make
+    or to check.
 
     An input's amount is its witness utxo's where it carries no
     non_witness_utxo, and nothing vouches for it: a caller signing this
@@ -3642,10 +3655,13 @@ def _assert_partial_sigs_verify(psbt_in: PsbtIn, tx: Tx, vin_i: int) -> None:
     An input whose sig_hash is not computable is left alone rather than
     refused: what is missing there is the utxo or a script, which is not
     evidence against the signature. A non-witness spend carrying a
-    witness utxo alone is the exception, and raises out of
+    witness utxo alone is an exception, and raises out of
     `_sig_hash_from_psbt_in`: there the input does say what was signed,
     on bytes nothing vouches for, so skipping the check would finalize
     exactly the input whose signature cannot be believed.
+
+    A witness program `_sig_hash_from_psbt_in` has no rule for raises out
+    of it too: no hash is the one a partial signature of it commits to.
 
     The question here is whether that key made that signature, and not
     which form its s took: the low-s rule is policy, applied by the script

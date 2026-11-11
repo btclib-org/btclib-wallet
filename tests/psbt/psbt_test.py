@@ -6570,3 +6570,49 @@ def test_a_refused_global_xpub_prints_no_byte_of_the_key() -> None:
         assert k.hex() not in text
         assert chain_code.hex() not in text
         assert xprv.hex() not in text
+
+
+@pytest.mark.parametrize(
+    "program, version",
+    [
+        (bytes([0x52, 32]) + b"\x22" * 32, 2),
+        (bytes([0x51, 20]) + b"\x22" * 20, 1),
+        (bytes([0x60, 2]) + b"\x22" * 2, 16),
+    ],
+    ids=["v2", "v1-20", "v16-2"],
+)
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "p2sh"])
+def test_a_witness_program_of_no_known_rule_has_no_ecdsa_sig_hash(
+    program: bytes, version: int, wrapped: bool
+) -> None:
+    """A `witness_unknown` input is refused, bare and wrapped in p2sh.
+
+    Issue btclib-org/btclib-wallet#747; `_sig_hash_from_psbt_in` says
+    why. The error names the version and no byte of the program.
+    """
+    script_pub_key = ScriptPubKey.p2sh(program) if wrapped else ScriptPubKey(program)
+    prev_out = TxOut(100_000, script_pub_key)
+    tx, prev_tx = _spending_tx(prev_out)
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].redeem_script = program if wrapped else b""
+    psbt.inputs[0].non_witness_utxo = prev_tx
+
+    err_msg = f"input 0: no sig_hash rule for witness version {version}$"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        ecdsa_sig_hash(psbt, 0, hash_type=1)
+    assert program[2:].hex() not in str(excinfo.value)
+
+    # the same input described by its witness utxo, as a segwit one is
+    psbt.inputs[0].witness_utxo = prev_out
+    psbt.inputs[0].non_witness_utxo = None
+    with pytest.raises(BTClibValueError, match=err_msg):
+        ecdsa_sig_hash(psbt, 0, hash_type=1)
+
+    # a partial signature of the legacy hash is refused where it is checked
+    msg_hash = sig_hash.legacy(program, tx, 0, 1)
+    sig = dsa.sign_(msg_hash, _PRV_KEY).serialize() + b"\x01"
+    psbt.inputs[0].partial_sigs = {_PUB_KEY: sig}
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signatures_only(_stripped_of_signatures(psbt), psbt)
