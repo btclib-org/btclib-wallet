@@ -79,19 +79,17 @@ __all__ = ["APPLICATION_ID", "FORMAT_VERSION"]
 APPLICATION_ID = 0x62746C77
 
 # the format this release writes; a file carries it in `PRAGMA user_version`
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
+# format 1's tables, as v2026.11.11 wrote them: a new file is written as
+# format 1 and taken through `_MIGRATIONS`, so that it and a migrated file
+# are one layout
 _SCHEMA = (
     "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     (
         "CREATE TABLE sources(id INTEGER PRIMARY KEY, descriptors TEXT NOT NULL,"
-        " prv_keys TEXT NOT NULL, encrypted BLOB, lookahead INTEGER NOT NULL,"
+        " prv_keys TEXT NOT NULL, lookahead INTEGER NOT NULL,"
         " birth INTEGER NOT NULL, scanned INTEGER NOT NULL)"
-    ),
-    (
-        "CREATE TABLE master_key(id INTEGER PRIMARY KEY CHECK (id = 0),"
-        " kdf TEXT NOT NULL, n INTEGER NOT NULL, r INTEGER NOT NULL,"
-        " p INTEGER NOT NULL, salt BLOB NOT NULL, encrypted BLOB NOT NULL)"
     ),
     (
         "CREATE TABLE handed_out(source INTEGER NOT NULL, branch INTEGER NOT NULL,"
@@ -108,8 +106,24 @@ _SCHEMA = (
     ),
 )
 
+
+def _add_encryption(db: sqlite3.Connection) -> None:
+    """Take format 1 to 2: a source's ciphertext column, and the master key.
+
+    Every source keeps its id and its keys in plain text, with no
+    ciphertext, and the file has no master key: it is unencrypted, as
+    format 1 is.
+    """
+    db.execute("ALTER TABLE sources ADD COLUMN encrypted BLOB")
+    db.execute(
+        "CREATE TABLE master_key(id INTEGER PRIMARY KEY CHECK (id = 0),"
+        " kdf TEXT NOT NULL, n INTEGER NOT NULL, r INTEGER NOT NULL,"
+        " p INTEGER NOT NULL, salt BLOB NOT NULL, encrypted BLOB NOT NULL)"
+    )
+
+
 # the step that takes a file from the version of its key to the next one
-_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {1: _add_encryption}
 
 
 @dataclass(frozen=True)
@@ -316,9 +330,11 @@ class _Store:
             with db:
                 db.execute("BEGIN")
                 db.execute(f"PRAGMA application_id = {APPLICATION_ID}")
-                db.execute(f"PRAGMA user_version = {FORMAT_VERSION}")
                 for statement in _SCHEMA:
                     db.execute(statement)
+                for version in range(1, FORMAT_VERSION):
+                    _MIGRATIONS[version](db)
+                db.execute(f"PRAGMA user_version = {FORMAT_VERSION}")
                 db.execute("INSERT INTO meta VALUES ('network', ?)", (network,))
         except BaseException:
             if db is not None:
@@ -468,7 +484,8 @@ class _Store:
         with self._db:
             try:
                 self._db.execute(
-                    "INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO sources (id, descriptors, prv_keys, encrypted,"
+                    " lookahead, birth, scanned) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         source_id,
                         _descriptors_text(source.descriptors),

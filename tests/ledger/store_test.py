@@ -7,16 +7,20 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import sqlite3
 import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.fee import FeeRate
+from btclib.tx import TxOut
 
-from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, store
-from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, source
+from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, crypto, store
+from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
 from tests.secret_free import assert_secret_free, windows
 
 
@@ -39,7 +43,7 @@ def test_a_new_file_says_what_it_is(chain: FakeChain, path: Path) -> None:
     Ledger.create(path, "regtest", chain).close()
     assert _pragma(path, "application_id") == APPLICATION_ID
     assert APPLICATION_ID.to_bytes(4, "big") == b"btlw"
-    assert _pragma(path, "user_version") == FORMAT_VERSION == 1
+    assert _pragma(path, "user_version") == FORMAT_VERSION == 2
     with Ledger.load(path, "regtest", chain) as ledger:
         assert ledger.tip is None
         assert ledger.sources == ()
@@ -92,7 +96,8 @@ def test_load_refuses_a_newer_format(chain: FakeChain, path: Path) -> None:
     """A release reads no format written by a later one."""
     Ledger.create(path, "regtest", chain).close()
     _set_pragma(path, "user_version", FORMAT_VERSION + 1)
-    with pytest.raises(BTClibValueError, match="ledger format 2 is newer"):
+    err_msg = f"ledger format {FORMAT_VERSION + 1} is newer"
+    with pytest.raises(BTClibValueError, match=err_msg):
         Ledger.load(path, "regtest", chain)
 
 
@@ -107,11 +112,12 @@ def test_an_older_format_is_migrated_one_version_at_a_time(
         ran.append(_pragma_of(db))
         db.execute("INSERT OR REPLACE INTO meta VALUES ('migrated', 'yes')")
 
-    monkeypatch.setattr(store, "FORMAT_VERSION", 3)
-    monkeypatch.setattr(store, "_MIGRATIONS", {1: step, 2: step})
+    monkeypatch.setattr(store, "FORMAT_VERSION", FORMAT_VERSION + 2)
+    steps = {FORMAT_VERSION: step, FORMAT_VERSION + 1: step}
+    monkeypatch.setattr(store, "_MIGRATIONS", steps)
     Ledger.load(path, "regtest", chain).close()
-    assert ran == [1, 2]
-    assert _pragma(path, "user_version") == 3
+    assert ran == [FORMAT_VERSION, FORMAT_VERSION + 1]
+    assert _pragma(path, "user_version") == FORMAT_VERSION + 2
     _set_pragma(path, "user_version", 0)
     with pytest.raises(BTClibValueError, match="no migration from ledger format 0"):
         Ledger.load(path, "regtest", chain)
@@ -131,11 +137,11 @@ def test_a_failed_migration_step_leaves_the_file_as_it_was(
         db.execute("CREATE TABLE added (x INTEGER)")
         raise RuntimeError("the step failed")
 
-    monkeypatch.setattr(store, "FORMAT_VERSION", 2)
-    monkeypatch.setattr(store, "_MIGRATIONS", {1: step})
+    monkeypatch.setattr(store, "FORMAT_VERSION", FORMAT_VERSION + 1)
+    monkeypatch.setattr(store, "_MIGRATIONS", {FORMAT_VERSION: step})
     with pytest.raises(RuntimeError, match="the step failed"):
         Ledger.load(path, "regtest", chain)
-    assert _pragma(path, "user_version") == 1
+    assert _pragma(path, "user_version") == FORMAT_VERSION
     db = sqlite3.connect(path)
     try:
         query = "SELECT name FROM sqlite_master WHERE name = 'added'"
@@ -272,3 +278,152 @@ def test_another_constraint_on_a_new_source_is_no_ledgers(
         err_msg = "not a ledger file: UNIQUE constraint failed: sources.lookahead"
         with pytest.raises(BTClibValueError, match=err_msg):
             ledger.add_source(source("wpkh({}/84h/1h/1h/{}/*)"))
+
+
+# format 1's tables, as src/btclib_wallet/ledger/store.py wrote them at
+# the v2026.11.11 tag: a file of that release is built from them here,
+# not from this release's code
+_FORMAT_1 = (
+    "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    (
+        "CREATE TABLE sources(id INTEGER PRIMARY KEY, descriptors TEXT NOT NULL,"
+        " prv_keys TEXT NOT NULL, lookahead INTEGER NOT NULL,"
+        " birth INTEGER NOT NULL, scanned INTEGER NOT NULL)"
+    ),
+    (
+        "CREATE TABLE handed_out(source INTEGER NOT NULL, branch INTEGER NOT NULL,"
+        " idx INTEGER NOT NULL, PRIMARY KEY(source, branch, idx))"
+    ),
+    (
+        "CREATE TABLE txs(txid BLOB PRIMARY KEY, raw BLOB NOT NULL,"
+        " state TEXT NOT NULL, height INTEGER, block_id BLOB, seq INTEGER NOT NULL)"
+    ),
+    "CREATE TABLE blocks(height INTEGER PRIMARY KEY, block_id BLOB NOT NULL)",
+    (
+        "CREATE TABLE labels(script BLOB PRIMARY KEY, label TEXT NOT NULL,"
+        " purpose TEXT NOT NULL)"
+    ),
+)
+# two sources, in the rows v2026.11.11's `Ledger.add_source` wrote
+_FORMAT_1_SOURCES = {
+    0: (source(), LOOKAHEAD),
+    3: (source("wpkh({}/84h/1h/1h/{}/*)"), LOOKAHEAD + 2),
+}
+
+
+def _spending(chain: FakeChain) -> dict[str, Any]:
+    """Return the readers a ledger spends with, all of `chain`."""
+    return {
+        "broadcaster": chain,
+        "fee_estimator": chain,
+        "relay_fee_reader": chain,
+        "fallback_fee_rate": FeeRate.from_sats_per_vbyte(2),
+    }
+
+
+def _format_1_file(path: Path) -> None:
+    """Write a ledger file of v2026.11.11, with the sources above."""
+    db = sqlite3.connect(path)
+    try:
+        with db:
+            db.execute(f"PRAGMA application_id = {APPLICATION_ID}")
+            for statement in _FORMAT_1:
+                db.execute(statement)
+            db.execute("PRAGMA user_version = 1")
+            db.execute("INSERT INTO meta VALUES ('network', 'regtest')")
+            for source_id, (wallet, lookahead) in _FORMAT_1_SOURCES.items():
+                descriptors = {
+                    str(branch): str(wallet.descriptor(branch))
+                    for branch in wallet.branches
+                }
+                db.execute(
+                    "INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        source_id,
+                        json.dumps(descriptors),
+                        json.dumps(dict(wallet.prv_keys or {})),
+                        lookahead,
+                        0,
+                        1,
+                    ),
+                )
+    finally:
+        db.close()
+
+
+def _keeps_the_format_1_sources(ledger: Ledger, chain: FakeChain) -> None:
+    """Every source, with its id, its keys and its lookahead; then encrypted.
+
+    The keys sign once encrypted and unlocked.
+    """
+    rows = ledger._store.sources()
+    assert [
+        (source_id, row.prv_keys, row.lookahead, row.encrypted)
+        for source_id, row in rows
+    ] == [
+        (source_id, wallet.prv_keys, lookahead, None)
+        for source_id, (wallet, lookahead) in _FORMAT_1_SOURCES.items()
+    ]
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+    ledger.encrypt("passphrase")
+    assert all(row.prv_keys == {} for _, row in ledger._store.sources())
+    chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address(3)))])])
+    ledger.sync()
+    ledger.unlock_keys("passphrase", 60)
+    other = source("wpkh({}/84h/1h/9h/{}/*)", (0,))
+    psbt = ledger.fund([TxOut(30_000, other.script_pub_key(0, 0))]).psbt
+    assert all(psbt_in.partial_sigs for psbt_in in ledger.sign(psbt).inputs)
+
+
+def _layout(path: Path) -> dict[str, list[tuple[object, ...]]]:
+    db = sqlite3.connect(path)
+    try:
+        tables = db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        return {
+            name: db.execute(f"PRAGMA table_info({name})").fetchall()
+            for (name,) in tables.fetchall()
+        }
+    finally:
+        db.close()
+
+
+def test_a_format_1_file_is_migrated(
+    chain: FakeChain, path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """v2026.11.11's file loads, keeps its sources and takes a passphrase.
+
+    It is migrated to this release's layout, the one a new file has.
+    """
+    monkeypatch.setattr(crypto, "_SCRYPT_N", 2**4)
+    _format_1_file(path)
+    with Ledger.load(path, "regtest", chain, **_spending(chain)) as ledger:
+        assert _pragma(path, "user_version") == FORMAT_VERSION
+        _keeps_the_format_1_sources(ledger, chain)
+    new = tmp_path / "new.sqlite"
+    Ledger.create(new, "regtest", chain).close()
+    assert _layout(path) == _layout(new)
+
+
+def test_a_format_1_backup_is_restored(
+    chain: FakeChain, path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backup v2026.11.11 wrote is restored, and the backup left as it was."""
+    monkeypatch.setattr(crypto, "_SCRYPT_N", 2**4)
+    backup = tmp_path / "backup.sqlite"
+    _format_1_file(backup)
+    with Ledger.restore(backup, path, "regtest", chain, **_spending(chain)) as ledger:
+        assert _pragma(path, "user_version") == FORMAT_VERSION
+        _keeps_the_format_1_sources(ledger, chain)
+    assert _pragma(backup, "user_version") == 1
+
+
+def test_v2026_11_11_refuses_a_file_of_this_release(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A release writing format 1, with no step, reads this one as newer."""
+    Ledger.create(path, "regtest", chain).close()
+    monkeypatch.setattr(store, "FORMAT_VERSION", 1)
+    monkeypatch.setattr(store, "_MIGRATIONS", {})
+    err_msg = "ledger format 2 is newer than this release's 1"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        Ledger.load(path, "regtest", chain)
