@@ -117,13 +117,13 @@ def test_a_source_not_ranged_takes_a_label(ledger: Ledger) -> None:
     fixed = _fixed()
     ledger.add_source(fixed, lookahead=LOOKAHEAD, label="fixed")
     assert ledger.addresses_by_label("fixed") == {fixed.address(0, 0): "receive"}
-    with pytest.raises(BTClibValueError, match="a ranged descriptor takes no label"):
+    with pytest.raises(BTClibValueError, match="a label needs one address on branch 0"):
         ledger.add_source(source(), label="ranged")
     prv_keys: dict[str, str] = {}
     change_only = DescriptorWallet(
         {1: parse(f"wpkh({XPRV}/84h/1h/6h/1/0)", "regtest", prv_keys)}, prv_keys
     )
-    with pytest.raises(BTClibValueError, match="a ranged descriptor takes no label"):
+    with pytest.raises(BTClibValueError, match="a label needs one address on branch 0"):
         ledger.add_source(change_only, label="change")
     assert len(ledger.sources) == 2
     # without a label, its address has the empty one, as Core gives it

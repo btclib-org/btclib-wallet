@@ -474,7 +474,7 @@ class Ledger:
         if label is not None:
             _assert_label(label)
             if 0 not in wallet.branches or wallet.descriptor(0).is_ranged:
-                raise BTClibValueError("a ranged descriptor takes no label")
+                raise BTClibValueError("a label needs one address on branch 0")
         scanned = birth_height is None
         birth = birth_height
         if birth is None:
