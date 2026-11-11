@@ -149,8 +149,8 @@ from btclib.script.taproot import (
 )
 from btclib.script.witness import Witness
 from btclib.utils import assert_type, bytes_from_octets, is_integer
-from ecc.ecc.ssa import point_from_bip340pub_key_var
 from ecc.hashes import tagged_hash
+from ecc.ssa import point_from_bip340pub_key_var
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import (
@@ -2453,8 +2453,11 @@ def _parse_addr(
 ) -> Descriptor:
     address = _one_argument(args, "addr")
     # the network of an addr() descriptor is the address's own: it is
-    # written in the prefix, so a parameter could only contradict it
-    return AddrDescriptor(address, network=ScriptPubKey.from_address(address).network)
+    # written in the prefix, so a parameter could only contradict it.
+    # A `NETWORKS` name, `from_address` answering a `Network` only
+    # where it is given one
+    network = cast(str, ScriptPubKey.from_address(address).network)
+    return AddrDescriptor(address, network=network)
 
 
 def _parse_raw(

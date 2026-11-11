@@ -19,7 +19,7 @@ from btclib.b58 import prv_key_data_from_wif
 from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from ecc.ecc import dsa
+from ecc import dsa
 from typing_extensions import override
 
 from btclib_wallet.bip32 import (

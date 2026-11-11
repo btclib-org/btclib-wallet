@@ -311,7 +311,9 @@ def test_a_message_announcing_too_much_is_refused_before_it_is_read(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="invalid payload length: 4000001"):
+    with pytest.raises(
+        FetchError, match="invalid payload length: at most 4000000 bytes expected"
+    ):
         transport.receive(5)
     assert not transport.is_open
     assert fake.chunks == []

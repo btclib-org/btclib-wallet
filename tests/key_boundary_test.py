@@ -14,13 +14,12 @@ here, and the resolution through `bip32` beside it.
 from __future__ import annotations
 
 import pytest
-from btclib import b58
+from btclib import b58, bms
 from btclib.b58 import wif_from_prv_key
-from btclib.ecc import bms
 from btclib.hashes import magic_message
 from btclib.key import PrvKeyData, PubKeyData
+from ecc import dsa, ssa
 from ecc.curves import bytes_from_point, mult, scalar_from_prv_key
-from ecc.ecc import dsa, ssa
 
 from btclib_wallet.bip32 import BIP32KeyData, bip32, rootxprv_from_seed
 from btclib_wallet.mnemonic import bip39

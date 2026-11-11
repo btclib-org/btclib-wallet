@@ -55,7 +55,7 @@ counterparty outside the process — a socket, a subprocess, a node, a
 device — where the codec of a protocol opens nothing, and stays btclib's
 unless this package is its only user, as it is of Electrum's.
 
-What this package signs, it signs through `ecc.ecc`, so the
+What this package signs, it signs through `ecc`'s schemes, so the
 dispatch to the libsecp256k1 bindings
 (`ecc.curves.curve._libsecp256k1_serves`) and where constant time
 ends are ecc's, stated in its
@@ -179,10 +179,10 @@ calls through HWI's JSON command line; nothing of `hwilib` itself is
 imported, so the subprocess is the whole of the dependency.
 
 `bip322.py` signs a message by satisfying the address's script rather
-than by a key the verifier recovers, as `btclib.ecc.bms` does: the
-signature spends a virtual output paying to that address, and
-`script.engine` verifies it, so a taproot, p2wsh or multisig address can
-sign. `fuzz/fuzz_bip322.py` fuzzes its decoder.
+than by a key the verifier recovers, as `btclib.bms` does: the signature
+spends a virtual output paying to that address, and `script.engine`
+verifies it, so a taproot, p2wsh or multisig address can sign.
+`fuzz/fuzz_bip322.py` fuzzes its decoder.
 
 ## Reaching outside the process
 

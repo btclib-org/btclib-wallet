@@ -23,7 +23,7 @@ from btclib.script.script import serialize
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
-from ecc.ecc import dsa, ssa
+from ecc import dsa, ssa
 from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32 import BIP32KeyOrigin

@@ -30,9 +30,9 @@ from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 from btclib.script import ScriptPubKey, Witness, is_p2ms_var, parse, serialize
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dsa
 from ecc.curves import mult
 from ecc.curves.sec_point import bytes_from_point
-from ecc.ecc import dsa
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut, extract_tx

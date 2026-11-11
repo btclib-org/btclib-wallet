@@ -59,7 +59,7 @@ secret is derived from. None of the three is a function here; the module
 docstring is where they are stated, and `btclib.script.sig_hash` is where
 the flags are.
 
-secp256k1 and sha256 are not parameters, as in `ecc.ecc.musig2`:
+secp256k1 and sha256 are not parameters, as in `ecc.musig2`:
 BIP352 is defined for that pair, and the 33-byte compressed points, the
 32-byte scalars and the three tags below are its serialization.
 """
@@ -81,6 +81,7 @@ from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
 from btclib.utils import bytes_from_octets, is_integer, is_octets, str_from_string
+from ecc.alias import Public
 from ecc.curves import (
     PubKey,
     TweakChain,
@@ -96,8 +97,8 @@ from ecc.curves import (
     secp256k1,
     sum_var,
 )
-from ecc.ecc.ssa import point_from_bip340pub_key_var
 from ecc.hashes import tagged_hash
+from ecc.ssa import point_from_bip340pub_key_var
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -629,8 +630,8 @@ def shared_secret(scalar: Integer, point: PubKey) -> Point:
     without the round trip through one. The point itself is the answer,
     which is why `ecdh.shared_secret` of the bindings is no substitute --
     it hashes, and BIP352 tags this point with a counter of its own;
-    `ecc.ecc.dh` has that verdict for all four of the library's
-    ECDH-shaped computations.
+    `ecc.dh` has that verdict for all four of the library's ECDH-shaped
+    computations.
 
     The octets arrive unproven, as `ecc.ecies.derive_keys` takes them:
     `mult_pub_key`'s own multiplication is the proof, refusing what is not
@@ -1100,7 +1101,8 @@ def _scan(
     found = []
     for k in range(min(len(remaining), K_MAX)):
         t_k = _output_tweak(secret, k)
-        P_k = chain.point(t_k)
+        # variable time in t_k, which a scan may be: the docstring says why
+        P_k = chain.point(Public(t_k))
         x_only_P_k = _x_only(P_k)
         # (position, output, label tweak or None) of the output taken
         match = _earliest_match(P_k, x_only_P_k, remaining, label_points, label_map)
@@ -1293,7 +1295,7 @@ def prv_key_from_tweak(b_spend: Integer, prv_key_tweak: int) -> int:
 
     b_spend plus the tweak `scan_outputs` reported, modulo n. The taproot
     output is x-only, so a signer negates this key if it has to; that is
-    BIP340's business and `ecc.ecc.ssa.sign` does it.
+    BIP340's business and `ecc.ssa.sign` does it.
     """
     d = (
         scalar_from_prv_key(b_spend) + scalar_from_prv_key(prv_key_tweak)

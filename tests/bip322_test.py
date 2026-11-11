@@ -22,12 +22,11 @@ from typing import Any
 
 import pytest
 from base58_bech32.base58 import b58decode_check, b58encode_check
-from btclib import b58
+from btclib import b58, bms
 from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
 from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
-from btclib.ecc import bms
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -54,8 +53,8 @@ from btclib.script.taproot import input_script_sig, output_prvkey, output_pubkey
 from btclib.script.taproot import serialize as serialize_tapscript
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import dsa, ssa
 from ecc.curves import secp256k1
-from ecc.ecc import dsa, ssa
 from ecc.exceptions import EccRuntimeError
 from ecc.hashes import reduce_to_hlen
 
@@ -820,7 +819,7 @@ def test_legacy_signature_is_accepted_for_p2pkh_alone() -> None:
     btclib's own BMS accepts a compressed p2pkh signature for the two
     p2wpkh spellings, which is Electrum's extension; BIP322 restricts
     the legacy variant to p2pkh, so a segwit address is refused here
-    whatever `ecc.bms` would say of it.
+    whatever `btclib.bms` would say of it.
     """
     msg = b"legacy"
     legacy = bms.sign(msg, b58.prv_key_data_from_wif(WIF)).b64encode()

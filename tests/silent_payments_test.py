@@ -35,9 +35,8 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
-from ecc import curves
+from ecc import curves, ssa
 from ecc.curves import bytes_from_point, mult, secp256k1
-from ecc.ecc import ssa
 
 from btclib_wallet import silent_payments
 from tests import NOT_STRIPPED, load, needs_bindings, vector_id

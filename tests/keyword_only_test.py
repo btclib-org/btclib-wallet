@@ -371,8 +371,8 @@ def _resolve(label: str) -> Any:
     """Import `module:Class.method` or `module:function` back to the object.
 
     The colon is the split point rather than the last dot: a module name
-    is dotted too (`btclib.ecc.dsa`), so the pair is stored apart instead
-    of concatenated and re-split.
+    is dotted too (`btclib.script.taproot`), so the pair is stored apart
+    instead of concatenated and re-split.
     """
     module_name, _, attr_path = label.partition(":")
     obj: Any = import_module(module_name)

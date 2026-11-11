@@ -34,12 +34,12 @@ WIF row landed: this module has no format of its own to hand back, `network` is
 always "mainnet" for it, since nothing in a BIP38 record names one.
 
 **Why the cipher is a parameter.** BIP38 encrypts with AES-256 in ECB --
-each 16-byte block on its own, no chaining -- and `ecc.ecc.ecies`'s
-module docstring has the argument in full for why btclib ships none of
-its own: a table-driven block cipher leaks its key through cache timing,
-and shipping one anyway is a worse answer than shipping none. `encrypt`
-and `decrypt` here take `encrypt_block` / `decrypt_block` callables for
-that reason, the same shape `ecies.encrypt` and `ecies.decrypt` take for
+each 16-byte block on its own, no chaining -- and `ecc.ecies`'s module
+docstring has the argument in full for why btclib ships none of its own:
+a table-driven block cipher leaks its key through cache timing, and
+shipping one anyway is a worse answer than shipping none. `encrypt` and
+`decrypt` here take `encrypt_block` / `decrypt_block` callables for that
+reason, the same shape `ecies.encrypt` and `ecies.decrypt` take for
 AES-128-CBC. `new_key_pair`, the printer's half of EC-multiply, takes
 `encrypt_block` too, being the one function of the four that calls the
 cipher forward rather than back.

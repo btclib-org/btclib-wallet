@@ -20,6 +20,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.key import PubKeyData
 from btclib.network import NETWORKS
+from ecc.alias import Public
 from ecc.curves import (
     # its module holds the `mod_sqrt_var` the lift calls, and patching it
     # to raise is how the test below pins that validating an xpub takes no
@@ -31,7 +32,7 @@ from ecc.curves import (
     point_from_octets_var,
 )
 from ecc.curves import secp256k1 as ec
-from ecc.ecc.musig2 import key_agg_var
+from ecc.musig2 import key_agg_var
 
 from btclib_wallet.bip32 import (
     BIP328_CHAIN_CODE,
@@ -482,7 +483,7 @@ def test_public_key_validation_does_not_lift(
 
     monkeypatch.setattr(sys.modules[CurveGroup.__module__], "mod_sqrt_var", refuse)
     with pytest.raises(AssertionError, match="was computed"):
-        ec.y_var(ec.G[0])
+        ec.y_var(Public(ec.G[0]))
 
     xpub = "xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy"
     assert BIP32KeyData.b58decode(xpub).b58encode() == xpub

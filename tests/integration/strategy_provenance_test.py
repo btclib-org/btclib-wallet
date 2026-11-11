@@ -14,7 +14,7 @@ from tests.strategies.provenance import _definition_hashes, _provenance
 
 pytestmark = pytest.mark.skipif(
     "BTCLIB_BTCLIB_STRATEGIES" not in os.environ,
-    reason="set BTCLIB_BTCLIB_STRATEGIES to btclib's tests/strategies/__init__.py",
+    reason="set BTCLIB_BTCLIB_STRATEGIES to btclib's src/btclib/testing/strategies.py",
 )
 
 

@@ -77,8 +77,8 @@ from btclib.utils import (
     list_from_json_array,
     str_from_string,
 )
+from ecc import dsa, ssa
 from ecc.curves import sec_point
-from ecc.ecc import dsa, ssa
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet.bip32 import (

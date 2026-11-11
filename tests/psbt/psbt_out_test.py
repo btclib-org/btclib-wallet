@@ -180,7 +180,7 @@ def test_scripts_are_rendered_as_asm_and_hex() -> None:
     }
     assert PsbtOut.from_dict(old) == psbt_out
 
-    with pytest.raises(BTClibValueError, match="asm does not match hex: "):
+    with pytest.raises(BTClibValueError, match="^asm does not match hex$"):
         PsbtOut.from_dict(
             {**dict_, "redeem_script": {"asm": "OP_1", "hex": redeem_script}}
         )

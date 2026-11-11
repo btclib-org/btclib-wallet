@@ -30,7 +30,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.curves import secp256k1
 from ecc.curves.curve import mult
 from ecc.curves.sec_point import bytes_from_point
-from ecc.ecc.dsa import sign_
+from ecc.dsa import sign_
 
 from btclib_wallet.fetch import bitcoin_core
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher

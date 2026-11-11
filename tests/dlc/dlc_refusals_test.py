@@ -17,9 +17,9 @@ from btclib.hashes import hash160
 from btclib.script.sig_hash import ALL, segwit_v0
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc import ecdsa_adaptor
 from ecc.curves import mult
 from ecc.curves.sec_point import point_from_pub_key
-from ecc.ecc import ecdsa_adaptor
 from ecc.exceptions import EccException
 
 from btclib_wallet import dlc
