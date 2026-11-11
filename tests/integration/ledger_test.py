@@ -10,7 +10,8 @@ scripts. After each step -- a mempool arrival, a confirmation, a coinbase,
 a spend and its replacement, a broadcast the node refuses, a reorganization, a
 double spend taken through a reorganization, an unload and load, and a
 node restart -- the ledger is synced and its answers are compared with
-what `twin` answers.
+what `twin` answers. A ledger restored from a backup is compared the
+same way.
 
 The node is this module's own, so that it can be restarted; it refuses
 a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
@@ -49,6 +50,10 @@ XPRV = (
 )
 RECEIVE = f"wpkh({XPRV}/84h/1h/0h/0/*)"
 CHANGE = f"wpkh({XPRV}/84h/1h/0h/1/*)"
+# another account, for the backup's test: a ledger synced from scratch
+# shows none of the conflicts the first test's ledger saw happen
+BACKUP_RECEIVE = f"wpkh({XPRV}/84h/1h/1h/0/*)"
+BACKUP_CHANGE = f"wpkh({XPRV}/84h/1h/1h/1/*)"
 # the node's own floor, 2 sat/vB, and the fallback the ledger pays above it
 MIN_RELAY = "0.00002"
 FALLBACK = FeeRate.from_sats_per_vbyte(5)
@@ -95,30 +100,35 @@ def node(
         started.client.call("createwallet", ["miner"])
         miner = started.wallet("miner")
         miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
-        started.client.call("createwallet", ["twin", False, True])
-        started.wallet("twin").call(
-            "importdescriptors",
-            [
-                [
-                    {
-                        "desc": add_checksum(desc),
-                        "active": True,
-                        "internal": internal,
-                        "timestamp": 0,
-                        "range": [0, 999],
-                    }
-                    for desc, internal in ((RECEIVE, False), (CHANGE, True))
-                ]
-            ],
-        )
+        _create_twin(started, "twin", RECEIVE, CHANGE)
         yield started
     finally:
         started.stop()
 
 
-def _source() -> DescriptorWallet:
+def _create_twin(node: Node, name: str, receive: str, change: str) -> None:
+    """Create a wallet of the node holding a ledger's two descriptors."""
+    node.client.call("createwallet", [name, False, True])
+    node.wallet(name).call(
+        "importdescriptors",
+        [
+            [
+                {
+                    "desc": add_checksum(desc),
+                    "active": True,
+                    "internal": internal,
+                    "timestamp": 0,
+                    "range": [0, 999],
+                }
+                for desc, internal in ((receive, False), (change, True))
+            ]
+        ],
+    )
+
+
+def _source(receive: str = RECEIVE, change: str = CHANGE) -> DescriptorWallet:
     prv_keys: dict[str, str] = {}
-    branches = [parse(text, "regtest", prv_keys) for text in (RECEIVE, CHANGE)]
+    branches = [parse(text, "regtest", prv_keys) for text in (receive, change)]
     return DescriptorWallet(branches, prv_keys)
 
 
@@ -133,10 +143,10 @@ def _settle(node: Node) -> None:
     node.client.call("syncwithvalidationinterfacequeue")
 
 
-def _compare(node: Node, ledger: Ledger) -> None:
-    """Assert the ledger answers what `twin` answers, after a sync."""
+def _compare(node: Node, ledger: Ledger, twin_name: str = "twin") -> None:
+    """Assert the ledger answers what its twin answers, after a sync."""
     _settle(node)
-    twin = node.wallet("twin")
+    twin = node.wallet(twin_name)
     mine = twin.call("getbalances")["mine"]
     balances = ledger.balances()
     assert balances.trusted == _sats(mine["trusted"])
@@ -360,6 +370,57 @@ def test_the_ledger_answers_what_cores_wallet_answers(
     ledger.sync()
     _compare(node, ledger)
     ledger.close()
+
+
+def test_a_restored_backup_answers_what_cores_wallet_answers(
+    node: Node, tmp_path: Path
+) -> None:
+    """Five rounds after the backup, the original gone, then a restore.
+
+    Core's wallet_backup.py at bitcoin/bitcoin@f0de87f040 (lines
+    209-257): each round pays the ledger at a new address and spends
+    from it, with change.
+    """
+    path = tmp_path / "ledger.sqlite"
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    ledger = Ledger.create(
+        path,
+        "regtest",
+        fetcher,
+        broadcaster=fetcher,
+        fee_estimator=fetcher,
+        fallback_fee_rate=FALLBACK,
+    )
+    ledger.add_source(_source(BACKUP_RECEIVE, BACKUP_CHANGE))
+    _create_twin(node, "backup-twin", BACKUP_RECEIVE, BACKUP_CHANGE)
+
+    def one_round() -> None:
+        _pay_ledger(node, ledger)
+        _mine(node)
+        ledger.sync()
+        ledger.spend([_miner_output(node, ledger.balances().trusted // 3)])
+        _mine(node)
+        ledger.sync()
+
+    one_round()
+    backup = tmp_path / "ledger.bak"
+    ledger.backup(backup)
+    for _ in range(5):
+        one_round()
+    _compare(node, ledger, "backup-twin")
+    ledger.close()
+    path.unlink()
+
+    restored = Ledger.restore(
+        backup,
+        tmp_path / "restored.sqlite",
+        "regtest",
+        fetcher,
+        fallback_fee_rate=FALLBACK,
+    )
+    with restored:
+        restored.sync()
+        _compare(node, restored, "backup-twin")
 
 
 def _value_spent(ledger: Ledger, tx_in: TxIn) -> int:
