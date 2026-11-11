@@ -55,7 +55,7 @@ U5 = (
     "042f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4"
     "d8ac222636e5e3d6d4dba9dda6c9c426f788271bab0d6840dca87d3aa6ac62d6"
 )
-H5 = "06" + U5[2:]
+H5 = f"06{U5[2:]}"
 
 SHAPES = {
     "combo": (
@@ -255,7 +255,7 @@ SCRIPTS = {
         "0020" + "11" * 32,
         "addr(bcrt1qzyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs2ns5wu)#hne3n20n",
     ),
-    "p2tr": ("5120" + K1[2:], f"rawtr({K1[2:]})#xsjqcczm"),
+    "p2tr": (f"5120{K1[2:]}", f"rawtr({K1[2:]})#xsjqcczm"),
     "p2tr of no point": (
         "5120" + "ff" * 32,
         "addr(bcrt1plllllllllllllllllllllllllllllllllllllllllllllllllllse0lp4e)#f6jd6wfe",
@@ -268,48 +268,48 @@ SCRIPTS = {
     ),
     "null data": ("6a0401020304", "raw(6a0401020304)#g0fz96j4"),
     "empty": ("", "raw()#58lrscpx"),
-    "a push past the end": ("21" + K1[:20], "raw(21" + K1[:20] + ")#5jrx5t25"),
-    "p2pk": ("41" + U5 + "ac", f"pk({U5})#2dwmq85f"),
+    "a push past the end": (f"21{K1[:20]}", f"raw(21{K1[:20]})#5jrx5t25"),
+    "p2pk": (f"41{U5}ac", f"pk({U5})#2dwmq85f"),
     "p2pk of no point": (
         "21" + "02" + "ff" * 32 + "ac",
         "pk(02" + "ff" * 32 + ")#ragaskvl",
     ),
-    "p2pk hybrid": ("41" + H5 + "ac", "raw(41" + H5 + "ac)#vz7md8m0"),
+    "p2pk hybrid": (f"41{H5}ac", f"raw(41{H5}ac)#vz7md8m0"),
     "p2pk of a key of the wrong size": (
         "2104" + "11" * 32 + "ac",
         "raw(2104" + "11" * 32 + "ac)#aegwnhcl",
     ),
-    "not p2pk": ("21" + K1 + "ad", "raw(21" + K1 + "ad)#4dtmfuk2"),
-    "multisig": ("5121" + K1 + "51ae", f"multi(1,{K1})#gs8559k9"),
+    "not p2pk": (f"21{K1}ad", f"raw(21{K1}ad)#4dtmfuk2"),
+    "multisig": (f"5121{K1}51ae", f"multi(1,{K1})#gs8559k9"),
     "multisig of 17 keys": (
-        "51" + ("21" + K1) * 17 + "0111ae",
+        "51" + f"21{K1}" * 17 + "0111ae",
         f"multi(1,{','.join([K1] * 17)})#58a7llg3",
     ),
-    "multisig hybrid": ("5141" + H5 + "51ae", "raw(5141" + H5 + "51ae)#ntz4yz8e"),
+    "multisig hybrid": (f"5141{H5}51ae", f"raw(5141{H5}51ae)#ntz4yz8e"),
     "multisig count mismatch": (
-        "5121" + K1 + "52ae",
-        "raw(5121" + K1 + "52ae)#5phmyqrl",
+        f"5121{K1}52ae",
+        f"raw(5121{K1}52ae)#5phmyqrl",
     ),
     "multisig count not minimal": (
-        "5121" + K1 + "0101ae",
-        "raw(5121" + K1 + "0101ae)#8zdjuexl",
+        f"5121{K1}0101ae",
+        f"raw(5121{K1}0101ae)#8zdjuexl",
     ),
     "multisig threshold pushed": (
-        "4c0101" + "21" + K1 + "51ae",
-        "raw(4c010121" + K1 + "51ae)#u8v6vpqk",
+        f"4c010121{K1}51ae",
+        f"raw(4c010121{K1}51ae)#u8v6vpqk",
     ),
     "multisig threshold zero": (
-        "0021" + K1 + "51ae",
-        "raw(0021" + K1 + "51ae)#2gu2ykxx",
+        f"0021{K1}51ae",
+        f"raw(0021{K1}51ae)#2gu2ykxx",
     ),
     "multisig with no ops": ("4cae", "raw(4cae)#w3kt2nq0"),
     "multisig with no count": (
-        "5121" + K1 + "4cae",
-        "raw(5121" + K1 + "4cae)#kt9m4zh4",
+        f"5121{K1}4cae",
+        f"raw(5121{K1}4cae)#kt9m4zh4",
     ),
     "multisig ending late": (
-        "5121" + K1 + "5100ae",
-        "raw(5121" + K1 + "5100ae)#a63dhng4",
+        f"5121{K1}5100ae",
+        f"raw(5121{K1}5100ae)#a63dhng4",
     ),
 }
 
@@ -426,7 +426,7 @@ def test_a_known_key_core_refuses_is_an_address() -> None:
 
 def test_a_wsh_holds_no_uncompressed_key() -> None:
     """Neither as a ``pk()`` nor as a miniscript's key."""
-    inner = bytes.fromhex("41" + U5 + "ac")
+    inner = bytes.fromhex(f"41{U5}ac")
     script = ScriptPubKey.p2wsh(inner).script
     inferred = infer_descriptor(script, Provider(scripts=(inner,)), "regtest")
     assert inferred == _addr(script)
@@ -435,7 +435,7 @@ def test_a_wsh_holds_no_uncompressed_key() -> None:
 def test_a_miniscript_core_refuses_is_no_miniscript() -> None:
     """One that is not sane, and one holding a key that is no key."""
     not_sane = bytes.fromhex("5ab2")
-    no_key = bytes.fromhex("2105" + K1[2:] + "ad51b2")
+    no_key = bytes.fromhex(f"2105{K1[2:]}ad51b2")
     for inner in (not_sane, no_key):
         script = ScriptPubKey.p2wsh(inner).script
         inferred = infer_descriptor(script, Provider(scripts=(inner,)), "regtest")
@@ -536,17 +536,17 @@ ADD = f"{0xBA:02x}"
     "script,expected",
     [
         ("", None),
-        ("21" + K1 + "51" + "9c", None),
-        ("20" + K1[2:] + "ac" + "51" + "ac", None),
+        (f"21{K1}519c", None),
+        (f"20{K1[2:]}ac51ac", None),
         ("209c", None),
-        ("20" + K1[2:] + ADD + "51" + "9c", None),
-        ("20" + K1[2:] + "ac" + "21" + K1 + ADD + "51" + "9c", None),
-        ("20" + K1[2:] + "ac" + "51" + "51" + "9c", None),
-        ("20" + K1[2:] + "ac" + "4c" + "9c", None),
-        ("20" + K1[2:] + "ac" + "52" + "9c", None),
-        ("20" + K1[2:] + "ac" + "51" + "9c", (1, [bytes.fromhex(K1[2:])])),
+        (f"20{K1[2:]}{ADD}519c", None),
+        (f"20{K1[2:]}ac21{K1}{ADD}519c", None),
+        (f"20{K1[2:]}ac51519c", None),
+        (f"20{K1[2:]}ac4c9c", None),
+        (f"20{K1[2:]}ac529c", None),
+        (f"20{K1[2:]}ac519c", (1, [bytes.fromhex(K1[2:])])),
         pytest.param(
-            "20" + K1[2:] + "ac" + ("20" + K1[2:] + ADD) * 999 + "51" + "9c",
+            f"20{K1[2:]}ac" + f"20{K1[2:]}{ADD}" * 999 + "519c",
             None,
             id="1000-keys",
         ),

@@ -443,7 +443,7 @@ class _Store:
         rows = self._db.execute(
             "SELECT source, branch, idx FROM handed_out ORDER BY source, branch, idx"
         )
-        return [(source, branch, index) for source, branch, index in rows]
+        return list(rows)
 
     def txs(self, network: str) -> list[WalletTx]:
         """Return every transaction, its outputs labelled for `network`."""
@@ -482,12 +482,13 @@ class _Store:
 
     def tip(self) -> BlockRef | None:
         """Return the block the ledger is synced to, None before any sync."""
-        rows = dict(
-            self._db.execute(
-                "SELECT key, value FROM meta WHERE key IN ('tip_height', 'tip_id')"
-            ).fetchall()
-        )
-        if not rows:
+        if not (
+            rows := dict(
+                self._db.execute(
+                    "SELECT key, value FROM meta WHERE key IN ('tip_height', 'tip_id')"
+                ).fetchall()
+            )
+        ):
             return None
         return BlockRef(int(rows["tip_height"]), bytes.fromhex(rows["tip_id"]))
 

@@ -23,7 +23,7 @@ import json
 import os
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import pytest
 from ecc.curves import is_libsecp256k1_serving, set_libsecp256k1_serving
@@ -99,17 +99,14 @@ def asks_for_everything(
     `/tmp` on macOS would compare `/tmp/...` against `/private/tmp/...`
     and find no containment anywhere.
     """
-    given = [Path(path).resolve() for path in file_or_dir or []]
-    if not given:
+    if not (given := [Path(path).resolve() for path in file_or_dir or []]):
         return True
     wanted = [(rootpath / path).resolve() for path in testpaths]
-    if not wanted:
-        # `all` over nothing is true, which would make every path named
-        # here the whole suite. With `testpaths` unset there is nothing
-        # to measure containment against, so this errs toward dropping
-        # the floor rather than gating a run it cannot call whole
-        return False
-    return all(
+    # `all` over nothing is true, which would make every path named here
+    # the whole suite. With `testpaths` unset there is nothing to measure
+    # containment against, so this errs toward dropping the floor rather
+    # than gating a run it cannot call whole
+    return bool(wanted) and all(
         any(target == path or path in target.parents for path in given)
         for target in wanted
     )
@@ -218,12 +215,13 @@ def coverage_configuration(config: pytest.Config) -> CoverageConfiguration | Non
     """
     plugin = config.pluginmanager.getplugin("_cov")
     controller = getattr(plugin, "cov_controller", None)
-    if controller is None:
-        return None
-    # annotated because the plugin manager hands back `Any`, and a
-    # return of that is what mypy's strict mode refuses here
-    measuring: CoverageConfiguration = controller.cov.config
-    return measuring
+    # cast because the plugin manager hands back `Any`, and a return of
+    # that is what mypy's strict mode refuses here
+    return (
+        None
+        if controller is None
+        else cast("CoverageConfiguration", controller.cov.config)
+    )
 
 
 def configuration_went_unread(

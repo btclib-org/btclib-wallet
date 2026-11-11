@@ -293,12 +293,12 @@ def test_an_index_outside_the_32_bits_a_step_holds_is_refused() -> None:
 
 def test_a_master_fingerprint_strips_ascii_whitespace_alone() -> None:
     """Padding `string.whitespace` does not hold makes it no fingerprint."""
-    padded = string.whitespace + "deadbeef" + string.whitespace
+    padded = f"{string.whitespace}deadbeef{string.whitespace}"
     assert str_from_der_path("m/0h", padded) == "deadbeef/0h"
     err_msg = "invalid master fingerprint length"
     for pad in NOT_STRIPPED:
         with pytest.raises(BTClibValueError, match=err_msg):
-            str_from_der_path("m/0h", pad + "deadbeef" + pad)
+            str_from_der_path("m/0h", f"{pad}deadbeef{pad}")
 
 
 def test_a_step_is_ascii_digits_padded_with_ascii_whitespace_alone() -> None:
@@ -319,9 +319,9 @@ def test_a_step_is_ascii_digits_padded_with_ascii_whitespace_alone() -> None:
         "1_0h",
         "+1'",
     )
-    padded = [pad + "1" for pad in NOT_STRIPPED]
-    padded += ["1" + pad for pad in NOT_STRIPPED]
-    padded += ["1" + pad + "h" for pad in NOT_STRIPPED]
+    padded = [f"{pad}1" for pad in NOT_STRIPPED]
+    padded += [f"1{pad}" for pad in NOT_STRIPPED]
+    padded += [f"1{pad}h" for pad in NOT_STRIPPED]
     for step in (*not_a_step, *padded):
         with pytest.raises(BTClibValueError, match=NOT_DIGITS):
             indexes_from_der_path(f"m/{step}")

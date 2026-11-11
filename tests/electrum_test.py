@@ -211,11 +211,11 @@ def test_transaction_requests_refuse_a_tx_id_that_is_not_a_string(
         "",
         "zz",
         TX_ID[:-2],
-        TX_ID + "00",
+        f"{TX_ID}00",
         "g" * 64,
-        " " + TX_ID + "\n",
+        f" {TX_ID}" + "\n",
         "ab ab" * 13,
-        TX_ID[:31] + " " + TX_ID[32:],
+        f"{TX_ID[:31]} {TX_ID[32:]}",
     ],
 )
 def test_transaction_requests_refuse_a_tx_id_that_is_not_64_hex_characters(
@@ -624,7 +624,7 @@ def test_block_headers_response_refuses_hex_that_is_not_hex() -> None:
 
 
 @pytest.mark.parametrize(
-    "hex_", [GENESIS_RAW[:-2], GENESIS_RAW + "00", GENESIS_RAW + BLOCK_1_RAW, ""]
+    "hex_", [GENESIS_RAW[:-2], f"{GENESIS_RAW}00", GENESIS_RAW + BLOCK_1_RAW, ""]
 )
 def test_block_headers_response_refuses_hex_not_80_bytes_a_header(hex_: str) -> None:
     """One header is counted, so the `hex` is eighty bytes exactly."""

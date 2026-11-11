@@ -206,18 +206,19 @@ def _round_trip(  # sourcery skip: remove-unnecessary-cast
     spec: str, obj: Any, data: bytes
 ) -> bool | None:
     """Return whether `obj` reserializes to `data`, or None if unchecked."""
-    attr = spec.rsplit(".", 1)[-1]
-    if attr == "b64decode":
-        if not hasattr(obj, "b64encode"):
-            return None
-        return bool(obj.b64encode() == data.decode("ascii"))
-    if attr == "b58decode":
-        if not hasattr(obj, "b58encode"):
-            return None
-        return bool(obj.b58encode() == data.decode("ascii"))
-    if not hasattr(obj, "serialize"):
-        return None
-    return bool(obj.serialize() == data)
+    match spec.rsplit(".", 1)[-1]:
+        case "b64decode":
+            if not hasattr(obj, "b64encode"):
+                return None
+            return bool(obj.b64encode() == data.decode("ascii"))
+        case "b58decode":
+            if not hasattr(obj, "b58encode"):
+                return None
+            return bool(obj.b58encode() == data.decode("ascii"))
+        case _:
+            if not hasattr(obj, "serialize"):
+                return None
+            return bool(obj.serialize() == data)
 
 
 def _seed_paths(name: str) -> tuple[Path, ...]:
@@ -530,7 +531,7 @@ def test_bip322_harness_propagates_a_refusal_of_its_own_armor(
 ) -> None:
     """Only the first decode may refuse quietly; the second is a finding."""
     smp = (_CORPUS / "fuzz_bip322" / "smp.bin").read_text(encoding="ascii")
-    monkeypatch.setattr(Sig, "b64encode", Mock(return_value=smp + "A"))
+    monkeypatch.setattr(Sig, "b64encode", Mock(return_value=f"{smp}A"))
     with pytest.raises(BTClibException):
         bip322_harness.fuzz_target(smp.encode())
 

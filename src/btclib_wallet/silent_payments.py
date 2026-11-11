@@ -519,9 +519,7 @@ def pub_key_from_input(
         return _compressed_point(wit.stack[-1]) if is_p2wpkh(sig[1:]) and wit else None
     if is_p2wpkh(spk):
         return _compressed_point(wit.stack[-1]) if wit else None
-    if is_p2tr(spk):
-        return _pub_key_from_p2tr(spk, wit)
-    return None
+    return _pub_key_from_p2tr(spk, wit) if is_p2tr(spk) else None
 
 
 def prv_key_sum(prv_keys: Sequence[tuple[Integer, Octets]]) -> int:

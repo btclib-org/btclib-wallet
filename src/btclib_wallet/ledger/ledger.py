@@ -938,12 +938,13 @@ class Ledger:
         Core's `getaddressesbylabel`. A label no address has is refused.
         """
         _assert_label(label)
-        found = {
-            self._address(script): purpose
-            for script, (entry_label, purpose) in self._address_book().items()
-            if entry_label == label
-        }
-        if not found:
+        if not (
+            found := {
+                self._address(script): purpose
+                for script, (entry_label, purpose) in self._address_book().items()
+                if entry_label == label
+            }
+        ):
             raise BTClibValueError(f"no address has the label {label}")
         return found
 
@@ -1410,8 +1411,7 @@ class Ledger:
         }
         if not scripts:
             raise BTClibValueError(f"no address has the label {label}")
-        owned = scripts & self._scripts.keys()
-        if not owned:
+        if not (owned := scripts & self._scripts.keys()):
             raise BTClibValueError(f"no address of the ledger has the label {label}")
         return self._received(owned, min_depth, include_immature_coinbase)
 
@@ -2295,9 +2295,7 @@ class Ledger:
         v32.1 tag); when the keys lock is decided as the module's *The
         relock* says.
         """
-        if self._master_key is None:
-            return None
-        return self._unlocked_until
+        return None if self._master_key is None else self._unlocked_until
 
     def _hold_keys(self, source_id: int, source: _Source) -> None:
         """Hold a source's ciphertext read from the file, if it has one.

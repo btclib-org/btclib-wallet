@@ -396,6 +396,6 @@ def test_from_description_refuses_padding_after_the_path() -> None:
         with pytest.raises(BTClibValueError, match=err_msg):
             BIP32KeyOrigin.from_description(description + pad)
         with pytest.raises(BTClibValueError, match=err_msg):
-            BIP32KeyOrigin.from_description("deadbeef/0h/" + pad + "1")
+            BIP32KeyOrigin.from_description(f"deadbeef/0h/{pad}1")
     ws = string.whitespace
     assert BIP32KeyOrigin.from_description(f"deadbeef/{ws}0h{ws}/1{ws}") == expected

@@ -614,9 +614,7 @@ def _worst(first: int | None, second: int | None) -> int | None:
     """Return the larger of two bounds, disregarding the absent ones."""
     if first is None:
         return second
-    if second is None:
-        return first
-    return max(first, second)
+    return first if second is None else max(first, second)
 
 
 @dataclass(frozen=True)
@@ -793,9 +791,7 @@ def _computed_ops(node: Miniscript) -> tuple[int, _Bounds]:
         return _leaf_ops(node)
     if node.fragment in _WRAPPERS:
         return _wrapper_ops(node)
-    if node.fragment == "thresh":
-        return _thresh_ops(node)
-    return _binary_ops(node)
+    return _thresh_ops(node) if node.fragment == "thresh" else _binary_ops(node)
 
 
 # what satisfying and dissatisfying each leaf does to the stack, None
@@ -990,9 +986,7 @@ def _wrapper_witness(node: Miniscript) -> _Bounds:
         # the element ``d:`` duplicates is part of the witness: OP_1 to
         # satisfy, and the empty push to dissatisfy
         return _Bounds(_add(1 + 1, sub.sat), 1)
-    if fragment == "v:":
-        return _Bounds(sub.sat, None)
-    return _Bounds(sub.sat, 1)
+    return _Bounds(sub.sat, None) if fragment == "v:" else _Bounds(sub.sat, 1)
 
 
 # one return: a return per branch is past ruff's too-many-return-statements
@@ -1675,29 +1669,36 @@ def _fragment_script(
     fragment = node.fragment
     if not node.subs:
         return serialize(_leaf_fragment_script(node, verify, index, network, prv_keys))
-    if fragment == "c:":
-        return subs[0] + serialize(["OP_CHECKSIGVERIFY" if verify else "OP_CHECKSIG"])
-    if fragment == "v:":
-        # where the argument's last op code has a VERIFY form it has
-        # already been written as that form, the argument having been told
-        # it is verified; where it has none, "x", the OP_VERIFY goes here
-        if _has(node.subs[0].properties, "x"):
-            return subs[0] + serialize(["OP_VERIFY"])
-        return subs[0]
-    if fragment == "thresh":
-        script = subs[0]
-        for sub in subs[1:]:
-            script += sub + serialize(["OP_ADD"])
-        return script + serialize(
-            [
-                *_pushed_number(node.threshold),
-                "OP_EQUALVERIFY" if verify else "OP_EQUAL",
-            ]
-        )
-    return b"".join(
-        subs[part] if isinstance(part, int) else serialize([part])
-        for part in _SCRIPT_TEMPLATES[fragment]
-    )
+    match fragment:
+        case "c:":
+            return subs[0] + serialize(
+                ["OP_CHECKSIGVERIFY" if verify else "OP_CHECKSIG"]
+            )
+        case "v:":
+            # where the argument's last op code has a VERIFY form it has
+            # already been written as that form, the argument having been
+            # told it is verified; where it has none, "x", the OP_VERIFY
+            # goes here
+            return (
+                subs[0] + serialize(["OP_VERIFY"])
+                if _has(node.subs[0].properties, "x")
+                else subs[0]
+            )
+        case "thresh":
+            script = subs[0]
+            for sub in subs[1:]:
+                script += sub + serialize(["OP_ADD"])
+            return script + serialize(
+                [
+                    *_pushed_number(node.threshold),
+                    "OP_EQUALVERIFY" if verify else "OP_EQUAL",
+                ]
+            )
+        case _:
+            return b"".join(
+                subs[part] if isinstance(part, int) else serialize([part])
+                for part in _SCRIPT_TEMPLATES[fragment]
+            )
 
 
 def _wrapper_state(state: bool, node: Miniscript, index: int) -> bool:

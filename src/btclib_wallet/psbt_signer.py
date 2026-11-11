@@ -929,18 +929,14 @@ class SoftwareSigner:
         except BTClibValueError:
             return None
         sec = pub_keyinfo_from_xkey(derived)[0]
-        if pub_key not in {sec, sec[1:]}:
-            return None
-        return prv_keyinfo_from_xprv(derived)[0]
+        return prv_keyinfo_from_xprv(derived)[0] if pub_key in {sec, sec[1:]} else None
 
     def sign_ecdsa(
         self, pub_key: bytes, origin: BIP32KeyOrigin | None, msg_hash: bytes
     ) -> bytes | None:
         """Return the DER signature of msg_hash by pub_key, or None."""
         prv_key = self._prv_key(pub_key, origin)
-        if prv_key is None:
-            return None
-        return dsa.sign_(msg_hash, prv_key).serialize()
+        return None if prv_key is None else dsa.sign_(msg_hash, prv_key).serialize()
 
     def sign_schnorr(
         self,

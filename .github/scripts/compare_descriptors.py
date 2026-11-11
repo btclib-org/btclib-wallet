@@ -144,8 +144,7 @@ def _checksum_cases() -> Iterator[Case]:
 
 def _directory_cases(source: str, directory: Path) -> Iterator[Case]:
     """Yield the cases of the files of `directory`, in name order."""
-    paths = sorted(path for path in directory.iterdir() if path.is_file())
-    if not paths:
+    if not (paths := sorted(path for path in directory.iterdir() if path.is_file())):
         raise SystemExit(f"{directory} holds no file")
     yield from _text_cases(source, [(path.name, path.read_bytes()) for path in paths])
 
@@ -222,7 +221,7 @@ class Node:
     def _authorization(self) -> str:
         """Return the cookie's credentials as an HTTP header value."""
         cookie = Path(self._directory.name, ".cookie").read_text(encoding="utf-8")
-        return "Basic " + base64.b64encode(cookie.strip().encode()).decode()
+        return f"Basic {base64.b64encode(cookie.strip().encode()).decode()}"
 
     def _post(self, body: list[dict[str, object]]) -> list[dict[str, object]]:
         """Return the answers to a batch of requests, in the order asked."""
@@ -394,9 +393,11 @@ def disagreements(core: Verdict, ours: Verdict, rust: Verdict) -> list[str]:
         ("rust/core", rust.addresses, core.addresses[:1] if core.addresses else ()),
         ("parse/rust", ours.addresses[:1], rust.addresses),
     )
-    for name, left, right in pairs:
-        if left and right and left != right:
-            found.append(f"address {name}")
+    found.extend(
+        f"address {name}"
+        for name, left, right in pairs
+        if left and right and left != right
+    )
     return found
 
 
@@ -408,7 +409,7 @@ def _word(verdict: Verdict) -> str:
 def _show(case: Case, kinds: list[str], verdicts: Sequence[Verdict]) -> str:
     """Return the lines that report one input's disagreements."""
     core, ours, rust = verdicts
-    text = case.text if len(case.text) <= 120 else case.text[:117] + "..."
+    text = case.text if len(case.text) <= 120 else f"{case.text[:117]}..."
     lines = [
         f"{case.source} {case.name}: {', '.join(kinds)}",
         f"    input  {text!r}",

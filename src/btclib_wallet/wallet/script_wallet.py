@@ -618,9 +618,7 @@ class ScriptWallet(RangedWallet):
         instead.
         """
         self._assert_position(branch, index)
-        if self.script_type == "p2sh":
-            return b""
-        return self._script(branch, index)
+        return b"" if self.script_type == "p2sh" else self._script(branch, index)
 
     def _hd_key_paths(self, branch: int, index: int) -> dict[bytes, BIP32KeyOrigin]:
         """Return where each key of the script at a position comes from.

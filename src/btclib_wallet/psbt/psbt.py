@@ -2659,8 +2659,7 @@ def _sig_hash_from_psbt_in(
         script = psbt_in.redeem_script
 
     if is_p2wpkh(script) or is_p2wsh(script):
-        script_code = _witness_v0_script_code(psbt_in, script)
-        if not script_code:
+        if not (script_code := _witness_v0_script_code(psbt_in, script)):
             return None
         return sig_hash.segwit_v0(script_code, tx, vin_i, hash_type, prev_out.value)
 
@@ -2712,7 +2711,8 @@ def _ecdsa_sig_hash(
     if (
         hash_type & ~ANYONECANPAY == SINGLE
         and vin_i >= len(tx.vout)
-        and not (is_p2wpkh(spent) or is_p2wsh(spent))
+        and not is_p2wpkh(spent)
+        and not is_p2wsh(spent)
     ):
         err_msg = f"input {vin_i}: legacy SIGHASH_SINGLE with no output at its "
         err_msg += "index signs the constant 1"
@@ -2995,9 +2995,7 @@ def _taproot_signature(sig: bytes, psbt_in: PsbtIn) -> bytes:
     Signer files and the one the Finalizer checks are one shape.
     """
     hash_type = psbt_in.sig_hash_type or DEFAULT
-    if not hash_type:
-        return sig
-    return sig + hash_type.to_bytes(1, "big")
+    return sig + hash_type.to_bytes(1, "big") if hash_type else sig
 
 
 def _sign_taproot_key_path(

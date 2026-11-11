@@ -218,7 +218,7 @@ def test_a_transport_that_is_not_callable_is_refused() -> None:
 def test_a_trailing_slash_does_not_double_up() -> None:
     """Verify a base URL with a trailing slash builds a clean request."""
     transport = Recorded((200, recorded_body("esplora_blocks_tip_height.txt")))
-    esplora = EsploraFetcher(BASE + "/", transport=transport, verify_network=False)
+    esplora = EsploraFetcher(f"{BASE}/", transport=transport, verify_network=False)
     esplora.get_block_count()
     assert transport.request.full_url == f"{BASE}/blocks/tip/height"
 
@@ -332,7 +332,7 @@ def test_a_header_that_did_not_mine_the_bits_it_claims_is_refused() -> None:
     Zeroing the nonce leaves every other field untouched -- what fails is
     `assert_valid_pow` alone.
     """
-    forged = TIP_HEADER_RAW[:-8] + "00000000"
+    forged = f"{TIP_HEADER_RAW[:-8]}00000000"
     transport = Recorded(
         (200, recorded_body("esplora_block_height_hash.txt")),
         (200, forged.encode()),

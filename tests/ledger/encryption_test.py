@@ -558,7 +558,7 @@ def test_an_unlock_is_refused_as_core_refuses_it(chain: FakeChain, path: Path) -
         with pytest.raises(BTClibValueError, match="the passphrase is empty"):
             ledger.unlock_keys("", 1)
         with pytest.raises(BTClibValueError, match="the passphrase is wrong"):
-            ledger.unlock_keys(PASSPHRASE + "wrong", 10)
+            ledger.unlock_keys(f"{PASSPHRASE}wrong", 10)
         with pytest.raises(BTClibTypeError, match="invalid timeout type"):
             ledger.unlock_keys(PASSPHRASE, 1.5)  # type: ignore[arg-type]
         with pytest.raises(BTClibTypeError, match="passphrase"):

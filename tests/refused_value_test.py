@@ -95,7 +95,7 @@ def test_base64_refuses_a_non_ascii_character_by_position(
     strips (issue #749).
     """
     with pytest.raises(BTClibValueError, match=err_msg) as e:
-        reader("  " + KEY.hex() + "\N{LATIN SMALL LETTER E WITH ACUTE}")
+        reader(f"  {KEY.hex()}" + "\N{LATIN SMALL LETTER E WITH ACUTE}")
     assert_secret_free(e.value, SPELLINGS)
 
 

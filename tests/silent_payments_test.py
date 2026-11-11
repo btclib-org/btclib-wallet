@@ -475,24 +475,24 @@ def test_an_eligible_input_that_carries_no_key_is_skipped() -> None:
     """The type is on the list and the spend still has no key to read."""
     p2wpkh = "0014" + "11" * 20
     p2sh = "a914" + "11" * 20 + "87"
-    p2tr = "5120" + bytes_from_point(mult(3))[1:].hex()
+    p2tr = f"5120{bytes_from_point(mult(3))[1:].hex()}"
 
     # a witness that is not there: a p2wpkh or a p2sh-p2wpkh input read out
     # of a transaction that has not been signed yet
     assert silent_payments.pub_key_from_input(p2wpkh) is None
-    assert silent_payments.pub_key_from_input(p2sh, "16" + p2wpkh) is None
+    assert silent_payments.pub_key_from_input(p2sh, f"16{p2wpkh}") is None
     assert silent_payments.pub_key_from_input(p2tr) is None
 
     # a p2sh wrapping something that is not p2wpkh: p2sh-p2wsh, and every
     # other redeem script, is not on the list
     witness = Witness(["11" * 33])
     redeem = "0020" + "11" * 32
-    assert silent_payments.pub_key_from_input(p2sh, "22" + redeem, witness) is None
+    assert silent_payments.pub_key_from_input(p2sh, f"22{redeem}", witness) is None
 
     # and a taproot output whose 32 bytes are no x coordinate: unspendable
     # rather than ineligible, and skipped either way
     assert (
-        silent_payments.pub_key_from_input("5120" + _NOT_AN_X.hex(), "", witness)
+        silent_payments.pub_key_from_input(f"5120{_NOT_AN_X.hex()}", "", witness)
         is None
     )
 
@@ -532,7 +532,7 @@ def test_a_scan_walks_past_an_output_that_is_no_point(m_values: list[int]) -> No
 def _paid_with_labels(m_values: list[int]) -> tuple[list[OutPoint], list[bytes]]:
     """Pay this wallet's labelled addresses from one input, in order."""
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(a))).hex()}"
     outpoints = [OutPoint("00" * 31 + "01", 7)]
     addresses = [_address(m) for m in m_values]
     return outpoints, silent_payments.output_keys(
@@ -595,7 +595,7 @@ def test_the_two_scans_agree_on_labelled_outputs(
     twenty, and the outputs are ours, partly ours or not at all.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(a))).hex()}"
     pub_keys = [(mult(a), script_pub_key)]
     outpoints, keys = _paid_with_labels([0, 3, 1, 3, 2, 0, 1, 2])
     strangers = [bytes_from_point(mult(i + 2))[1:] for i in range(3)]
@@ -679,7 +679,7 @@ def test_a_label_keyed_in_another_form_is_refused(
     `scan_outputs` and `scan_transaction_outputs` refuse it.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(a))).hex()}"
     outpoints, keys = _paid_with_labels([0])
     other = silent_payments.label_lookup(_B_SCAN_PRV, [1])
     monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
@@ -709,7 +709,7 @@ def test_the_bindings_refuse_a_label_keyed_in_another_form_alike() -> None:
     their own TypeError.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     outpoints, keys = _paid_with_labels([0])
     many = silent_payments.label_lookup(_B_SCAN_PRV, range(1, 21))
     for bad, error, message in _label_keyed_in_another_form():
@@ -775,7 +775,7 @@ def test_an_unmatched_label_with_a_bad_tweak_is_refused(
     it, with the bindings' error and message.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     outpoints, keys = _paid_with_labels([0])
     change = silent_payments.label_lookup(_B_SCAN_PRV, [0])
     assert len(_scan_paid(outpoints, keys, change)) == 1
@@ -798,7 +798,7 @@ def test_the_dispatch_refuses_an_unmatched_label_with_a_bad_tweak() -> None:
     TypeError unwrapped.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     outpoints, keys = _paid_with_labels([0])
     change = silent_payments.label_lookup(_B_SCAN_PRV, [0])
     many = silent_payments.label_lookup(_B_SCAN_PRV, range(6, 26))
@@ -860,7 +860,7 @@ def test_a_label_tweak_not_contiguous_is_read(
     `scalar_from_prv_key` refuse it unless it is copied first.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
     for outpoints, outputs, labels, as_bytes in _strided_tweak_cases():
         expected = _scan_paid(outpoints, outputs, as_bytes)
@@ -876,7 +876,7 @@ def test_a_label_tweak_not_contiguous_is_read(
 def test_the_dispatch_reads_a_label_tweak_not_contiguous() -> None:
     """Beside twenty more labels it reaches the bindings, which read it too."""
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     many = silent_payments.label_lookup(_B_SCAN_PRV, range(6, 26))
     for outpoints, outputs, labels, as_bytes in _strided_tweak_cases():
         expected = _scan_paid(outpoints, outputs, as_bytes)
@@ -900,7 +900,7 @@ def test_the_dispatch_reads_a_label_tweak_not_contiguous() -> None:
 def test_labels_that_are_no_mapping_are_refused() -> None:
     """A list or a tuple of labels is refused, as the bindings refuse it."""
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     outpoints, keys = _paid_with_labels([0])
     ((key, tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [0]).items()
     for labels in ([key], ((key, tweak),)):
@@ -918,7 +918,7 @@ def test_labels_that_are_no_mapping_are_refused() -> None:
 def test_the_bindings_refuse_labels_that_are_no_mapping_alike() -> None:
     """The bindings give the same message, with their own TypeError."""
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    pub_keys = [(mult(a), "0014" + hash160(bytes_from_point(mult(a))).hex())]
+    pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
     outpoints, keys = _paid_with_labels([0])
     ((key, _tweak),) = silent_payments.label_lookup(_B_SCAN_PRV, [0]).items()
     with pytest.raises(TypeError, match="^the labels must be a mapping, not list$"):
@@ -936,7 +936,7 @@ def test_the_bindings_refuse_labels_that_are_no_mapping_alike() -> None:
 def test_the_bindings_skip_a_label_that_is_no_point_too() -> None:
     """The same cases as `test_a_label_that_is_no_point_matches_nothing`."""
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(a))).hex()}"
     for outpoints, outputs, labels, found in _malformed_label_cases():
         scanned = silent_payments._delegated_scan_outputs(
             _B_SCAN_PRV,
@@ -1058,8 +1058,8 @@ def test_output_keys_interleaved_groups_match_across_arms(
     """
     a_taproot = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
     a_legacy = 0x1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCD
-    taproot_script = "5120" + bytes_from_point(mult(a_taproot))[1:].hex()
-    legacy_script = "0014" + hash160(bytes_from_point(mult(a_legacy))).hex()
+    taproot_script = f"5120{bytes_from_point(mult(a_taproot))[1:].hex()}"
+    legacy_script = f"0014{hash160(bytes_from_point(mult(a_legacy))).hex()}"
     prv_keys = [(a_taproot, taproot_script), (a_legacy, legacy_script)]
     outpoints = [OutPoint("00" * 31 + "01", 0), OutPoint("00" * 31 + "02", 1)]
 
@@ -1095,7 +1095,7 @@ def test_output_keys_come_back_in_address_order(
     out of place and on a k assigned by position in the list.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    prv_keys = [(a, "5120" + bytes_from_point(mult(a))[1:].hex())]
+    prv_keys = [(a, f"5120{bytes_from_point(mult(a))[1:].hex()}")]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
 
     a_scan, a_spend, b_scan, b_spend = 0x11, 0x22, 0x33, 0x44
@@ -1132,7 +1132,7 @@ def test_output_keys_pays_nothing_for_no_addresses() -> None:
     reaching it, the same `[]` the Python loop below would have built
     from an empty `groups`.
     """
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     assert (
         silent_payments.output_keys([(_B_SCAN_PRV, script_pub_key)], outpoints, [])
@@ -1221,7 +1221,7 @@ _MISMATCHES = [
 
 def _pay(addresses: list[str], network: str | None = None) -> list[bytes]:
     """Call `output_keys` from one segwit input, on `network` where given."""
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     prv_keys = [(_B_SCAN_PRV, script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     if network is None:
@@ -1285,7 +1285,7 @@ def test_output_keys_wraps_a_delegated_refusal(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(silent_payments, "_DELEGATE_OUTPUT_KEYS", True)
     monkeypatch.setattr(libsecp256k1_silentpayments, "create_outputs", _refuse)
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     with pytest.raises(BTClibValueError, match="silent payment output creation failed"):
         silent_payments.output_keys(
@@ -1540,7 +1540,7 @@ def test_scan_transaction_outputs_wraps_a_delegated_refusal(
         raise ValueError("silent payment scan failed")
 
     monkeypatch.setattr(libsecp256k1_silentpayments, "scan_outputs", _refuse)
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     labels = silent_payments.label_lookup(_B_SCAN_PRV, range(4))
@@ -1590,7 +1590,7 @@ def test_the_scan_is_delegated_above_the_label_rule(
         return []
 
     monkeypatch.setattr(silent_payments, "_delegated_scan_outputs", _spy)
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     labels = silent_payments.label_lookup(_B_SCAN_PRV, range(n_labels))
@@ -1611,7 +1611,7 @@ def test_without_the_bindings_the_python_scan_always_runs(
     """
     monkeypatch.setattr(silent_payments, "is_libsecp256k1_serving", lambda: False)
     monkeypatch.setattr(silent_payments, "_delegated_scan_outputs", None)
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     labels = silent_payments.label_lookup(_B_SCAN_PRV, range(20))
@@ -1633,7 +1633,7 @@ def test_the_scan_answers_alike_whatever_the_labels(
     not depend on it: the bindings refuse both, the Python scan neither,
     and `scan_transaction_outputs` makes them one.
     """
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     labels = silent_payments.label_lookup(_B_SCAN_PRV, range(n_labels))
@@ -1682,7 +1682,7 @@ def test_a_bad_key_is_refused_whatever_the_scan(
     scan is chosen. The refusal is the same error whichever scan the rule
     picks.
     """
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     labels = silent_payments.label_lookup(_B_SCAN_PRV, range(n_labels))
@@ -1723,7 +1723,7 @@ def _earliest_cases() -> tuple[
     the input keys, the tweak data and B_spend.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(a))).hex()}"
     outpoints = [OutPoint("00" * 31 + "01", 7)]
     tweak = silent_payments.tweak_data(outpoints, mult(a))
     secret = silent_payments.shared_secret(_B_SCAN_PRV, tweak)
@@ -1797,7 +1797,7 @@ def test_one_output_is_not_a_list_of_them() -> None:
     it, would otherwise zip through its bytes and check each as its own
     output (issue btclib-org/btclib#1405). Both scan entry points refuse it.
     """
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
 
@@ -1829,7 +1829,7 @@ def test_the_whole_round_trip_without_a_vector() -> None:
     together.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
-    script_pub_key = "0014" + hash160(bytes_from_point(mult(a))).hex()
+    script_pub_key = f"0014{hash160(bytes_from_point(mult(a))).hex()}"
     outpoints = [OutPoint("00" * 31 + "01", 7), OutPoint("00" * 31 + "02", 0)]
     addresses = [_address(), _address(0), _address(0)]
 

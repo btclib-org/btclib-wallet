@@ -205,8 +205,7 @@ def _read(
     buffer = bytearray()
     while len(buffer) < size:
         sock.settimeout(_time_left(deadline, timeout, where))
-        chunk = sock.recv(min(_READ_CHUNK, size - len(buffer)))
-        if not chunk:
+        if not (chunk := sock.recv(min(_READ_CHUNK, size - len(buffer)))):
             raise FetchError(f"{where}: connection closed before a whole message")
         buffer.extend(chunk)
     return bytes(buffer)

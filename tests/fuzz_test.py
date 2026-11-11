@@ -276,7 +276,7 @@ def test_invoice_refuses_an_amount_over_4300_digits() -> None:
     """An amount `int()` cannot read leaves as the contract says."""
     for digits in ("9" * 5000, "0" * 5000 + "1"):
         words = [0] * (7 + _SIGNATURE_WORDS)
-        invoice = bech32_encode("lnbc" + digits + "m", words, m=1, limit=None).decode()
+        invoice = bech32_encode(f"lnbc{digits}m", words, m=1, limit=None).decode()
         _assert_contract(Bolt11Invoice.from_invoice, invoice)
 
 

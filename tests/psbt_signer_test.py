@@ -101,9 +101,7 @@ class _KeyManager:
     ) -> bytes | None:
         """Return the DER signature of the key at the origin, or None."""
         prv_key = self._prv_key(origin)
-        if prv_key is None:
-            return None
-        return dsa.sign_(msg_hash, prv_key).serialize()
+        return None if prv_key is None else dsa.sign_(msg_hash, prv_key).serialize()
 
     def sign_schnorr(
         self,

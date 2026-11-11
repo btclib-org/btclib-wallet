@@ -86,7 +86,7 @@ def test_tx_id_hex_takes_whatever_octets_takes() -> None:
     assert tx_id_hex(f"  {TX_ID}  ") == TX_ID
 
 
-@pytest.mark.parametrize("tx_id", ["", "00", TX_ID + "00", "not hex at all"])
+@pytest.mark.parametrize("tx_id", ["", "00", f"{TX_ID}00", "not hex at all"])
 def test_tx_id_hex_refuses_what_is_not_an_id(tx_id: str) -> None:
     """A mistyped id is the caller's error, not the remote host's 404."""
     with pytest.raises(BTClibValueError):
@@ -276,7 +276,7 @@ def test_block_header_from_raw_holds_the_hash_to_the_target_its_bits_claim() -> 
     Regtest's genesis with bits 0x1d00ffff and nonce 1: its hash is
     below regtest's limit, and above the target those bits name.
     """
-    claimed = REGTEST_GENESIS_HEADER_RAW[:-16] + "ffff001d" + "01000000"
+    claimed = f"{REGTEST_GENESIS_HEADER_RAW[:-16]}ffff001d01000000"
     with pytest.raises(FetchError, match="block header 0: invalid proof-of-work"):
         block_header_from_raw(claimed, 0, network="regtest")
 
@@ -296,7 +296,7 @@ def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
     untouched -- what fails is `assert_valid_pow` alone, which is the one
     this exists to enforce.
     """
-    forged = TIP_HEADER_RAW[:-8] + "00000000"
+    forged = f"{TIP_HEADER_RAW[:-8]}00000000"
     with pytest.raises(FetchError, match=f"block header {TIP_HEIGHT}: invalid proof"):
         block_header_from_raw(forged, TIP_HEIGHT, network="mainnet")
 

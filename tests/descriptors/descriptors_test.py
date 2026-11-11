@@ -2843,7 +2843,7 @@ def test_multipath_lengths_are_named_where_core_names_them(
     ``multi_a()`` or a ``musig()`` as it closes the call. It compares those
     of a miniscript or of a ``tr()`` at their end.
     """
-    descriptor = template.format(x=A_KEY, y=B_KEY, xo=XONLY, k="03" + XONLY)
+    descriptor = template.format(x=A_KEY, y=B_KEY, xo=XONLY, k=f"03{XONLY}")
     with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
         multipath_descriptors(descriptor)
 

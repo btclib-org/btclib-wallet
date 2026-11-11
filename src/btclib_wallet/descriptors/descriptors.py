@@ -512,9 +512,7 @@ def _leaf_keys(leaf: DescriptorLeaf) -> tuple[KeyExpression, ...]:
     """Return the KEY expressions of one leaf, in the order it names them."""
     if isinstance(leaf, MultiA):
         return leaf.keys
-    if isinstance(leaf, Miniscript):
-        return leaf.key_expressions
-    return (leaf,)
+    return leaf.key_expressions if isinstance(leaf, Miniscript) else (leaf,)
 
 
 def _tree_leaves(tree: DescriptorTree) -> tuple[DescriptorLeaf, ...]:
@@ -2855,12 +2853,7 @@ def _expand(
         trees[output_key] = (
             descriptor.internal_key.sec(index, network, prv_keys)[1:],
             descriptor.taproot_merkle_root(index, prv_keys),
-            {
-                control: (script, leaf_version)
-                for control, (script, leaf_version) in descriptor.taproot_leaf_scripts(
-                    index, prv_keys
-                ).items()
-            },
+            dict(descriptor.taproot_leaf_scripts(index, prv_keys)),
         )
         return
     _expanded_keys(descriptor.key_expressions, index, network, prv_keys, keys)
@@ -2924,9 +2917,7 @@ def _number(op_code: int, data: bytes, low: int, high: int) -> int | None:
 
 def _sec_size(sec: bytes) -> int:
     """Return the size Core's `CPubKey::GetLen` gives the key's first byte."""
-    if not sec:
-        return -1
-    return {2: 33, 3: 33, 4: 65, 6: 65, 7: 65}.get(sec[0], -1)
+    return {2: 33, 3: 33, 4: 65, 6: 65, 7: 65}.get(sec[0], -1) if sec else -1
 
 
 def _multisig(script: bytes) -> tuple[int, list[bytes]] | None:

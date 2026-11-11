@@ -693,7 +693,7 @@ def test_get_block_headers_may_answer_fewer_than_asked() -> None:
             id="too-short",
         ),
         pytest.param(
-            chunk_answer(REGTEST_CHUNK[0] + "00", count=1),
+            chunk_answer(f"{REGTEST_CHUNK[0]}00", count=1),
             "not 80 for each header counted",
             id="too-long",
         ),

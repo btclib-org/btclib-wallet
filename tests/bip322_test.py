@@ -666,7 +666,11 @@ _NEAR_KEYS: dict[str, tuple[str, type[BTClibValueError], bytes]] = {
         NotAPrvKeyError,
         _SCALAR,
     ),
-    "non-base58 character": (WIF[:20] + "0" + WIF[21:], NotAPrvKeyError, _SCALAR),
+    "non-base58 character": (
+        f"{WIF[:20]}0{WIF[21:]}",
+        NotAPrvKeyError,
+        _SCALAR,
+    ),
     "scalar n": (_wif_payload(_N, b"\x01"), InvalidPrvKeyError, _N),
     "compression byte 0x02": (
         _wif_payload(_SCALAR, b"\x02"),
@@ -1012,7 +1016,7 @@ def test_excess_padding_is_refused(case: dict[str, Any], signature: str) -> None
     #114).
     """
     with pytest.raises(BTClibValueError, match=EXCESS_PADDING):
-        bip322.Sig.b64decode(signature + "=")
+        bip322.Sig.b64decode(f"{signature}=")
 
 
 def test_a_legacy_signature_is_read_in_its_canonical_form_alone() -> None:

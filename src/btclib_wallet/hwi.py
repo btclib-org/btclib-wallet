@@ -279,7 +279,7 @@ def _file_name(name: str) -> str:
     trailing one included, is taken as it stands. A name with a directory
     part is another case, which `is_available` says.
     """
-    return name + ".exe" if _WINDOWS and "." not in name else name
+    return f"{name}.exe" if _WINDOWS and "." not in name else name
 
 
 def _runnable(path: str) -> bool:
