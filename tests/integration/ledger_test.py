@@ -495,6 +495,9 @@ def test_an_encrypted_ledger_answers_locked_and_spends_unlocked(
     Core's wallet_encryption.py at bitcoin/bitcoin@f0de87f040 (lines
     40-58): encrypted, the wallet refuses to sign until unlocked.
     """
+    # an install on Windows arm64 leaves `cryptography` out, as
+    # `tests/ledger/encryption_test.py` says
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
     path = tmp_path / "ledger.sqlite"
     fetcher = BitcoinCoreFetcher(node.client, "regtest")
     _create_twin(node, "encrypted-twin", ENCRYPTED_RECEIVE, ENCRYPTED_CHANGE)
