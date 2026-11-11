@@ -178,8 +178,10 @@ def _passphrase_key(passphrase: str, n: int, r: int, p: int, salt: bytes) -> byt
     """
     _cipher()
     if not _HASHLIB_HAS_SCRYPT:
-        err_msg = "hashlib.scrypt is missing (the interpreter's OpenSSL lacks"
-        err_msg += " scrypt), and a ledger's encryption needs it"
+        err_msg = (
+            "hashlib.scrypt is missing (the interpreter's OpenSSL lacks"
+            " scrypt), and a ledger's encryption needs it"
+        )
         raise BTClibRuntimeError(err_msg)
     password = _encoded(passphrase)
     try:
