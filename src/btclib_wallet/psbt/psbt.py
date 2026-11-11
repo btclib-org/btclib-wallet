@@ -2627,8 +2627,9 @@ def _sig_hash_from_psbt_in(
     redeem script: any version from 2 to 16, or a version 1 program that
     is not p2tr, which `type_and_payload` calls `witness_unknown`.
     Bitcoin Core's VerifyWitnessProgram checks no signature for one, so
-    the legacy hash is a hash no signature for it commits to, and Core's
-    SignStep refuses to sign it.
+    the legacy hash is a hash no signature for it commits to. Core's
+    SignStep refuses to sign every such program but the anchor, which
+    Core calls ANCHOR and spends with no signature.
 
     sig_hash.from_tx is the same dispatch for a *signed* transaction, and
     cannot serve here: it reads the redeem script out of the input's
@@ -2927,11 +2928,19 @@ def _sign_ecdsa_input(
     holds nothing for never reaches `ecdsa_sig_hash` to be refused for a
     reason that is not key_manager's.
 
+    A witness program `_sig_hash_from_psbt_in` has no rule for is skipped
+    as nothing to sign, whatever key_manager holds: no partial signature
+    of it commits to anything. Bitcoin Core's SignStep leaves such an
+    input unsigned too, and signs the others.
+
     SIGHASH_SINGLE with no output at the input's index is refused for
-    every kind, as Bitcoin Core's signer does: the signature commits to no
-    output, and whoever holds it spends the input to any output.
+    every kind signed here, as Bitcoin Core's signer does: the signature
+    commits to no output, and whoever holds it spends the input to any
+    output.
     """
     psbt_in = psbt.inputs[vin_i]
+    if type_and_payload(_spent_script(psbt_in))[0] == "witness_unknown":
+        return False
     hash_type = ALL if psbt_in.sig_hash_type is None else psbt_in.sig_hash_type
     msg_hash: bytes | None = None
     signed = False
@@ -3082,7 +3091,8 @@ def sign(
     question -- and where a candidate's own hash cannot be computed,
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
-    does not raise. `require_non_witness_utxo` is handed to
+    does not raise, nor does a `witness_unknown` input, which
+    `_sign_ecdsa_input` skips. `require_non_witness_utxo` is handed to
     `assert_signable`: at its default an input with no non_witness_utxo
     is refused, whoever holds its keys, unless every input is taproot
     and none asks for ANYONECANPAY.
@@ -3094,7 +3104,8 @@ def sign(
     change outputs or inputs (GHSA-qq38-77mp-j6wr). An input asking for
     a type not named raises once there is a key to ask about.
     SIGHASH_SINGLE on an ECDSA input with no output at its index raises
-    whatever is allowed: the signature commits to no output.
+    whatever is allowed: the signature commits to no output. Neither
+    check reaches a `witness_unknown` input, which is skipped first.
 
     A version 2 psbt comes back with PSBT_GLOBAL_TX_MODIFIABLE updated
     for every signature added, as BIP370 asks of the Signer.

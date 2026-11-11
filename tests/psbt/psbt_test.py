@@ -6616,3 +6616,53 @@ def test_a_witness_program_of_no_known_rule_has_no_ecdsa_sig_hash(
         finalize(psbt)
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(_stripped_of_signatures(psbt), psbt)
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        bytes([0x52, 32]) + b"\x22" * 32,
+        # the anchor, which Bitcoin Core spends with no signature
+        bytes.fromhex("51024e73"),
+    ],
+    ids=["v2", "anchor"],
+)
+@pytest.mark.parametrize(
+    "held",
+    [{_PUB_KEY: _PRV_KEY}, {_PUB_KEY: _PRV_KEY, _OTHER_PUB_KEY: _OTHER_PRV_KEY}],
+    ids=["its-key-not-held", "its-key-held"],
+)
+def test_sign_skips_a_witness_program_of_no_known_rule(
+    program: bytes, held: dict[bytes, int]
+) -> None:
+    """A `witness_unknown` input is left unsigned, and the others are signed.
+
+    Issue btclib-org/btclib-wallet#747; `_sign_ecdsa_input` says why.
+    """
+    prev_tx = Tx(
+        2,
+        0,
+        [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)],
+        [
+            TxOut(100_000, ScriptPubKey(program)),
+            TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY))),
+        ],
+    )
+    tx = Tx(
+        2,
+        0,
+        [TxIn(OutPoint(prev_tx.id, i), b"", 0xFFFFFFFF) for i in range(2)],
+        [TxOut(190_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))],
+    )
+    psbt = Psbt.from_tx(tx)
+    for psbt_in in psbt.inputs:
+        psbt_in.non_witness_utxo = prev_tx
+    psbt.inputs[1].witness_utxo = prev_tx.vout[1]
+    psbt.inputs[0].hd_key_paths = {_OTHER_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/1")}
+    psbt.inputs[1].hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+
+    result, signed_vins = sign(psbt, _KeyManager(by_pub_key=held))
+
+    assert signed_vins == [1]
+    assert result.inputs[0].partial_sigs == {}
+    assert list(result.inputs[1].partial_sigs) == [_PUB_KEY]
