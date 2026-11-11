@@ -137,7 +137,7 @@ from ecc.hashes import tagged_hash
 
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx
-from btclib_wallet.psbt.psbt import _b64decode
+from btclib_wallet.psbt.psbt import _ascii_text, _b64decode
 
 __all__ = [
     "FULL",
@@ -371,7 +371,7 @@ class Sig:
         # (issue btclib-org/btclib#814)
         #
         # ASCII whitespace alone (issue #102)
-        text = str_from_string(data, "base64 signature").strip(string.whitespace)
+        text = _ascii_text(data, "base64 signature").strip(string.whitespace)
         prefix = text[:_PREFIX_SIZE]
         if prefix not in _PREFIXES:
             prefix = SIMPLE

@@ -5328,7 +5328,7 @@ def test_b64decode_refuses_a_string_base64_cannot_read(psbt_str: str) -> None:
     and a plain ValueError for the second, and a caller catching
     BTClibValueError to reject what somebody pasted caught neither.
     """
-    with pytest.raises(BTClibValueError, match="invalid base64 encoding"):
+    with pytest.raises(BTClibValueError, match="(invalid|ascii character in) base64"):
         Psbt.b64decode(psbt_str)
 
 
@@ -5444,9 +5444,9 @@ def test_the_flag_still_switches_the_dict_check_off() -> None:
 
 
 _NOT_BASE64 = "^invalid base64 encoding: Only base64 data is allowed$"
-_NOT_ASCII = (
-    "^invalid base64 encoding: string argument should contain only ASCII characters$"
-)
+# a pad outside ASCII is the first character, and is refused by its
+# position
+_NOT_ASCII = "^non-ascii character in base64 psbt at position 0$"
 
 
 def test_b64decode_strips_ascii_whitespace_alone() -> None:

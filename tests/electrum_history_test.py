@@ -67,7 +67,7 @@ def test_history_response_keeps_the_servers_order() -> None:
         ([_entry(A, "5")], BTClibTypeError, "invalid height type: str"),
         ([_entry(A, True)], BTClibTypeError, "invalid height type: bool"),
         ([_entry(None, 5)], BTClibTypeError, "invalid tx_id type: NoneType"),
-        ([_entry("aa", 5)], BTClibValueError, "invalid tx_id: aa"),
+        ([_entry("aa", 5)], BTClibValueError, "invalid tx_id: a str of length 2"),
         ([_entry(A, -2)], BTClibValueError, "invalid height -2"),
         ([_entry(A, 6), _entry(B, 5)], BTClibValueError, "out of order"),
         ([_entry(A, 0), _entry(B, 5)], BTClibValueError, "out of order"),
