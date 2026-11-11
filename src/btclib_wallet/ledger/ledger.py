@@ -380,6 +380,9 @@ class Ledger:
         self._master_key: _MasterKey | None = None
         self._encrypted: dict[int, bytes] = {}
         self._key: bytearray | None = None
+        # the lock `_drop_key` zeroes and lets go of the master key under,
+        # which `_holds` reads
+        self._key_lock = threading.Lock()
         # when the keys lock: as `unlocked_until` reports it, and as
         # *The relock* decides it
         self._unlocked_until = 0
@@ -564,13 +567,13 @@ class Ledger:
         included, and `load` builds it again from its descriptors and
         keys. In an encrypted ledger its keys are written encrypted, as
         `store` says, and a wallet holding keys is refused while the
-        ledger is locked, and where its scripts need a private key at
-        every index (a hardened ``/*h``), which a locked ledger could
-        not derive. `label` is set on the one address of branch 0, where
-        its script has one, and refused where that branch is ranged or
-        missing, as Core refuses a label on a ranged descriptor
-        (src/wallet/rpc/backup.cpp:213-216 at bitcoin/bitcoin@f0de87f040,
-        the v32.1 tag).
+        ledger is locked, where it is locked while the call runs, and
+        where its scripts need a private key at every index (a hardened
+        ``/*h``), which a locked ledger could not derive. `label` is set
+        on the one address of branch 0, where its script has one, and
+        refused where that branch is ranged or missing, as Core refuses a
+        label on a ranged descriptor (src/wallet/rpc/backup.cpp:213-216 at
+        bitcoin/bitcoin@f0de87f040, the v32.1 tag).
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
@@ -597,6 +600,10 @@ class Ledger:
             key = self._assert_unlocked()
             descriptors = _watched(wallet)
             encrypted = _sealed(key, _plaintext(wallet), _aad(source_id))
+            if not self._holds(key):
+                # zeroed by `lock_keys` or `close` in another thread: what
+                # was encrypted may be under zeros, and is not written
+                raise BTClibValueError(_LOCKED_DURING)
             wallet = _wallet(descriptors, self.network, {})
             prv_keys = {}
         source = _Source(descriptors, prv_keys, encrypted, lookahead, birth, scanned)
@@ -1875,11 +1882,22 @@ class Ledger:
         if self._key is not None and _monotonic() >= self._relock_at:
             self._drop_key()
 
+    def _holds(self, key: bytearray) -> bool:
+        """Whether `key` is the master key held, and so was never zeroed.
+
+        `_drop_key` zeroes a key and lets go of it under one lock, and a
+        key let go is never held again. So a key held when this reads it,
+        under that lock, was whole for anything that read it before.
+        """
+        with self._key_lock:
+            return self._key is key
+
     def _drop_key(self) -> None:
         """Zero the master key held, if any."""
-        if self._key is not None:
-            _wipe(self._key)
-        self._key = None
+        with self._key_lock:
+            if self._key is not None:
+                _wipe(self._key)
+            self._key = None
         self._unlocked_until = 0
         self._relock_at = 0.0
 

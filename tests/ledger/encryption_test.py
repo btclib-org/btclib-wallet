@@ -753,6 +753,60 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
             assert all(psbt_in.partial_sigs for psbt_in in signed.inputs)
 
 
+@pytest.mark.parametrize("relock", ["lock_keys", "close"])
+def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch, relock: str
+) -> None:
+    """`add_source` encrypting a wallet's keys, the keys locked in another thread.
+
+    The ledger's own thread runs `add_source`, since SQLite refuses its
+    connection to any other, and `close` from another thread zeroes the
+    key before SQLite refuses it. What was encrypted may be under zeros,
+    so the call is refused as a ledger locked during it, holds neither
+    the keys nor the passphrase, and writes nothing: the file unlocks and
+    holds one source.
+    """
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        ledger.encrypt(PASSPHRASE)
+        ledger.unlock_keys(PASSPHRASE, 600)
+        assert ledger._key is not None
+        secrets: list[str | bytes] = [
+            XPRV,
+            XPRV2,
+            PASSPHRASE,
+            bytes(ledger._key),
+            *(BIP32KeyData.b58decode(xprv).key[1:] for xprv in (XPRV, XPRV2)),
+        ]
+        real = ledger_module._sealed
+        relocked: list[BaseException | None] = []
+
+        def relocks() -> None:
+            try:
+                getattr(ledger, relock)()
+            except sqlite3.ProgrammingError as refusal:
+                relocked.append(refusal)
+            else:
+                relocked.append(None)
+
+        def held(*args: object) -> object:
+            thread = threading.Thread(target=relocks, daemon=True)
+            thread.start()
+            thread.join(timeout=30)
+            assert not thread.is_alive(), f"{relock} did not finish"
+            return real(*args)
+
+        monkeypatch.setattr(ledger_module, "_sealed", held)
+        with pytest.raises(BTClibValueError) as refusal:
+            ledger.add_source(_wallet(XPRV2))
+        assert str(refusal.value) == ledger_module._LOCKED_DURING
+        assert_secret_free(refusal.value, secrets)
+        (outcome,) = relocked
+        assert (outcome is None) == (relock == "lock_keys")
+    with _loaded(path, chain) as ledger:
+        ledger.unlock_keys(PASSPHRASE, 60)
+        assert len(ledger.sources) == 1
+
+
 def test_the_timeout_is_capped_as_cores(
     chain: FakeChain, path: Path, clock: Clock
 ) -> None:
