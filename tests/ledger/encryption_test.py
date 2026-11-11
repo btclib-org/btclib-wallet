@@ -813,6 +813,59 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
         assert len(ledger.sources) == 1
 
 
+class _Waited:
+    """A lock that sets `waited` when a thread has to wait for it."""
+
+    def __init__(self, waited: threading.Event) -> None:
+        self._lock = threading.Lock()
+        self.waited = waited
+
+    def __enter__(self) -> None:
+        if not self._lock.acquire(blocking=False):
+            self.waited.set()
+            self._lock.acquire()
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._lock.release()
+
+
+def test_keys_locked_from_another_thread_mid_unlock_report_locked(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`lock_keys` in another thread while `unlock_keys` sets the key.
+
+    It runs as `unlock_keys` reads the clock for the timeout, after the
+    key is set. The key and its times are set as one, so the lock waits
+    for both, and the ledger is locked with `unlocked_until` at 0.
+    """
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        ledger.encrypt(PASSPHRASE)
+        # set once `lock_keys` has run, or waits for the key
+        either = threading.Event()
+        monkeypatch.setattr(ledger, "_key_lock", _Waited(either))
+        real = ledger_module._now
+        threads: list[threading.Thread] = []
+
+        def locks() -> None:
+            ledger.lock_keys()
+            either.set()
+
+        def now() -> int:
+            if not threads:
+                threads.append(threading.Thread(target=locks, daemon=True))
+                threads[0].start()
+                assert either.wait(timeout=30), "lock_keys never ran"
+            return real()
+
+        monkeypatch.setattr(ledger_module, "_now", now)
+        ledger.unlock_keys(PASSPHRASE, 600)
+        (thread,) = threads
+        thread.join(timeout=30)
+        assert not thread.is_alive(), "lock_keys did not finish"
+        assert ledger._key is None
+        assert ledger.unlocked_until == 0
+
+
 def test_the_timeout_is_capped_as_cores(
     chain: FakeChain, path: Path, clock: Clock
 ) -> None:

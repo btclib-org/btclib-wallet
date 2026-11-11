@@ -380,8 +380,8 @@ class Ledger:
         self._master_key: _MasterKey | None = None
         self._encrypted: dict[int, bytes] = {}
         self._key: bytearray | None = None
-        # the lock `_drop_key` zeroes and lets go of the master key under,
-        # which `_holds` reads
+        # the lock the master key is zeroed, let go of and set under, with
+        # the times it locks at, which `_holds` reads
         self._key_lock = threading.Lock()
         # when the keys lock: as `unlocked_until` reports it, and as
         # *The relock* decides it
@@ -1781,10 +1781,14 @@ class Ledger:
         except BaseException:
             _wipe(key)
             raise
-        self._drop_key()
-        self._key = key
-        self._unlocked_until = _now() + timeout
-        self._relock_at = _monotonic() + timeout
+        # the key and the times it locks at are set as one, so that a
+        # `lock_keys` in another thread finds both or neither
+        with self._key_lock:
+            if self._key is not None:
+                _wipe(self._key)
+            self._key = key
+            self._unlocked_until = _now() + timeout
+            self._relock_at = _monotonic() + timeout
 
     @_relocking
     def lock_keys(self) -> None:
@@ -1895,8 +1899,8 @@ class Ledger:
     def _holds(self, key: bytearray) -> bool:
         """Whether `key` is the master key held, and so was never zeroed.
 
-        `_drop_key` zeroes a key and lets go of it under one lock, and a
-        key let go is never held again. So a key held when this reads it,
+        `_drop_key` and `unlock_keys` zero a key and let go of it under
+        one lock, and a key let go is never held again. So a key held when this reads it,
         under that lock, was whole for anything that read it before.
         """
         with self._key_lock:
@@ -1908,8 +1912,8 @@ class Ledger:
             if self._key is not None:
                 _wipe(self._key)
             self._key = None
-        self._unlocked_until = 0
-        self._relock_at = 0.0
+            self._unlocked_until = 0
+            self._relock_at = 0.0
 
 
 def _now() -> int:
