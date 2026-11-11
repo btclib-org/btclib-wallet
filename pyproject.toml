@@ -55,8 +55,9 @@ dependencies = [
     # pre-2.0 mnemonic whose hex seed has an odd number of characters
     "bip39-slip39>=2026.11.2",
     # the Base58Check and bech32 codecs this tree imports directly. The
-    # floor is the release uv.lock resolved when the entry was written
-    "base58-bech32>=2026.11.7",
+    # floor is the first release whose `bech32_encode` and `bech32_decode`
+    # take `limit`, which `bolt11` passes as None
+    "base58-bech32>=2026.10.23",
     # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
     # imports it at module level rather than behind a guard, so anything
     # resolving older fails on the import itself

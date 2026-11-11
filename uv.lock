@@ -566,7 +566,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "base58-bech32", specifier = ">=2026.11.7" },
+    { name = "base58-bech32", specifier = ">=2026.10.23" },
     { name = "bip39-slip39", specifier = ">=2026.11.2" },
     { name = "bitcoin-core-rpc", specifier = ">=2026.9.3" },
     { name = "btclib", specifier = ">=2026.10.30" },
