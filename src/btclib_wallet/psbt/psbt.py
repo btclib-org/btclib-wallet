@@ -888,12 +888,9 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     of an output key.
 
     A `witness_unknown` input passes so that `sign` reaches the other
-    inputs, `_sign_ecdsa_input` skipping this one. Bitcoin Core's
-    SignPSBTInput refuses neither utxo field for such an input, and
-    FillPSBT goes on to the next input on an INCOMPLETE answer, counting
-    this one signed only where PSBTInputSigned finds a final script
-    (src/psbt.cpp:547-550 and 664-683, and
-    src/wallet/scriptpubkeyman.cpp:1447-1457 at
+    inputs, `_sign_ecdsa_input` skipping this one and saying what Core's
+    signer does next. Bitcoin Core's SignPSBTInput refuses neither utxo
+    field for such an input (src/psbt.cpp:664-683 at
     bitcoin/bitcoin@f0de87f040).
     """
     prev_out = _prev_out(psbt_in)
@@ -2952,8 +2949,10 @@ def _sign_ecdsa_input(
     (src/script/sign.cpp:655-658, 722-723 and 815,
     src/script/solver.cpp:169-171, src/script/interpreter.cpp:2000-2008
     and src/policy/policy.h:126 at bitcoin/bitcoin@f0de87f040). FillPSBT
-    goes on to sign the other inputs (src/psbt.cpp:756 and
-    src/wallet/scriptpubkeyman.cpp:1447-1450 at the same commit).
+    goes on to sign the other inputs, counting the skipped one signed
+    only where PSBTInputSigned finds a final script (src/psbt.cpp:547-550
+    and 756, and src/wallet/scriptpubkeyman.cpp:1447-1458 at the same
+    commit).
 
     SIGHASH_SINGLE with no output at the input's index is refused for
     every kind signed here, as Bitcoin Core's signer does: the signature
