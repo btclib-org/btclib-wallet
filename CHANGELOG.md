@@ -24,6 +24,62 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.12
+
+### A ledger encrypts its private keys at rest
+
+`Ledger.encrypt` and its unlock, lock and passphrase change, as Core's
+do. The file's format is 2, migrating from 1 on load, and `cryptography`
+is a dependency except on Windows arm64 (issue #717).
+
+### A ledger's connection reads the row of each pragma it sets
+
+Unread, `journal_mode`'s statement kept every commit from finishing on
+PyPy (closes #810).
+
+### A ledger bumps a transaction's fee
+
+`Ledger.bump_psbt` and `Ledger.bump`, as Core's `psbtbumpfee` and
+`bumpfee` do. Spends take Core's BIP125 sequence unless
+`replaceable=False`, and carry comments (issue #715).
+
+### An ECDSA sig_hash is refused for a witness program with no rule
+
+`ecdsa_sig_hash` raises for such a psbt input, and `sign` skips it, as
+Core does (closes #747).
+
+### A refusal describes the value it refuses by its type and size
+
+Their texts change, `electrum`'s, `psbt`'s and `silent_payments`'s
+among them (closes #745, #749, #790, #791, #792, #793, #795).
+
+### `PsbtOut.parse` refuses a `PSBT_OUT_TAP_TREE` key with key data
+
+As BIP-174 and Core do (closes #754).
+
+### An unchecked invoice's unknown network is a `BTClibValueError`
+
+`Bolt11Invoice.to_invoice` and `payee` raised a bare `KeyError`
+(closes #770).
+
+### The suite accepts both base58-bech32 texts for a refused 5-bit word
+
+(closes #808).
+
+### The bestpractices.dev answers are held in `.bestpractices.json`
+
+(issue btclib-org/.github#2153, issue btclib-org/.github#2159).
+
+### Shared files take btclib-org/.github's copies
+
+`RELEASING.md`, `CONTRIBUTING.md` and the tests' `secret_free` helper
+(issue btclib-org/.github#2107, issue btclib-org/.github#2145, issue
+btclib-org/.github#1950).
+
+### The actions, the hooks and the dev tooling move to newer releases
+
+Dependabot's and pre-commit's bumps (#751, #753, #778).
+
 ## v2026.11.11
 
 ### ecc 2026.11.8 and btclib 2026.11.10 are the floors
