@@ -93,7 +93,11 @@ from btclib_wallet.bip32 import (
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
-from btclib_wallet.psbt.psbt_size import SolutionSizer, estimated_input_sizes
+from btclib_wallet.psbt.psbt_size import (
+    COMPRESSED_PUB_KEY_SIZE,
+    SolutionSizer,
+    estimated_input_sizes,
+)
 from btclib_wallet.psbt.psbt_utils import (
     LEAF_HASH_SIZE,
     MUSIG2_PUB_KEY_SIZE,
@@ -2160,6 +2164,14 @@ def _single_key(psbt_in: PsbtIn, script: bytes) -> bytes:
     or p2wpkh being spent, commits to. A valid signature of another key,
     or of the other compression of the right one, would otherwise build
     a spend the script fails.
+
+    An uncompressed key is refused for a p2wpkh, wrapped or not, even
+    where the script commits to it. BIP143 makes that spend
+    non-standard, so it does not relay, and Bitcoin Core's
+    `finalizepsbt` leaves such an input incomplete: `ProduceSignature`
+    verifies the spend under `STANDARD_SCRIPT_VERIFY_FLAGS`, which hold
+    `SCRIPT_VERIFY_WITNESS_PUBKEYTYPE` (src/script/sign.cpp:820 and
+    src/policy/policy.h:121 at bitcoin/bitcoin@9183edd25e).
     """
     if len(psbt_in.partial_sigs) > 1:
         err_msg = f"{len(psbt_in.partial_sigs)} signatures for a single-key input"
@@ -2167,6 +2179,9 @@ def _single_key(psbt_in: PsbtIn, script: bytes) -> bytes:
     pub_key = next(iter(psbt_in.partial_sigs))
     if hash160(pub_key) != type_and_payload(script)[1]:
         err_msg = "the signing key is not the one the spent script commits to"
+        raise BTClibValueError(err_msg)
+    if is_p2wpkh(script) and len(pub_key) != COMPRESSED_PUB_KEY_SIZE:
+        err_msg = "an uncompressed key in a p2wpkh spend is non-standard (BIP143)"
         raise BTClibValueError(err_msg)
     return pub_key
 
@@ -2269,7 +2284,8 @@ def _finalized_input(psbt_in: PsbtIn) -> tuple[bytes, Witness]:
       wrapped one;
     - p2wpkh, native or wrapped: the witness is [signature, public key],
       the script_sig again only the redeem script;
-    - p2pkh: [signature, public key] in the script_sig;
+    - p2pkh, bare or wrapped: [signature, public key] in the script_sig,
+      and the redeem script last in a wrapped one;
     - everything else -- p2pk, bare multisig, legacy p2sh: the
       signatures in the script_sig, and the redeem script last.
 
@@ -2298,7 +2314,9 @@ def _finalized_input(psbt_in: PsbtIn) -> tuple[bytes, Witness]:
         return serialize(cast(ScriptList, redeem_script)), witness
 
     if is_p2pkh(script):
-        script_sig = cast(ScriptList, [*sigs, _single_key(psbt_in, script)])
+        script_sig = cast(
+            ScriptList, [*sigs, _single_key(psbt_in, script), *redeem_script]
+        )
         return serialize(script_sig), Witness()
 
     return serialize(cast(ScriptList, [*cmds, *redeem_script])), Witness()
@@ -3807,7 +3825,8 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     presence of a signature, all per input: the sighash type each
     signature commits to is one the input accepts, each signature
     verifies against the key it is filed under, and the key of a p2pkh
-    or p2wpkh input, wrapped or not, is the one its script commits to.
+    or p2wpkh input, wrapped or not, is the one its script commits to,
+    and compressed for a p2wpkh.
 
     What is then built is the spend the input's own kind asks for, which
     is what _finalized_input dispatches on: a witness script alone does
