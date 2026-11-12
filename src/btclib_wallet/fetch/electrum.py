@@ -370,10 +370,27 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         is the header at that height, and `get_tx_merkle` gives its
         position there, which orders the transactions of one block. The
         branch is checked against the header, as `verify_tx` checks it,
-        and a branch that fails is a `FetchError`. Each header is checked
-        for its proof of work, and is not linked to the tip by its
-        parents. `blockchain.headers.subscribe` is asked first and last,
-        and a tip that moved is a `FetchError`.
+        and a branch that fails is a `FetchError`.
+        `blockchain.headers.subscribe` is asked first and last, and a tip
+        that moved is a `FetchError`.
+
+        The headers come from `get_block_headers`, from the lowest
+        height at or above `start` that a confirmed transaction is at,
+        up to the tip. Each follows the one before it, from chunk to
+        chunk too, and the last is the tip; a chain that breaks or ends
+        elsewhere is a `FetchError`. So each confirmed transaction is on
+        the chain of the tip this returns, and a caller who holds that
+        tip from elsewhere can compare it. Each header, the tip's
+        included, is checked for the work its own bits claim, within the
+        network's limit, and no more. The bits are not held to the
+        retarget rules: those start from the lowest header, which is the
+        server's own, and a chain at the network's minimum difficulty
+        passes them. So a server can still answer a chain of its own at
+        the network's minimum work. `start` is on that chain where a
+        confirmed transaction is in its block, and is the tip where
+        `start_height` reaches it. Elsewhere, below the lowest
+        confirmation or with nothing confirmed, it is the header at its
+        height, checked on its own.
 
         A listed transaction that touches none of the scripts, in
         `HistoryReader`'s sense, is left out. Where only an input can
@@ -390,9 +407,15 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         longer has when it is asked for is the server's `RpcError`, a
         `FetchError`, and the caller asks again.
 
-        The cost is a request per script, per block holding one of the
-        transactions, two per transaction, and at most one per
-        transaction spent that is not returned. A server refuses a script
+        The cost is a request per script, two per transaction, at most
+        one per transaction spent that is not returned, and the chain:
+        an 80-byte header per block from the lowest confirmation listed
+        at or above `start` to the tip, each checked as above, in a
+        request per chunk of the server's maximum. A confirmation left
+        out for touching none of the scripts still counts there. The
+        server chooses that height, anywhere from `start` to the tip,
+        since listing one confirmation there is enough, so how long a
+        chain a call reads is its choice. A server refuses a script
         with more history than it serves, as an `RpcError`.
         """
         elements = history_scripts(scripts)
@@ -400,14 +423,22 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         self._verify_once()
         tip = self._tip_ref()
         first = min(first, tip.height)
-        start = tip
-        if first < tip.height:
-            start = BlockRef(first, self._header_at(first).hash)
         heights = self._listed(elements)
         if any(height > tip.height for height in heights.values() if height):
             raise FetchError("the tip moved while the history was read")
+        levels = {h for h in heights.values() if h is not None and h >= first}
+        low = min(levels, default=tip.height)
+        chain = self._chain(low, tip) if levels else []
+        if chain and low == first:
+            start = BlockRef(first, chain[0].hash)
+        elif first == tip.height:
+            start = tip
+        else:
+            start = BlockRef(first, self._header_at(first).hash)
         confirmed = self._proven(
-            {tx_id: h for tx_id, h in heights.items() if h is not None and h >= first}
+            {tx_id: h for tx_id, h in heights.items() if h is not None and h >= first},
+            chain,
+            low,
         )
         txs = [HistoryTx(self.get_tx(tx_id), ref) for tx_id, ref in confirmed]
         txs += [
@@ -436,26 +467,49 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
                     raise FetchError(err_msg)
         return heights
 
-    def _proven(self, heights: dict[str, int]) -> list[tuple[str, BlockRef]]:
+    def _proven(
+        self, heights: dict[str, int], chain: list[BlockHeader], low: int
+    ) -> list[tuple[str, BlockRef]]:
         """Return each transaction and its block, in chain order.
 
-        Each is proven in the header at its height by its merkle branch,
-        whose position orders the transactions of one block.
+        Each is proven by its merkle branch in the header at its height on
+        `chain`, which starts at `low`, and the branch's position orders
+        the transactions of one block.
         """
-        headers: dict[int, BlockHeader] = {}
         confirmed: list[tuple[int, int, str]] = []
         for tx_id, height in heights.items():
-            if height not in headers:
-                headers[height] = self._header_at(height)
             proof = self.get_tx_merkle(tx_id, height)
-            if not electrum.verify_merkle_proof(tx_id, proof, headers[height]):
+            if not electrum.verify_merkle_proof(tx_id, proof, chain[height - low]):
                 err_msg = f"transaction {tx_id}: no proof it is in block {height}"
                 raise FetchError(err_msg)
             confirmed.append((height, proof.pos, tx_id))
         return [
-            (tx_id, BlockRef(height, headers[height].hash))
+            (tx_id, BlockRef(height, chain[height - low].hash))
             for height, _, tx_id in sorted(confirmed)
         ]
+
+    def _chain(self, low: int, tip: BlockRef) -> list[BlockHeader]:
+        """Return the headers from `low` to `tip`, each following the last.
+
+        `get_block_headers` chains the headers of one chunk; this chains
+        each chunk to the one before it and the last header to `tip`.
+        """
+        headers: list[BlockHeader] = []
+        size = tip.height - low + 1
+        while len(headers) < size:
+            chunk = self.get_block_headers(low + len(headers), size - len(headers))
+            if not chunk:
+                err_msg = f"block headers: none from {low + len(headers)}"
+                err_msg += f" up to the tip at {tip.height}"
+                raise FetchError(err_msg)
+            if headers and chunk[0].previous_block_hash != headers[-1].hash:
+                err_msg = f"block headers: header {low + len(headers)} does not"
+                err_msg += " follow the one before it"
+                raise FetchError(err_msg)
+            headers += chunk
+        if headers[-1].hash != tip.block_id:
+            raise FetchError("block headers: the chain does not end at the tip")
+        return headers
 
     def _script_history(self, scripthash: str) -> tuple[electrum.HistoryItem, ...]:
         """Return what `blockchain.scripthash.get_history` lists."""

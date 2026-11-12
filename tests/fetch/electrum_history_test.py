@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from btclib.block.block import Block
+from btclib.block.block_header import BlockHeader
 from btclib.block.build import build_block, build_coinbase
 from btclib.block.genesis import genesis_block
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -71,6 +72,7 @@ class FakeServer:
             block.header = mined(block.header)
             self.chain.append(block)
         self.mempool = mempool or []
+        self.max_headers = 2016
         self.methods: list[str] = []
         self.edit: Callable[[str, list[Any], Any], Any] = lambda _m, _p, result: result
 
@@ -102,6 +104,11 @@ class FakeServer:
             return {"height": len(self.chain) - 1, "hex": tip.serialize().hex()}
         if method == "blockchain.block.header":
             return self.chain[params[0]].header.serialize().hex()
+        if method == "blockchain.block.headers":
+            start, count = params
+            blocks = self.chain[start : start + min(count, self.max_headers)]
+            raw = b"".join(block.header.serialize() for block in blocks)
+            return {"count": len(blocks), "hex": raw.hex(), "max": self.max_headers}
         if method == "blockchain.scripthash.get_history":
             return self._history(params[0])
         txs = [tx for block in self.chain for tx in block.transactions] + self.mempool
@@ -376,6 +383,126 @@ def test_a_branch_that_proves_nothing_is_refused() -> None:
         lambda result: {**result, "merkle": ["00" * 32] * len(result["merkle"])},
     )
     with pytest.raises(FetchError, match="no proof it is in block 1"):
+        _fetcher(server).get_history([OURS])
+
+
+def _forged(server: FakeServer, height: int) -> BlockHeader:
+    """Return another header for the block at `height`, with its work.
+
+    It holds the block's transactions, so their branches prove them in it.
+    """
+    block = server.chain[height]
+    time = block.header.time + timedelta(seconds=1)
+    header = build_block(
+        block.header.previous_block_hash, block.transactions, time, REGTEST_BITS
+    ).header
+    return mined(header)
+
+
+def _serving(server: FakeServer, height: int, header: BlockHeader) -> FakeServer:
+    """Return `server`, answering `header` at `height` in its chunks."""
+
+    def swap(method: str, params: list[Any], result: Any) -> Any:
+        if method != "blockchain.block.headers":
+            return result
+        start = params[0]
+        if not start <= height < start + result["count"]:
+            return result
+        raw = bytearray.fromhex(result["hex"])
+        offset = (height - start) * 80
+        raw[offset : offset + 80] = header.serialize()
+        return {**result, "hex": raw.hex()}
+
+    server.edit = swap
+    return server
+
+
+def test_get_history_reads_the_chain_from_the_lowest_confirmation() -> None:
+    """One chunk from the lowest confirmation to the tip, and no lone header."""
+    server = _chain()
+    history = _fetcher(server).get_history([MINE], 4)
+    assert [entry.block for entry in history.txs] == [server.ref(4)] * 2
+    assert "blockchain.block.header" not in server.methods
+    assert server.methods.count("blockchain.block.headers") == 1
+
+
+def test_a_start_at_the_lowest_confirmation_is_taken_from_the_chain() -> None:
+    """A lone header the server forges for `start` is never asked for."""
+    server = _chain()
+    forged = _forged(server, 1).serialize().hex()
+    server.edit = lambda m, p, result: (
+        forged if m == "blockchain.block.header" and p == [1] else result
+    )
+    history = _fetcher(server).get_history([OURS], 1)
+    assert history.start == server.ref(1)
+    assert history.txs[0].block == server.ref(1)
+    assert "blockchain.block.header" not in server.methods
+
+
+def test_a_start_at_the_tip_with_nothing_confirmed_is_the_tip() -> None:
+    """No chain to read and no lone header to ask for."""
+    server = _chain()
+    history = _fetcher(server).get_history([OURS], 9)
+    assert history.start == history.tip == server.ref(4)
+    assert not history.txs
+    assert "blockchain.block.header" not in server.methods
+    assert "blockchain.block.headers" not in server.methods
+
+
+def test_get_history_reads_the_chain_in_the_servers_chunks() -> None:
+    """A server answering fewer headers than asked is asked for the rest."""
+    server = _chain()
+    server.max_headers = 1
+    history = _fetcher(server).get_history([OURS, MINE])
+    assert [entry.block for entry in history.txs] == [
+        server.ref(1),
+        server.ref(3),
+        server.ref(4),
+        server.ref(4),
+    ]
+    assert server.methods.count("blockchain.block.headers") == 4
+
+
+def test_a_history_with_nothing_confirmed_reads_no_chain() -> None:
+    """Without a confirmed transaction there is no header to chain."""
+    server = FakeServer([[]], [FUNDING])
+    history = _fetcher(server).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [(FUNDING.id, None)]
+    assert "blockchain.block.headers" not in server.methods
+
+
+@pytest.mark.parametrize("max_headers", [1, 2016])
+def test_a_header_with_its_work_but_not_on_the_chain_is_refused(
+    max_headers: int,
+) -> None:
+    """A header the next one does not follow, within a chunk or across two."""
+    server = _chain()
+    server.max_headers = max_headers
+    forged = _forged(server, 1)
+    forged.assert_valid_pow(REGTEST_BITS)
+    _serving(server, 1, forged)
+    with pytest.raises(
+        FetchError, match="header 1 of the answer|header 2 does not follow"
+    ):
+        _fetcher(server).get_history([OURS])
+
+
+def test_a_chain_that_ends_away_from_the_tip_is_refused() -> None:
+    """The last header has to be the one `headers.subscribe` answered."""
+    server = _chain()
+    _serving(server, 4, _forged(server, 4))
+    with pytest.raises(FetchError, match="the chain does not end at the tip"):
+        _fetcher(server).get_history([MINE])
+
+
+def test_a_chain_that_stops_below_the_tip_is_refused() -> None:
+    """A server answering no header below the tip is refused, not asked on."""
+    server = _edited(
+        _chain(),
+        "blockchain.block.headers",
+        lambda result: {**result, "count": 0, "hex": ""},
+    )
+    with pytest.raises(FetchError, match="none from 1 up to the tip at 4"):
         _fetcher(server).get_history([OURS])
 
 
