@@ -919,7 +919,9 @@ def test_a_closed_ledger_unlocks_no_key(chain: FakeChain, path: Path) -> None:
         ledger.unlock_keys(PASSPHRASE, 60)
     with pytest.raises(BTClibValueError, match="the ledger is closed"):
         ledger.change_passphrase(PASSPHRASE, "new")
-    assert ledger._key is None
+    # a bool, so that a failure prints no key
+    no_key = ledger._key is None
+    assert no_key
     assert ledger.unlocked_until == 0
 
 
@@ -963,8 +965,11 @@ def test_an_unlock_racing_close_from_another_thread_sets_no_key(
     assert not thread.is_alive(), "unlock_keys did not finish"
     (outcome,) = outcomes
     assert str(outcome) == "the ledger is closed"
-    assert ledger._key is None
-    assert keys == [bytearray(32)]
+    # bools, so that a failure prints no key
+    no_key = ledger._key is None
+    assert no_key
+    keys_are_zeroed = keys == [bytearray(32)]
+    assert keys_are_zeroed
 
 
 class _Waited:
