@@ -729,6 +729,50 @@ def test_a_session_the_psbt_does_not_describe() -> None:
             psbt_frost.session_context(psbt, 0, THRESH_PK)
 
 
+def test_a_leaf_the_spent_output_does_not_commit_to() -> None:
+    """A script path session is refused where `psbt.sign` would refuse it.
+
+    The leaf's own key is the one the session compares, so each input
+    below passes that comparison: the output is a p2sh-wrapped p2tr
+    program, which BIP341 leaves unencumbered, or a p2wpkh, or a p2tr
+    whose control block proves the leaf against another key. Round 1 is
+    refused, and writes no nonce.
+    """
+    psbt = script_path_psbt()
+    witness_utxo = psbt.inputs[0].witness_utxo
+    assert witness_utxo is not None
+    p2tr = witness_utxo.script_pub_key.script
+
+    wrapped = deepcopy(psbt)
+    wrapped.inputs[0].witness_utxo = TxOut(witness_utxo.value, ScriptPubKey.p2sh(p2tr))
+    wrapped.inputs[0].redeem_script = p2tr
+    p2wpkh = deepcopy(psbt)
+    p2wpkh.inputs[0].witness_utxo = TxOut(
+        witness_utxo.value, ScriptPubKey.p2wpkh(PrvKeyData(7).pub)
+    )
+    ((control_block, leaf),) = psbt.inputs[0].taproot_leaf_scripts.items()
+    other_internal_key = bytes_from_point(mult(9), secp256k1)[1:]
+    unproven = deepcopy(psbt)
+    unproven.inputs[0].taproot_leaf_scripts = {
+        control_block[:1] + other_internal_key + control_block[33:]: leaf
+    }
+
+    cases = (
+        (wrapped, "the input spends no taproot output"),
+        (p2wpkh, "the input spends no taproot output"),
+        (unproven, "the control block does not prove leaf script"),
+    )
+    for refused, err_msg in cases:
+        with pytest.raises(BTClibValueError, match=err_msg):
+            psbt_frost.nonce_gen(
+                refused, 0, 0, SEC_SHARES[0], THRESH_PK, leaf_hash=LEAF_HASH
+            )
+        nonce_key = proprietary_key(PUB_NONCE, record_key_data(0, LEAF_HASH))
+        assert nonce_key not in refused.inputs[0].unknown
+        with pytest.raises(BTClibValueError, match=err_msg):
+            psbt_frost.session_context(refused, 0, THRESH_PK, leaf_hash=LEAF_HASH)
+
+
 def test_a_round_that_the_other_round_has_not_reached() -> None:
     """Each round needs what the one before wrote, and says what is missing."""
     # no nonce at all: there is no session to build a context of
