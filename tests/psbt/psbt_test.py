@@ -6723,3 +6723,81 @@ def test_a_witness_unknown_input_still_has_its_fields_checked() -> None:
     psbt.inputs[0].witness_script = b"\x51"
     with pytest.raises(BTClibValueError, match="invalid witness script sha256"):
         sign(psbt, held)
+
+
+_WRAPPED_PROGRAM = ScriptPubKey.p2tr(PubKeyData(_TAPROOT_PUB_KEY)).script
+
+
+def _p2sh_wrapped_taproot_psbt() -> Psbt:
+    """Return `_taproot_key_path_psbt`'s input with its program in p2sh.
+
+    The internal key is the one that tweaks to the program, so only the
+    wrapper tells this input from a taproot one. Both utxo fields are
+    there.
+    """
+    prev_out = TxOut(100_000, ScriptPubKey.p2sh(_WRAPPED_PROGRAM))
+    tx, prev_tx = _spending_tx(prev_out)
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].witness_utxo = prev_out
+    psbt.inputs[0].non_witness_utxo = prev_tx
+    psbt.inputs[0].redeem_script = _WRAPPED_PROGRAM
+    psbt.inputs[0].taproot_internal_key = _TAPROOT_INTERNAL_KEY
+    return psbt
+
+
+def test_sign_skips_a_p2sh_wrapped_taproot_program() -> None:
+    """A p2tr program wrapped in p2sh is not signed as taproot.
+
+    Issue btclib-org/btclib-wallet#804; `_is_taproot` says why. The same
+    input unwrapped is signed by the key path
+    (`test_sign_writes_the_taproot_key_path_signature`).
+    """
+    psbt = _p2sh_wrapped_taproot_psbt()
+    key_manager = _KeyManager(by_pub_key={_TAPROOT_INTERNAL_KEY: _TAPROOT_PRV_KEY})
+
+    result, signed_vins = sign(psbt, key_manager)
+
+    assert signed_vins == []
+    assert key_manager.sign_calls == 0
+    assert not result.inputs[0].taproot_key_spend_signature
+
+
+def test_a_p2sh_wrapped_taproot_program_needs_its_non_witness_utxo() -> None:
+    """The amount of a wrapped p2tr program is vouched for as a segwit one.
+
+    Issue btclib-org/btclib-wallet#804: a psbt of such inputs is not all
+    taproot, so `_assert_amounts_vouched` asks for the non_witness_utxo.
+    """
+    psbt = _p2sh_wrapped_taproot_psbt()
+    psbt.inputs[0].non_witness_utxo = None
+    with pytest.raises(BTClibValueError, match="input 0: no non_witness_utxo"):
+        psbt.assert_signable()
+
+
+def test_a_p2sh_wrapped_taproot_program_has_no_signature_rule() -> None:
+    """A wrapped p2tr program has no sig_hash and takes no taproot signature.
+
+    Issue btclib-org/btclib-wallet#804: it is refused as a
+    `witness_unknown` program is, and a taproot signature beside it is
+    one for no taproot output.
+    """
+    psbt = _p2sh_wrapped_taproot_psbt()
+    err_msg = "input 0: no sig_hash rule for witness version 1$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        ecdsa_sig_hash(psbt, 0, hash_type=1)
+
+    signed = deepcopy(psbt)
+    msg_hash = sig_hash.legacy(_WRAPPED_PROGRAM, psbt.tx, 0, 1)
+    sig = dsa.sign_(msg_hash, _PRV_KEY).serialize() + b"\x01"
+    signed.inputs[0].partial_sigs = {_PUB_KEY: sig}
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(signed)
+
+    signed = deepcopy(psbt)
+    msg = taproot_sig_hash(psbt, 0)
+    tweaked = output_prvkey_from_merkle_root(_TAPROOT_PRV_KEY, b"")
+    signed.inputs[0].taproot_key_spend_signature = ssa.sign_(msg, tweaked).serialize()
+    with pytest.raises(BTClibValueError, match="spending no taproot output"):
+        assert_signed(signed)
+    with pytest.raises(BTClibValueError, match="missing signatures"):
+        finalize(signed)
