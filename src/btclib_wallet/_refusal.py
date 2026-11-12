@@ -8,11 +8,18 @@ Section 7 of the btclib-org standard, *A refusal carries no secret*, says
 an argument in the wrong place may be a key. A refusal describes such a
 value with `_message_text`, and quotes a value refused where a name
 belongs only up to `_QUOTED_MAX` characters, too short for a key.
+`core_import` and `electrum` print an error code another program answers
+only where it lies in `_RPC_CODES`.
 """
 
 __all__: list[str] = []
 
 _QUOTED_MAX = 16
+
+# A signed 16-bit integer: JSON-RPC 2.0's reserved codes, -32768 to -32000,
+# Bitcoin Core's, and the codes electrs, ElectrumX, Fulcrum and Floresta
+# assign lie in it, and it is too narrow to carry a key
+_RPC_CODES = range(-(2**15), 2**15)
 
 
 def _quoted(value: int | str) -> str:

@@ -19,17 +19,19 @@ from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint, Tx
 from typing_extensions import override
 
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.fee_estimator import valid_confirmation_target
 from tests.fetch import TX_ID, StubFetcher, recorded_body
+from tests.fetch.bitcoin_core_rest_test import URL
+from tests.fetch.bitcoin_core_rest_test import fetcher as rest_fetcher
 from tests.fetch.compact_filters_test import build
 from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.fetch.esplora_history_test import _explorer, _fetcher
-from tests.fetch.esplora_test import fee_estimates
+from tests.fetch.esplora_test import BASE, fee_estimates
 from tests.fetch.esplora_test import fetcher as esplora_fetcher
 from tests.fetch.history_test import OURS
 from tests.fetch.peer_chain_test import WALLET
-from tests.refused_value_test import KEY, SCALAR, SPELLINGS
+from tests.refused_value_test import HEX, KEY, SCALAR, SPELLINGS
 from tests.secret_free import assert_secret_free
 
 RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
@@ -38,7 +40,8 @@ RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
 class _PastBounds(int):
     """An int whose < and > answer False.
 
-    It passes both bounds of `EsploraFetcher.estimate_fee`.
+    It passes both bounds of `EsploraFetcher.estimate_fee`, and as a
+    negative value the `max_pages < 1` of `EsploraFetcher.get_history`.
     """
 
     @override
@@ -48,6 +51,18 @@ class _PastBounds(int):
     @override
     def __gt__(self, _other: object) -> bool:
         return False
+
+
+class _PastOne(int):
+    """An int that is less than any int above 1.
+
+    It passes `max_blocks < 1`, and `n > max_blocks` reflects to the same
+    `__lt__`, so two matching blocks pass the bound.
+    """
+
+    @override
+    def __lt__(self, other: object) -> bool:
+        return isinstance(other, int) and other > 1
 
 
 @pytest.mark.parametrize(
@@ -122,4 +137,63 @@ def test_a_fetcher_describes_a_refused_int_or_tx_id(
     """By its sign and bit length, or by the parameter it was (issue #828)."""
     with pytest.raises((BTClibValueError, FetchError), match=err_msg) as e:
         call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: build()[0].scan_blocks([WALLET], max_blocks=_PastOne(SCALAR)),
+            "^the filters match more blocks than max_blocks, an int of 256 bits$",
+        ),
+        (
+            lambda: _fetcher(_explorer()).get_history(
+                [OURS], max_pages=_PastBounds(-SCALAR)
+            ),
+            "^script history: more pages than max_pages, a negative int of 256 bits$",
+        ),
+    ],
+    ids=["compact filters max_blocks", "esplora max_pages"],
+)
+def test_a_bound_reached_is_described(call: Callable[[], object], err_msg: str) -> None:
+    """An int subclass passing the bound's check reaches it (issue #837)."""
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+# a body that quotes the request, as a proxy's error page can
+_QUOTING = (404, f"not found: {HEX} {SCALAR}".encode())
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: esplora_fetcher(_QUOTING).get_tx(KEY),
+            f"^HTTP 404 from {BASE}/tx/<txid>/hex$",
+        ),
+        (
+            lambda: esplora_fetcher(_QUOTING).get_block_header(SCALAR),
+            f"^HTTP 404 from {BASE}/block-height/<height>$",
+        ),
+        (
+            lambda: rest_fetcher(_QUOTING).get_tx(KEY),
+            f"^GET /tx/<txid>.bin at {URL}: HTTP 404$",
+        ),
+        (
+            lambda: rest_fetcher(_QUOTING).get_block_header(SCALAR),
+            f"^GET /blockhashbyheight/<height>.bin at {URL}: HTTP 404$",
+        ),
+    ],
+    ids=["esplora tx", "esplora height", "rest tx", "rest height"],
+)
+def test_an_http_refusal_names_the_endpoint_and_not_the_value(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A height or tx id in the path is the caller's (issue #843)."""
+    with pytest.raises(HttpError, match=err_msg) as e:
+        call()
+    assert e.value.status == 404
     assert_secret_free(e.value, SPELLINGS)

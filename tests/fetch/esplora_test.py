@@ -438,8 +438,14 @@ def test_verify_network_false_asks_the_explorer_nothing() -> None:
 
 
 def test_a_404_carries_what_the_explorer_said() -> None:
-    """Esplora answers an unknown txid with a status and a sentence."""
-    with pytest.raises(FetchError, match="HTTP 404 .*: Transaction not found"):
+    """Esplora answers a failure with a status and a sentence."""
+    with pytest.raises(FetchError, match="HTTP 404 .*: Block not found$"):
+        fetcher((404, b"Block not found")).get_block_count()
+
+
+def test_a_404_on_a_tx_id_names_the_endpoint_and_not_the_sentence() -> None:
+    """The sentence can quote the request and its tx id (issue #843)."""
+    with pytest.raises(FetchError, match=f"^HTTP 404 from {BASE}/tx/<txid>/hex$"):
         fetcher((404, b"Transaction not found")).get_tx(TX_ID)
 
 

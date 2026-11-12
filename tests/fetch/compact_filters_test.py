@@ -1070,7 +1070,9 @@ def test_a_block_is_returned_as_it_was_sent() -> None:
 def test_a_scan_that_matches_more_blocks_than_the_bound_is_refused() -> None:
     """A peer cannot make a call hold more blocks than the caller allows."""
     fetcher, peer = build()
-    with pytest.raises(FetchError, match="more than the max_blocks of 1 blocks"):
+    with pytest.raises(
+        FetchError, match="more blocks than max_blocks, an int of 1 bits$"
+    ):
         fetcher.scan_blocks([WALLET], max_blocks=1)
     assert peer.requests("getdata") == []
     assert list(fetcher.scan_blocks([WALLET], max_blocks=2)) == PAID
@@ -1082,7 +1084,7 @@ def test_the_bound_counts_the_blocks_of_every_window(
     """Earlier windows count; the passing window's blocks are not downloaded."""
     monkeypatch.setattr(compact_filters, "MAX_GETCFILTERS_SIZE", 5)
     fetcher, peer = build()
-    with pytest.raises(FetchError, match="max_blocks of 1"):
+    with pytest.raises(FetchError, match="max_blocks, an int of 1 bits$"):
         fetcher.scan_blocks([WALLET], max_blocks=1)
     assert len(peer.requests("getdata")) == 1
 

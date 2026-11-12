@@ -129,7 +129,8 @@ BLOCKSTREAM_INFO = {
 #
 # The body of a *failure* is not bounded by these -- see
 # `MAX_ERROR_BODY_SIZE` -- so a 404 whose error page is longer than a
-# height still arrives as the diagnosis it is
+# height still arrives as the diagnosis it is, where `text` reports it:
+# `_text_at` drops it
 _MAX_HEIGHT_BODY = 64
 _MAX_HASH_BODY = 128
 _MAX_HEADER_BODY = 256
@@ -318,12 +319,26 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             raise self._http_error(path, status, text)
         return text
 
+    def _text_at(self, path: str, endpoint: str, max_body_size: int) -> str:
+        """Return the body of a GET on `path`, which holds a caller's value.
+
+        Section 7 of the btclib-org standard, *A refusal carries no secret*:
+        a height or a tx id in the wrong place may be a key. A status that
+        is not 200 is an `HttpError` naming `endpoint`, the path with that
+        value replaced by its name, and not the explorer's text, which can
+        quote the request.
+        """
+        status, text = self._request(path, data=None, max_body_size=max_body_size)
+        if status != 200:
+            raise HttpError(f"HTTP {status} from {self.base_url}{endpoint}", status)
+        return text
+
     @override
     def get_tx(self, tx_id: Octets) -> Tx:
         """Return the transaction, parsed and checked against its txid."""
         self._verify_once()
         hex_ = tx_id_hex(tx_id)
-        raw = self.text(f"/tx/{hex_}/hex", _MAX_TX_BODY)
+        raw = self._text_at(f"/tx/{hex_}/hex", "/tx/<txid>/hex", _MAX_TX_BODY)
         return tx_from_raw(raw, hex_, self.network)
 
     @override
@@ -347,7 +362,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
     def _block_id_at(self, height: int) -> bytes:
         """Return the hash of the block at `height`, asking nothing else."""
         with fetch_errors("block-height"):
-            reply = self.text(f"/block-height/{height}", _MAX_HASH_BODY)
+            path = f"/block-height/{height}"
+            reply = self._text_at(path, "/block-height/<height>", _MAX_HASH_BODY)
             return bytes_from_octets(reply, 32)
 
     @override
@@ -627,7 +643,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             if not entries:
                 return found
             path = f"/scripthash/{scripthash}/txs/chain/{found[-1][0]}"
-        err_msg = f"{source}: more than the max_pages of {max_pages} pages"
+        err_msg = f"{source}: more pages than max_pages, {_message_text(max_pages)}"
         raise FetchError(err_msg)
 
     def _mempool_tx(self, tx_id: str) -> Tx | None:

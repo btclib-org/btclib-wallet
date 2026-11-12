@@ -67,7 +67,7 @@ from btclib.block.merkle_proof import verify as verify_merkle_branch
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _RPC_CODES, _message_text
 from btclib_wallet.exceptions import RpcError
 
 __all__ = [
@@ -219,12 +219,6 @@ def encode_request(request_id: int, method: str, params: Any = ()) -> bytes:
     else:
         return line.encode("utf-8") + b"\n"
     raise refusal
-
-
-# A signed 16-bit integer: JSON-RPC 2.0's reserved codes, -32768 to -32000,
-# and the codes electrs, ElectrumX, Fulcrum and Floresta assign lie in it,
-# and it is too narrow to carry a key
-_RPC_CODES = range(-(2**15), 2**15)
 
 
 def _raise_rpc_error(error: object, method: str) -> NoReturn:

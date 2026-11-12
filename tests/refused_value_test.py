@@ -20,18 +20,19 @@ import pytest
 from base58_bech32.bech32 import BECH32_M_CONST, bech32_encode
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.b32 import power_of_2_base_conversion
-from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.exceptions import BTClibRuntimeError, BTClibTypeError, BTClibValueError
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.curves import bytes_from_point, mult
 from ecc.dsa import Sig as DsaSig
+from typing_extensions import override
 
 import btclib_wallet
 from btclib_wallet import electrum, silent_payments
 from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.bolt11 import Bolt11Invoice
-from btclib_wallet.core_import import import_request
+from btclib_wallet.core_import import assert_imported, import_request
 from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.electrum import (
     block_header_request,
@@ -497,6 +498,35 @@ def test_a_refused_argument_is_described(
     """A key passed in the wrong place is not in the refusal (issue #802)."""
     with pytest.raises((AttributeError, BTClibValueError), match=err_msg) as e:
         call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+class _EqualToAll(int):
+    """An int equal to every value, so that it is in any range."""
+
+    @override
+    def __eq__(self, _other: object) -> bool:
+        return True
+
+    __hash__ = int.__hash__
+
+
+def test_an_int_equal_to_all_is_in_any_range() -> None:
+    """By its own comparison, which is why `assert_imported` reads int's."""
+    assert _EqualToAll(SCALAR) in range(-(2**15), 2**15)
+
+
+@pytest.mark.parametrize(
+    "code",
+    [SCALAR, -SCALAR, _EqualToAll(SCALAR), HEX],
+    ids=["scalar", "negative scalar", "int equal to all", "hex"],
+)
+def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None:
+    """JSON bounds no integer, so a code can hold a key (issue #836)."""
+    answer = {"success": False, "error": {"code": code}}
+    err_msg = "^import refused for request 0: error code None$"
+    with pytest.raises(BTClibRuntimeError, match=err_msg) as e:
+        assert_imported([{}], [answer])
     assert_secret_free(e.value, SPELLINGS)
 
 

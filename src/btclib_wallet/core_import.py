@@ -78,7 +78,7 @@ from typing import Any
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _RPC_CODES, _message_text
 from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 
 __all__ = [
@@ -439,8 +439,11 @@ def assert_imported(
             # position and code only: Core's message can quote a key of the
             # descriptor, as in "key '<xprv>' is not valid"
             error = answer.get("error")
-            code = error.get("code") if isinstance(error, Mapping) else None
-            # Core's code is an int; anything else is not quoted
-            code = code if isinstance(code, int) else None
+            raw: Any = error.get("code") if isinstance(error, Mapping) else None
+            # an int's own value, so that a subclass's comparison cannot
+            # pass the bound: JSON bounds no integer, so a code outside
+            # `_RPC_CODES` can hold the scalar of a key and is not quoted
+            code = int.__int__(raw) if is_integer(raw) else None
+            code = code if code in _RPC_CODES else None
             err_msg = f"import refused for request {position}: error code {code}"
             raise BTClibRuntimeError(err_msg)
