@@ -1881,6 +1881,56 @@ def test_the_sigop_limit_counts_to_spend_too(to_sign_cost: int) -> None:
         bip322._assert_sig_op_cost(spend, prevouts, tx)
 
 
+def _p2tr_proof_of_weight(weight: int) -> tuple[str, Witness]:
+    """Return a simple signature whose `to_sign` weighs exactly `weight`.
+
+    As in issue #826, the tapscript is mostly 520-byte pushes each dropped,
+    and ends in `OP_1`. Here `OP_NOP`s before the `OP_1` make up the exact
+    weight. Tapscript sets no limit on a script's size, so its script is
+    satisfied at any weight.
+    """
+
+    def proof(n_pushes: int, n_nops: int) -> tuple[str, Witness, int]:
+        commands: ScriptList = [b"\x01" * 520, "OP_DROP"] * n_pushes
+        commands += ["OP_NOP"] * n_nops + ["OP_1"]
+        tree: TaprootScriptTree = [(0xC0, commands)]
+        _, control = input_script_sig(WIF_PUB, tree, 0)
+        addr = p2tr(output_pubkey(WIF_PUB, tree)[0])
+        witness = Witness([serialize_tapscript(commands), control])
+        spend = bip322.to_spend(b"", ScriptPubKey.from_address(addr).script)
+        return addr, witness, bip322.to_sign(spend, witness=witness).weight
+
+    # each push and its drop are 524 octets of witness, and weigh as many
+    n_pushes = (weight - proof(1, 0)[2]) // 524
+    addr, witness, light = proof(n_pushes, 0)
+    addr, witness, actual = proof(n_pushes, weight - light)
+    assert actual == weight
+    return addr, witness
+
+
+@pytest.mark.parametrize(
+    "weight", [MAX_BLOCK_WEIGHT, MAX_BLOCK_WEIGHT + 1], ids=["at", "over"]
+)
+def test_a_to_sign_over_max_block_weight_is_invalid(weight: int) -> None:
+    """BIP322 asks for consensus rules, which cap a block's weight (issue #826).
+
+    The text bound of `bip322._MAX_PAYLOAD_SIZES` does not refuse either
+    signature: each witness is shorter than it.
+    """
+    addr, witness = _p2tr_proof_of_weight(weight)
+    sig = bip322.Sig(witness)
+    assert len(witness.serialize()) < MAX_BLOCK_WEIGHT
+    if weight <= MAX_BLOCK_WEIGHT:
+        bip322.assert_as_valid(b"", addr, sig)
+        assert bip322.verify(b"", addr, sig.b64encode())
+        return
+    match = f"^to_sign weight {weight}: over the block limit of {MAX_BLOCK_WEIGHT}$"
+    with pytest.raises(BTClibValueError, match=match) as refused:
+        bip322.assert_as_valid(b"", addr, sig)
+    assert not isinstance(refused.value, InconclusiveError)
+    assert not bip322.verify(b"", addr, sig.b64encode())
+
+
 # The tests below rebuild consensus-invalid signatures from
 # rust-bitcoin/bip322#89, read at its head `27f33fa69b` in `src/lib.rs`.
 # Each docstring names the test there.
