@@ -911,6 +911,62 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
         assert len(ledger.sources) == 1
 
 
+def test_a_closed_ledger_unlocks_no_key(chain: FakeChain, path: Path) -> None:
+    """`unlock_keys` and `change_passphrase` refuse a closed ledger at once."""
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        ledger.encrypt(PASSPHRASE)
+    with pytest.raises(BTClibValueError, match="the ledger is closed"):
+        ledger.unlock_keys(PASSPHRASE, 60)
+    with pytest.raises(BTClibValueError, match="the ledger is closed"):
+        ledger.change_passphrase(PASSPHRASE, "new")
+    assert ledger._key is None
+    assert ledger.unlocked_until == 0
+
+
+def test_an_unlock_racing_close_from_another_thread_sets_no_key(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`close` runs while an unlock in another thread decrypts the master key.
+
+    The unlock is refused, and the key it decrypted is zeroed and never
+    held: no key outlives the close.
+    """
+    ledger = _created(path, chain, _wallet(XPRV))
+    ledger.encrypt(PASSPHRASE)
+    decrypted = threading.Event()
+    closed = threading.Event()
+    keys: list[bytearray] = []
+    real = crypto._unlocked
+
+    def unlocked(passphrase: str, master_key: crypto._MasterKey) -> bytearray:
+        key = real(passphrase, master_key)
+        assert key is not None
+        keys.append(key)
+        decrypted.set()
+        assert closed.wait(timeout=30)
+        return key
+
+    monkeypatch.setattr(ledger_module, "_unlocked", unlocked)
+    outcomes: list[BTClibValueError] = []
+
+    def unlock() -> None:
+        with pytest.raises(BTClibValueError) as refused:
+            ledger.unlock_keys(PASSPHRASE, 60)
+        outcomes.append(refused.value)
+
+    thread = threading.Thread(target=unlock, daemon=True)
+    thread.start()
+    assert decrypted.wait(timeout=30)
+    ledger.close()
+    closed.set()
+    thread.join(timeout=30)
+    assert not thread.is_alive(), "unlock_keys did not finish"
+    (outcome,) = outcomes
+    assert str(outcome) == "the ledger is closed"
+    assert ledger._key is None
+    assert keys == [bytearray(32)]
+
+
 class _Waited:
     """A lock that sets `waited` when a thread has to wait for it."""
 

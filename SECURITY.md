@@ -318,11 +318,10 @@ permissions.
     file in WAL mode (`tests/ledger/encryption_test.py` searches every
     file for them). SQLite's rollback journal holds the pages a
     transaction changes, as they were, and SQLite empties it once the
-    transaction ends; one a killed process left stays whole while the
-    next load rolls it back, until that ledger writes or closes. The
-    disk blocks an emptied journal used, and what
-    a copy-on-write file system or an SSD keeps of overwritten blocks,
-    are outside the file and can keep a key written before the
+    transaction ends; the store's docstring says what becomes of one a
+    killed process left. The disk blocks an emptied journal used, and
+    what a copy-on-write file system or an SSD keeps of overwritten
+    blocks, are outside the file and can keep a key written before the
     encryption. A file holding plain keys beside a master key is refused
     at load.
 - **While unlocked, the master key is in the process's memory.**

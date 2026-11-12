@@ -328,6 +328,7 @@ MAX_UNLOCK_TIME = 100_000_000
 
 _LOCKED = "the ledger is locked: unlock its keys first"
 _LOCKED_DURING = "the ledger was locked while the call ran: unlock its keys again"
+_CLOSED = "the ledger is closed"
 
 # the sequence of an input that signals BIP125 replaceability, and of one
 # that does not: Core's MAX_BIP125_RBF_SEQUENCE (src/util/rbf.h:12 at
@@ -464,8 +465,10 @@ class Ledger:
         self._encrypted: dict[int, bytes] = {}
         self._key: bytearray | None = None
         # the lock the master key is zeroed, let go of and set under, with
-        # the times it locks at, which `_holds` reads
+        # the times it locks at, which `_holds` reads, and whether `close`
+        # ran, after which no key is set
         self._key_lock = threading.Lock()
+        self._closed = False
         # when the keys lock: as `unlocked_until` reports it, and as
         # *The relock* decides it
         self._unlocked_until = 0
@@ -620,8 +623,11 @@ class Ledger:
         """Lock the keys and close the file; the ledger answers nothing then.
 
         Until then the ledger holds its file, as `store` says, so another
-        ledger opens it only once this one is closed.
+        ledger opens it only once this one is closed. An `unlock_keys`
+        running in another thread sets no key after it.
         """
+        with self._key_lock:
+            self._closed = True
         self._drop_key()
         self._store.close()
 
@@ -2213,7 +2219,8 @@ class Ledger:
         `MAX_UNLOCK_TIME` is that, and a call while unlocked sets the
         timeout anew (src/wallet/rpc/encrypt.cpp:48-89). A wrong
         passphrase is refused, and so is a source whose keys the right
-        one does not decrypt.
+        one does not decrypt. A closed ledger is refused, one `close`
+        closed in another thread while the call ran included.
         """
         assert_type(passphrase, str, "passphrase")
         if not is_integer(timeout):
@@ -2224,6 +2231,7 @@ class Ledger:
         timeout = min(timeout, MAX_UNLOCK_TIME)
         if not passphrase:
             raise BTClibValueError("the passphrase is empty")
+        self._assert_open()
         key = _unlocked(passphrase, master_key)
         if key is None:
             raise BTClibValueError("the passphrase is wrong")
@@ -2236,8 +2244,12 @@ class Ledger:
             _wipe(key)
             raise
         # the key and the times it locks at are set as one, so that a
-        # `lock_keys` in another thread finds both or neither
+        # `lock_keys` in another thread finds both or neither; a `close`
+        # that ran meanwhile leaves the key zeroed and unset
         with self._key_lock:
+            if self._closed:
+                _wipe(key)
+                raise BTClibValueError(_CLOSED)
             if self._key is not None:
                 _wipe(self._key)
             self._key = key
@@ -2260,13 +2272,15 @@ class Ledger:
         ledger locked or unlocked as it was. A change refused past the
         check of an empty passphrase, a wrong `old` among the refusals,
         locks the ledger, as Core's `ChangeWalletPassphrase` locks the
-        wallet before it reads `old` (src/wallet/wallet.cpp:653).
+        wallet before it reads `old` (src/wallet/wallet.cpp:653). A closed
+        ledger is refused.
         """
         assert_type(old, str, "old")
         assert_type(new, str, "new")
         self._assert_encrypted()
         if not old or not new:
             raise BTClibValueError("the passphrase is empty")
+        self._assert_open()
         try:
             self._encrypt_master_key(old, new)
         except BaseException:
@@ -2318,6 +2332,11 @@ class Ledger:
         if self._master_key is None:
             raise BTClibValueError("the ledger is not encrypted")
         return self._master_key
+
+    def _assert_open(self) -> None:
+        """Refuse a ledger `close` closed."""
+        if self._closed:
+            raise BTClibValueError(_CLOSED)
 
     def _assert_unlocked(self) -> bytearray:
         """Return the master key, refusing a locked ledger."""
