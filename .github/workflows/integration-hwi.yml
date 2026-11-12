@@ -417,8 +417,7 @@ jobs:
       # speculos runs an ARM binary through qemu's user-mode emulation,
       # and the wheel does not carry qemu: it execs `qemu-arm-static` off
       # the PATH. qemu-user ships the emulator as `qemu-arm`, and the link
-      # gives it the name speculos asks for. No package of ubuntu-26.04
-      # ships `qemu-arm-static`
+      # gives it the name speculos asks for
       - name: Install what the emulator needs
         run: |
           sudo apt-get update
