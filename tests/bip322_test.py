@@ -26,7 +26,7 @@ from btclib import b58, bms
 from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
 from btclib.b58 import p2pkh, p2wpkh_p2sh, wif_from_prv_key
-from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
+from btclib.block.limits import MAX_BLOCK_SIGOPS_COST, MAX_BLOCK_WEIGHT
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibTypeError,
@@ -933,6 +933,173 @@ def test_b64decode_refuses_what_is_not_base64() -> None:
         bip322.Sig.b64decode(smuggled)
 
 
+POF_MAX_SIZE = bip322._MAX_PAYLOAD_SIZES[bip322.PROOF_OF_FUNDS]
+
+# the address the proofs of funds below spend: a p2wsh of `OP_1`, which
+# the finalized witness `[OP_1]` satisfies with no key
+_POF_ADDR = p2wsh(b"\x51")
+
+
+def _payload_of_size(variant: str, size: int) -> bytes:
+    """Return a payload of the variant that serializes to `size` octets.
+
+    One witness element, or the value of one unknown global record of a
+    psbt, takes what is left over, and its length takes five octets at
+    these sizes. The proof of funds is a valid one for `_POF_ADDR` and
+    the empty message.
+    """
+    spend = bip322.to_spend(b"", ScriptPubKey.from_address(_POF_ADDR).script)
+    if variant == bip322.SIMPLE:
+        # the element count, then the element's length
+        return Witness([b"\x01" * (size - 1 - 5)]).serialize()
+    if variant == bip322.FULL:
+        # the empty element's one-octet length becomes a five-octet one
+        rest = bip322.to_sign(spend, witness=Witness([b""]))
+        filler = size - len(rest.serialize(include_witness=True)) - 4
+        tx = bip322.to_sign(spend, witness=Witness([b"\x01" * filler]))
+        return tx.serialize(include_witness=True)
+    psbt = bip322.to_sign_psbt(b"", _POF_ADDR)
+    psbt.inputs[0].witness_utxo = spend.vout[0]
+    psbt.inputs[0].final_script_witness = Witness([b"\x51"])
+    # the key's length, the key, then the value's length
+    psbt.unknown = {b"\x7f": b"\x01" * (size - len(psbt.serialize()) - 1 - 1 - 5)}
+    return psbt.serialize()
+
+
+def _assert_too_long(variant: str, text: str, match: str) -> None:
+    """Assert how `b64decode`, `verify` and `assert_as_valid` refuse it.
+
+    Over its bound a simple or a full signature is invalid, and a proof
+    of funds is inconclusive, which `verify` answers False for.
+    """
+    with pytest.raises(BTClibValueError, match=match) as refused:
+        bip322.Sig.b64decode(text)
+    is_pof = variant == bip322.PROOF_OF_FUNDS
+    assert isinstance(refused.value, InconclusiveError) == is_pof
+    if is_pof:
+        assert not bip322.verify(b"", _POF_ADDR, text)
+        with pytest.raises(InconclusiveError, match=match):
+            bip322.assert_as_valid(b"", _POF_ADDR, text)
+    else:
+        with pytest.raises(BTClibValueError, match=match) as refused:
+            bip322.verify(b"", _POF_ADDR, text)
+        assert not isinstance(refused.value, InconclusiveError)
+
+
+_BOUNDS = [
+    (bip322.SIMPLE, MAX_BLOCK_WEIGHT),
+    (bip322.FULL, MAX_BLOCK_WEIGHT),
+    (bip322.PROOF_OF_FUNDS, POF_MAX_SIZE),
+]
+
+
+@pytest.mark.parametrize("variant, max_size", _BOUNDS)
+def test_b64decode_bounds_the_text_before_decoding(
+    variant: str, max_size: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The base64 of a payload at the bound is read, a character more is not.
+
+    The bounds are `bip322._MAX_PAYLOAD_SIZES`'s (issue #744). One
+    character over, the text is not base64, which is what a proof of
+    funds is refused for; a group over, it is canonical base64 of three
+    octets more.
+    """
+    data = _payload_of_size(variant, max_size)
+    assert len(data) == max_size
+    prefixes = [variant, ""] if variant == bip322.SIMPLE else [variant]
+    text = base64.b64encode(data).decode("ascii")
+    for prefix in prefixes:
+        assert bip322.Sig.b64decode(prefix + text).serialize() == data
+
+    # neither `_is_bms` nor `Sig.b64decode` decodes the text
+    decoded: list[str] = []
+    monkeypatch.setattr(bip322, "_b64decode", decoded.append)
+    for prefix in prefixes:
+        one_over = prefix + text + "A"
+        if variant == bip322.PROOF_OF_FUNDS:
+            not_canonical = "^invalid base64 encoding: not canonical$"
+            with pytest.raises(BTClibValueError, match=not_canonical) as e:
+                bip322.verify(b"", _POF_ADDR, one_over)
+            assert not isinstance(e.value, InconclusiveError)
+        else:
+            too_long = f"^{variant} signature too long: {len(text) + 1} base64 "
+            _assert_too_long(variant, one_over, too_long)
+
+    over = base64.b64encode(data + b"\x01" * 3).decode("ascii")
+    too_long = f"^{variant} signature too long: {len(over)} base64 characters"
+    for prefix in prefixes:
+        _assert_too_long(variant, prefix + over, too_long)
+    assert not decoded
+
+
+@pytest.mark.parametrize("variant, max_size", _BOUNDS)
+def test_b64decode_bounds_the_payload_after_decoding(
+    variant: str, max_size: int
+) -> None:
+    """A payload one octet over the bound has a text within it.
+
+    The longest text the bound admits holds up to two octets more.
+    """
+    over = _payload_of_size(variant, max_size + 1)
+    text = variant + base64.b64encode(over).decode("ascii")
+    match = f"^{variant} signature too long: {max_size + 1} octets, over {max_size}$"
+    _assert_too_long(variant, text, match)
+
+
+def test_a_valid_proof_of_funds_over_the_bound_is_inconclusive() -> None:
+    """A valid proof's text at the bound verifies; one octet longer cannot.
+
+    The text of a proof over the bound is inconclusive, as
+    `bip322._MAX_PAYLOAD_SIZES` says, and `verify` answers False for it
+    (issue #744). The bound is on text alone: the same proof as a `Sig`
+    verifies.
+    """
+    at_bound = _payload_of_size(bip322.PROOF_OF_FUNDS, POF_MAX_SIZE)
+    text = bip322.PROOF_OF_FUNDS + base64.b64encode(at_bound).decode("ascii")
+    assert bip322.verify(b"", _POF_ADDR, text)
+
+    over = _payload_of_size(bip322.PROOF_OF_FUNDS, POF_MAX_SIZE + 1)
+    assert bip322.verify(b"", _POF_ADDR, bip322.Sig(Psbt.parse(over)))
+    text = bip322.PROOF_OF_FUNDS + base64.b64encode(over).decode("ascii")
+    assert not bip322.verify(b"", _POF_ADDR, text)
+
+
+def test_a_proof_of_funds_over_the_bound_is_still_base64() -> None:
+    """Text over the bound that is not canonical base64 is refused as such.
+
+    It is not a proof of funds that today's limit cannot read, so it is
+    invalid rather than inconclusive, and `verify` raises for it.
+    """
+    # one base64 group over the bound
+    size = len(base64.b64encode(b"\x00" * POF_MAX_SIZE)) + 4
+    not_canonical = [
+        "!" * size,
+        "=" * size,
+        # not a multiple of four
+        "A" * (size + 1),
+        "A" * (size + 2),
+        # the bits the last character leaves over are not zero
+        "A" * (size - 4) + "AB==",
+        "A" * (size - 4) + "AAB=",
+        # padding in the middle, and three of it
+        "A" * (size - 8) + "AA==AAAA",
+        "A" * (size - 4) + "A===",
+    ]
+    for text in not_canonical:
+        with pytest.raises(BTClibValueError, match="^invalid base64 encoding") as e:
+            bip322.verify(b"", _POF_ADDR, bip322.PROOF_OF_FUNDS + text)
+        assert not isinstance(e.value, InconclusiveError)
+    # the canonical texts of the same length are the inconclusive ones:
+    # each character that leaves zero bits over before the padding
+    last_groups = [f"AA{c}=" for c in "AEIMQUYcgkosw048"]
+    last_groups += [f"A{c}==" for c in "AQgw"]
+    for last_group in last_groups:
+        canonical = bip322.PROOF_OF_FUNDS + "A" * (size - 4) + last_group
+        with pytest.raises(InconclusiveError):
+            bip322.Sig.b64decode(canonical)
+        assert not bip322.verify(b"", _POF_ADDR, canonical)
+
+
 def test_only_ascii_whitespace_is_stripped_from_a_signature() -> None:
     """A BIP322 signature and a legacy one, each padded both ways.
 
@@ -1037,6 +1204,16 @@ def test_a_legacy_signature_is_read_in_its_canonical_form_alone() -> None:
         BTClibValueError, match="^invalid base64 encoding: not canonical$"
     ):
         bip322.verify(msg, p2pkh(WIF_PUB), altered)
+
+    # a text of the same length with a character outside ASCII is not one
+    # either, and `Sig.b64decode` is what names the character
+    foreign = legacy[:-1] + "\N{NO-BREAK SPACE}"
+    assert not bip322._is_bms(foreign)
+    with pytest.raises(
+        BTClibValueError,
+        match=f"^non-ascii character in base64 signature at position {len(legacy) - 1}$",
+    ):
+        bip322.verify(msg, p2pkh(WIF_PUB), foreign)
 
 
 def _to_sign_of(msg: bytes, addr: str, **kwargs: Any) -> tuple[Tx, Tx]:
