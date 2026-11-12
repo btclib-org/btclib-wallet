@@ -2462,7 +2462,7 @@ _UNCOMPRESSED_PUB_KEY = PrvKeyData(_PRV_KEY, compressed=False).pub.sec
 def _key_hash_psbt(
     kind: str, script_key: bytes, prv_key: int, signing_key: bytes
 ) -> tuple[Psbt, list[TxOut]]:
-    """Build a one-input p2pkh, p2wpkh or p2sh-p2wpkh psbt, signed.
+    """Build a one-input p2pkh, p2wpkh, p2sh-p2wpkh or p2sh-p2pkh psbt, signed.
 
     The output commits to `script_key`, and the partial signature is made
     by `prv_key` and filed under `signing_key`. The scripts are serialized
@@ -2474,13 +2474,15 @@ def _key_hash_psbt(
         "p2pkh": ScriptPubKey(pkh),
         "p2wpkh": ScriptPubKey(wpkh),
         "p2sh-p2wpkh": ScriptPubKey.p2sh(wpkh),
+        "p2sh-p2pkh": ScriptPubKey.p2sh(pkh),
     }[kind]
     prev_out = TxOut(100_000, script_pub_key)
     tx, prev_tx = _spending_tx(prev_out)
 
     psbt = Psbt.from_tx(tx)
     psbt.inputs[0].non_witness_utxo = prev_tx
-    if kind == "p2pkh":
+    if kind in {"p2pkh", "p2sh-p2pkh"}:
+        psbt.inputs[0].redeem_script = pkh if kind == "p2sh-p2pkh" else b""
         msg_hash = sig_hash.legacy(pkh, tx, 0, 1)
     else:
         psbt.inputs[0].witness_utxo = prev_out
@@ -2503,7 +2505,43 @@ def test_an_uncompressed_p2pkh_input_is_finalized() -> None:
     verify_transaction(prev_outs, extract_tx(finalized, check_validity=False))
 
 
-@pytest.mark.parametrize("kind", ["p2pkh", "p2wpkh", "p2sh-p2wpkh"])
+@pytest.mark.parametrize(
+    "script_key", [_PUB_KEY, _UNCOMPRESSED_PUB_KEY], ids=["compressed", "uncompressed"]
+)
+def test_a_p2sh_p2pkh_input_pushes_its_redeem_script_last(script_key: bytes) -> None:
+    """A wrapped p2pkh is spent with the redeem script its output hashes.
+
+    Issue btclib-org/btclib-wallet#831. The script_sig is the one Bitcoin
+    Core's `finalizepsbt` writes, and the engine runs the result: without
+    the redeem script the p2sh check leaves a false top stack element.
+    """
+    psbt, prev_outs = _key_hash_psbt("p2sh-p2pkh", script_key, _PRV_KEY, script_key)
+    sig = psbt.inputs[0].partial_sigs[script_key]
+    redeem_script = psbt.inputs[0].redeem_script
+
+    finalized = finalize(psbt)
+    final_script_sig = finalized.inputs[0].final_script_sig
+    assert final_script_sig == serialize([sig, script_key, redeem_script])
+    verify_transaction(prev_outs, extract_tx(finalized, check_validity=False))
+
+
+@pytest.mark.parametrize("kind", ["p2wpkh", "p2sh-p2wpkh"])
+def test_an_uncompressed_p2wpkh_input_is_refused(kind: str) -> None:
+    """The output commits to the uncompressed key, and the spend is refused.
+
+    Issue btclib-org/btclib-wallet#830. BIP143 makes the spend
+    non-standard, and Bitcoin Core's `finalizepsbt` leaves the input
+    incomplete, though btclib's engine runs it.
+    """
+    psbt, _ = _key_hash_psbt(
+        kind, _UNCOMPRESSED_PUB_KEY, _PRV_KEY, _UNCOMPRESSED_PUB_KEY
+    )
+    err_msg = "an uncompressed key in a p2wpkh spend is non-standard"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt)
+
+
+@pytest.mark.parametrize("kind", ["p2pkh", "p2wpkh", "p2sh-p2wpkh", "p2sh-p2pkh"])
 @pytest.mark.parametrize(
     "script_key, prv_key, signing_key",
     [
