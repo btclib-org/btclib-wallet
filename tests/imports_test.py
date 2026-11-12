@@ -229,7 +229,7 @@ _ALLOWED_UNITS = {
     "_refusal": frozenset(),
     "bip32": frozenset(),
     "descriptors": frozenset({"bip32"}),
-    "psbt": frozenset({"_fee", "bip32", "descriptors", "silent_payments"}),
+    "psbt": frozenset({"_fee", "_refusal", "bip32", "descriptors", "silent_payments"}),
     "silent_payments": frozenset({"_refusal"}),
 }
 
