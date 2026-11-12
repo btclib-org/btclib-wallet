@@ -693,7 +693,9 @@ def test_estimate_fee_refuses_a_target_above_the_highest_quoted() -> None:
 
 def test_estimate_fee_refuses_a_target_the_deployment_has_no_quote_for() -> None:
     """A deployment answering only low targets has nothing at or above 1008."""
-    with pytest.raises(FetchError, match="no target quoted at or above 1008"):
+    with pytest.raises(
+        FetchError, match="^fee-estimates: no target quoted at or above the one asked$"
+    ):
         fetcher((200, fee_estimates(**{"1": 10, "2": 5}))).estimate_fee(1008)
 
 

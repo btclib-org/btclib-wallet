@@ -459,8 +459,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         self._verify_once()
         target = valid_confirmation_target(target)
         if target > _MAX_FEE_TARGET:
-            err_msg = f"confirmation target {target} above the highest quoted,"
-            err_msg += f" {_MAX_FEE_TARGET}"
+            err_msg = f"confirmation target {_message_text(target)} above the highest"
+            err_msg += f" quoted, {_MAX_FEE_TARGET}"
             raise BTClibValueError(err_msg)
         with fetch_errors("fee-estimates"):
             payload = json.loads(self.text("/fee-estimates", _MAX_FEE_ESTIMATES_BODY))
@@ -471,7 +471,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             available = {int(key): value for key, value in payload.items()}
             quoted_target = min((t for t in available if t >= target), default=None)
             if quoted_target is None:
-                err_msg = f"fee-estimates: no target quoted at or above {target}"
+                err_msg = "fee-estimates: no target quoted at or above the one asked"
                 raise FetchError(err_msg)
             rate = FeeRate.from_sats_per_vbyte(available[quoted_target], round_up=True)
             return FeeQuote(rate=rate, target=quoted_target)
@@ -693,7 +693,7 @@ def _valid_max_pages(max_pages: int) -> int:
     if not is_integer(max_pages):
         raise BTClibTypeError(f"invalid max_pages type: {type(max_pages).__name__}")
     if max_pages < 1:
-        raise BTClibValueError(f"invalid max_pages: {max_pages}")
+        raise BTClibValueError(f"invalid max_pages: {_message_text(max_pages)} < 1")
     return max_pages
 
 

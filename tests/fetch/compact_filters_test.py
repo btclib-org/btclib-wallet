@@ -145,7 +145,9 @@ def test_a_header_is_handed_over_as_a_copy() -> None:
 def test_a_height_past_the_tip_is_a_fetch_error() -> None:
     """The peer has no block above its tip."""
     fetcher, _ = build()
-    with pytest.raises(FetchError, match="no block at height 15"):
+    with pytest.raises(
+        FetchError, match="^no block at the height asked: the tip is 14$"
+    ):
         fetcher.get_block_header(TIP + 1)
 
 
@@ -240,7 +242,7 @@ def test_a_start_past_the_tip_scans_nothing() -> None:
 def test_a_stop_past_the_tip_is_a_fetch_error() -> None:
     """A stop height above the peer's tip is refused."""
     fetcher, _ = build()
-    with pytest.raises(FetchError, match="chain ends at 14, not 15"):
+    with pytest.raises(FetchError, match="chain ends at 14, below the stop height"):
         fetcher.scan_blocks([WALLET], 0, TIP + 1)
 
 
@@ -265,7 +267,9 @@ def test_a_range_and_the_scripts_are_checked_before_the_peer_is_asked() -> None:
         fetcher.scan_blocks(ScriptPubKey(WALLET, "regtest"))  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid max_blocks type"):
         fetcher.scan_blocks([WALLET], max_blocks="1")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="invalid max_blocks: 0"):
+    with pytest.raises(
+        BTClibValueError, match="^invalid max_blocks: an int of 0 bits < 1$"
+    ):
         fetcher.scan_blocks([WALLET], max_blocks=0)
     with pytest.raises(BTClibTypeError, match="not an iterable of scripts: int"):
         fetcher.scan_blocks(5)  # type: ignore[arg-type]
