@@ -149,15 +149,20 @@ jobs:
 
           lock = tomllib.loads(Path("uv.lock").read_text())
           package = next(p for p in lock["package"] if p["name"] == "btclib")
-          print("ref=v" + package["version"])
+          print("tag=v" + package["version"])
           PYTHON
       # The source is read and hashed, never imported or executed. The
       # provenance manifest checks the bytes, so a moved tag is refused.
+      #
+      # The output is named tag because CodeQL's actions/untrusted-checkout
+      # reads a ref from a step whose id or output name holds ref, head,
+      # branch, sha or commit as a pull request's head. This job never runs
+      # on a pull request.
       - name: Checkout the locked upstream strategies
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: btclib-org/btclib
-          ref: ${{ steps.btclib-version.outputs.ref }}
+          ref: ${{ steps.btclib-version.outputs.tag }}
           path: upstream-btclib
           persist-credentials: false
           sparse-checkout: src/btclib/testing
