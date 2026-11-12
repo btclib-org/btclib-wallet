@@ -629,7 +629,7 @@ def test_block_headers_response_refuses_hex_that_is_not_hex() -> None:
 def test_block_headers_response_refuses_hex_not_80_bytes_a_header(hex_: str) -> None:
     """One header is counted, so the `hex` is eighty bytes exactly."""
     result = {"count": 1, "hex": hex_, "max": 2016}
-    with pytest.raises(BTClibValueError, match="are not 1 headers"):
+    with pytest.raises(BTClibValueError, match="not 80 for each header counted"):
         block_headers_response(reply(id=5, result=result), 5, 1)
 
 
