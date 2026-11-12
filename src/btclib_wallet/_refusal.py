@@ -14,6 +14,11 @@ __all__: list[str] = []
 
 _QUOTED_MAX = 16
 
+# A signed 16-bit integer: JSON-RPC 2.0's reserved codes, -32768 to -32000,
+# Bitcoin Core's, and the codes electrs, ElectrumX, Fulcrum and Floresta
+# assign lie in it, and it is too narrow to carry a key
+_RPC_CODES = range(-(2**15), 2**15)
+
 
 def _quoted(value: int | str) -> str:
     """Return a refused parameter as a refusal may print it.

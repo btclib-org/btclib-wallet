@@ -1084,8 +1084,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 end = min(start + MAX_GETCFILTERS_SIZE, stop + 1) - 1
                 heights = self._matching_heights(start, end, elements)
                 if len(blocks) + len(heights) > max_blocks:
-                    err_msg = "the filters match more than the max_blocks of"
-                    err_msg += f" {max_blocks} blocks"
+                    err_msg = "the filters match more blocks than max_blocks,"
+                    err_msg += f" {_message_text(max_blocks)}"
                     raise FetchError(err_msg)
                 if heights:
                     blocks |= self._blocks(heights)

@@ -460,3 +460,16 @@ def test_a_refusal_names_the_request_and_not_its_descriptor() -> None:
     with pytest.raises(BTClibRuntimeError, match="error code None$") as e:
         assert_imported([request], [answer])
     assert secret not in chained_text(e.value)
+
+
+@pytest.mark.parametrize(
+    "code, kept",
+    [(-(2**15), -(2**15)), (2**15 - 1, 2**15 - 1), (2**15, None), (-(2**15) - 1, None)],
+)
+def test_a_refusal_quotes_a_code_of_16_signed_bits_only(
+    code: int, kept: int | None
+) -> None:
+    """A wider code could hold the scalar of a key (issue #836)."""
+    answer = {"success": False, "error": {"code": code}}
+    with pytest.raises(BTClibRuntimeError, match=f"error code {kept}$"):
+        assert_imported([{}], [answer])

@@ -252,6 +252,24 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         with client_errors():
             return self.client.get_bin(path, **bound)
 
+    def _get_bin_at(
+        self, path: str, endpoint: str, *, max_body_size: int | None
+    ) -> bytes:
+        """Return the raw body of a `-rest` request holding a caller's value.
+
+        Section 7 of the btclib-org standard, *A refusal carries no secret*:
+        a height or a tx id in the wrong place may be a key. A status that
+        is not 200 is an `HttpError` naming `endpoint`, the path with that
+        value replaced by its name, and raised outside the handler, so that
+        no exception it chains holds the path.
+        """
+        try:
+            return self._get_bin(path, max_body_size=max_body_size)
+        except HttpError as e:
+            status = e.status
+        err_msg = f"GET {endpoint} at {self.client.url}: HTTP {status}"
+        raise HttpError(err_msg, status)
+
     def _get_json(self, path: str, *, max_body_size: int) -> Any:
         """Return the parsed body of one `-rest` request, errors translated.
 
@@ -276,7 +294,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         """
         self._verify_once()
         hex_ = tx_id_hex(tx_id)
-        raw = self._get_bin(f"/tx/{hex_}.bin", max_body_size=None)
+        raw = self._get_bin_at(f"/tx/{hex_}.bin", "/tx/<txid>.bin", max_body_size=None)
         return tx_from_raw(raw, hex_, self.network)
 
     @override
@@ -317,8 +335,10 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         self._verify_once()
         height = block_header_height(height)
         with fetch_errors("blockhashbyheight"):
-            raw_hash = self._get_bin(
-                f"/blockhashbyheight/{height}.bin", max_body_size=_MAX_HASH_BODY
+            raw_hash = self._get_bin_at(
+                f"/blockhashbyheight/{height}.bin",
+                "/blockhashbyheight/<height>.bin",
+                max_body_size=_MAX_HASH_BODY,
             )
             block_hash = bytes_from_octets(raw_hash, 32)[::-1].hex()
         raw = self._get_bin(

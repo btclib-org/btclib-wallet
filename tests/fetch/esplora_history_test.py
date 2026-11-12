@@ -242,7 +242,9 @@ def test_the_pages_of_a_script_are_bounded() -> None:
     _fetcher(explorer).get_history([OURS], max_pages=3)
     # two transactions a page each, and the empty page that ends them
     assert len(_chain_pages(explorer)) == 3
-    with pytest.raises(FetchError, match="more than the max_pages of 2 pages"):
+    with pytest.raises(
+        FetchError, match="more pages than max_pages, an int of 2 bits$"
+    ):
         _fetcher(_explorer(page=1)).get_history([OURS], max_pages=2)
 
 
@@ -278,7 +280,9 @@ def test_an_explorer_with_endless_pages_is_cut_at_the_default_bound() -> None:
     """New txids at the tip, page after page, stop at `_MAX_HISTORY_PAGES`."""
     pages: list[str] = []
     fetcher = _flooding(1, pages)
-    with pytest.raises(FetchError, match="more than the max_pages of 1000 pages"):
+    with pytest.raises(
+        FetchError, match="more pages than max_pages, an int of 10 bits$"
+    ):
         fetcher.get_history([OURS])
     assert len(pages) == esplora._MAX_HISTORY_PAGES == 1000
     # past the bound the explorer answers the empty page a fetcher with no
@@ -291,7 +295,9 @@ def test_a_page_of_more_than_25_transactions_is_refused() -> None:
     with pytest.raises(FetchError, match="200 transactions in a page, more than 25"):
         _flooding(200, []).get_history([OURS])
     # a page of 25 is read, and only the bound on pages stops the next
-    with pytest.raises(FetchError, match="more than the max_pages of 1 pages"):
+    with pytest.raises(
+        FetchError, match="more pages than max_pages, an int of 1 bits$"
+    ):
         _flooding(25, []).get_history([OURS], max_pages=1)
 
 
