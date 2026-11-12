@@ -181,7 +181,7 @@ def test_core_fixed_vector(vector: dict[str, Any], context: str) -> None:
 def and_b_chain(count: int) -> str:
     """Return `count` keys nested in and_b(), which is Core's large script."""
     nested = "".join(f"and_b(pk({KEYS[i]}),a:" for i in range(count - 1))
-    return nested + f"pk({KEYS[count - 1]})" + ")" * (count - 1)
+    return f"{nested}pk({KEYS[count - 1]})" + ")" * (count - 1)
 
 
 def test_a_multi_a_holds_more_keys_than_a_multi_may() -> None:
@@ -748,9 +748,9 @@ def test_a_hardened_key_without_its_private_key_is_compared_as_written(
 @pytest.mark.parametrize(
     "keys, repeated",
     [
-        ((CHILD[2:], "02" + CHILD[2:]), True),
-        ((CHILD[2:], "03" + CHILD[2:]), False),
-        (("02" + CHILD[2:], "03" + CHILD[2:]), False),
+        ((CHILD[2:], f"02{CHILD[2:]}"), True),
+        ((CHILD[2:], f"03{CHILD[2:]}"), False),
+        ((f"02{CHILD[2:]}", f"03{CHILD[2:]}"), False),
         ((f"{XPUB}/1", f"{XPUB}/2"), False),
         ((f"{XPRV}/1h", f"{XPRV}/2h"), False),
     ],
@@ -931,7 +931,7 @@ def test_a_script_says_whether_it_is_the_expression_it_reads_as() -> None:
     """
     assert reads_back(parse(f"and_v(v:pk({KEY}),older(36))").script())
     assert not reads_back(serialize(["OP_DROP", "OP_1"]))
-    assert not reads_back("21" + KEY[:-2])
+    assert not reads_back(f"21{KEY[:-2]}")
 
 
 def test_a_script_too_large_for_its_context_is_refused() -> None:
@@ -954,7 +954,7 @@ def test_a_script_too_large_for_its_context_is_refused() -> None:
 def test_a_truncated_push_is_not_a_script() -> None:
     """Refuse bytes that stop in the middle of a push."""
     with pytest.raises(BTClibValueError, match="not a script"):
-        from_script("21" + KEY[:-2])
+        from_script(f"21{KEY[:-2]}")
 
 
 # the shapes of a multi_a() that is not one, written as the op codes they

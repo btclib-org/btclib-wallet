@@ -3660,9 +3660,7 @@ class _KeyManager:
     def _prv_key(self, pub_key: bytes, origin: BIP32KeyOrigin | None) -> int | None:
         if pub_key in self.by_pub_key:
             return self.by_pub_key[pub_key]
-        if origin is not None:
-            return self.by_origin.get(origin.description)
-        return None
+        return self.by_origin.get(origin.description) if origin is not None else None
 
     def sign_ecdsa(
         self, pub_key: bytes, origin: BIP32KeyOrigin | None, msg_hash: bytes
@@ -5519,8 +5517,8 @@ def test_b64decode_refuses_a_padding_bit_set(test_vector: dict[str, str]) -> Non
 @pytest.mark.parametrize(
     "excess",
     [
-        pytest.param(TO_BE_FINALIZED + "=", id="after a whole group"),
-        pytest.param(TO_BE_FINALIZED + "===", id="three after a whole group"),
+        pytest.param(f"{TO_BE_FINALIZED}=", id="after a whole group"),
+        pytest.param(f"{TO_BE_FINALIZED}===", id="three after a whole group"),
     ],
 )
 def test_b64decode_refuses_excess_padding(excess: str) -> None:

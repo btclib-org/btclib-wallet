@@ -109,14 +109,13 @@ def tx_or_psbt_from_any(data: String, *, check_validity: bool = True) -> Tx | Ps
     hex, base64 or bytes; a `Psbt` when BIP174's magic is what the bytes
     begin with, a `Tx` when it is not.
     """
-    octets = _octets_from_any(data)
-
-    if not octets:
+    if not (octets := _octets_from_any(data)):
         # what Tx.parse would answer here is "not enough binary data for
         # var_int", which describes a field the caller never had
         raise BTClibValueError("no data")
 
-    if octets.startswith(PSBT_MAGIC_BYTES):
-        return Psbt.parse(octets, check_validity=check_validity)
-
-    return Tx.parse(octets, check_validity=check_validity)
+    return (
+        Psbt.parse(octets, check_validity=check_validity)
+        if octets.startswith(PSBT_MAGIC_BYTES)
+        else Tx.parse(octets, check_validity=check_validity)
+    )

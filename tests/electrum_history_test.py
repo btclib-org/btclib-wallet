@@ -38,7 +38,7 @@ def test_history_request_asks_for_the_script_hash_as_given() -> None:
     }
 
 
-@pytest.mark.parametrize("script_hash", ["ab" * 31, " " + SCRIPT_HASH])
+@pytest.mark.parametrize("script_hash", ["ab" * 31, f" {SCRIPT_HASH}"])
 def test_history_request_refuses_a_malformed_hash(script_hash: str) -> None:
     """The check `scripthash_get_balance_request` makes."""
     with pytest.raises(BTClibValueError, match="invalid scripthash"):

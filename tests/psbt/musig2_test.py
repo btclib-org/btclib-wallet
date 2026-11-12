@@ -45,13 +45,13 @@ def signed_vectors() -> list[Any]:
     return [
         pytest.param(test_vector, id=vector_id(index, test_vector["description"]))
         for index, test_vector in enumerate(
-            [
+            (
                 test_vector
                 for test_vector in load("psbt", "_data", "bip373_test_vectors.json")[
                     "valid psbts"
                 ]
                 if "all partial signatures" in test_vector["description"]
-            ],
+            ),
             1,
         )
     ]

@@ -106,9 +106,8 @@ def test_out_of_range_scalar(monkeypatch: pytest.MonkeyPatch) -> None:
     bad_q = ec.n.to_bytes(32, byteorder="big")
 
     def fake_sha256(data: bytes) -> bytes:
-        if data.endswith(b"?"):
-            return b"\x00" * 32  # still passes the typo check
-        return bad_q
+        # the all-zero digest still passes the typo check
+        return b"\x00" * 32 if data.endswith(b"?") else bad_q
 
     monkeypatch.setattr(minikey, "sha256", fake_sha256)
     with pytest.raises(InvalidPrvKeyError, match="private key not in 1..n-1"):

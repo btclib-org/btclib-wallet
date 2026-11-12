@@ -208,9 +208,7 @@ def test_get_history_refuses_an_answer_whose_tip_moved() -> None:
     moved = iter([rest.node.hashes[-1], rest.node.hashes[-2]])
 
     def move(kind: str, reply: Any) -> Any:
-        if kind == "chaininfo":
-            return {"bestblockhash": next(moved)}
-        return reply
+        return {"bestblockhash": next(moved)} if kind == "chaininfo" else reply
 
     rest.edit = move
     with pytest.raises(FetchError, match="the tip moved"):

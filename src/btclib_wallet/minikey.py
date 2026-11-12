@@ -91,7 +91,7 @@ def prv_key_data_from_minikey(minikey: str) -> PrvKeyData:
     if any(c not in _ALPHABET for c in minikey):
         raise NotAPrvKeyError("not a minikey: character outside the base58 alphabet")
 
-    if sha256((minikey + "?").encode("ascii"))[0] != 0x00:
+    if sha256(f"{minikey}?".encode("ascii"))[0] != 0x00:
         raise InvalidPrvKeyError("invalid minikey: failed checksum")
 
     q = int.from_bytes(sha256(minikey.encode("ascii")), byteorder="big")

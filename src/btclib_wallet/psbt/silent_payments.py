@@ -185,9 +185,7 @@ def _witness_version(script: bytes) -> int | None:
         return None
     if script[0] == 0:
         return 0
-    if _OP_1 <= script[0] <= _OP_1 + 15:
-        return script[0] - _OP_1 + 1
-    return None
+    return script[0] - _OP_1 + 1 if _OP_1 <= script[0] <= _OP_1 + 15 else None
 
 
 def _script_pub_key(psbt_in: PsbtIn) -> bytes:
@@ -470,12 +468,13 @@ def _share_and_sum(psbt: Psbt, scan_key: bytes) -> tuple[bytes, Point] | None:
     eligible = _eligible_keys(psbt)
     share = psbt.sp_ecdh_shares.get(scan_key)
     if share is None:
-        shares = [
-            psbt.inputs[i].sp_ecdh_shares[scan_key]
-            for i in eligible
-            if scan_key in psbt.inputs[i].sp_ecdh_shares
-        ]
-        if not shares:
+        if not (
+            shares := [
+                psbt.inputs[i].sp_ecdh_shares[scan_key]
+                for i in eligible
+                if scan_key in psbt.inputs[i].sp_ecdh_shares
+            ]
+        ):
             return None
         share = bytes_from_point(sp.pub_key_sum(shares), secp256k1)
     if not eligible:

@@ -66,7 +66,7 @@ def test_balance_request_refuses_a_non_string_hash(script_hash: object) -> None:
 
 @pytest.mark.parametrize(
     "script_hash",
-    ["", "ab" * 31, "ab" * 33, "gh" * 32, " " + SCRIPT_HASH, SCRIPT_HASH + "\n"],
+    ["", "ab" * 31, "ab" * 33, "gh" * 32, f" {SCRIPT_HASH}", SCRIPT_HASH + "\n"],
 )
 def test_balance_request_refuses_a_malformed_hash(script_hash: str) -> None:
     """Exactly 64 hex characters go on the wire."""

@@ -44,7 +44,7 @@ _PADDED_ONE = "0" * 5000 + "1"
 def _invoice_with_amount(digits: str) -> str:
     """Return an invoice text, valid as bech32, with `digits` as its amount."""
     words = [0] * (7 + _SIGNATURE_WORDS)
-    return bech32_encode("lnbc" + digits + "m", words, m=1, limit=None).decode()
+    return bech32_encode(f"lnbc{digits}m", words, m=1, limit=None).decode()
 
 
 LONG_NUMBER_CASES: dict[str, Callable[[], Any]] = {
@@ -95,7 +95,7 @@ def test_a_number_over_4300_digits_is_refused_as_btclib_value_error(
 def test_leading_zeros_are_no_digits_of_the_number() -> None:
     """Read `0` repeated and then `1` as 1: zeros change no value."""
     assert int_from_index_str(_PADDED_ONE) == 1
-    assert int_from_index_str(_PADDED_ONE + "h") == 0x80000001
+    assert int_from_index_str(f"{_PADDED_ONE}h") == 0x80000001
     assert miniscript.parse(f"older({_PADDED_ONE})").threshold == 1
     assert int_from_index_str("0" * 5000) == 0
 
@@ -191,7 +191,7 @@ def _count_the_quadratic_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 def _nested_thresh(count: int, inner: str) -> str:
     """Return a `thresh()` of `count` arguments, each the `inner` one."""
-    return "thresh(1," + inner + (",a:" + inner) * (count - 1) + ")"
+    return f"thresh(1,{inner}" + f",a:{inner}" * (count - 1) + ")"
 
 
 def test_nested_thresh_is_refused_by_the_running_total_of_size(

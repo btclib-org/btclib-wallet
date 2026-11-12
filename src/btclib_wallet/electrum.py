@@ -205,7 +205,7 @@ def _too_deep(text: str) -> bool:
     excess.
     """
     depth = 0
-    for bracket in _NOT_BRACKET.sub("", _STRING.sub("", text + '""')):
+    for bracket in _NOT_BRACKET.sub("", _STRING.sub("", f'{text}""')):
         if bracket in "[{":
             depth += 1
             if depth > _MAX_NESTING:

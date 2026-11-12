@@ -359,12 +359,13 @@ def watched_range(
     where asking for one entry's range can be a narrowing of the other's.
     """
     wanted = _comparable(descriptor)
-    ranges = [
-        entry["range"]
-        for entry in reply["descriptors"]
-        if _comparable(str(entry["desc"])) == wanted and "range" in entry
-    ]
-    if not ranges:
+    if not (
+        ranges := [
+            entry["range"]
+            for entry in reply["descriptors"]
+            if _comparable(str(entry["desc"])) == wanted and "range" in entry
+        ]
+    ):
         return None
     return (
         min(int(key_range[0]) for key_range in ranges),

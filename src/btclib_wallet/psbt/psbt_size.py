@@ -385,9 +385,7 @@ def miniscript_sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
     except BTClibValueError:
         return None
     stack = node.max_witness_stack
-    if stack is None:
-        return None
-    return [*stack, len(psbt_in.witness_script)]
+    return None if stack is None else [*stack, len(psbt_in.witness_script)]
 
 
 def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:

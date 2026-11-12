@@ -134,7 +134,7 @@ def _participants(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
     """Return the participants of an aggregate key, in aggregation order."""
     participants = psbt_in.musig2_participant_pub_keys.get(aggregate_pub_key)
     if not participants:
-        err_msg = "no musig2 participants for aggregate key " + aggregate_pub_key.hex()
+        err_msg = f"no musig2 participants for aggregate key {aggregate_pub_key.hex()}"
         raise BTClibValueError(err_msg)
     return participants
 
