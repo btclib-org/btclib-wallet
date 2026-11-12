@@ -35,8 +35,11 @@ from tests.secret_free import assert_secret_free
 RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
 
 
-class _Unordered(int):
-    """An int no comparison orders, so that it passes every bound."""
+class _PastBounds(int):
+    """An int whose < and > answer False.
+
+    It passes both bounds of `EsploraFetcher.estimate_fee`.
+    """
 
     @override
     def __lt__(self, _other: object) -> bool:
@@ -44,10 +47,6 @@ class _Unordered(int):
 
     @override
     def __gt__(self, _other: object) -> bool:
-        return False
-
-    @override
-    def __le__(self, _other: object) -> bool:
         return False
 
 
@@ -84,7 +83,7 @@ class _Unordered(int):
         ),
         (
             lambda: esplora_fetcher((200, fee_estimates(**{"1": 10}))).estimate_fee(
-                _Unordered(SCALAR)
+                _PastBounds(SCALAR)
             ),
             "^fee-estimates: no target quoted at or above the one asked$",
         ),
