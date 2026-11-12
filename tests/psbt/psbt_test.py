@@ -54,7 +54,9 @@ from btclib_wallet.psbt import (
     taproot_sig_hash,
 )
 from btclib_wallet.psbt import musig2 as psbt_musig2
+from btclib_wallet.psbt import psbt as psbt_module
 from btclib_wallet.psbt.psbt import (
+    _MAX_PSBT_SIZE,
     _V2_GLOBAL_FIELDS,
     HAS_SIG_HASH_SINGLE,
     INPUTS_MODIFIABLE,
@@ -62,6 +64,7 @@ from btclib_wallet.psbt.psbt import (
     PSBT_GLOBAL_UNSIGNED_TX,
     PSBT_GLOBAL_VERSION,
     _assert_sendable_sig_hash_types,
+    _b64_size,
     _has_signature,
     _prev_out,
     _sig_hash_from_psbt_in,
@@ -73,7 +76,14 @@ from btclib_wallet.psbt.psbt_in import _V2_FIELDS as _V2_INPUT_FIELDS
 from btclib_wallet.psbt.psbt_in import LOCK_TIME_THRESHOLD
 from btclib_wallet.psbt.psbt_out import _V2_FIELDS as _V2_OUTPUT_FIELDS
 from btclib_wallet.psbt.psbt_utils import PSBT_SEPARATOR, PSBT_V2
-from tests import EXCESS_PADDING, NOT_STRIPPED, chained_text, load, padding_bits_set
+from tests import (
+    EXCESS_PADDING,
+    NOT_STRIPPED,
+    chained_text,
+    load,
+    padding_bits_set,
+    psbt_of_size,
+)
 from tests.conftest import JsonGolden
 from tests.psbt import psbt_vectors
 
@@ -5643,6 +5653,36 @@ def test_b64decode_refuses_excess_padding(excess: str) -> None:
     """
     with pytest.raises(BTClibValueError, match=EXCESS_PADDING):
         Psbt.b64decode(excess)
+
+
+def test_b64decode_bounds_the_text_before_decoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The base64 of a psbt at the bound is read, a character more is not.
+
+    The bound is `_MAX_PSBT_SIZE` octets, and is on the text with its
+    whitespace stripped (issue #823). The longest text it admits holds
+    two octets more, which are refused once decoded.
+    """
+    psbt_bin = psbt_of_size(TO_BE_FINALIZED, _MAX_PSBT_SIZE)
+    text = base64.b64encode(psbt_bin).decode("ascii")
+    max_size = _b64_size(_MAX_PSBT_SIZE)
+    assert len(text) == max_size
+    assert Psbt.b64decode(f" {text}\n").serialize() == psbt_bin
+
+    over = base64.b64encode(psbt_of_size(TO_BE_FINALIZED, _MAX_PSBT_SIZE + 2))
+    assert len(over) == max_size
+    octets = _MAX_PSBT_SIZE + 2
+    too_long = f"^base64 psbt too long: {octets} octets, over {_MAX_PSBT_SIZE}$"
+    with pytest.raises(BTClibValueError, match=too_long):
+        Psbt.b64decode(over)
+
+    decoded: list[str] = []
+    monkeypatch.setattr(psbt_module, "_b64decode", decoded.append)
+    too_long = f"^base64 psbt too long: {max_size + 1} characters, over {max_size}$"
+    with pytest.raises(BTClibValueError, match=too_long):
+        Psbt.b64decode(f" {text}A\n")
+    assert not decoded
 
 
 _ECDSA_TYPES = [

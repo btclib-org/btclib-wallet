@@ -283,6 +283,37 @@ def _b64decode(text: str) -> bytes:
     return decoded
 
 
+# the longest psbt read from hex or base64 (issue #823). A text longer
+# than its encoding is refused before it is decoded, and base64 decoding
+# to more octets after, as the longest base64 holds up to two more.
+# BIP174 sets no bound, and neither does Core's DecodeBase64PSBT
+# (src/psbt.cpp at bitcoin/bitcoin@f0de87f040, the v32.1 tag), so a
+# psbt is held to the bound rust-bitcoin/bip322#92 proposes, read at
+# its head `081ed985bc`. Its base64 is shorter than the 32 MiB
+# MAX_BODY_SIZE of Core's RPC server (src/httpserver.h at the same
+# commit)
+_MAX_PSBT_SIZE = 16 * 1024 * 1024
+
+
+def _b64_size(size: int) -> int:
+    """Return the length of the canonical base64 text of `size` octets."""
+    return 4 * ((size + 2) // 3)
+
+
+def _assert_text_size(size: int, max_size: int, what: str) -> None:
+    """Refuse a text of more than `max_size` characters, given its `size`."""
+    if size > max_size:
+        err_msg = f"{what} too long: {size} characters, over {max_size}"
+        raise BTClibValueError(err_msg)
+
+
+def _assert_decoded_size(decoded: bytes, what: str) -> None:
+    """Refuse decoded octets longer than `_MAX_PSBT_SIZE`."""
+    if len(decoded) > _MAX_PSBT_SIZE:
+        err_msg = f"{what} too long: {len(decoded)} octets, over {_MAX_PSBT_SIZE}"
+        raise BTClibValueError(err_msg)
+
+
 def _assert_map_count(count: int, maximum: int, what: str) -> None:
     """Refuse a declared map count no transaction could have.
 
@@ -1656,11 +1687,16 @@ class Psbt:
         break included: Bitcoin Core's `DecodeBase64PSBT` refuses the same,
         and `tx_or_psbt.tx_or_psbt_from_any` is the reader that takes a psbt
         wrapped in lines.
+
+        A text longer than the base64 of `_MAX_PSBT_SIZE` octets is refused
+        before it is decoded, and a psbt longer than that after.
         """
         # ASCII whitespace alone (issue #102)
         psbt_str = _ascii_text(psbt_str, "base64 psbt").strip(string.whitespace)
+        _assert_text_size(len(psbt_str), _b64_size(_MAX_PSBT_SIZE), "base64 psbt")
         # canonical base64 alone (issues #108 and #114)
         psbt_decoded = _b64decode(psbt_str)
+        _assert_decoded_size(psbt_decoded, "base64 psbt")
         return cls.parse(psbt_decoded, check_validity=check_validity)
 
     @classmethod

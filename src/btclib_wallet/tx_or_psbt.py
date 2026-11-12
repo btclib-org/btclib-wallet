@@ -32,8 +32,12 @@ from btclib.tx import Tx
 from btclib.utils import bytes_from_octets
 
 from btclib_wallet.psbt.psbt import (
+    _MAX_PSBT_SIZE,
     PSBT_MAGIC_BYTES,
     Psbt,
+    _assert_decoded_size,
+    _assert_text_size,
+    _b64_size,
     _b64decode,
     _non_ascii_position,
 )
@@ -51,6 +55,13 @@ def _octets_from_text(text: str) -> bytes:
     other way round there is nothing to resolve: base64's alphabet has
     every letter, so a base64 string is almost never hex, and BIP174's
     magic makes one of them start with `cHNidP8`.
+
+    A text longer than the hex of `_MAX_PSBT_SIZE` octets is refused
+    before it is decoded. One that is not hex is refused if it is longer
+    than the base64 of `_MAX_PSBT_SIZE` octets before it is decoded, and
+    if it decodes to more octets after, as in `Psbt.b64decode`. No
+    transaction a block can hold is longer: its size is at most its
+    weight, which `MAX_BLOCK_WEIGHT` bounds.
     """
     # before the whitespace is dropped, so that the position is the one in
     # the text as given
@@ -60,7 +71,10 @@ def _octets_from_text(text: str) -> bytes:
         raise BTClibValueError(err_msg)
     # ASCII whitespace and nothing else is dropped, since base64 arrives
     # wrapped as often as not -- and bytes.fromhex skips exactly that set
-    # anyway, so this only makes the two consistent (issue #102)
+    # anyway, so this only makes the two consistent (issue #102). It is
+    # counted first, so that a text over the hex bound is not copied either
+    size = len(text) - sum(map(text.count, string.whitespace))
+    _assert_text_size(size, 2 * _MAX_PSBT_SIZE, "text")
     packed = text.translate(str.maketrans("", "", string.whitespace))
 
     try:
@@ -68,11 +82,14 @@ def _octets_from_text(text: str) -> bytes:
     except ValueError:
         pass
 
+    _assert_text_size(size, _b64_size(_MAX_PSBT_SIZE), "base64 text")
     try:
         # canonical base64 alone (issue #114)
-        return _b64decode(packed)
+        decoded = _b64decode(packed)
     except BTClibValueError as e:
         raise BTClibValueError("neither hex nor base64") from e
+    _assert_decoded_size(decoded, "base64 text")
+    return decoded
 
 
 def _octets_from_any(data: String) -> bytes:

@@ -141,7 +141,7 @@ from ecc.hashes import tagged_hash
 
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx
-from btclib_wallet.psbt.psbt import _ascii_text, _b64decode
+from btclib_wallet.psbt.psbt import _MAX_PSBT_SIZE, _ascii_text, _b64_size, _b64decode
 
 __all__ = [
     "FULL",
@@ -194,11 +194,6 @@ _OP_RETURN = b"\x6a"
 _BMS_SIZE = 65
 
 
-def _b64_size(size: int) -> int:
-    """Return the length of the canonical base64 text of `size` octets."""
-    return 4 * ((size + 2) // 3)
-
-
 # the bound on each variant's payload, which bounds its text before it is
 # decoded and the payload after (issue #744). A transaction's weight is at
 # least its own serialized size, Core's MAX_BLOCK_WEIGHT bounds that
@@ -207,14 +202,13 @@ def _b64_size(size: int) -> int:
 # and a longer one is invalid. A shorter one may still weigh more than
 # `MAX_BLOCK_WEIGHT`, which `_assert_weight` refuses (issue #826). A psbt has no
 # such bound, as it may carry a whole previous transaction per input, and
-# BIP322 sets no maximum size for one, so a proof of funds is held to the
-# bound rust-bitcoin/bip322#92 proposes, read at its head `081ed985bc`.
-# That bound is this module's and not the BIP's, so a longer proof of
-# funds is inconclusive
+# BIP322 sets no maximum size for one, so a proof of funds is held to
+# `_MAX_PSBT_SIZE`, which `Psbt.b64decode` holds a psbt to as well. That
+# bound is not the BIP's, so a longer proof of funds is inconclusive
 _MAX_PAYLOAD_SIZES = {
     SIMPLE: MAX_BLOCK_WEIGHT,
     FULL: MAX_BLOCK_WEIGHT,
-    PROOF_OF_FUNDS: 16 * 1024 * 1024,
+    PROOF_OF_FUNDS: _MAX_PSBT_SIZE,
 }
 
 _B64_ALPHABET = (string.ascii_letters + string.digits + "+/").encode("ascii")
