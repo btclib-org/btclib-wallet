@@ -472,7 +472,6 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         with fetch_errors("blockchain.estimatefee"):
             result = electrum.estimate_fee_response(line, request_id)
             if result == -1:
-                err_msg = f"blockchain.estimatefee: no estimate for target {target}"
-                raise FetchError(err_msg)
+                raise FetchError("blockchain.estimatefee: no estimate for this target")
             rate = FeeRate.from_btc_per_kvbyte(result, round_up=True)
             return FeeQuote(rate=rate, target=target)

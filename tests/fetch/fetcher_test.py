@@ -415,7 +415,7 @@ def test_get_tx_out_answers_for_an_output_already_spent() -> None:
 
 
 def test_get_tx_out_refuses_a_vout_the_transaction_does_not_have() -> None:
-    """Refuse an out-of-range vout with a FetchError naming it.
+    """Refuse an out-of-range vout with a FetchError describing it.
 
     2, one past the transaction's last output, is the boundary the check
     is written on; 1000 is not, and is what tells a `>=` refusal from one
@@ -423,7 +423,7 @@ def test_get_tx_out_refuses_a_vout_the_transaction_does_not_have() -> None:
     CPython interns, from one that only catches identity.
     """
     fetcher = StubFetcher(Tx.parse(RAW))
-    with pytest.raises(FetchError, match="out of range vout: 2"):
+    with pytest.raises(FetchError, match="out of range vout: an int of 2 bits "):
         fetcher.get_tx_out(OutPoint(TX_ID, 2))
-    with pytest.raises(FetchError, match="out of range vout: 1000"):
+    with pytest.raises(FetchError, match="out of range vout: an int of 10 bits "):
         fetcher.get_tx_out(OutPoint(TX_ID, 1000))
