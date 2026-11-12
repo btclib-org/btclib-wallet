@@ -600,8 +600,7 @@ def test_these_modules_open_no_client(module_name: str, heavy_expected: bool) ->
     `urllib`, `ssl` and `socket` behind them. A server of the Electrum
     protocol imports the codec alone, and every module catching a
     `FetchError` imports the exceptions alone: neither pays for a client.
-    `bip44` takes a `HistoryReader` and imports `fetch` under
-    `TYPE_CHECKING` alone, so a caller deriving an address pays for none.
+    ARCHITECTURE.md says why `bip44` pays for none.
 
     `socket` is not asserted absent: `importlib.metadata`, which reads the
     version of btclib, imports it through `email.utils` on interpreters

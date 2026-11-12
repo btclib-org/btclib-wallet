@@ -557,10 +557,14 @@ class _Chain:
         return spend
 
     def _paid(self, tx_in: TxIn) -> bytes:
-        for tx in self.txs:
-            if tx.id == tx_in.prev_out.tx_id:
-                return tx.vout[tx_in.prev_out.vout].script_pub_key.script
-        return b""
+        return next(
+            (
+                tx.vout[tx_in.prev_out.vout].script_pub_key.script
+                for tx in self.txs
+                if tx.id == tx_in.prev_out.tx_id
+            ),
+            b"",
+        )
 
     def get_history(
         self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
