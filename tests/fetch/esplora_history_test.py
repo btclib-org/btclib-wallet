@@ -214,9 +214,7 @@ def test_a_confirmed_transaction_listed_in_the_mempool_is_unconfirmed() -> None:
     def demote(kind: str, reply: Any) -> Any:
         if kind == "chain":
             return [entry for entry in reply if entry["txid"] != SPEND.id.hex()]
-        if kind == "mempool":
-            return [{"txid": SPEND.id.hex()}]
-        return reply
+        return [{"txid": SPEND.id.hex()}] if kind == "mempool" else reply
 
     explorer.edit = demote
     history = _fetcher(explorer).get_history([OURS])

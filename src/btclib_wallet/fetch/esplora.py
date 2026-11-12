@@ -19,8 +19,8 @@ What the fallback promises is the same answers behind the same
 interface. What it does not promise is that they are all true. `get_tx`
 is the one answer that checks itself, in `tx_from_raw` -- the
 serialization comes back and the id is recomputed from it, so a
-substituted transaction is caught, but not a changed witness, which the
-id does not commit to. `get_block_header` checks less:
+substituted transaction is caught; `get_history` says what the id leaves
+to the explorer's word. `get_block_header` checks less:
 `block_header_from_raw` only asks whether the eighty bytes are
 well-formed and carry a proof of work, which is
 cheap for a host to fabricate compared with the transaction it would
@@ -530,8 +530,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
         A listed transaction that touches none of the scripts, in
         `HistoryReader`'s sense, is left out. Where only an input can
-        settle it and spends a transaction not listed, that one is asked
-        for with `get_tx`.
+        settle it and spends a transaction not returned, one below
+        `start_height` included, that one is asked for with `get_tx`.
 
         What the explorer answers is unverified beyond those checks and
         the transaction ids. It can leave a transaction out or put one in
@@ -554,7 +554,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
         The cost is a request per page and two per script, two per block
         holding one of the transactions, one per transaction, and at most
-        one per transaction spent that is not listed. A page past
+        one per transaction spent that is not returned. A page past
         `_MAX_TXS_BODY` is a `FetchError`.
         """
         max_pages = _valid_max_pages(max_pages)

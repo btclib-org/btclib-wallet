@@ -355,8 +355,7 @@ def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
     of those bytes, so recomputing it says whether what arrived is what was
     asked for. A height is taken on the backend's word and a block header
     answers for itself, which `SECURITY.md` states per answer rather than
-    here; this one costs a hash of a few hundred bytes. The id does not
-    commit to the witness, so the witness is the backend's word.
+    here; this one costs a hash of a few hundred bytes.
 
     It is not only the untrusted backend it guards. A node behind a
     caching proxy, a truncated response and a request that raced another

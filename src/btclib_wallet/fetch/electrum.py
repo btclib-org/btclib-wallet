@@ -377,8 +377,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
 
         A listed transaction that touches none of the scripts, in
         `HistoryReader`'s sense, is left out. Where only an input can
-        settle it and spends a transaction not listed, that one is asked
-        for with `get_tx`.
+        settle it and spends a transaction not returned, one below
+        `start_height` included, that one is asked for with `get_tx`.
 
         What the server lists is unverified beyond that. It can leave a
         transaction out, and it reports the mempool's with nothing to
@@ -392,7 +392,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
 
         The cost is a request per script, per block holding one of the
         transactions, two per transaction, and at most one per
-        transaction spent that is not listed. A server refuses a script
+        transaction spent that is not returned. A server refuses a script
         with more history than it serves, as an `RpcError`.
         """
         elements = history_scripts(scripts)
