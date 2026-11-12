@@ -980,6 +980,20 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
             raise BTClibValueError(err_msg)
 
 
+def _assert_taproot_session_input(psbt_in: PsbtIn) -> None:
+    """Raise unless a MuSig2 or FROST session may sign for the input.
+
+    What `sign` asks before a taproot signature: the input spends a
+    taproot output (`_is_taproot`), and its fields reach that output
+    (`_assert_taproot_signable`). The Signer and the Finalizer of both
+    schemes ask it as they derive the session, so that round 1 spends no
+    secret nonce on a signature that cannot spend the output.
+    """
+    if not _is_taproot(psbt_in):
+        raise BTClibValueError("the input spends no taproot output")
+    _assert_taproot_signable(psbt_in)
+
+
 def _assert_input_signable(psbt_in: PsbtIn) -> None:
     """Raise an exception unless the input carries what a Signer needs.
 

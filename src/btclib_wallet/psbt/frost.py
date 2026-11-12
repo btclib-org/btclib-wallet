@@ -161,6 +161,7 @@ from btclib_wallet.psbt.psbt import (
     _accepted_sig_hash_types,
     _assert_accepted_sig_hash_type,
     _assert_amounts_vouched,
+    _assert_taproot_session_input,
     leaf_script,
     prevouts,
     single_leaf_key,
@@ -515,6 +516,8 @@ def _session_parts(
         err_msg = f"the tweaked frost key {tweak_ctx.x_only_pub_key.hex()} is not "
         err_msg += f"the key being spent, {expected.hex()}"
         raise BTClibValueError(err_msg)
+
+    _assert_taproot_session_input(psbt_in)
 
     return _SessionParts(info, tweaks, is_xonly, msg, tweak_ctx.x_only_pub_key)
 

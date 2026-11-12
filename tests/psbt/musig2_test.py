@@ -9,8 +9,10 @@ from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibValueError
-from btclib.script import type_and_payload
+from btclib.key import PrvKeyData
+from btclib.script import ScriptPubKey, taproot, type_and_payload
 from btclib.script.engine import verify_transaction
+from btclib.tx import TxOut
 from ecc import ssa
 from ecc.curves import bytes_from_point, mult, secp256k1
 
@@ -432,6 +434,58 @@ def test_a_session_the_psbt_does_not_describe() -> None:
     psbt.inputs[0].taproot_merkle_root = b"\x01" * 32
     with pytest.raises(BTClibValueError, match="is not the key being spent"):
         musig2.session_context(psbt, 0, aggregate_pub_key)
+
+
+def test_a_leaf_the_spent_output_does_not_commit_to() -> None:
+    """A script path session is refused where `psbt.sign` would refuse it.
+
+    The leaf's own key is the one the session compares, so each input
+    below passes that comparison: the output is a p2sh-wrapped p2tr
+    program, which BIP341 leaves unencumbered, or a p2wpkh, or a p2tr
+    whose control block proves the leaf against another key. Round 1 is
+    refused, and writes no nonce.
+    """
+    psbt = _bip373_psbt("a key in a script is a MuSig2 Aggregate Pubkey, with")
+    aggregate_pub_key = next(iter(psbt.inputs[0].musig2_participant_pub_keys))
+    leaf_scripts = psbt.inputs[0].taproot_leaf_scripts
+    ((control_block, (script, leaf_version)),) = leaf_scripts.items()
+    leaf_hash = taproot.leaf_hash(leaf_version, script)
+    witness_utxo = psbt.inputs[0].witness_utxo
+    assert witness_utxo is not None
+    p2tr = witness_utxo.script_pub_key.script
+
+    wrapped = deepcopy(psbt)
+    wrapped.inputs[0].witness_utxo = TxOut(witness_utxo.value, ScriptPubKey.p2sh(p2tr))
+    wrapped.inputs[0].redeem_script = p2tr
+    p2wpkh = deepcopy(psbt)
+    p2wpkh.inputs[0].witness_utxo = TxOut(
+        witness_utxo.value, ScriptPubKey.p2wpkh(PrvKeyData(7).pub)
+    )
+    other_internal_key = bytes_from_point(mult(9), secp256k1)[1:]
+    unproven = deepcopy(psbt)
+    unproven.inputs[0].taproot_leaf_scripts = {
+        control_block[:1] + other_internal_key + control_block[33:]: (
+            leaf_scripts[control_block]
+        )
+    }
+
+    cases = (
+        (wrapped, "the input spends no taproot output"),
+        (p2wpkh, "the input spends no taproot output"),
+        (unproven, "the control block does not prove leaf script"),
+    )
+    for refused, err_msg in cases:
+        with pytest.raises(BTClibValueError, match=err_msg):
+            musig2.nonce_gen(
+                refused,
+                0,
+                PARTICIPANT_PRV_KEYS[0],
+                aggregate_pub_key,
+                leaf_hash=leaf_hash,
+            )
+        assert not refused.inputs[0].musig2_pub_nonces
+        with pytest.raises(BTClibValueError, match=err_msg):
+            musig2.session_context(refused, 0, aggregate_pub_key, leaf_hash=leaf_hash)
 
 
 def test_a_round_that_the_other_round_has_not_reached() -> None:
