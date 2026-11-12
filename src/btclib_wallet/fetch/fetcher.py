@@ -19,7 +19,7 @@ is talking to, in the one place the whole point was not to.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 import bitcoin_core_rpc as rpc
@@ -376,6 +376,40 @@ def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
         err_msg = f"transaction: the answer is {tx.id.hex()}, not the one asked"
         raise FetchError(err_msg)
     return tx
+
+
+def _touching_ids(
+    txs: list[Tx], elements: frozenset[bytes], get_tx: Callable[[bytes], Tx]
+) -> set[bytes]:
+    """Return the ids of the transactions of `txs` touching `elements`.
+
+    A transaction touches them where one of its outputs pays to one of
+    them or one of its inputs spends such an output, as `HistoryReader`
+    says. An input names an output and not its script, so the
+    transaction it spends is read from `txs`, or else from `get_tx`,
+    asked only where no input spending one of `txs` settles it.
+    """
+    known = {tx.id: tx for tx in txs}
+
+    def _spends(prev_out: OutPoint) -> bool:
+        if prev_out.is_coinbase:
+            return False
+        if prev_out.tx_id not in known:
+            known[prev_out.tx_id] = get_tx(prev_out.tx_id)
+        vout = known[prev_out.tx_id].vout
+        return (
+            prev_out.vout < len(vout)
+            and vout[prev_out.vout].script_pub_key.script in elements
+        )
+
+    def _touches(tx: Tx) -> bool:
+        if any(tx_out.script_pub_key.script in elements for tx_out in tx.vout):
+            return True
+        prev_outs = [tx_in.prev_out for tx_in in tx.vin]
+        prev_outs.sort(key=lambda prev_out: prev_out.tx_id not in known)
+        return any(_spends(prev_out) for prev_out in prev_outs)
+
+    return {tx.id for tx in txs if _touches(tx)}
 
 
 def block_header_height(height: int) -> int:

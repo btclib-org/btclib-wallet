@@ -17,9 +17,10 @@ than a recommendation.
 
 What the fallback promises is the same answers behind the same
 interface. What it does not promise is that they are all true. `get_tx`
-is the one answer that checks itself completely, in `tx_from_raw` -- the
+is the one answer that checks itself, in `tx_from_raw` -- the
 serialization comes back and the id is recomputed from it, so a
-substituted transaction is caught. `get_block_header` checks less:
+substituted transaction is caught; `get_history` says what the id leaves
+to the explorer's word. `get_block_header` checks less:
 `block_header_from_raw` only asks whether the eighty bytes are
 well-formed and carry a proof of work, which is
 cheap for a host to fabricate compared with the transaction it would
@@ -80,6 +81,7 @@ from btclib_wallet.fetch.balance import Balance, script_pub_key_for_network
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _touching_ids,
     block_header_from_raw,
     block_header_height,
     client_errors,
@@ -542,13 +544,20 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         read first and its hash again last, and a tip that moved is a
         `FetchError`.
 
+        A listed transaction that touches none of the scripts, in
+        `HistoryReader`'s sense, is left out. Where only an input can
+        settle it and spends a transaction not returned, one below
+        `start_height` included, that one is asked for with `get_tx`.
+
         What the explorer answers is unverified beyond those checks and
         the transaction ids. It can leave a transaction out or put one in
         a block it is not in, and it reports the mempool's with nothing to
-        check them against: their signatures are not verified, and a
-        transaction it reports may never confirm. A mempool transaction
-        the explorer no longer has when it is asked for, a 404, is
-        skipped.
+        check them against: their signatures are not verified, a
+        transaction it reports may never confirm, and one it reports in
+        the mempool may be confirmed already. The witness of each
+        transaction is the explorer's word, since neither the txid nor
+        `/block/<hash>/txids` commits to it. A mempool transaction the
+        explorer no longer has when it is asked for, a 404, is skipped.
 
         `max_pages` bounds the pages of confirmed transactions read for
         each script. A page holds at most 25, as Esplora's `API.md` says,
@@ -560,8 +569,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         with a longer history raises `max_pages`.
 
         The cost is a request per page and two per script, two per block
-        holding one of the transactions, and one per transaction. A page
-        past `_MAX_TXS_BODY` is a `FetchError`.
+        holding one of the transactions, one per transaction, and at most
+        one per transaction spent that is not returned. A page past
+        `_MAX_TXS_BODY` is a `FetchError`.
         """
         max_pages = _valid_max_pages(max_pages)
         elements = history_scripts(scripts)
@@ -602,6 +612,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             tx = self._mempool_tx(tx_id)
             if tx is not None:
                 txs.append(HistoryTx(tx, None))
+        touching = _touching_ids([entry.tx for entry in txs], elements, self.get_tx)
+        txs = [entry for entry in txs if entry.tx.id in touching]
         if self._tip_hash() != tip.block_id:
             raise FetchError("the tip moved while the history was read")
         return ScriptHistory(start=start, tip=tip, txs=tuple(txs))

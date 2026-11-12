@@ -24,7 +24,8 @@ from btclib.block.build import build_block, build_coinbase
 from btclib.block.genesis import genesis_block
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash256, sha256
-from btclib.tx import OutPoint, Tx
+from btclib.script.witness import Witness
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
@@ -117,8 +118,16 @@ class FakeServer:
         asked = json.loads(request)
         method, params = asked["method"], asked["params"]
         self.methods.append(method)
+        if method == "blockchain.transaction.get" and params[0] not in self._tx_ids():
+            error = {"code": 2, "message": "transaction not found"}
+            return json.dumps({"id": asked["id"], "error": error}).encode()
         result = self.edit(method, params, self._result(method, params))
         return json.dumps({"id": asked["id"], "result": result}).encode()
+
+    def _tx_ids(self) -> set[str]:
+        """Return the ids of the transactions of the chain and the mempool."""
+        txs = [tx for block in self.chain for tx in block.transactions]
+        return {tx.id.hex() for tx in txs + self.mempool}
 
     def ref(self, height: int) -> BlockRef:
         """Return the block at `height`, as a history names it."""
@@ -138,6 +147,12 @@ FIRST, SECOND = sorted(
     key=lambda tx: tx.id,
     reverse=True,
 )[:2]
+
+
+def _spending_funding(witness: bytes) -> Tx:
+    """Return a transaction spending FUNDING:0 with `witness` as its stack."""
+    tx_in = TxIn(OutPoint(FUNDING.id, 0), b"", 0, Witness([witness]))
+    return Tx(2, 0, [tx_in], [TxOut(1, OTHER)])
 
 
 def _chain() -> FakeServer:
@@ -169,6 +184,8 @@ def test_get_history_reads_from_the_start_height_up() -> None:
     assert [entry.tx.id for entry in history.txs] == [SPEND.id]
     assert history.start == server.ref(2)
     assert server.methods.count("blockchain.transaction.get_merkle") == 1
+    # FUNDING is asked for to learn that SPEND spends an output of OURS
+    assert server.methods.count("blockchain.transaction.get") == 2
 
 
 def test_get_history_from_above_the_tip_starts_at_the_tip() -> None:
@@ -234,6 +251,74 @@ def _edited(
     """Return `server`, with `change` applied to its results for `method`."""
     server.edit = lambda m, _p, result: change(result) if m == method else result
     return server
+
+
+def test_a_transaction_touching_none_of_the_scripts_is_left_out() -> None:
+    """Neither an output nor an input of each is of OURS (issue #703)."""
+    # spending an output of MINE, and an output FUNDING does not have
+    of_mine = _tx([OutPoint(SECOND.id, 0)], [OTHER])
+    beyond = _tx([OutPoint(FUNDING.id, 5)], [OTHER])
+    server = FakeServer([[FUNDING], [], [SPEND], [FIRST, SECOND], [of_mine]], [beyond])
+    coinbase = server.chain[4].transactions[0]
+    added = [
+        {"tx_hash": coinbase.id.hex(), "height": 4},
+        {"tx_hash": of_mine.id.hex(), "height": 5},
+        {"tx_hash": beyond.id.hex(), "height": 0},
+    ]
+    server = _edited(
+        server, "blockchain.scripthash.get_history", lambda result: result + added
+    )
+    history = _fetcher(server).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [
+        (FUNDING.id, server.ref(1)),
+        (SPEND.id, server.ref(3)),
+    ]
+
+
+def test_a_transaction_spending_one_no_server_has_is_refused() -> None:
+    """FIRST pays MINE and spends a transaction the server does not serve."""
+    server = _edited(
+        _chain(),
+        "blockchain.scripthash.get_history",
+        lambda result: [*result, {"tx_hash": FIRST.id.hex(), "height": 4}],
+    )
+    err_msg = "^blockchain.transaction.get: the server answered an error"
+    with pytest.raises(RpcError, match=err_msg):
+        _fetcher(server).get_history([OURS])
+
+
+def test_a_witness_is_the_servers_word() -> None:
+    """A changed witness keeps the txid, and comes back (issue #704)."""
+    witnessed, forged = _spending_funding(b"\x01"), _spending_funding(b"\x02")
+    assert forged.id == witnessed.id
+    assert forged.hash != witnessed.hash
+    server = FakeServer([[FUNDING], [witnessed]])
+
+    def forge(method: str, params: list[Any], result: Any) -> Any:
+        if method == "blockchain.transaction.get" and params == [witnessed.id.hex()]:
+            return forged.serialize(include_witness=True).hex()
+        return result
+
+    server.edit = forge
+    history = _fetcher(server).get_history([OURS])
+    assert [entry.tx.hash for entry in history.txs] == [FUNDING.hash, forged.hash]
+
+
+def test_a_confirmed_transaction_listed_in_the_mempool_is_unconfirmed() -> None:
+    """The server's word that a transaction is not mined stands (issue #709)."""
+
+    def demote(result: Any) -> Any:
+        return [
+            {**item, "height": 0} if item["tx_hash"] == SPEND.id.hex() else item
+            for item in result
+        ]
+
+    server = _edited(_chain(), "blockchain.scripthash.get_history", demote)
+    history = _fetcher(server).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [
+        (FUNDING.id, server.ref(1)),
+        (SPEND.id, None),
+    ]
 
 
 def test_a_transaction_listed_at_two_heights_is_refused() -> None:

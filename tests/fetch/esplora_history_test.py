@@ -20,7 +20,8 @@ from urllib.request import Request
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
-from btclib.tx import OutPoint
+from btclib.tx import OutPoint, Tx
+from typing_extensions import override
 
 from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch import esplora
@@ -32,9 +33,10 @@ from tests.fetch.electrum_history_test import (
     SECOND,
     SPEND,
     FakeServer,
+    _spending_funding,
 )
 from tests.fetch.esplora_test import BASE, TESTNET_GENESIS
-from tests.fetch.history_test import OURS, _tx
+from tests.fetch.history_test import OTHER, OURS, _tx
 from tests.refused_value_test import HEX, KEY, SPELLINGS
 from tests.secret_free import assert_secret_free
 
@@ -109,6 +111,8 @@ class FakeEsplora:
         path = request.full_url.removeprefix(BASE)
         self.paths.append(path)
         parts = path.split("/")[1:]
+        if parts[0] == "tx" and parts[1] not in self.server._tx_ids():
+            return 404, b"Transaction not found"
         if parts[0] == "scripthash":
             kind, reply = self._script_reply(parts)
         else:
@@ -201,6 +205,90 @@ def test_a_mempool_list_shorter_than_its_count_is_refused() -> None:
     explorer.edit = lambda kind, reply: [] if kind == "mempool" else reply
     with pytest.raises(FetchError, match="0 of 1 mempool transactions listed"):
         _fetcher(explorer).get_history([OURS])
+
+
+def test_a_confirmed_transaction_listed_in_the_mempool_is_unconfirmed() -> None:
+    """The explorer's word that a transaction is unmined stands (issue #709)."""
+    explorer = _explorer()
+
+    def demote(kind: str, reply: Any) -> Any:
+        if kind == "chain":
+            return [entry for entry in reply if entry["txid"] != SPEND.id.hex()]
+        return [{"txid": SPEND.id.hex()}] if kind == "mempool" else reply
+
+    explorer.edit = demote
+    history = _fetcher(explorer).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [
+        (FUNDING.id, explorer.server.ref(1)),
+        (SPEND.id, None),
+    ]
+
+
+class _Listing(FakeEsplora):
+    """An explorer listing `added` for every script, besides what touches it."""
+
+    def __init__(self, server: FakeServer, added: list[dict[str, Any]]) -> None:
+        super().__init__(server)
+        self.added = added
+
+    @override
+    def _entries(self, scripthash: str) -> list[dict[str, Any]]:
+        return super()._entries(scripthash) + self.added
+
+
+def _listed(server: FakeServer, height: int, tx: Tx) -> dict[str, Any]:
+    """Return a chain entry naming `tx` in the block at `height`."""
+    block_hash = server.ref(height).block_id.hex()
+    status = {"confirmed": True, "block_height": height, "block_hash": block_hash}
+    return {"txid": tx.id.hex(), "status": status}
+
+
+def test_a_transaction_touching_none_of_the_scripts_is_left_out() -> None:
+    """Neither an output nor an input of each is of OURS (issue #703)."""
+    # spending an output of MINE, and an output FUNDING does not have
+    of_mine = _tx([OutPoint(SECOND.id, 0)], [OTHER])
+    beyond = _tx([OutPoint(FUNDING.id, 5)], [OTHER])
+    server = FakeServer([[FUNDING], [], [SPEND], [FIRST, SECOND], [of_mine]], [beyond])
+    coinbase = server.chain[4].transactions[0]
+    explorer = _Listing(
+        server,
+        [
+            _listed(server, 5, of_mine),
+            _listed(server, 4, coinbase),
+            {"txid": beyond.id.hex(), "status": {"confirmed": False}},
+        ],
+    )
+    history = _fetcher(explorer).get_history([OURS])
+    assert [(entry.tx.id, entry.block) for entry in history.txs] == [
+        (FUNDING.id, server.ref(1)),
+        (SPEND.id, server.ref(3)),
+    ]
+
+
+def test_a_transaction_spending_one_no_explorer_has_is_refused() -> None:
+    """FIRST pays MINE and spends a transaction the explorer does not serve."""
+    server = _explorer().server
+    explorer = _Listing(server, [_listed(server, 4, FIRST)])
+    with pytest.raises(HttpError) as raised:
+        _fetcher(explorer).get_history([OURS])
+    assert raised.value.status == 404
+    assert explorer.paths[-1] == f"/tx/{bytes(32).hex()}/hex"
+
+
+def test_a_witness_is_the_explorers_word() -> None:
+    """A changed witness keeps the txid, and comes back (issue #704)."""
+    witnessed, forged = _spending_funding(b"\x01"), _spending_funding(b"\x02")
+    assert forged.id == witnessed.id
+    assert forged.hash != witnessed.hash
+    explorer = FakeEsplora(FakeServer([[FUNDING], [witnessed]]))
+    served = witnessed.serialize(include_witness=True).hex()
+    explorer.edit = lambda kind, reply: (
+        forged.serialize(include_witness=True).hex()
+        if kind == "tx" and reply == served
+        else reply
+    )
+    history = _fetcher(explorer).get_history([OURS])
+    assert [entry.tx.hash for entry in history.txs] == [FUNDING.hash, forged.hash]
 
 
 def _gone(explorer: FakeEsplora, tx_id: bytes, status: int) -> EsploraFetcher:
