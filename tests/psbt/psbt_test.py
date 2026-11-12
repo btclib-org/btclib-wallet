@@ -2481,7 +2481,7 @@ def _key_hash_psbt(
 
     psbt = Psbt.from_tx(tx)
     psbt.inputs[0].non_witness_utxo = prev_tx
-    if kind in ("p2pkh", "p2sh-p2pkh"):
+    if kind in {"p2pkh", "p2sh-p2pkh"}:
         psbt.inputs[0].redeem_script = pkh if kind == "p2sh-p2pkh" else b""
         msg_hash = sig_hash.legacy(pkh, tx, 0, 1)
     else:
