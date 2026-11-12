@@ -599,7 +599,7 @@ def test_estimate_fee_rounds_a_rate_finer_than_a_satoshi_up() -> None:
 
 def test_estimate_fee_refuses_the_decline_sentinel() -> None:
     """-1 is a decline, not a rate: it is a FetchError, not a FeeRate of -1."""
-    with pytest.raises(FetchError, match="no estimate for target 6"):
+    with pytest.raises(FetchError, match="no estimate for this target"):
         fetcher(-1).estimate_fee(6)
 
 

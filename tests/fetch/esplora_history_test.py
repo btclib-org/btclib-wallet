@@ -299,7 +299,7 @@ def test_a_page_of_more_than_25_transactions_is_refused() -> None:
         ("1", BTClibTypeError, "invalid max_pages type: str"),
         (1.0, BTClibTypeError, "invalid max_pages type: float"),
         (True, BTClibTypeError, "invalid max_pages type: bool"),
-        (0, BTClibValueError, "invalid max_pages: 0"),
+        (0, BTClibValueError, "^invalid max_pages: an int of 0 bits < 1$"),
     ],
 )
 def test_max_pages_is_checked_before_any_request(

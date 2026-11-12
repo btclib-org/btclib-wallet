@@ -74,6 +74,7 @@ from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.balance import Balance, script_pub_key_for_network
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
@@ -456,8 +457,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         self._verify_once()
         target = valid_confirmation_target(target)
         if target > _MAX_FEE_TARGET:
-            err_msg = f"confirmation target {target} above the highest quoted,"
-            err_msg += f" {_MAX_FEE_TARGET}"
+            err_msg = f"confirmation target {_message_text(target)} above the highest"
+            err_msg += f" quoted, {_MAX_FEE_TARGET}"
             raise BTClibValueError(err_msg)
         with fetch_errors("fee-estimates"):
             payload = json.loads(self.text("/fee-estimates", _MAX_FEE_ESTIMATES_BODY))
@@ -686,7 +687,7 @@ def _valid_max_pages(max_pages: int) -> int:
     if not is_integer(max_pages):
         raise BTClibTypeError(f"invalid max_pages type: {type(max_pages).__name__}")
     if max_pages < 1:
-        raise BTClibValueError(f"invalid max_pages: {max_pages}")
+        raise BTClibValueError(f"invalid max_pages: {_message_text(max_pages)} < 1")
     return max_pages
 
 

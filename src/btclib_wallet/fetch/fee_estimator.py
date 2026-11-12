@@ -45,6 +45,8 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.utils import is_integer
 
+from btclib_wallet._refusal import _message_text
+
 __all__ = ["FeeEstimator", "FeeQuote", "valid_confirmation_target"]
 
 
@@ -74,7 +76,9 @@ def valid_confirmation_target(target: int) -> int:
         err_msg = f"invalid confirmation target type: {type(target).__name__}"
         raise BTClibTypeError(err_msg)
     if target < 1:
-        raise BTClibValueError(f"invalid confirmation target: {target}")
+        raise BTClibValueError(
+            f"invalid confirmation target: {_message_text(target)} < 1"
+        )
     return target
 
 

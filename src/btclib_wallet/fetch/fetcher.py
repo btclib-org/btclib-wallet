@@ -252,7 +252,7 @@ class Fetcher(ABC):
         """
         tx = self.get_tx(out_point.tx_id)
         if out_point.vout >= len(tx.vout):
-            err_msg = f"out of range vout: {out_point.vout}"
+            err_msg = f"out of range vout: {_message_text(out_point.vout)}"
             err_msg += f" for a transaction with {len(tx.vout)} outputs"
             raise FetchError(err_msg)
         return tx.vout[out_point.vout]

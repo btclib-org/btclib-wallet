@@ -124,6 +124,7 @@ from btclib.tx import Tx
 from btclib.utils import is_integer
 from typing_extensions import override
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -1062,18 +1063,22 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 f"invalid max_blocks type: {type(max_blocks).__name__}"
             )
         if max_blocks < 1:
-            raise BTClibValueError(f"invalid max_blocks: {max_blocks}")
+            raise BTClibValueError(
+                f"invalid max_blocks: {_message_text(max_blocks)} < 1"
+            )
         elements = history_scripts(scripts)
         first = block_header_height(start_height)
         last = None if stop_height is None else block_header_height(stop_height)
         if last is not None and last < first:
-            raise BTClibValueError(f"stop height {last} below start height {first}")
+            raise BTClibValueError("stop height below start height")
         self._verify_once()
         with self._session():
             tip = self._sync()
             stop = tip if last is None else last
             if stop > tip:
-                raise FetchError(f"the peer's chain ends at {tip}, not {stop}")
+                raise FetchError(
+                    f"the peer's chain ends at {tip}, below the stop height"
+                )
             blocks: dict[int, Block] = {}
             for start in range(first, stop + 1, MAX_GETCFILTERS_SIZE):
                 end = min(start + MAX_GETCFILTERS_SIZE, stop + 1) - 1
@@ -1093,8 +1098,10 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         The module docstring says why; `scan_blocks` is how a transaction
         is found.
         """
-        err_msg = f"transaction {tx_id_hex(tx_id)}: a compact filter client"
-        err_msg += " cannot serve a transaction by its id, use scan_blocks"
+        # refused as every other backend refuses what is no transaction id
+        tx_id_hex(tx_id)
+        err_msg = "a compact filter client cannot serve a transaction by its id,"
+        err_msg += " use scan_blocks"
         raise FetchError(err_msg)
 
     @override
@@ -1124,7 +1131,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         with self._session():
             tip = self._sync_headers()
         if height > tip:
-            raise FetchError(f"no block at height {height}: the tip is {tip}")
+            raise FetchError(f"no block at the height asked: the tip is {tip}")
         return copy(self._headers[height])
 
     @override
