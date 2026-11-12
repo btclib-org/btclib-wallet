@@ -8,8 +8,6 @@ Section 7 of the btclib-org standard, *A refusal carries no secret*, says
 an argument in the wrong place may be a key. A refusal describes such a
 value with `_message_text`, and quotes a value refused where a name
 belongs only up to `_QUOTED_MAX` characters, too short for a key.
-`core_import` and `electrum` print an error code another program answers
-only where it lies in `_RPC_CODES`.
 """
 
 __all__: list[str] = []
