@@ -207,12 +207,17 @@ gh api -X POST repos/btclib-org/btclib-wallet/rulesets --input - <<'JSON'
 JSON
 ```
 
-`main-self-merge` requires a pull request and has no bypass actor, so
-every merge needs an approval from somebody other than its author.
+`main-self-merge` requires a pull request, and a direct push to `main`
+is refused for everyone. Its one bypass actor is the maintainer, in
+`pull_request` mode, so the maintainer can merge without an approval
+from somebody other than the author, and nobody else can. It is the
+organization-wide bypass, which the maintainer keeps until the backlog
+settles, with no date set (btclib-org/.github#2021). Once it is removed,
+the ruleset has no bypass actor, as the standard asks of a tree whose
+`README.md` carries the OpenSSF Best Practices badge, and
 btclib-org/.github's
 [`GOVERNANCE.md`](https://github.com/btclib-org/.github/blob/main/GOVERNANCE.md#how-a-decision-is-made),
-*How a decision is made*, says when the maintainer adds the bypass back.
-A direct push to `main` is refused for everyone.
+*How a decision is made*, says when the maintainer adds it back.
 
 ```shell
 gh api -X POST repos/btclib-org/btclib-wallet/rulesets --input - <<'JSON'
@@ -229,9 +234,54 @@ gh api -X POST repos/btclib-org/btclib-wallet/rulesets --input - <<'JSON'
 JSON
 ```
 
-In an emergency the maintainer adds the bypass back, as actor `3296421`,
-`fametrano`'s account id (`gh api users/fametrano --jq .id`), in
-`pull_request` mode, and removes it after the merge.
+The command above creates the ruleset with no bypass actor; the ruleset
+has the id `23944022`. The bypass is added back and removed with a
+`PUT`. A `PUT` replaces the whole ruleset, so each body carries every
+parameter the ruleset holds, which a read of the ruleset without `--jq`
+shows. The `POST` above omits some of them. The bypass is actor
+`3296421`, `fametrano`'s account id (`gh api users/fametrano --jq .id`),
+in `pull_request` mode. To add it:
+
+```shell
+gh api -X PUT repos/btclib-org/btclib-wallet/rulesets/23944022 \
+  --input - <<'JSON'
+{"name": "main-self-merge", "target": "branch", "enforcement": "active",
+ "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+ "bypass_actors": [{"actor_id": 3296421, "actor_type": "User",
+                    "bypass_mode": "pull_request"}],
+ "rules": [{"type": "pull_request", "parameters": {
+   "allowed_merge_methods": ["squash"],
+   "dismiss_stale_reviews_on_push": true,
+   "dismissal_restriction": {"allowed_actors": [], "enabled": false},
+   "require_code_owner_review": false,
+   "require_extra_approval_for_unattributed_changes": true,
+   "require_last_push_approval": false,
+   "required_approving_review_count": 1,
+   "required_review_thread_resolution": true,
+   "required_reviewers": []}}]}
+JSON
+```
+
+The same `PUT` with `"bypass_actors": []` removes it:
+
+```shell
+gh api -X PUT repos/btclib-org/btclib-wallet/rulesets/23944022 \
+  --input - <<'JSON'
+{"name": "main-self-merge", "target": "branch", "enforcement": "active",
+ "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+ "bypass_actors": [],
+ "rules": [{"type": "pull_request", "parameters": {
+   "allowed_merge_methods": ["squash"],
+   "dismiss_stale_reviews_on_push": true,
+   "dismissal_restriction": {"allowed_actors": [], "enabled": false},
+   "require_code_owner_review": false,
+   "require_extra_approval_for_unattributed_changes": true,
+   "require_last_push_approval": false,
+   "required_approving_review_count": 1,
+   "required_review_thread_resolution": true,
+   "required_reviewers": []}}]}
+JSON
+```
 
 Classic protection's own copy of the signature rule is off, as is the rule
 in every ruleset over `main`: [the standard
@@ -282,7 +332,7 @@ done
 #  "methods":[],"name":"main-integrity",
 #  "rules":["required_linear_history","non_fast_forward","deletion"],
 #  "target":"branch"}
-# {"bypass":[],"enforcement":"active",
+# {"bypass":[[3296421,"pull_request"]],"enforcement":"active",
 #  "include":["refs/heads/main"],"methods":[["squash"]],
 #  "name":"main-self-merge","rules":["pull_request"],"target":"branch"}
 # {"bypass":[],"enforcement":"active","include":["refs/tags/v*"],
