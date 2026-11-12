@@ -244,7 +244,7 @@ upstream means refreshing the keys, never the messages.
 repo    bitcoin/bips
 path    bip-0174.mediawiki
 commit  722d01e5e0a2e0c82b0e3e77402ddc44a5bf6aaa  2026-09-23
-ours    c3acc20f4a7209cf425be65d65ea7a68ea6ceed4
+ours    bd1c92853dbddaeb3f6f98fd0cc1e0211989b660
 pulled  2020-11-15, extended 2021-08-03, refreshed 2026-07-30, re-pinned
         to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path

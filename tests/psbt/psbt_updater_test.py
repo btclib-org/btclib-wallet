@@ -223,8 +223,7 @@ def psbt_spending(descriptor: Descriptor, index: int = 0) -> Psbt:
 
     The whole previous transaction as the utxo, rather than the spent
     output alone: a witness_utxo beside a legacy input is what
-    `Psbt.assert_signable` refuses as "script type not in ('p2wpkh',
-    'p2wsh')", and these vectors are of every kind.
+    `Psbt.assert_signable` refuses, and these vectors are of every kind.
     """
     script_pub_key = descriptor.script_pub_key(index)
     prev_tx = Tx(

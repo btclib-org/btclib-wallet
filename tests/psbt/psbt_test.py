@@ -6574,3 +6574,154 @@ def test_a_refused_global_xpub_prints_no_byte_of_the_key() -> None:
         assert k.hex() not in text
         assert chain_code.hex() not in text
         assert xprv.hex() not in text
+
+
+@pytest.mark.parametrize(
+    "program, version",
+    [
+        (bytes([0x52, 32]) + b"\x22" * 32, 2),
+        (bytes([0x51, 20]) + b"\x22" * 20, 1),
+        (bytes([0x60, 2]) + b"\x22" * 2, 16),
+    ],
+    ids=["v2", "v1-20", "v16-2"],
+)
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "p2sh"])
+def test_a_witness_program_of_no_known_rule_has_no_ecdsa_sig_hash(
+    program: bytes, version: int, wrapped: bool
+) -> None:
+    """A `witness_unknown` input is refused, bare and wrapped in p2sh.
+
+    Issue btclib-org/btclib-wallet#747; `_sig_hash_from_psbt_in` says
+    why. The error names the version and no byte of the program.
+    """
+    script_pub_key = ScriptPubKey.p2sh(program) if wrapped else ScriptPubKey(program)
+    prev_out = TxOut(100_000, script_pub_key)
+    tx, prev_tx = _spending_tx(prev_out)
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].redeem_script = program if wrapped else b""
+    psbt.inputs[0].non_witness_utxo = prev_tx
+
+    err_msg = f"input 0: no sig_hash rule for witness version {version}$"
+    with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
+        ecdsa_sig_hash(psbt, 0, hash_type=1)
+    assert program[2:].hex() not in str(excinfo.value)
+
+    # the same input described by its witness utxo, as a segwit one is
+    psbt.inputs[0].witness_utxo = prev_out
+    psbt.inputs[0].non_witness_utxo = None
+    with pytest.raises(BTClibValueError, match=err_msg):
+        ecdsa_sig_hash(psbt, 0, hash_type=1)
+
+    # a partial signature of the legacy hash is refused where it is checked
+    msg_hash = sig_hash.legacy(program, tx, 0, 1)
+    sig = dsa.sign_(msg_hash, _PRV_KEY).serialize() + b"\x01"
+    psbt.inputs[0].partial_sigs = {_PUB_KEY: sig}
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        assert_signatures_only(_stripped_of_signatures(psbt), psbt)
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        bytes([0x52, 32]) + b"\x22" * 32,
+        # the anchor, which Bitcoin Core spends with no signature
+        bytes.fromhex("51024e73"),
+    ],
+    ids=["v2", "anchor"],
+)
+@pytest.mark.parametrize(
+    "held",
+    [{_PUB_KEY: _PRV_KEY}, {_PUB_KEY: _PRV_KEY, _OTHER_PUB_KEY: _OTHER_PRV_KEY}],
+    ids=["its-key-not-held", "its-key-held"],
+)
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "p2sh"])
+@pytest.mark.parametrize(
+    "with_witness_utxo", [False, True], ids=["no-witness-utxo", "witness-utxo"]
+)
+def test_sign_skips_a_witness_program_of_no_known_rule(
+    program: bytes, held: dict[bytes, int], wrapped: bool, with_witness_utxo: bool
+) -> None:
+    """A `witness_unknown` input is left unsigned, and the others are signed.
+
+    Issue btclib-org/btclib-wallet#747; `_sign_ecdsa_input` says why. A
+    witness utxo beside it passes the Signer's pre-flight, as it does
+    beside a p2tr one: `_signable_payload` says why.
+    """
+    psbt = _psbt_spending_a_witness_unknown_input(program, wrapped=wrapped)
+    if with_witness_utxo:
+        psbt.inputs[0].witness_utxo = _first_spent_output(psbt)
+
+    result, signed_vins = sign(psbt, _KeyManager(by_pub_key=held))
+
+    assert signed_vins == [1]
+    assert result.inputs[0].partial_sigs == {}
+    assert list(result.inputs[1].partial_sigs) == [_PUB_KEY]
+
+
+def _psbt_spending_a_witness_unknown_input(program: bytes, *, wrapped: bool) -> Psbt:
+    """Return a two-input psbt: a `witness_unknown` input, then a p2wpkh one.
+
+    Both carry the previous transaction. The first names `_OTHER_PUB_KEY`
+    in its hd_key_paths and the second `_PUB_KEY`.
+    """
+    script_pub_key = ScriptPubKey.p2sh(program) if wrapped else ScriptPubKey(program)
+    prev_tx = Tx(
+        2,
+        0,
+        [TxIn(OutPoint("00" * 31 + "01", 0), b"", 0xFFFFFFFF)],
+        [
+            TxOut(100_000, script_pub_key),
+            TxOut(100_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY))),
+        ],
+    )
+    tx = Tx(
+        2,
+        0,
+        [TxIn(OutPoint(prev_tx.id, i), b"", 0xFFFFFFFF) for i in range(2)],
+        [TxOut(190_000, ScriptPubKey.p2wpkh(PubKeyData(_PUB_KEY)))],
+    )
+    psbt = Psbt.from_tx(tx)
+    for psbt_in in psbt.inputs:
+        psbt_in.non_witness_utxo = prev_tx
+    psbt.inputs[0].redeem_script = program if wrapped else b""
+    psbt.inputs[1].witness_utxo = prev_tx.vout[1]
+    psbt.inputs[0].hd_key_paths = {_OTHER_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/1")}
+    psbt.inputs[1].hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"\x00" * 4, "m/0")}
+    return psbt
+
+
+def _first_spent_output(psbt: Psbt) -> TxOut:
+    """Return the output the first input spends, read from its utxo."""
+    prev_tx = psbt.inputs[0].non_witness_utxo
+    assert prev_tx is not None
+    return prev_tx.vout[0]
+
+
+def test_a_witness_unknown_input_still_has_its_fields_checked() -> None:
+    """A `witness_unknown` input is still held to its utxo and scripts.
+
+    Issue btclib-org/btclib-wallet#747: letting it through to the skip
+    leaves the checks of `_assert_valid_utxo` and `_assert_input_signable`
+    in place.
+    """
+    program = bytes([0x52, 32]) + b"\x22" * 32
+    held = _KeyManager(by_pub_key={_PUB_KEY: _PRV_KEY})
+
+    psbt = _psbt_spending_a_witness_unknown_input(program, wrapped=False)
+    psbt.inputs[0].witness_utxo = TxOut(99_999, ScriptPubKey(program))
+    with pytest.raises(BTClibValueError, match="mismatched witness utxo"):
+        sign(psbt, held)
+
+    psbt = _psbt_spending_a_witness_unknown_input(program, wrapped=True)
+    psbt.inputs[0].redeem_script = bytes([0x53, 32]) + b"\x22" * 32
+    psbt.inputs[0].witness_utxo = _first_spent_output(psbt)
+    with pytest.raises(BTClibValueError, match="invalid redeem script hash160"):
+        sign(psbt, held)
+
+    psbt = _psbt_spending_a_witness_unknown_input(program, wrapped=False)
+    psbt.inputs[0].witness_utxo = _first_spent_output(psbt)
+    psbt.inputs[0].witness_script = b"\x51"
+    with pytest.raises(BTClibValueError, match="invalid witness script sha256"):
+        sign(psbt, held)
