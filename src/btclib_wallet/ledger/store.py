@@ -219,6 +219,9 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
         except sqlite3.DatabaseError as e:
             db.close()
             _assert_not_held(e, path)
+            if isinstance(e, sqlite3.OperationalError):
+                err_msg = f"cannot open the ledger file {path}: {e}"
+                raise BTClibValueError(err_msg) from None
             raise BTClibValueError(f"not a ledger file: {e}") from None
     return db
 

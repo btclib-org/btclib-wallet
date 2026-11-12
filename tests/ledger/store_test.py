@@ -281,6 +281,26 @@ def test_a_file_a_ledger_holds_opens_in_no_other(
     assert not Path(f"{file}-journal").exists()
 
 
+def test_a_file_sqlite_cannot_open_is_not_called_no_ledger(
+    chain: FakeChain, path: Path
+) -> None:
+    """SQLite's operational failure at the open names the file, not its kind.
+
+    A directory where the journal goes makes SQLite fail its read of
+    what it takes for a hot journal. The ledger file is whole, so the
+    refusal does not say it is no ledger file, and once the directory
+    goes the file loads.
+    """
+    Ledger.create(path, "regtest", chain).close()
+    journal = Path(f"{path}-journal")
+    journal.mkdir()
+    with pytest.raises(BTClibValueError, match="cannot open the ledger file") as e:
+        Ledger.load(path, "regtest", chain)
+    assert "not a ledger file" not in str(e.value)
+    journal.rmdir()
+    Ledger.load(path, "regtest", chain).close()
+
+
 def test_another_constraint_on_a_new_source_is_no_ledgers(
     chain: FakeChain, path: Path
 ) -> None:

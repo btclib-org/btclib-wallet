@@ -2219,8 +2219,8 @@ class Ledger:
         `MAX_UNLOCK_TIME` is that, and a call while unlocked sets the
         timeout anew (src/wallet/rpc/encrypt.cpp:48-89). A wrong
         passphrase is refused, and so is a source whose keys the right
-        one does not decrypt. A closed ledger is refused, one `close`
-        closed in another thread while the call ran included.
+        one does not decrypt. A closed ledger is refused, and so is a
+        call during which another thread closed it.
         """
         assert_type(passphrase, str, "passphrase")
         if not is_integer(timeout):
