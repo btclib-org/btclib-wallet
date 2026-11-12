@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
 import sqlite3
@@ -19,6 +20,7 @@ import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.tx import TxOut
+from typing_extensions import override
 
 from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, crypto, store
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
@@ -500,3 +502,59 @@ def test_v2026_11_11_refuses_a_file_of_this_release(
     err_msg = "ledger format 2 is newer than this release's 1"
     with pytest.raises(BTClibValueError, match=err_msg):
         Ledger.load(path, "regtest", chain)
+
+
+def _keeping(unread: list[str]) -> type[sqlite3.Connection]:
+    """Return a connection that keeps every cursor it returns.
+
+    At its close it adds to `unread` the statement of each cursor that
+    still holds a row.
+    """
+
+    class Keeping(sqlite3.Connection):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.kept: list[tuple[str, sqlite3.Cursor]] = []
+
+        @override
+        def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+            cursor = super().execute(sql, parameters)
+            self.kept.append((sql, cursor))
+            return cursor
+
+        @override
+        def close(self) -> None:
+            unread.extend(sql for sql, c in self.kept if c.fetchone() is not None)
+            super().close()
+
+    return Keeping
+
+
+def test_every_statement_of_the_store_is_read_to_its_end(
+    chain: FakeChain, path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No connection the store opens closes with a row left unread.
+
+    SQLite refuses a commit while a statement that writes is unfinished,
+    as `PRAGMA journal_mode` is until its row is read. CPython finishes
+    an unread statement once its cursor is dropped, PyPy only once it
+    collects the cursor, so every cursor is kept here, as PyPy may keep
+    it: a load migrating a file, a label, a backup, a restore and a
+    create, then an encryption and a new passphrase.
+    """
+    monkeypatch.setattr(crypto, "_SCRYPT_N", 2**4)
+    _format_1_file(path)
+    unread: list[str] = []
+    connect = functools.partial(sqlite3.connect, factory=_keeping(unread))
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    backup = tmp_path / "backup.sqlite"
+    with Ledger.load(path, "regtest", chain, **_spending(chain)) as ledger:
+        ledger.set_label(ledger.new_address(), "label")
+        ledger.backup(backup)
+    Ledger.restore(backup, tmp_path / "restored.sqlite", "regtest", chain).close()
+    Ledger.create(tmp_path / "new.sqlite", "regtest", chain).close()
+    assert not unread
+    with Ledger.load(path, "regtest", chain, **_spending(chain)) as ledger:
+        _keeps_the_format_1_sources(ledger, chain)
+        ledger.change_passphrase("passphrase", "new passphrase")
+    assert not unread
