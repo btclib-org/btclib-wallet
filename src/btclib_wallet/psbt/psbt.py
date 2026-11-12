@@ -2143,7 +2143,7 @@ def _spends_unknown_witness_program(psbt_in: PsbtIn) -> bool:
     return is_p2tr(script) and not _is_taproot(psbt_in)
 
 
-def _single_key(psbt_in: PsbtIn) -> bytes:
+def _single_key(psbt_in: PsbtIn, script: bytes) -> bytes:
     """Return the one public key a single-key input is spent with.
 
     partial_sigs is keyed by public key, and p2pkh and p2wpkh are the
@@ -2155,11 +2155,20 @@ def _single_key(psbt_in: PsbtIn) -> bytes:
     A single-key input carrying more than one signature is refused
     rather than picked from: the output commits to one key, so a second
     signature is a signature for some other output.
+
+    The key is refused unless its hash160 is the one `script`, the p2pkh
+    or p2wpkh being spent, commits to. A valid signature of another key,
+    or of the other compression of the right one, would otherwise build
+    a spend the script fails.
     """
     if len(psbt_in.partial_sigs) > 1:
         err_msg = f"{len(psbt_in.partial_sigs)} signatures for a single-key input"
         raise BTClibValueError(err_msg)
-    return next(iter(psbt_in.partial_sigs))
+    pub_key = next(iter(psbt_in.partial_sigs))
+    if hash160(pub_key) != type_and_payload(script)[1]:
+        err_msg = "the signing key is not the one the spent script commits to"
+        raise BTClibValueError(err_msg)
+    return pub_key
 
 
 def _satisfied_script(psbt_in: PsbtIn) -> bytes:
@@ -2285,11 +2294,11 @@ def _finalized_input(psbt_in: PsbtIn) -> tuple[bytes, Witness]:
         return serialize(cast(ScriptList, redeem_script)), witness
 
     if is_p2wpkh(script):
-        witness = Witness([*sigs, _single_key(psbt_in)])
+        witness = Witness([*sigs, _single_key(psbt_in, script)])
         return serialize(cast(ScriptList, redeem_script)), witness
 
     if is_p2pkh(script):
-        script_sig = cast(ScriptList, [*sigs, _single_key(psbt_in)])
+        script_sig = cast(ScriptList, [*sigs, _single_key(psbt_in, script)])
         return serialize(script_sig), Witness()
 
     return serialize(cast(ScriptList, [*cmds, *redeem_script])), Witness()
@@ -3794,10 +3803,11 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     same finalized state this function produces, which is where Bitcoin
     Core's own `PSBTInput::Serialize` does it too.
 
-    Deciding that an input has enough data is two checks beyond the
-    presence of a signature, and both are per input: the sighash type
-    each signature commits to is one the input accepts, and each
-    signature verifies against the key it is filed under.
+    Deciding that an input has enough data is three checks beyond the
+    presence of a signature, all per input: the sighash type each
+    signature commits to is one the input accepts, each signature
+    verifies against the key it is filed under, and the key of a p2pkh
+    or p2wpkh input, wrapped or not, is the one its script commits to.
 
     What is then built is the spend the input's own kind asks for, which
     is what _finalized_input dispatches on: a witness script alone does

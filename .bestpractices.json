@@ -323,7 +323,7 @@
   "small_tasks_status": "Met",
   "static_analysis_common_vulnerabilities_justification": "ruff, a FLOSS tool, runs select = [\"ALL\"], bandit's S rules included, in the required lint check. CodeQL also runs on every pull request, every push to main and weekly. https://github.com/btclib-org/btclib-wallet/blob/main/.github/workflows/codeql.yml",
   "static_analysis_common_vulnerabilities_status": "Met",
-  "static_analysis_fixed_justification": "CodeQL has one open alert, actions/untrusted-checkout on qa-assets.yml, open since 2026-11-05 and not yet triaged (btclib-org/btclib-wallet#784). ruff and mypy findings block the merge. https://github.com/btclib-org/btclib-wallet/blob/main/.github/workflows/codeql.yml",
+  "static_analysis_fixed_justification": "On 2026-11-12 no CodeQL alert is open: gh api 'repos/btclib-org/btclib-wallet/code-scanning/alerts?state=open&tool_name=CodeQL' --jq length answers 0. Alert 49, actions/untrusted-checkout on qa-assets.yml, matched on a step output's name, and https://github.com/btclib-org/btclib-wallet/pull/829 fixed it by renaming that output. ruff and mypy findings block the merge. https://github.com/btclib-org/btclib-wallet/blob/main/.github/workflows/codeql.yml",
   "static_analysis_fixed_status": "Met",
   "static_analysis_justification": "mypy, ruff and CodeQL",
   "static_analysis_often_justification": "lint.yml (ruff, mypy) and codeql.yml run on every pull request and every push to main. https://github.com/btclib-org/btclib-wallet/actions/workflows/lint.yml",
