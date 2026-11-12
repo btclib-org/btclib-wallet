@@ -789,7 +789,7 @@ same sha, which is the reliance `REVIEWING.md` provides for.
 | `sourcery` | pull request | — |
 | `codeql` | pull request, push, and weekly | the languages |
 | `qa-assets` | weekly, pull request on its paths | Core's, rust-bitcoin's |
-| `fuzz` | weekly, and by hand before a release | — |
+| `fuzz` | weekly | — |
 | `os-ubuntu` | weekly, a release | images × interpreters |
 | `os-macos` | weekly, a release | images × interpreters |
 | `os-windows` | weekly, a release | images × interpreters |
