@@ -1237,13 +1237,13 @@ class Ledger:
         assert_type(include_locked, bool, "include_locked")
         assert_type(include_unsafe, bool, "include_unsafe")
         spends = self._spends()
-        trusted_set: set[bytes] = set()
         found: list[Utxo] = []
+        trusted_set: set[bytes] = set()
         for wtx, vout, tx_out in self._outputs():
             outpoint = OutPoint(wtx.tx.id, vout)
             depth = self._depth(wtx)
-            safe = self._is_trusted(wtx, trusted_set) and not (
-                depth == 0 and (wtx.replaces is not None or wtx.replaced_by is not None)
+            safe = self._is_trusted(wtx, trusted_set) and (
+                depth != 0 or (wtx.replaces is None and wtx.replaced_by is None)
             )
             skipped = (
                 (self._is_immature(wtx) and not include_immature_coinbase)
