@@ -66,21 +66,21 @@ signature whose recovered key is the point at infinity is its
 `except` has to catch. `verify` collapses all three states to a
 boolean, and an inconclusive signature is not a valid one.
 
-What is enforced is BIP322's list as far as the engine's flags reach: the
-consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
-CLEANSTACK, MINIMALIF and CONST_SCRIPTCODE for the required ones, and the
-``DISCOURAGE_`` family for the upgradeable ones -- the backticks because a
-name ending in an underscore is a link reference to docutils, which
-sphinx runs with `-W`. Core's MINIMALIF reaches witness v0 scripts
-only, and in tapscript the rule is consensus, so MINIMALIF_ALL, which
-is btclib's and not Core's, holds legacy and P2SH scripts to it too.
+What is enforced is BIP322's list as far as the engine's flags reach:
+the consensus rules, then LOW_S, STRICTENC, NULLFAIL, MINIMALDATA,
+CLEANSTACK, MINIMALIF and CONST_SCRIPTCODE for the required ones, and
+the ``DISCOURAGE_`` family for the upgradeable ones -- the backticks
+because a name ending in an underscore is a link reference to docutils,
+which sphinx runs with `-W`. Core's MINIMALIF reaches witness v0 scripts
+only, and in tapscript the rule is consensus, so MINIMALIF_ALL, which is
+btclib's and not Core's, holds legacy and P2SH scripts to it too.
 CONST_SCRIPTCODE refuses OP_CODESEPARATOR only in legacy scripts; the
 revealed P2WSH and tapscript programs are decoded through btclib and
-checked for that opcode here. Two rules of the list are not
-flags. The block's limit on sigop cost is checked by counting `to_spend`
-and `to_sign` together with `sig_op_cost`. The other is "all signatures
-MUST use SIGHASH_ALL", which no set of flags can express:
-it is a rule about the stack elements the interpreter consumed as
+checked for that opcode here. The block's limits are not flags either:
+`to_sign`'s weight is checked against `MAX_BLOCK_WEIGHT`, and `to_spend`
+and `to_sign` are counted together with `sig_op_cost`. Nor is "all
+signatures MUST use SIGHASH_ALL", which no set of flags can express: it
+is a rule about the stack elements the interpreter consumed as
 signatures, and which elements those were is not readable from the
 witness -- the control block of a single-leaf taproot tree is 65 bytes,
 exactly the shape of a BIP340 signature with an explicit hash type. So
@@ -204,8 +204,8 @@ def _b64_size(size: int) -> int:
 # least its own serialized size, Core's MAX_BLOCK_WEIGHT bounds that
 # weight, and a witness stack is part of a transaction: so no simple or
 # full signature that a consensus-valid transaction can carry is longer,
-# and a longer one is invalid. A shorter one may still weigh more than a
-# block holds, which this bound does not ask (issue #826). A psbt has no
+# and a longer one is invalid. A shorter one may still weigh more than
+# `MAX_BLOCK_WEIGHT`, which `_assert_weight` refuses (issue #826). A psbt has no
 # such bound, as it may carry a whole previous transaction per input, and
 # BIP322 sets no maximum size for one, so a proof of funds is held to the
 # bound rust-bitcoin/bip322#92 proposes, read at its head `081ed985bc`.
@@ -618,6 +618,20 @@ def _assert_hash_types(hash_types: list[int]) -> None:
             raise BTClibValueError(err_msg)
 
 
+def _assert_weight(tx: Tx) -> None:
+    """Refuse a `to_sign` heavier than `MAX_BLOCK_WEIGHT`.
+
+    BIP322 asks that `to_sign` pass all consensus checks, and Core
+    refuses a block whose weight is over `MAX_BLOCK_WEIGHT`
+    (`bad-blk-weight`), so no block holds a heavier transaction.
+    `verify_transaction` does not weigh it.
+    """
+    weight = tx.weight
+    if weight > MAX_BLOCK_WEIGHT:
+        err_msg = f"to_sign weight {weight}: over the block limit of {MAX_BLOCK_WEIGHT}"
+        raise BTClibValueError(err_msg)
+
+
 def _assert_sig_op_cost(spend: Tx, prevouts: list[TxOut], tx: Tx) -> None:
     """Refuse a proof whose two transactions no valid block can hold.
 
@@ -768,6 +782,7 @@ def assert_as_valid(
             raise BTClibValueError("PSBT generic signed message does not match")
 
     _assert_shape(tx, spend, prevouts)
+    _assert_weight(tx)
     _assert_sig_op_cost(spend, prevouts, tx)
     _assert_scripts(prevouts, tx)
     _assert_upgradeable(tx, prevouts)
