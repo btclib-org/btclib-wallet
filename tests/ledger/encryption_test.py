@@ -22,6 +22,7 @@ and in a backup.
 from __future__ import annotations
 
 import contextlib
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -279,38 +280,44 @@ def test_a_file_another_program_set_to_wal_keeps_no_key_byte(
         assert other.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
     with _loaded(path, chain) as ledger:
         assert ledger._store._db.execute("PRAGMA journal_mode").fetchone() == (
-            "delete",
+            "truncate",
         )
         # the control: the file holds the keys the search looks for
         assert _key_bytes(directory, secrets)["ledger.sqlite"] > 0
         ledger.encrypt(PASSPHRASE)
-        assert _key_bytes_out_of_wal(directory, secrets) == {"ledger.sqlite": 0}
+        assert _key_bytes_out_of_wal(directory, secrets) == {
+            "ledger.sqlite": 0,
+            "ledger.sqlite-journal": 0,
+        }
 
 
-def test_a_file_set_to_wal_while_open_is_not_encrypted(
+def test_no_program_sets_wal_while_a_ledger_holds_the_file(
     chain: FakeChain, tmp_path: Path
 ) -> None:
-    """Another program sets WAL after the ledger opened the file.
+    """The ledger's lock refuses the switch, so the encryption leaves no key.
 
-    The ledger's connection follows the file into WAL mode at its next
-    transaction, so `encrypt` refuses and writes nothing. Loaded again,
-    the file is back in the rollback journal and encrypts with no key
-    byte left.
+    In exclusive locking mode a journal in `DELETE` mode keeps the pages
+    a transaction saved until the file is closed: the search runs with
+    the ledger still open, and the control below is that journal.
     """
     directory = tmp_path / "ledger"
     directory.mkdir()
     path = directory / "ledger.sqlite"
-    secrets = _secrets(XPRV)
-    with _created(path, chain, _wallet(XPRV)) as ledger:
-        with contextlib.closing(sqlite3.connect(path)) as other:
-            assert other.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
-        with pytest.raises(BTClibValueError, match="in wal mode"):
-            ledger.encrypt(PASSPHRASE)
-        assert ledger.unlocked_until is None
-    with _loaded(path, chain) as ledger:
-        assert ledger.unlocked_until is None
+    secrets = _secrets(XPRV, XPRV2)
+    with _three(path, chain) as ledger:
+        with (
+            contextlib.closing(sqlite3.connect(path, timeout=0)) as other,
+            pytest.raises(sqlite3.OperationalError, match="database is locked"),
+        ):
+            other.execute("PRAGMA journal_mode = WAL").fetchone()
         ledger.encrypt(PASSPHRASE)
-        assert _key_bytes_out_of_wal(directory, secrets) == {"ledger.sqlite": 0}
+        assert set(_key_bytes(directory, secrets).values()) == {0}
+    path = tmp_path / "delete" / "ledger.sqlite"
+    path.parent.mkdir()
+    with _three(path, chain) as ledger:
+        ledger._store._db.execute("PRAGMA journal_mode = DELETE").fetchall()
+        ledger.encrypt(PASSPHRASE)
+        assert _key_bytes(path.parent, secrets)["ledger.sqlite-journal"] > 0
 
 
 def test_a_wal_file_open_in_another_program_is_refused(
@@ -320,8 +327,7 @@ def test_a_wal_file_open_in_another_program_is_refused(
 
     Another connection that has it open and has read it keeps it in WAL
     mode, where an encryption would leave the replaced keys in the main
-    file. SQLite refuses at once: leaving WAL mode does not wait on the
-    busy timeout.
+    file. It holds the file, so the load is refused at once.
     """
     path = tmp_path / "ledger.sqlite"
     _created(path, chain, _wallet(XPRV)).close()
@@ -329,7 +335,7 @@ def test_a_wal_file_open_in_another_program_is_refused(
         assert other.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
         other.execute("BEGIN")
         other.execute("SELECT COUNT(*) FROM sources").fetchone()
-        with pytest.raises(BTClibValueError, match="in rollback-journal mode"):
+        with pytest.raises(BTClibValueError, match="is open in another ledger"):
             _loaded(path, chain)
 
 
@@ -845,16 +851,9 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
             assert all(psbt_in.partial_sigs for psbt_in in signed.inputs)
 
 
-@pytest.mark.parametrize(
-    "relock, refused",
-    [("lock_keys", True), ("close", True), ("unlock_keys", False)],
-)
+@pytest.mark.parametrize("relock", ["lock_keys", "close", "unlock_keys"])
 def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
-    chain: FakeChain,
-    path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    relock: str,
-    refused: bool,
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch, relock: str
 ) -> None:
     """`add_source` encrypting keys, the keys locked in another thread.
 
@@ -863,9 +862,8 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
     key before SQLite refuses it. What was encrypted may be under zeros,
     so the call is refused as a ledger locked during it, holds neither
     the keys nor the passphrase, and writes nothing: the file unlocks and
-    holds one source. A new `unlock_keys` from another thread reads the
-    file first, so SQLite refuses it before it zeroes the key, and the
-    source is added: the file unlocks and holds two.
+    holds one source. A new `unlock_keys` from another thread zeroes the
+    key it replaces, so the call is refused the same way.
     """
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(PASSPHRASE)
@@ -902,18 +900,15 @@ def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
             return real(key, plaintext, aad)
 
         monkeypatch.setattr(ledger_module, "_sealed", held)
-        if refused:
-            with pytest.raises(BTClibValueError) as refusal:
-                ledger.add_source(_wallet(XPRV2))
-            assert str(refusal.value) == ledger_module._LOCKED_DURING
-            assert_secret_free(refusal.value, secrets)
-        else:
-            assert ledger.add_source(_wallet(XPRV2)) == 1
+        with pytest.raises(BTClibValueError) as refusal:
+            ledger.add_source(_wallet(XPRV2))
+        assert str(refusal.value) == ledger_module._LOCKED_DURING
+        assert_secret_free(refusal.value, secrets)
         (outcome,) = relocked
-        assert (outcome is None) == (relock == "lock_keys")
+        assert (outcome is None) == (relock != "close")
     with _loaded(path, chain) as ledger:
         ledger.unlock_keys(PASSPHRASE, 60)
-        assert len(ledger.sources) == (1 if refused else 2)
+        assert len(ledger.sources) == 1
 
 
 class _Waited:
@@ -1008,68 +1003,18 @@ def test_another_constraint_on_the_master_key_is_no_ledgers(
 ) -> None:
     """A trigger the file added refuses the encryption as no ledger's file.
 
-    Only a master key already written is another ledger's encryption,
-    and nothing is written either way.
+    Nothing is written.
     """
-    with _created(path, chain, _wallet(XPRV)) as ledger:
-        with contextlib.closing(sqlite3.connect(path)) as db, db:
-            db.execute(
-                "CREATE TRIGGER no_key BEFORE INSERT ON master_key"
-                " BEGIN SELECT RAISE(ABORT, 'refused'); END"
-            )
+    _created(path, chain, _wallet(XPRV)).close()
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        db.execute(
+            "CREATE TRIGGER no_key BEFORE INSERT ON master_key"
+            " BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        )
+    with _loaded(path, chain) as ledger:
         with pytest.raises(BTClibValueError, match="not a ledger file: refused"):
             ledger.encrypt(PASSPHRASE)
         assert ledger.unlocked_until is None
-
-
-def test_a_ledger_loaded_before_the_encryption_writes_no_plain_key(
-    chain: FakeChain, tmp_path: Path
-) -> None:
-    """Another ledger on the file adds no key in plain text, nor encrypts again.
-
-    The file keeps no byte of the key it was refused, and loads.
-    """
-    directory = tmp_path / "ledger"
-    directory.mkdir()
-    path = directory / "ledger.sqlite"
-    with _created(path, chain, _wallet(XPRV)) as ledger, _loaded(path, chain) as other:
-        ledger.encrypt(PASSPHRASE)
-        with pytest.raises(BTClibValueError, match="no key is written in plain"):
-            other.add_source(_wallet(XPRV2))
-        with pytest.raises(BTClibValueError, match="encrypted already"):
-            other.encrypt("another")
-        other.add_source(_watch_only())
-    assert set(_key_bytes(directory, _secrets(XPRV, XPRV2)).values()) == {0}
-    with _loaded(path, chain) as loaded:
-        assert len(loaded.sources) == 2
-        loaded.unlock_keys(PASSPHRASE, 10)
-
-
-def test_an_encryption_missing_a_source_another_ledger_added_is_refused(
-    chain: FakeChain, path: Path
-) -> None:
-    """A source with keys this ledger does not hold would stay plain."""
-    with _created(path, chain, _wallet(XPRV)) as ledger, _loaded(path, chain) as other:
-        other.add_source(_wallet(XPRV2))
-        with pytest.raises(BTClibValueError, match="source 1 of the ledger file"):
-            ledger.encrypt(PASSPHRASE)
-        assert ledger.unlocked_until is None
-    with _loaded(path, chain) as loaded:
-        assert loaded.unlocked_until is None
-        loaded.encrypt(PASSPHRASE)
-
-
-def test_two_ledgers_on_one_file_unlock_each_its_own(
-    chain: FakeChain, path: Path, clock: Clock
-) -> None:
-    """The keys unlocked are the process's, held by one ledger."""
-    with _created(path, chain, _wallet(XPRV)) as ledger:
-        _funded(ledger, chain)
-        ledger.encrypt(PASSPHRASE)
-        with _loaded(path, chain) as other:
-            ledger.unlock_keys(PASSPHRASE, 60)
-            assert other.unlocked_until == 0
-            assert _signs(ledger)
 
 
 # -- change_passphrase --------------------------------------------------------
@@ -1218,26 +1163,20 @@ def test_every_refusal_a_secret_reaches_holds_none(
         refused(lambda: ledger.unlock_keys(SECRET, 10), "not encrypted")
         refused(lambda: ledger.change_passphrase(SECRET, WRONG), "not encrypted")
     path = tmp_path / "missing.sqlite"
-    with _created(path, chain, _wallet(XPRV)) as ledger, _loaded(path, chain) as other:
+    with _created(path, chain, _wallet(XPRV)) as ledger:
         refused(lambda: ledger.encrypt(""), "the passphrase is empty")
         refused(lambda: ledger.encrypt(SECRET.encode()), "passphrase")  # type: ignore[arg-type]
         without_scrypt(lambda: ledger.encrypt(SECRET))
         no_cryptography(lambda: ledger.encrypt(SECRET))
-        other.add_source(_wallet(XPRV2))
-        refused(lambda: ledger.encrypt(SECRET), "holds keys this ledger does not")
     path = tmp_path / "hardened.sqlite"
     with _created(path, chain, _wallet(XPRV), _hardened(XPRV2)) as ledger:
         refused(lambda: ledger.encrypt(SECRET), "a locked ledger cannot watch")
         # raised `from None`: the context walked is the parser's refusal
         assert len(list(chained(refusals[-1]))) == 2
     path = tmp_path / "encrypted.sqlite"
-    with _created(path, chain, _wallet(XPRV)) as ledger, _loaded(path, chain) as stale:
+    with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)
         refused(lambda: ledger.encrypt(WRONG), "the ledger is encrypted already")
-        refused(lambda: stale.encrypt(WRONG), "the ledger file is encrypted already")
-        names = [type(e).__name__ for e in chained(refusals[-1])]
-        assert names == ["BTClibValueError", "IntegrityError"]
-        refused(lambda: stale.add_source(_wallet(XPRV2)), "no key is written in plain")
         refused(lambda: ledger.add_source(_wallet(XPRV2)), "the ledger is locked")
         refused(lambda: ledger.add_source(XPRV2), "invalid wallet type")  # type: ignore[arg-type]
         refused(
@@ -1273,61 +1212,42 @@ def test_every_refusal_a_secret_reaches_holds_none(
         refused(lambda: ledger.unlock_keys(SECRET, 10), "keys do not decrypt")
         names = [type(e).__name__ for e in chained(refusals[-1])]
         assert names == ["BTClibValueError", "_WrongKeyError", "InvalidTag"]
-    path = tmp_path / "raced.sqlite"
+    path = tmp_path / "unciphered.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)
-        with _loaded(path, chain) as other, pytest.MonkeyPatch.context() as patched:
-            written = ledger._store.set_master_key
-
-            def raced(old: crypto._MasterKey, new: crypto._MasterKey) -> None:
-                other.change_passphrase(SECRET, WRONG)
-                written(old, new)
-
-            patched.setattr(ledger._store, "set_master_key", raced)
-            refused(
-                lambda: ledger.change_passphrase(SECRET, WRONG),
-                "changed by another ledger",
-            )
-        ledger.backup(tmp_path / "raced.bak")
+        ledger.backup(tmp_path / "unciphered.bak")
         no_cryptography(lambda: ledger.unlock_keys(WRONG, 10))
         no_cryptography(lambda: ledger.change_passphrase(WRONG, SECRET))
     no_cryptography(lambda: _loaded(path, chain))
     no_cryptography(
         lambda: Ledger.restore(
-            tmp_path / "raced.bak", tmp_path / "raced-copy.sqlite", "regtest", chain
+            tmp_path / "unciphered.bak",
+            tmp_path / "unciphered-copy.sqlite",
+            "regtest",
+            chain,
         )
     )
     path = tmp_path / "short.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)
-        short = crypto._master_key(SECRET, bytearray(31))
-        _damaged(
-            path,
-            "UPDATE master_key SET salt = ?, encrypted = ?",
-            short.salt,
-            short.encrypted,
-        )
+    short = crypto._master_key(SECRET, bytearray(31))
+    _damaged(
+        path,
+        "UPDATE master_key SET salt = ?, encrypted = ?",
+        short.salt,
+        short.encrypted,
+    )
+    with _loaded(path, chain) as ledger:
         refused(lambda: ledger.unlock_keys(SECRET, 10), "no 32 bytes")
         refused(lambda: ledger.change_passphrase(SECRET, WRONG), "no 32 bytes")
-        for statement, err_msg in (
-            ("UPDATE master_key SET kdf = 'pbkdf2'", "unknown kdf"),
-            ("UPDATE master_key SET kdf = 'scrypt', n = 'n'", "a malformed master key"),
-            ("UPDATE master_key SET n = 3", "outside what this release writes"),
-        ):
-            _damaged(path, statement)
-            refused(lambda: ledger.unlock_keys(SECRET, 10), err_msg)
-            refused(lambda: ledger.change_passphrase(SECRET, WRONG), err_msg)
-        _damaged(path, "DELETE FROM master_key")
-        refused(lambda: ledger.unlock_keys(SECRET, 10), "its master key is gone")
-        refused(lambda: ledger.change_passphrase(SECRET, WRONG), "master key is gone")
     path = tmp_path / "both.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
-        db = sqlite3.connect(path)
-        (prv_keys,) = db.execute("SELECT prv_keys FROM sources").fetchone()
-        db.close()
+        (prv_keys,) = ledger._store._db.execute(
+            "SELECT prv_keys FROM sources"
+        ).fetchone()
         ledger.encrypt(SECRET)
-        _damaged(path, "UPDATE sources SET prv_keys = ?", prv_keys)
-        ledger.backup(tmp_path / "both.bak")
+    _damaged(path, "UPDATE sources SET prv_keys = ?", prv_keys)
+    shutil.copyfile(path, tmp_path / "both.bak")
     refused(lambda: _loaded(path, chain), "plain in an encrypted file")
     refused(
         lambda: Ledger.restore(
@@ -1491,37 +1411,6 @@ def test_an_unlock_failing_any_way_zeroes_the_key(
         assert ledger._key is None
 
 
-def test_a_passphrase_another_ledger_changed_is_the_files(
-    chain: FakeChain, path: Path
-) -> None:
-    """Each unlock and change reads the master key the file holds now.
-
-    A change written over one this ledger did not read is refused.
-    """
-    with _created(path, chain, _wallet(XPRV)) as ledger:
-        ledger.encrypt(PASSPHRASE)
-        with _loaded(path, chain) as other:
-            stale = other._master_key
-            assert stale is not None
-            ledger.change_passphrase(PASSPHRASE, "second")
-            with pytest.raises(BTClibValueError, match="the passphrase is wrong"):
-                other.unlock_keys(PASSPHRASE, 10)
-            with pytest.raises(BTClibValueError, match="the passphrase is wrong"):
-                other.change_passphrase(PASSPHRASE, "third")
-            other.unlock_keys("second", 10)
-            current = other._master_key
-            assert current is not None
-            with pytest.raises(BTClibValueError, match="changed by another ledger"):
-                other._store.set_master_key(stale, current)
-            other.change_passphrase("second", "third")
-        with pytest.raises(BTClibValueError, match="the passphrase is wrong"):
-            ledger.unlock_keys("second", 10)
-        ledger.unlock_keys("third", 10)
-        _damaged(path, "DELETE FROM master_key")
-        with pytest.raises(BTClibValueError, match="its master key is gone"):
-            ledger.unlock_keys("third", 10)
-
-
 @pytest.mark.parametrize(
     "statement, err_msg",
     [
@@ -1564,12 +1453,12 @@ def test_plain_keys_beside_their_ciphertext_are_refused_at_a_restore(
 ) -> None:
     """A backup holding both is refused too: no key is handed out plain."""
     with _created(path, chain, _wallet(XPRV)) as ledger:
-        db = sqlite3.connect(path)
-        (prv_keys,) = db.execute("SELECT prv_keys FROM sources").fetchone()
-        db.close()
+        (prv_keys,) = ledger._store._db.execute(
+            "SELECT prv_keys FROM sources"
+        ).fetchone()
         ledger.encrypt(PASSPHRASE)
-        _damaged(path, "UPDATE sources SET prv_keys = ?", prv_keys)
-        ledger.backup(tmp_path / "both.bak")
+    _damaged(path, "UPDATE sources SET prv_keys = ?", prv_keys)
+    shutil.copyfile(path, tmp_path / "both.bak")
     with pytest.raises(BTClibValueError, match="plain in an encrypted file"):
         Ledger.restore(
             tmp_path / "both.bak", tmp_path / "restored.sqlite", "regtest", chain

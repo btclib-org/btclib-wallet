@@ -519,7 +519,9 @@ class Ledger:
     ) -> Ledger:
         """Return the ledger the file at `path` holds, reading no backend.
 
-        Core's `loadwallet`. `store` says which files are refused.
+        Core's `loadwallet`. `store` says which files are refused, among
+        them one another ledger holds, and that the ledger holds its file
+        until `close`.
         """
         assert_type(path, (str, PathLike), "path")
         assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
@@ -607,14 +609,19 @@ class Ledger:
 
         Core's `backupwallet`. Anything at `path` is refused, the ledger's
         own file included, and nothing is written there. `store` says what
-        the copy holds; `restore` reads it.
+        the copy holds, and why the file is copied this way while the
+        ledger holds it; `restore` reads it.
         """
         assert_type(path, (str, PathLike), "path")
         self._store.backup(path)
 
     @_relocking
     def close(self) -> None:
-        """Lock the keys and close the file; the ledger answers nothing then."""
+        """Lock the keys and close the file; the ledger answers nothing then.
+
+        Until then the ledger holds its file, as `store` says, so another
+        ledger opens it only once this one is closed.
+        """
         self._drop_key()
         self._store.close()
 
@@ -650,10 +657,10 @@ class Ledger:
         included, and `load` builds it again from its descriptors and
         keys. In an encrypted ledger its keys are written encrypted, as
         `store` says, and a wallet holding keys is refused while the
-        ledger is locked, where a lock in another thread zeroed the
-        master key while its keys were encrypted, and where its scripts
-        need a private key at every index (a hardened ``/*h``), which a
-        locked ledger could not derive. `label` is set on the one address
+        ledger is locked, where another thread zeroed the master key
+        while its keys were encrypted, and where its scripts need a
+        private key at every index (a hardened ``/*h``), which a locked
+        ledger could not derive. `label` is set on the one address
         of branch 0, where its script has one, and refused where that
         branch is ranged or missing, as Core refuses a label on a ranged
         descriptor (src/wallet/rpc/backup.cpp:213-216 at
@@ -702,8 +709,8 @@ class Ledger:
         """Return a wallet's watched descriptors, and its keys encrypted.
 
         A locked ledger is refused, and so is one whose master key
-        `lock_keys` or `close` in another thread zeroed while the keys
-        were encrypted: they may be under zeros.
+        `lock_keys`, `close` or a new `unlock_keys` in another thread
+        zeroed while the keys were encrypted: they may be under zeros.
         """
         key = self._assert_unlocked()
         descriptors = _watched(wallet)
@@ -2211,7 +2218,7 @@ class Ledger:
         assert_type(passphrase, str, "passphrase")
         if not is_integer(timeout):
             raise BTClibTypeError(f"invalid timeout type: {type(timeout).__name__}")
-        master_key = self._current_master_key()
+        master_key = self._assert_encrypted()
         if timeout < 0:
             raise BTClibValueError(f"negative timeout: {timeout}")
         timeout = min(timeout, MAX_UNLOCK_TIME)
@@ -2254,11 +2261,6 @@ class Ledger:
         check of an empty passphrase, a wrong `old` among the refusals,
         locks the ledger, as Core's `ChangeWalletPassphrase` locks the
         wallet before it reads `old` (src/wallet/wallet.cpp:653).
-
-        The master key is read from the file at each change and unlock,
-        so after another ledger on the file changed the passphrase, the
-        new one is asked for here too. A change written over one this
-        ledger did not read is refused, and writes nothing.
         """
         assert_type(old, str, "old")
         assert_type(new, str, "new")
@@ -2273,7 +2275,7 @@ class Ledger:
 
     def _encrypt_master_key(self, old: str, new: str) -> None:
         """Write the master key `old` decrypts encrypted under `new`."""
-        master_key = self._current_master_key()
+        master_key = self._assert_encrypted()
         key = _unlocked(old, master_key)
         if key is None:
             raise BTClibValueError("the passphrase is wrong")
@@ -2281,7 +2283,7 @@ class Ledger:
             new_master_key = _master_key(new, key)
         finally:
             _wipe(key)
-        self._store.set_master_key(master_key, new_master_key)
+        self._store.set_master_key(new_master_key)
         self._master_key = new_master_key
 
     @property
@@ -2311,23 +2313,11 @@ class Ledger:
                 raise BTClibValueError(f"{err_msg} have no master key")
             self._encrypted[source_id] = source.encrypted
 
-    def _current_master_key(self) -> _MasterKey:
-        """Return the master key as the file holds it now.
-
-        Another ledger on the file may have changed the passphrase since
-        this one loaded it: the passphrase asked for is the file's.
-        """
-        self._assert_encrypted()
-        master_key = self._store.master_key()
-        if master_key is None:
-            raise BTClibValueError("not a ledger file: its master key is gone")
-        self._master_key = master_key
-        return master_key
-
-    def _assert_encrypted(self) -> None:
-        """Refuse a ledger not encrypted."""
+    def _assert_encrypted(self) -> _MasterKey:
+        """Return the encrypted master key, refusing a ledger not encrypted."""
         if self._master_key is None:
             raise BTClibValueError("the ledger is not encrypted")
+        return self._master_key
 
     def _assert_unlocked(self) -> bytearray:
         """Return the master key, refusing a locked ledger."""

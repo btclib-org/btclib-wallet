@@ -12,7 +12,6 @@ import json
 import os
 import sqlite3
 import stat
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -239,30 +238,47 @@ def test_a_source_column_that_is_no_json_object_is_refused(
     assert_secret_free(e.value, [XPRV])
 
 
-def test_a_source_id_another_ledger_took_meanwhile_is_refused(
-    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+_HELD = "is open in another ledger or program"
+
+
+@pytest.mark.parametrize("opened", ["create", "load", "restore"])
+def test_a_file_a_ledger_holds_opens_in_no_other(
+    chain: FakeChain, path: Path, tmp_path: Path, opened: str
 ) -> None:
-    """Two ledgers on one file, the second adding between the first's two steps.
+    """A ledger holds its file from its creation, load or restore to its close.
 
-    The first reads the next id, the second writes a source under it,
-    and the first's write is refused, not raised as SQLite's error. The
-    file keeps the second's source.
+    Another load is refused at once, and so is a restore from the file,
+    which leaves nothing at its path. Another SQLite connection reads
+    nothing of it. Closed, the ledger lets the file go, and deletes the
+    journal it opened.
     """
-    with (
-        Ledger.create(path, "regtest", chain) as first,
-        Ledger.load(path, "regtest", chain) as second,
-    ):
-        write = first._store.add_source
-
-        def between(source_id: int, written: store._Source) -> None:
-            assert second.add_source(source("wpkh({}/84h/1h/1h/{}/*)")) == source_id
-            write(source_id, written)
-
-        monkeypatch.setattr(first._store, "add_source", between)
-        with pytest.raises(BTClibValueError, match="source 0 was written by another"):
-            first.add_source(source())
-    with Ledger.load(path, "regtest", chain) as ledger:
-        assert len(ledger.sources) == 1
+    backup = tmp_path / "backup.sqlite"
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        ledger.backup(backup)
+    path.unlink()
+    held = {
+        "create": lambda: Ledger.create(path, "regtest", chain),
+        "load": lambda: Ledger.load(backup, "regtest", chain),
+        "restore": lambda: Ledger.restore(backup, path, "regtest", chain),
+    }
+    with held[opened]() as ledger:
+        file = ledger._store._db.execute("PRAGMA database_list").fetchone()[2]
+        sources = [str(wallet.descriptor(0)) for wallet in ledger.sources]
+        with pytest.raises(BTClibValueError, match=_HELD):
+            Ledger.load(file, "regtest", chain)
+        copy = tmp_path / "copy.sqlite"
+        with pytest.raises(BTClibValueError, match=_HELD):
+            Ledger.restore(file, copy, "regtest", chain)
+        assert not copy.exists()
+        with (
+            contextlib.closing(sqlite3.connect(file, timeout=0)) as other,
+            pytest.raises(sqlite3.OperationalError, match="database is locked"),
+        ):
+            other.execute("SELECT count(*) FROM sources").fetchone()
+    with Ledger.load(file, "regtest", chain) as again:
+        assert [str(wallet.descriptor(0)) for wallet in again.sources] == sources
+    assert not Path(f"{file}-journal").exists()
 
 
 def test_another_constraint_on_a_new_source_is_no_ledgers(
@@ -270,8 +286,8 @@ def test_another_constraint_on_a_new_source_is_no_ledgers(
 ) -> None:
     """A constraint the file added refuses the source as no ledger's file.
 
-    Only a source id already taken is another ledger's write; a unique
-    index another program put on the lookahead is the file's own.
+    A unique index another program put on the lookahead is one: the
+    ledger's own ids never collide.
     """
     with Ledger.create(path, "regtest", chain) as ledger:
         ledger.add_source(source())
@@ -400,8 +416,8 @@ def test_a_format_1_file_is_migrated(
     monkeypatch.setattr(crypto, "_SCRYPT_N", 2**4)
     _format_1_file(path)
     with Ledger.load(path, "regtest", chain, **_spending(chain)) as ledger:
-        assert _pragma(path, "user_version") == FORMAT_VERSION
         _keeps_the_format_1_sources(ledger, chain)
+    assert _pragma(path, "user_version") == FORMAT_VERSION
     new = tmp_path / "new.sqlite"
     Ledger.create(new, "regtest", chain).close()
     assert _layout(path) == _layout(new)
@@ -438,8 +454,8 @@ def test_a_format_1_backup_is_restored(
     backup = tmp_path / "backup.sqlite"
     _format_1_file(backup)
     with Ledger.restore(backup, path, "regtest", chain, **_spending(chain)) as ledger:
-        assert _pragma(path, "user_version") == FORMAT_VERSION
         _keeps_the_format_1_sources(ledger, chain)
+    assert _pragma(path, "user_version") == FORMAT_VERSION
     assert _pragma(backup, "user_version") == 1
 
 
@@ -454,42 +470,30 @@ def test_a_format_1_file_of_another_network_is_left_at_format_1(
     assert "master_key" not in _layout(path)
 
 
-def _meanwhile(monkeypatch: pytest.MonkeyPatch, other: Callable[[], None]) -> None:
-    """Run `other` once, after a load first reads the file's version."""
-    pragma = store._pragma
-    ran: list[bool] = []
-
-    def then_other(db: sqlite3.Connection, name: str) -> int:
-        value = pragma(db, name)
-        if name == "user_version" and not ran:
-            ran.append(True)
-            other()
-        return value
-
-    monkeypatch.setattr(store, "_pragma", then_other)
-
-
-def test_a_file_another_ledger_migrated_meanwhile_is_loaded(
+def test_a_file_being_migrated_opens_in_no_other_ledger(
     chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two ledgers load one format-1 file: the second finds it migrated."""
+    """The lock is taken before the file's version is read.
+
+    A second load while the first reads the version is refused, so no
+    two ledgers migrate one file.
+    """
     _format_1_file(path)
-    _meanwhile(monkeypatch, lambda: Ledger.load(path, "regtest", chain).close())
+    pragma = store._pragma
+    refused: list[str] = []
+
+    def then_another(db: sqlite3.Connection, name: str) -> int:
+        if name == "user_version" and not refused:
+            with pytest.raises(BTClibValueError, match=_HELD) as e:
+                Ledger.load(path, "regtest", chain)
+            refused.append(str(e.value))
+        return pragma(db, name)
+
+    monkeypatch.setattr(store, "_pragma", then_another)
     with Ledger.load(path, "regtest", chain) as ledger:
         assert len(ledger.sources) == len(_FORMAT_1_SOURCES)
+    assert refused
     assert _pragma(path, "user_version") == FORMAT_VERSION
-
-
-def test_a_file_a_later_release_migrated_meanwhile_is_refused(
-    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The version read again before a step is checked as the first one."""
-    _format_1_file(path)
-    newer = FORMAT_VERSION + 1
-    _meanwhile(monkeypatch, lambda: _set_pragma(path, "user_version", newer))
-    with pytest.raises(BTClibValueError, match=f"ledger format {newer} is newer"):
-        Ledger.load(path, "regtest", chain)
-    assert _pragma(path, "user_version") == newer
 
 
 def test_v2026_11_11_refuses_a_file_of_this_release(

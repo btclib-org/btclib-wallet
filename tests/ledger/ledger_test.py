@@ -704,6 +704,7 @@ def test_a_forged_spend_of_a_coin_a_new_source_owns_leaves(
     with pytest.raises(BTClibValueError, match="not a ledger transaction"):
         ledger.transaction(forged.id)
     assert ledger.balances().trusted == 30_000
+    ledger.close()
     with Ledger.load(path, "regtest", chain) as loaded:
         assert [info.wallet_tx.tx.id for info in loaded.transactions] == [parent.id]
 

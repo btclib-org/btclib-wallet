@@ -39,9 +39,29 @@ every connection that writes sets: in WAL mode the pages a write
 replaces stay in the main file until a checkpoint, `secure_delete` or
 not. So a file another program set to WAL goes back to the rollback
 journal when it is opened, and one another connection has open and has
-read, which keeps it in WAL mode, is refused. A program can also set WAL
-while a ledger has the file open, so `_Store.encrypt` reads the mode in
-its own transaction and refuses any but the rollback journal.
+read, which keeps it in WAL mode, is refused. The journal is truncated
+at the end of each transaction, not deleted: under the lock below, a
+journal in `DELETE` mode keeps the pages it saved until the file is
+closed. A journal a killed process left is rolled back at the load and
+stays whole until the ledger's first write truncates it, or its close
+deletes it.
+
+**One ledger per file.** A ledger holds its file's exclusive lock from
+`create`, `load` or `restore` until `close`, as Core holds a wallet's
+(`SQLiteDatabase::Open`, src/wallet/sqlite.cpp:289-299 at
+bitcoin/bitcoin@f0de87f040). So another SQLite connection neither reads
+nor writes the file meanwhile: a load of a file another ledger holds is
+refused at once, and so is a restore from it. Two ledgers on one file
+would each write rows over the other's with what it read at its load.
+
+The lock is SQLite's, a POSIX advisory lock where the system has one.
+A program reading the file directly, as `cp` does, is not refused. And
+a plain open and close of the file in the process that holds it, as
+`shutil.copyfile` makes, releases the lock (sqlite.org/howtocorrupt.html,
+section 2.2), so that another ledger can then open it and the two
+corrupt it. While a ledger holds the file, copy it with
+`Ledger.backup`. A ledger never closed keeps its file locked until its
+connection is collected.
 
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.
@@ -57,6 +77,7 @@ is.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Callable, Iterable, Mapping
@@ -172,10 +193,15 @@ class _SyncWrite:
 
 
 def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
-    """Open the file, `rw` refusing a missing one and `rwc` creating it."""
+    """Open the file, `rw` refusing a missing one and `ro` reading it only.
+
+    An `rw` connection holds the file, as the module's docstring says,
+    and is closed by `_release`. A file another connection holds is
+    refused at once: `timeout=0` waits for no lock.
+    """
     uri = f"file:{quote(str(Path(path)))}?mode={mode}"
     try:
-        db = sqlite3.connect(uri, uri=True)
+        db = sqlite3.connect(uri, uri=True, timeout=0)
     except sqlite3.OperationalError as e:
         raise BTClibValueError(f"cannot open the ledger file {path}: {e}") from None
     # each pragma's row is read: SQLite refuses a commit while a statement
@@ -184,23 +210,37 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     db.execute("PRAGMA secure_delete = ON").fetchall()
     if mode != "ro":
         try:
-            db.execute("PRAGMA journal_mode = DELETE").fetchall()
+            # in exclusive locking mode the lock a transaction takes is
+            # kept after it ends
+            db.execute("PRAGMA locking_mode = EXCLUSIVE").fetchall()
+            db.execute("BEGIN EXCLUSIVE")
+            db.execute("COMMIT")
+            db.execute("PRAGMA journal_mode = TRUNCATE").fetchall()
         except sqlite3.DatabaseError as e:
             db.close()
-            if isinstance(e, sqlite3.OperationalError):
-                err_msg = f"cannot open the ledger file {path} in rollback-journal mode"
-                raise BTClibValueError(f"{err_msg}: {e}") from None
+            _assert_not_held(e, path)
             raise BTClibValueError(f"not a ledger file: {e}") from None
     return db
 
 
-def _taken(e: sqlite3.IntegrityError) -> bool:
-    """Whether an insert failed on a row already under its primary key.
+def _assert_not_held(e: sqlite3.DatabaseError, path: str | PathLike[str]) -> None:
+    """Refuse a file whose lock another connection holds."""
+    if e.sqlite_errorname == "SQLITE_BUSY":
+        err_msg = f"the ledger file {path} is open in another ledger or program"
+        raise BTClibValueError(err_msg) from None
 
-    Only that is another ledger's write: any other constraint, as a
-    trigger or an index another program added, is the file's own.
+
+def _release(db: sqlite3.Connection) -> None:
+    """Close an `rw` connection, and with it the file's journal.
+
+    In exclusive locking mode SQLite deletes the journal this connection
+    opened at close in `DELETE` mode only, and leaves it empty in
+    `TRUNCATE` mode. A switch that fails leaves that empty journal, and
+    the file is closed all the same.
     """
-    return e.sqlite_errorname == "SQLITE_CONSTRAINT_PRIMARYKEY"
+    with contextlib.suppress(sqlite3.Error):
+        db.execute("PRAGMA journal_mode = DELETE").fetchall()
+    db.close()
 
 
 def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
@@ -220,15 +260,9 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
         raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
     while version < FORMAT_VERSION:
         # an explicit BEGIN: the sqlite3 module opens a transaction before
-        # a DML statement alone, so a step's DDL would commit as it runs.
-        # IMMEDIATE takes the write lock before the version is read again:
-        # another ledger may have migrated the file since the read above
+        # a DML statement alone, so a step's DDL would commit as it runs
         with db:
-            db.execute("BEGIN IMMEDIATE")
-            version = _pragma(db, "user_version")
-            _assert_not_newer(version)
-            if version == FORMAT_VERSION:
-                break
+            db.execute("BEGIN")
             if version not in _MIGRATIONS:
                 raise BTClibValueError(f"no migration from ledger format {version}")
             _MIGRATIONS[version](db)
@@ -306,12 +340,12 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
         db.backup(target)
     except BaseException as e:
         if target is not None:
-            target.close()
+            _release(target)
         Path(path).unlink(missing_ok=True)
         if isinstance(e, sqlite3.DatabaseError):
             raise BTClibValueError(f"cannot copy into {path}: {e}") from None
         raise
-    target.close()
+    _release(target)
 
 
 def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None:
@@ -326,6 +360,7 @@ def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None
         try:
             source.execute("SELECT count(*) FROM sqlite_master").fetchone()
         except sqlite3.DatabaseError as e:
+            _assert_not_held(e, backup)
             raise BTClibValueError(f"not a ledger file: {e}") from None
         _copy(source, path)
     finally:
@@ -365,7 +400,7 @@ class _Store:
                 db.execute("INSERT INTO meta VALUES ('network', ?)", (network,))
         except BaseException:
             if db is not None:
-                db.close()
+                _release(db)
             Path(path).unlink(missing_ok=True)
             raise
         return cls(db)
@@ -377,18 +412,18 @@ class _Store:
         try:
             _check_and_migrate(db, network)
         except sqlite3.DatabaseError as e:
-            db.close()
+            _release(db)
             raise BTClibValueError(f"not a ledger file: {e}") from None
         except BaseException:
             # a refusal, or a migration step that failed: the file is
             # closed either way
-            db.close()
+            _release(db)
             raise
         return cls(db)
 
     def close(self) -> None:
-        """Close the file."""
-        self._db.close()
+        """Close the file, and let another ledger open it."""
+        _release(self._db)
 
     def backup(self, path: str | PathLike[str]) -> None:
         """Write a copy of the file into a new file at `path`."""
@@ -517,15 +552,7 @@ class _Store:
         )
 
     def add_source(self, source_id: int, source: _Source) -> None:
-        """Write a source under the id `next_source_id` returned.
-
-        A source with keys in plain text is refused where the file is
-        encrypted, which another ledger on the same file may have done
-        since this one loaded it. The check follows the write, inside its
-        transaction, so that no encryption comes between the two. So is
-        an id another ledger on the file wrote since `next_source_id`
-        read it.
-        """
+        """Write a source under the id `next_source_id` returned."""
         with self._db:
             try:
                 self._db.execute(
@@ -542,13 +569,7 @@ class _Store:
                     ),
                 )
             except sqlite3.IntegrityError as e:
-                if not _taken(e):
-                    raise BTClibValueError(f"not a ledger file: {e}") from None
-                err_msg = f"source {source_id} was written by another ledger"
-                raise BTClibValueError(f"{err_msg}: load it again") from None
-            if source.prv_keys and self.master_key() is not None:
-                err_msg = "the ledger file is encrypted: no key is written in"
-                raise BTClibValueError(f"{err_msg} plain text; load it again")
+                raise BTClibValueError(f"not a ledger file: {e}") from None
 
     def encrypt(
         self,
@@ -559,10 +580,7 @@ class _Store:
 
         `sources` maps a source's id to the descriptors a locked ledger
         reads and the ciphertext; it is written in one SQLite
-        transaction with the master key. A file another ledger encrypted,
-        or gave a source with keys this one does not know of, is refused,
-        and so is one another program set to WAL mode since it was opened,
-        for the reason the module's docstring gives. Nothing is written.
+        transaction with the master key.
         """
         with self._db:
             try:
@@ -571,15 +589,7 @@ class _Store:
                     _master_key_row(master_key),
                 )
             except sqlite3.IntegrityError as e:
-                if not _taken(e):
-                    raise BTClibValueError(f"not a ledger file: {e}") from None
-                raise BTClibValueError("the ledger file is encrypted already") from None
-            # read under the write's lock, which no switch of the mode can
-            # take: another program may have set WAL since the file opened
-            mode = self._db.execute("PRAGMA journal_mode").fetchone()[0]
-            if mode != "delete":
-                err_msg = f"the ledger file is in {mode} mode, where the keys"
-                raise BTClibValueError(f"{err_msg} replaced stay: load it again")
+                raise BTClibValueError(f"not a ledger file: {e}") from None
             self._db.executemany(
                 "UPDATE sources SET descriptors = ?, prv_keys = '{}', encrypted = ?"
                 " WHERE id = ?",
@@ -588,28 +598,14 @@ class _Store:
                     for source_id, (descriptors, encrypted) in sources.items()
                 ],
             )
-            plain = self._db.execute(
-                "SELECT id FROM sources WHERE encrypted IS NULL AND prv_keys != '{}'"
-            ).fetchone()
-            if plain is not None:
-                err_msg = f"source {plain[0]} of the ledger file holds keys this"
-                raise BTClibValueError(f"{err_msg} ledger does not: load it again")
 
-    def set_master_key(self, old: _MasterKey, new: _MasterKey) -> None:
-        """Write the master key encrypted under a new passphrase.
-
-        The row is replaced only where it still holds `old`, so a change
-        another ledger wrote since `old` was read is refused, not lost.
-        """
+    def set_master_key(self, master_key: _MasterKey) -> None:
+        """Write the master key encrypted under a new passphrase."""
         with self._db:
-            changed = self._db.execute(
-                "UPDATE master_key SET n = ?, r = ?, p = ?, salt = ?, encrypted = ?"
-                " WHERE salt = ? AND encrypted = ?",
-                (*_master_key_row(new), old.salt, old.encrypted),
-            ).rowcount
-        if changed != 1:
-            err_msg = "the passphrase was changed by another ledger on the file"
-            raise BTClibValueError(f"{err_msg}: nothing is written")
+            self._db.execute(
+                "UPDATE master_key SET n = ?, r = ?, p = ?, salt = ?, encrypted = ?",
+                _master_key_row(master_key),
+            )
 
     def add_handed_out(self, positions: Iterable[tuple[int, int, int]]) -> None:
         """Write positions handed out."""

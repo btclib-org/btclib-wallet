@@ -23,7 +23,6 @@ ledger from its matured balance, never a fixed amount.
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Callable, Iterator
 from copy import deepcopy
 from dataclasses import dataclass
@@ -333,10 +332,10 @@ def test_the_ledger_answers_what_cores_wallet_answers(
     _compare(node, ledger)
 
     # a broadcast the node refuses, under its relay floor: made from a
-    # copy of the file, so that Core's wallet, which never sees the
+    # backup of the file, so that Core's wallet, which never sees the
     # transaction, stays comparable with the ledger after it
     copy = tmp_path / "refusing.sqlite"
-    shutil.copyfile(path, copy)
+    ledger.backup(copy)
     refusing = Ledger.load(copy, "regtest", fetcher, broadcaster=fetcher)
     with pytest.raises(RpcError, match="min relay fee not met"):
         refusing.spend(
