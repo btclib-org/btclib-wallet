@@ -749,18 +749,48 @@ def test_a_hardened_key_without_its_private_key_is_compared_as_written(
     "keys, repeated",
     [
         ((CHILD[2:], f"02{CHILD[2:]}"), True),
-        ((CHILD[2:], f"03{CHILD[2:]}"), False),
-        ((f"02{CHILD[2:]}", f"03{CHILD[2:]}"), False),
+        ((CHILD[2:], f"03{CHILD[2:]}"), True),
+        ((f"02{CHILD[2:]}", f"03{CHILD[2:]}"), True),
         ((f"{XPUB}/1", f"{XPUB}/2"), False),
         ((f"{XPRV}/1h", f"{XPRV}/2h"), False),
     ],
 )
-def test_a_tapscript_key_counts_as_its_even_y_form(
+def test_a_tapscript_key_counts_as_its_x_coordinate(
     keys: tuple[str, str], *, repeated: bool
 ) -> None:
-    """Compare 33-byte keys, parity included, as Core does."""
+    """Compare the 32 bytes the script holds; Core compares the parity too."""
     expression = f"or_i(pk({keys[0]}),pk({keys[1]}))"
     assert parse(expression, TAPSCRIPT).has_duplicate_keys() == repeated
+
+
+# an x coordinate, the WIF of its odd-y key, and a taproot internal key:
+# the keys of bitcoin/bitcoin#36420's tests
+ODD_X = "6116733562ba4df653e4ec6b98c904c8dd3c677428264d33f4ae0089b72abaa4"
+ODD_WIF = "KztWktoNG1biXs3GSD6M7YDEynGaQPgjLguiWhMXiJM7sDA5vZFt"
+INTERNAL_KEY = "a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd"
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        (ODD_X, f"03{ODD_X}"),
+        (f"02{ODD_X}", f"03{ODD_X}"),
+        (ODD_X, ODD_WIF),
+    ],
+)
+def test_a_tr_leaf_refuses_one_x_under_two_parities(keys: tuple[str, str]) -> None:
+    """Refuse a leaf whose two checks push one x, which one signature meets."""
+    descriptor = f"tr({INTERNAL_KEY},or_i(pk({keys[0]}),pk({keys[1]})))"
+    with pytest.raises(BTClibValueError, match="is not sane: it repeats a public key$"):
+        parse_descriptor(descriptor)
+
+
+def test_a_wsh_script_takes_the_two_parities_of_one_x_as_two_keys() -> None:
+    """Accept both: P2WSH pushes the 33 bytes, so the two checks differ."""
+    descriptor = parse_descriptor(f"wsh(or_i(pk(02{ODD_X}),pk(03{ODD_X})))")
+    # the scriptPubKey bitcoin/bitcoin#36420's tests expect
+    expected = "00206d30950aa674b28b0fbf4cc43f70244c6bdbac4d8cd4ace43dc6fdf6d303d20e"
+    assert descriptor.script_pub_key().script.hex() == expected
 
 
 def test_a_repeated_musig_key_is_a_repeated_key() -> None:
