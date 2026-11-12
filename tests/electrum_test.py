@@ -263,13 +263,13 @@ def test_requests_accept_zero() -> None:
 
 def test_decode_response_returns_the_result() -> None:
     """A well-formed reply answers with its own `result`."""
-    assert decode_response(reply(id=3, result="ok"), 3) == "ok"
+    assert decode_response(reply(id=3, result="ok"), 3, "server.ping") == "ok"
 
 
 def test_decode_response_refuses_a_line_that_is_not_json() -> None:
     """A line a server never sends, refused rather than misread."""
     with pytest.raises(BTClibValueError, match="not a JSON-RPC line"):
-        decode_response(b"not json at all\n", 1)
+        decode_response(b"not json at all\n", 1, "server.ping")
 
 
 def nested(depth: int, *, open_: bytes = b"[", close: bytes = b"]") -> bytes:
@@ -279,7 +279,7 @@ def nested(depth: int, *, open_: bytes = b"[", close: bytes = b"]") -> bytes:
 
 def test_decode_response_reads_a_nesting_at_the_bound() -> None:
     """The reply object is the first level."""
-    assert decode_response(nested(_MAX_NESTING), 1) is not None
+    assert decode_response(nested(_MAX_NESTING), 1, "server.ping") is not None
 
 
 @pytest.mark.parametrize("brackets", [(b"[", b"]"), (b'{"a":', b"}")])
@@ -289,20 +289,20 @@ def test_decode_response_refuses_a_nesting_past_the_bound(
     """`RecursionError` is not the exception a caller of this module catches."""
     line = nested(_MAX_NESTING + 1, open_=brackets[0], close=brackets[1])
     with pytest.raises(BTClibValueError, match="nested beyond"):
-        decode_response(line, 1)
+        decode_response(line, 1, "server.ping")
 
 
 def test_decode_response_refuses_a_nesting_far_past_the_bound() -> None:
     """`json.loads` would take it a level at a time to the end."""
     with pytest.raises(BTClibValueError, match="nested beyond"):
-        decode_response(nested(10**6), 1)
+        decode_response(nested(10**6), 1, "server.ping")
 
 
 def test_decode_response_does_not_count_a_bracket_inside_a_string() -> None:
     """A legitimate line may hold `[` in a string, an escaped quote included."""
     text = "[" * 100 + '\\"' + "{" * 100 + "\\\\"
     line = json.dumps({"id": 1, "result": [text]}).encode()
-    assert decode_response(line, 1) == [text]
+    assert decode_response(line, 1, "server.ping") == [text]
 
 
 def test_decode_response_counts_a_bracket_after_a_string() -> None:
@@ -310,14 +310,14 @@ def test_decode_response_counts_a_bracket_after_a_string() -> None:
     line = b'{"id":1,"s":"]]]]","result":' + b"[" * _MAX_NESTING
     line += b"]" * _MAX_NESTING + b"}"
     with pytest.raises(BTClibValueError, match="nested beyond"):
-        decode_response(line, 1)
+        decode_response(line, 1, "server.ping")
 
 
 def test_decode_response_refuses_a_string_left_open() -> None:
     """A line cut inside a string is not JSON, and is refused, not hung on."""
     line = b'{"id":1,"result":"' + b'\\"' * 10**5
     with pytest.raises(BTClibValueError, match="not a JSON-RPC line"):
-        decode_response(line, 1)
+        decode_response(line, 1, "server.ping")
 
 
 # What kills CPython 3.12 and 3.13 in a thread with a small stack is not
@@ -338,7 +338,7 @@ SMALL_STACK_THREAD = textwrap.dedent(
 
     def run():
         try:
-            decode_response(line, 1)
+            decode_response(line, 1, "server.ping")
         except BTClibValueError:
             print("refused")
 
@@ -368,14 +368,14 @@ def test_decode_response_refuses_a_line_that_is_not_plain_utf8(encoding: str) ->
     """Electrum speaks UTF-8; `json.loads` would have guessed another."""
     line = reply(id=1, result="ok").decode().encode(encoding)
     with pytest.raises(BTClibValueError, match="not a JSON-RPC line"):
-        decode_response(line, 1)
+        decode_response(line, 1, "server.ping")
 
 
 @pytest.mark.parametrize("line", ['{"id":1,"result":0}', memoryview(b"{}"), 7])
 def test_decode_response_refuses_what_is_not_bytes(line: object) -> None:
     """The line is bytes: a `str` or another type is refused."""
     with pytest.raises(BTClibValueError, match="not a JSON-RPC line"):
-        decode_response(line, 1)  # type: ignore[arg-type]
+        decode_response(line, 1, "server.ping")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
@@ -383,19 +383,19 @@ def test_decode_response_refuses_a_constant_json_lacks(constant: str) -> None:
     """RFC 8259 has no `NaN` or `Infinity`, which Python reads."""
     line = b'{"id":1,"result":' + constant.encode() + b"}"
     with pytest.raises(BTClibValueError, match="not a JSON-RPC line"):
-        decode_response(line, 1)
+        decode_response(line, 1, "server.ping")
 
 
 def test_decode_response_refuses_a_json_value_that_is_not_an_object() -> None:
     """Valid JSON, the wrong shape: a JSON-RPC reply is an object."""
     with pytest.raises(BTClibTypeError, match="not a JSON-RPC response object"):
-        decode_response(b"[1, 2, 3]\n", 1)
+        decode_response(b"[1, 2, 3]\n", 1, "server.ping")
 
 
 def test_decode_response_refuses_a_mismatched_id() -> None:
     """A reply answering a different request is refused, not returned."""
     with pytest.raises(BTClibValueError, match="does not answer request an int"):
-        decode_response(reply(id=2, result="ok"), 1)
+        decode_response(reply(id=2, result="ok"), 1, "server.ping")
 
 
 def test_decode_response_refuses_a_bool_id_equal_under_python_equality() -> None:
@@ -404,7 +404,7 @@ def test_decode_response_refuses_a_bool_id_equal_under_python_equality() -> None
     Issue btclib-org/btclib#2298.
     """
     with pytest.raises(BTClibValueError, match="does not answer request an int"):
-        decode_response(reply(id=True, result="ok"), 1)
+        decode_response(reply(id=True, result="ok"), 1, "server.ping")
 
 
 def test_decode_response_refuses_a_float_id_equal_under_python_equality() -> None:
@@ -413,28 +413,49 @@ def test_decode_response_refuses_a_float_id_equal_under_python_equality() -> Non
     Issue btclib-org/btclib#2298.
     """
     with pytest.raises(BTClibValueError, match="does not answer request an int"):
-        decode_response(reply(id=1.0, result="ok"), 1)
+        decode_response(reply(id=1.0, result="ok"), 1, "server.ping")
 
 
 def test_decode_response_refuses_a_reply_with_neither_result_nor_error() -> None:
     """A JSON-RPC object with neither member is not an answer to anything."""
     with pytest.raises(BTClibValueError, match="neither a result nor an error"):
-        decode_response(reply(id=1), 1)
+        decode_response(reply(id=1), 1, "server.ping")
+
+
+def test_decode_response_refuses_a_method_that_is_no_string() -> None:
+    """The method names the request in an `RpcError`, so it is a string."""
+    with pytest.raises(BTClibTypeError, match="^invalid method type: bytes$"):
+        decode_response(reply(id=1, result="ok"), 1, b"server.ping")  # type: ignore[arg-type]
 
 
 def test_decode_response_raises_rpc_error_for_an_error_object() -> None:
-    """A JSON-RPC 2.0 error object: `code` and `message`, both kept."""
+    """A JSON-RPC 2.0 error object: `code` kept, `message` dropped."""
     line = reply(id=1, error={"code": -32601, "message": "unknown method"})
-    with pytest.raises(RpcError, match="unknown method") as exc_info:
-        decode_response(line, 1)
+    err_msg = r"^server.ping: the server answered an error \(rpc error code -32601\)$"
+    with pytest.raises(RpcError, match=err_msg) as exc_info:
+        decode_response(line, 1, "server.ping")
     assert exc_info.value.code == -32601
+
+
+@pytest.mark.parametrize(
+    "sent, kept",
+    [(-(2**15), -(2**15)), (2**15 - 1, 2**15 - 1), (2**15, 0), (-(2**15) - 1, 0)],
+)
+def test_decode_response_keeps_a_code_of_16_signed_bits_only(
+    sent: int, kept: int
+) -> None:
+    """A wider code is 0: it could hold the scalar of a key (issue #806)."""
+    line = reply(id=1, error={"code": sent, "message": "x"})
+    with pytest.raises(RpcError, match=rf"\(rpc error code {kept}\)$") as exc_info:
+        decode_response(line, 1, "server.ping")
+    assert exc_info.value.code == kept
 
 
 def test_decode_response_raises_rpc_error_for_a_bare_error() -> None:
     """Protocol 1.0's shape: `error` is a string, not an object."""
     line = reply(id=1, error="no such transaction")
-    with pytest.raises(RpcError, match="no such transaction") as exc_info:
-        decode_response(line, 1)
+    with pytest.raises(RpcError, match="^server.ping: the server answered") as exc_info:
+        decode_response(line, 1, "server.ping")
     assert exc_info.value.code == 0
 
 
@@ -447,15 +468,15 @@ def test_decode_response_raises_rpc_error_for_a_null_id_error() -> None:
     (issue btclib-org/btclib#2299).
     """
     line = reply(id=None, error={"code": -32700, "message": "Parse error"})
-    with pytest.raises(RpcError, match="Parse error") as exc_info:
-        decode_response(line, 1)
+    with pytest.raises(RpcError, match="^server.ping: the server answered") as exc_info:
+        decode_response(line, 1, "server.ping")
     assert exc_info.value.code == -32700
 
 
 def test_decode_response_refuses_a_null_id_with_no_error() -> None:
     """A `null` id with no `error` member is still an ordinary mismatch."""
     with pytest.raises(BTClibValueError, match="does not answer request an int"):
-        decode_response(reply(id=None, result="ok"), 1)
+        decode_response(reply(id=None, result="ok"), 1, "server.ping")
 
 
 def test_transaction_get_round_trips_the_raw_transaction() -> None:
@@ -780,7 +801,7 @@ class _Unmeasurable(str):
     "call, message",
     [
         (
-            lambda: decode_response(b'{"id": 1, "result": 0}\n', _HUGE),
+            lambda: decode_response(b'{"id": 1, "result": 0}\n', _HUGE, "server.ping"),
             "does not answer request an int of 16610 bits",
         ),
         (

@@ -84,6 +84,8 @@ from btclib_wallet.psbt_signer import (
     request_signatures,
     sign_message,
 )
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" root of BIP39, which BIP84 publishes
 XPRV_ROOT = (
@@ -886,6 +888,61 @@ def test_a_malformed_enumerate_entry_is_a_signer_error(
     listed = stand_in(tmp_path, {"enumerate": [entry]})
     with pytest.raises(SignerError, match=message):
         enumerate_devices(executable=listed)
+
+
+@pytest.mark.parametrize(
+    "answer, message",
+    [
+        pytest.param(HEX, "did not answer a list: a str of length 64", id="list"),
+        pytest.param([HEX], "did not answer a device: a str of length 64", id="device"),
+        pytest.param(
+            [{"fingerprint": HEX}],
+            "invalid fingerprint, a str of length 64",
+            id="fingerprint",
+        ),
+        pytest.param(
+            [{"code": HEX}],
+            "code that is not a number: a str of length 64",
+            id="code",
+        ),
+    ],
+)
+def test_a_refused_enumerate_answer_is_described(
+    tmp_path: Path, answer: object, message: str
+) -> None:
+    """What the backend answered is described, not printed (issue #802)."""
+    listed = stand_in(tmp_path, {"enumerate": answer})
+    with pytest.raises(SignerError, match=message) as e:
+        enumerate_devices(executable=listed)
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_refused_command_answer_is_described(tmp_path: Path) -> None:
+    """What the backend answered is described, not printed (issue #802)."""
+    device = signer(stand_in(tmp_path, {}))
+    psbt = account_psbt(device)[0]
+    sent = psbt.b64encode()
+    cases: list[tuple[dict[str, object], Callable[[HwiSigner], object], str]] = [
+        (
+            {"getxpub": HEX},
+            lambda d: d.xpub("m/0"),
+            "did not answer a xpub: a str of length 64",
+        ),
+        (
+            {"signtx": HEX},
+            lambda d: d.sign_psbt(psbt),
+            "did not answer a psbt: a str of length 64",
+        ),
+        (
+            {"signtx": {"psbt": sent, "signed": HEX}},
+            lambda d: d.sign_psbt(psbt),
+            "signed as True and a psbt that was the one it was given",
+        ),
+    ]
+    for answers, call, message in cases:
+        with pytest.raises(SignerError, match=message) as e:
+            call(signer(stand_in(tmp_path, answers)))
+        assert_secret_free(e.value, SPELLINGS)
 
 
 def test_an_enumerate_entry_is_read_for_what_it_says(tmp_path: Path) -> None:

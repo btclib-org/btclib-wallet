@@ -416,11 +416,14 @@ jobs:
           "$daemon" -version | head -n 1
       # speculos runs an ARM binary through qemu's user-mode emulation,
       # and the wheel does not carry qemu: it execs `qemu-arm-static` off
-      # the PATH
+      # the PATH. qemu-user ships the emulator as `qemu-arm`, and the link
+      # gives it the name speculos asks for
       - name: Install what the emulator needs
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends qemu-user-static
+          sudo apt-get install --yes --no-install-recommends qemu-user
+          sudo ln -s /usr/bin/qemu-arm /usr/local/bin/qemu-arm-static
+          qemu-arm-static --version
       # the app, twice, in the image its SDK comes from. `git clone` on
       # the runner rather than in the container, so the checkout is the
       # runner's own and the container only compiles; `docker run` rather

@@ -255,7 +255,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         self.base_url = _checked_base_url(base_url).rstrip("/")
         self.timeout = valid_timeout(timeout)
         if not callable(transport):
-            raise BTClibTypeError(f"not a callable transport: {transport!r}")
+            raise BTClibTypeError(
+                f"not a callable transport: {_message_text(transport)}"
+            )
         self.transport = transport
 
     def _request(
@@ -360,7 +362,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         height = block_header_height(height)
         block_hash = self._block_id_at(height).hex()
         raw = self.text(f"/block/{block_hash}/header", _MAX_HEADER_BODY)
-        return block_header_from_raw(raw, height, network=self.network)
+        return block_header_from_raw(raw, network=self.network)
 
     @override
     def assert_network(self) -> None:
@@ -463,7 +465,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         with fetch_errors("fee-estimates"):
             payload = json.loads(self.text("/fee-estimates", _MAX_FEE_ESTIMATES_BODY))
             if not isinstance(payload, dict):
-                raise BTClibTypeError(f"not an object: {payload!r}")
+                raise BTClibTypeError(f"not an object: {_message_text(payload)}")
             if not payload:
                 raise FetchError("fee-estimates: no target quoted")
             available = {int(key): value for key, value in payload.items()}
@@ -491,10 +493,12 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         with fetch_errors(source):
             payload = json.loads(self.text(f"/address/{canonical}", _MAX_ADDRESS_BODY))
             if not isinstance(payload, dict):
-                raise BTClibTypeError(f"not an object: {payload!r}")
+                raise BTClibTypeError(f"not an object: {_message_text(payload)}")
             answered = payload.get("address")
             if answered != canonical:
-                raise FetchError(f"{source}: the server answered for {answered!r}")
+                raise FetchError(
+                    f"{source}: the server answered for {_message_text(answered)}"
+                )
             confirmed = _txo_balance(payload, "chain_stats")
             unconfirmed = _txo_balance(payload, "mempool_stats")
             if confirmed < 0:
@@ -600,7 +604,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         found: list[tuple[str, BlockRef]] = []
         seen: set[str] = set()
         path = f"/scripthash/{scripthash}/txs/chain"
-        source = f"scripthash {scripthash} history"
+        source = "script history"
         for _ in range(max_pages):
             with fetch_errors(source):
                 page = self._json(path, _MAX_TXS_BODY)
@@ -661,7 +665,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
     def _mempool_history(self, scripthash: str) -> list[str]:
         """Return the ids of a script's mempool transactions, all of them."""
-        source = f"scripthash {scripthash}"
+        source = "script mempool"
         with fetch_errors(source):
             stats = self._json(f"/scripthash/{scripthash}", _MAX_ADDRESS_BODY)
             if not isinstance(stats, dict):
@@ -671,7 +675,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 raise BTClibTypeError("mempool_stats: not an object")
             count = mempool_stats.get("tx_count")
             if not is_integer(count):
-                raise BTClibTypeError(f"mempool_stats: invalid tx_count: {count!r}")
+                raise BTClibTypeError(
+                    f"mempool_stats: invalid tx_count: {_message_text(count)}"
+                )
             page = self._json(f"/scripthash/{scripthash}/txs/mempool", _MAX_TXS_BODY)
             if not isinstance(page, list):
                 raise BTClibTypeError(f"not an array: {type(page).__name__}")
@@ -705,7 +711,7 @@ def _confirmed_entry(entry: Any) -> tuple[str, BlockRef]:
         raise BTClibValueError("a transaction of the chain is not confirmed")
     height = _member(status, "block_height")
     if not is_integer(height):
-        raise BTClibTypeError(f"invalid block_height: {height!r}")
+        raise BTClibTypeError(f"invalid block_height: {_message_text(height)}")
     block_id = bytes_from_octets(_member(status, "block_hash"), 32)
     ref = BlockRef(block_header_height(height), block_id)
     return tx_id_hex(_member(entry, "txid")), ref
@@ -718,9 +724,11 @@ def _txo_balance(payload: dict[str, object], key: str) -> int:
     """
     stats = payload.get(key)
     if not isinstance(stats, dict):
-        raise BTClibTypeError(f"{key}: not an object: {stats!r}")
+        raise BTClibTypeError(f"{key}: not an object: {_message_text(stats)}")
     funded = stats.get("funded_txo_sum")
     spent = stats.get("spent_txo_sum")
     if not (is_integer(funded) and is_integer(spent)):
-        raise BTClibTypeError(f"{key}: invalid sums: {funded!r}, {spent!r}")
+        raise BTClibTypeError(
+            f"{key}: invalid sums: {_message_text(funded)}, {_message_text(spent)}"
+        )
     return cast(int, funded) - cast(int, spent)

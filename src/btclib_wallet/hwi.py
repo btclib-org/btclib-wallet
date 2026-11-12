@@ -148,6 +148,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.exceptions import SignerError, SignerNotFoundError
@@ -520,7 +521,7 @@ def _fingerprint(entry: Mapping[str, Any]) -> bytes | None:
     try:
         return bytes_from_octets(fingerprint, 4)
     except (TypeError, ValueError) as e:
-        err_msg = f"hwi enumerate answered an invalid fingerprint {fingerprint!r}: {e}"
+        err_msg = f"hwi enumerate answered an invalid fingerprint, {_message_text(fingerprint)}: {e}"
         raise SignerError(err_msg) from e
 
 
@@ -535,7 +536,9 @@ def _code(entry: Mapping[str, Any]) -> int | None:
     code = entry.get("code")
     if code is None or is_integer(code):
         return code
-    raise SignerError(f"hwi enumerate answered a code that is not a number: {code!r}")
+    raise SignerError(
+        f"hwi enumerate answered a code that is not a number: {_message_text(code)}"
+    )
 
 
 def _device(entry: Any) -> HwiDevice:
@@ -555,7 +558,9 @@ def _device(entry: Any) -> HwiDevice:
     on, and neither has a reading that is merely odd.
     """
     if not isinstance(entry, Mapping):
-        raise SignerError(f"hwi enumerate did not answer a device: {entry!r}")
+        raise SignerError(
+            f"hwi enumerate did not answer a device: {_message_text(entry)}"
+        )
     return HwiDevice(
         type=str(entry.get("type", "")),
         model=str(entry.get("model", "")),
@@ -589,7 +594,9 @@ def enumerate_devices(
         argv.insert(-1, "--emulators")
     answer = _run(argv, timeout=timeout, max_output=max_output, stdin=None)
     if not isinstance(answer, list):
-        raise SignerError(f"hwi enumerate did not answer a list: {answer!r}")
+        raise SignerError(
+            f"hwi enumerate did not answer a list: {_message_text(answer)}"
+        )
     return [_device(entry) for entry in answer]
 
 
@@ -711,7 +718,9 @@ class HwiSigner:
         """Return one string field of an answer, refusing one without it."""
         answer = self._hwi(*command, stdin=None)
         if not isinstance(answer, dict) or field not in answer:
-            err_msg = f"hwi {command[0]} did not answer a {field}: {answer!r}"
+            err_msg = (
+                f"hwi {command[0]} did not answer a {field}: {_message_text(answer)}"
+            )
             raise SignerError(err_msg)
         return str(answer[field])
 
@@ -787,13 +796,15 @@ class HwiSigner:
         # docstring says why the psbt alone goes there
         answer = self._hwi("--stdin", "signtx", stdin=f"{sent}\n".encode("ascii"))
         if not isinstance(answer, dict) or "psbt" not in answer:
-            raise SignerError(f"hwi signtx did not answer a psbt: {answer!r}")
+            raise SignerError(
+                f"hwi signtx did not answer a psbt: {_message_text(answer)}"
+            )
         returned = str(answer["psbt"])
         # absent from HWI before the flag existed, and a caller may be
         # running one of those: what is not answered is not checked
         signed = answer.get("signed")
         if signed is not None and bool(signed) != (returned != sent):
-            err_msg = f"hwi signtx answered signed={signed!r} and a psbt that"
+            err_msg = f"hwi signtx answered signed as {bool(signed)} and a psbt that"
             err_msg += " was" if returned == sent else " was not"
             err_msg += " the one it was given"
             raise SignerError(err_msg)

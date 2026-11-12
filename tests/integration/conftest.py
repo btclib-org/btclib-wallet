@@ -708,7 +708,7 @@ class FlorestaStack:
         line = (self.tls if tls else self.electrum)(
             electrum.encode_request(1, method, params), 10
         )
-        return electrum.decode_response(line, 1)
+        return electrum.decode_response(line, 1, method)
 
 
 def _wait_for_file(path: Path, process: subprocess.Popen[bytes]) -> None:

@@ -35,6 +35,8 @@ from tests.fetch.electrum_history_test import (
 )
 from tests.fetch.esplora_test import BASE, TESTNET_GENESIS
 from tests.fetch.history_test import OURS, _tx
+from tests.refused_value_test import HEX, KEY, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 
 class FakeEsplora:
@@ -394,7 +396,14 @@ def test_a_transaction_listed_in_two_blocks_is_refused() -> None:
         (lambda r: [r[0], r[0]], "listed twice"),
         (lambda _r: {}, "not an array: dict"),
         (lambda r: [_status(r[0], confirmed=False)], "is not confirmed"),
-        (lambda r: [_status(r[0], block_height="3")], "invalid block_height: '3'"),
+        (
+            lambda r: [_status(r[0], block_height="3")],
+            "invalid block_height: a str of length 1",
+        ),
+        (
+            lambda r: [_status(r[0], block_height=HEX)],
+            "invalid block_height: a str of length 64",
+        ),
         (lambda r: [{"status": r[0]["status"]}], "no 'txid' member"),
     ],
 )
@@ -402,8 +411,9 @@ def test_a_page_of_the_chain_that_is_not_one_is_refused(
     change: Callable[[Any], Any], match: str
 ) -> None:
     """Each page is read whole and checked before any entry is used."""
-    with pytest.raises(FetchError, match=match):
+    with pytest.raises(FetchError, match=match) as e:
         _fetcher(_with("chain", change)).get_history([OURS])
+    assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize(
@@ -411,7 +421,12 @@ def test_a_page_of_the_chain_that_is_not_one_is_refused(
     [
         ("stats", lambda _r: [], "not an object: list"),
         ("stats", lambda r: {**r, "mempool_stats": None}, "not an object"),
-        ("stats", lambda r: {**r, "mempool_stats": {}}, "invalid tx_count: None"),
+        ("stats", lambda r: {**r, "mempool_stats": {}}, "invalid tx_count: a NoneType"),
+        (
+            "stats",
+            lambda r: {**r, "mempool_stats": {"tx_count": HEX}},
+            "invalid tx_count: a str of length 64",
+        ),
         ("mempool", lambda _r: {}, "not an array: dict"),
         ("txids", lambda _r: {}, "not an array: dict"),
     ],
@@ -420,8 +435,9 @@ def test_an_answer_that_is_not_one_is_refused(
     kind: str, change: Callable[[Any], Any], match: str
 ) -> None:
     """The counts, the mempool's list and a block's txids are checked."""
-    with pytest.raises(FetchError, match=match):
+    with pytest.raises(FetchError, match=match) as e:
         _fetcher(_with(kind, change)).get_history([OURS])
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_get_history_checks_its_arguments_before_any_request() -> None:
@@ -451,3 +467,19 @@ def test_the_txids_of_a_block_are_bounded_by_its_weight() -> None:
     assert len(json.dumps(txids, separators=compact)) <= esplora._MAX_TXIDS_BODY
     txids.append("00" * 32)
     assert len(json.dumps(txids, separators=compact)) > esplora._MAX_TXIDS_BODY
+
+
+@pytest.mark.parametrize(
+    "kind, err_msg",
+    [
+        ("chain", "^script history: not an array: dict$"),
+        ("stats", "^script mempool: mempool_stats: not an object$"),
+    ],
+)
+def test_a_history_label_carries_no_hash_of_the_script(kind: str, err_msg: str) -> None:
+    """A script hash confirms a guess at the script (issue #805)."""
+    with pytest.raises(FetchError, match=err_msg) as e:
+        _fetcher(_with(kind, lambda _r: {})).get_history([KEY])
+    assert_secret_free(
+        e.value, [*SPELLINGS, sha256(KEY).hex(), sha256(KEY)[::-1].hex()]
+    )

@@ -42,6 +42,8 @@ from tests.fetch import (
     Recorded,
     recorded_body,
 )
+from tests.refused_value_test import HEX, SCALAR, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 # a custom signet differs from the default one in its challenge alone,
 # which is what the name `signet` cannot separate; the default one is the
@@ -169,7 +171,7 @@ def test_get_tx_labels_the_outputs_for_the_fetchers_network() -> None:
 def test_a_truncated_transaction_is_refused() -> None:
     """A body cut off in transit is caught the same as a substituted one."""
     truncated = recorded_body("rest_tx.bin")[:-1]
-    with pytest.raises(FetchError, match=f"transaction {TX_ID}:"):
+    with pytest.raises(FetchError, match="^transaction:"):
         fetcher((200, truncated)).get_tx(TX_ID)
 
 
@@ -257,7 +259,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     )
     regtest = fetcher(*answers, network="regtest")
     assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
         fetcher(*answers).get_block_header(0)
 
 
@@ -388,12 +390,26 @@ def test_a_node_that_could_not_be_asked_is_asked_again() -> None:
         chaininfo(chain=None, blocks=TIP_HEIGHT),
         chaininfo(chain=["main"], blocks=TIP_HEIGHT),
         b"[]",
+        chaininfo(chain=SCALAR),
+        json.dumps(HEX).encode(),
     ],
 )
 def test_assert_network_refuses_a_malformed_reply(body: bytes) -> None:
-    """A chaininfo with no string `chain` is no answer, not a disagreement."""
-    with pytest.raises(FetchError, match="chaininfo:"):
+    """A chaininfo with no string `chain` is no answer, not a disagreement.
+
+    What it holds is described, not printed (issue #802).
+    """
+    with pytest.raises(FetchError, match="chaininfo:") as e:
         BitcoinCoreRestFetcher(client((200, body))).assert_network()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_chain_name_past_16_characters_is_described() -> None:
+    """A node answering a long chain name has it described (issue #802)."""
+    endpoint = client((200, chaininfo(chain=HEX)))
+    with pytest.raises(BTClibValueError, match="chain a value of 64 characters") as e:
+        BitcoinCoreRestFetcher(endpoint).assert_network()
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_verify_network_false_asks_the_node_nothing() -> None:
@@ -453,6 +469,7 @@ def test_assert_network_checks_the_signet_the_fetcher_was_given() -> None:
         chaininfo(chain="signet", signet_challenge=None),
         chaininfo(chain="signet", signet_challenge=["00"]),
         chaininfo(chain="signet", signet_challenge="not hex"),
+        chaininfo(chain="signet", signet_challenge=SCALAR),
     ],
 )
 def test_a_signet_challenge_that_cannot_be_read_is_no_answer(body: bytes) -> None:
@@ -460,10 +477,11 @@ def test_a_signet_challenge_that_cannot_be_read_is_no_answer(body: bytes) -> Non
 
     Not a pass and not a disagreement: a node too old to report the
     member, and one reporting something that is no script, are both
-    nodes this cannot answer for.
+    nodes this cannot answer for. What it holds is described (issue #802).
     """
-    with pytest.raises(FetchError, match="chaininfo:"):
+    with pytest.raises(FetchError, match="chaininfo:") as e:
         BitcoinCoreRestFetcher(client((200, body)), "signet").assert_network()
+    assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize("network", ["testnet", "testnet4"])

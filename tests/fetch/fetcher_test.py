@@ -172,7 +172,7 @@ def test_tx_from_raw_returns_the_transaction_asked_for() -> None:
 
 def test_tx_from_raw_catches_the_answer_to_another_question() -> None:
     """The one answer a backend cannot fake, checked where get_tx is served."""
-    with pytest.raises(FetchError, match=f"transaction {OTHER_ID}: the answer is"):
+    with pytest.raises(FetchError, match="^transaction: the answer is"):
         tx_from_raw(RAW, OTHER_ID, "mainnet")
 
 
@@ -187,7 +187,7 @@ def test_tx_from_raw_catches_it_on_either_side_of_the_id_requested() -> None:
     the id it was given.
     """
     above = "f" * 64
-    with pytest.raises(FetchError, match=f"transaction {above}: the answer is"):
+    with pytest.raises(FetchError, match="^transaction: the answer is"):
         tx_from_raw(RAW, above, "mainnet")
 
 
@@ -202,7 +202,7 @@ def test_tx_from_raw_catches_it_on_either_side_of_the_id_requested() -> None:
 )
 def test_tx_from_raw_reports_what_is_not_a_transaction(raw: str) -> None:
     """Wrap an unparsable body in a FetchError naming the transaction."""
-    with pytest.raises(FetchError, match=f"transaction {TX_ID}:"):
+    with pytest.raises(FetchError, match="^transaction:"):
         tx_from_raw(raw, TX_ID, "mainnet")
 
 
@@ -229,7 +229,7 @@ def test_block_header_height_refuses_a_non_integer_height(height: object) -> Non
 
 def test_block_header_from_raw_returns_a_checked_header() -> None:
     """Parse the serialization and pass it through assert_valid_pow."""
-    header = block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network="mainnet")
+    header = block_header_from_raw(TIP_HEADER_RAW, network="mainnet")
     assert header.hash.hex() == TIP_ID
 
 
@@ -244,30 +244,30 @@ def test_block_header_from_raw_returns_a_checked_header() -> None:
 )
 def test_block_header_from_raw_reports_what_is_not_a_header(raw: str) -> None:
     """Wrap an unparsable body in a FetchError naming the height."""
-    with pytest.raises(FetchError, match=f"block header {TIP_HEIGHT}:"):
-        block_header_from_raw(raw, TIP_HEIGHT, network="mainnet")
+    with pytest.raises(FetchError, match="^block header:"):
+        block_header_from_raw(raw, network="mainnet")
 
 
 def test_block_header_from_raw_checks_the_work_against_the_network_given() -> None:
     """Regtest's genesis is within regtest's limit and beyond mainnet's."""
-    header = block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="regtest")
+    header = block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="regtest")
     assert header.hash == NETWORKS["regtest"].genesis_block
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
-        block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="mainnet")
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+        block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="mainnet")
 
 
 def test_block_header_from_raw_holds_signet_to_signets_limit() -> None:
     """Signet's genesis is within signet's limit and beyond mainnet's."""
-    header = block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, 0, network="signet")
+    header = block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, network="signet")
     assert header.hash == NETWORKS["signet"].genesis_block
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
-        block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, 0, network="mainnet")
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+        block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, network="mainnet")
 
 
 def test_block_header_from_raw_refuses_a_regtest_header_for_signet() -> None:
     """Signet's limit is not regtest's."""
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
-        block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, 0, network="signet")
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+        block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="signet")
 
 
 def test_block_header_from_raw_holds_the_hash_to_the_target_its_bits_claim() -> None:
@@ -277,16 +277,16 @@ def test_block_header_from_raw_holds_the_hash_to_the_target_its_bits_claim() -> 
     below regtest's limit, and above the target those bits name.
     """
     claimed = f"{REGTEST_GENESIS_HEADER_RAW[:-16]}ffff001d01000000"
-    with pytest.raises(FetchError, match="block header 0: invalid proof-of-work"):
-        block_header_from_raw(claimed, 0, network="regtest")
+    with pytest.raises(FetchError, match="^block header: invalid proof-of-work"):
+        block_header_from_raw(claimed, network="regtest")
 
 
 def test_block_header_from_raw_resolves_the_network_name() -> None:
     """A name is resolved like any network name; an unknown one is refused."""
-    header = block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network=" MainNet ")
+    header = block_header_from_raw(TIP_HEADER_RAW, network=" MainNet ")
     assert header.hash.hex() == TIP_ID
     with pytest.raises(BTClibValueError):
-        block_header_from_raw(TIP_HEADER_RAW, TIP_HEIGHT, network="foo")
+        block_header_from_raw(TIP_HEADER_RAW, network="foo")
 
 
 def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
@@ -297,8 +297,8 @@ def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
     this exists to enforce.
     """
     forged = f"{TIP_HEADER_RAW[:-8]}00000000"
-    with pytest.raises(FetchError, match=f"block header {TIP_HEIGHT}: invalid proof"):
-        block_header_from_raw(forged, TIP_HEIGHT, network="mainnet")
+    with pytest.raises(FetchError, match="^block header: invalid proof"):
+        block_header_from_raw(forged, network="mainnet")
 
 
 def test_the_interface_is_abstract() -> None:

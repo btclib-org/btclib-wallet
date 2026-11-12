@@ -135,7 +135,8 @@ def test_balance_response_matches_its_request_and_preserves_rpc_errors() -> None
     """An answer for another script or a server refusal is never a balance."""
     with pytest.raises(BTClibValueError, match="does not answer request"):
         electrum.scripthash_get_balance_response(_line({"id": 8, "result": BALANCE}), 7)
-    with pytest.raises(RpcError, match="script refused") as exc:
+    err_msg = "^blockchain.scripthash.get_balance: the server answered an error"
+    with pytest.raises(RpcError, match=err_msg) as exc:
         electrum.scripthash_get_balance_response(
             _line(
                 {
@@ -150,7 +151,7 @@ def test_balance_response_matches_its_request_and_preserves_rpc_errors() -> None
             7,
         )
     assert exc.value.code == -32602
-    assert exc.value.data == "detail"
+    assert exc.value.data is None
 
 
 def test_batch_request_is_one_array_with_distinct_ids() -> None:
@@ -269,13 +270,14 @@ def test_batch_response_refuses_incomplete_ambiguous_or_unasked_answers(
 
 
 def test_batch_response_raises_an_individual_or_whole_batch_rpc_error() -> None:
-    """Preserve the server's code and data whichever scope it refuses."""
+    """Keep the server's code, and not its text, whichever scope it refuses."""
     error = {"code": -32600, "message": "batch refused", "data": "detail"}
+    err_msg = "^blockchain.scripthash.get_balance: the server answered an error"
     for payload in ([{"id": 7, "error": error}], {"id": None, "error": error}):
-        with pytest.raises(RpcError, match="batch refused") as exc:
+        with pytest.raises(RpcError, match=err_msg) as exc:
             electrum.scripthash_get_balance_batch_response(_line(payload), [7])
         assert exc.value.code == -32600
-        assert exc.value.data == "detail"
+        assert exc.value.data is None
 
 
 @pytest.mark.parametrize(

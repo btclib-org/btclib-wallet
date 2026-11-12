@@ -247,7 +247,7 @@ def test_get_tx_out_derives_the_output() -> None:
 def test_a_truncated_transaction_is_refused() -> None:
     """A body cut off in transit is caught by `Tx.parse`, not by the codec."""
     truncated = MERKLE_TX_RAW[:20]
-    with pytest.raises(FetchError, match=f"transaction {MERKLE_TX_ID}:"):
+    with pytest.raises(FetchError, match="^transaction:"):
         fetcher(truncated).get_tx(MERKLE_TX_ID)
 
 
@@ -305,7 +305,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     assert fetcher(tip, network="regtest").get_best_block_id() == (
         NETWORKS["regtest"].genesis_block
     )
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
         fetcher(REGTEST_GENESIS_HEADER_RAW).get_block_header(0)
 
 
@@ -395,17 +395,19 @@ def test_a_line_that_is_not_json_is_refused() -> None:
 def test_a_json_rpc_error_object_is_refused() -> None:
     """A JSON-RPC error object reaches the caller as `RpcError`, code kept."""
     endpoint = fetcher(RpcErrorAnswer("no such transaction", -32000))
-    with pytest.raises(RpcError, match="no such transaction") as exc_info:
+    err_msg = "^blockchain.transaction.get: the server answered an error"
+    with pytest.raises(RpcError, match=err_msg) as exc_info:
         endpoint.get_tx(MERKLE_TX_ID)
     assert exc_info.value.code == -32000
 
 
-def test_a_json_rpc_error_objects_data_member_is_kept() -> None:
-    """`data` is JSON-RPC's optional third member, carried across when sent."""
+def test_a_json_rpc_error_objects_data_member_is_dropped() -> None:
+    """`data` is the server's, as its message is, and neither is kept."""
     endpoint = fetcher(RpcErrorAnswer("busy", -32001, data={"retry_after": 5}))
     with pytest.raises(RpcError) as exc_info:
         endpoint.get_tx(MERKLE_TX_ID)
-    assert exc_info.value.data == {"retry_after": 5}
+    assert exc_info.value.code == -32001
+    assert exc_info.value.data is None
 
 
 def test_the_timeout_is_passed_to_the_transport() -> None:
@@ -713,7 +715,9 @@ def test_get_block_headers_refuses_a_header_that_does_not_follow() -> None:
     endpoint = fetcher(
         chunk_answer(REGTEST_CHUNK[0], REGTEST_CHUNK[2]), network="regtest"
     )
-    with pytest.raises(FetchError, match="header 1 does not follow header 0"):
+    with pytest.raises(
+        FetchError, match="header 1 of the answer does not follow header 0"
+    ):
         endpoint.get_block_headers(0, 2)
 
 
@@ -727,8 +731,10 @@ def test_get_block_headers_holds_each_header_to_the_networks_limit() -> None:
 def test_get_block_headers_raises_the_servers_error() -> None:
     """A range above the tip is an error object, as florestad answers it."""
     endpoint = fetcher(RpcErrorAnswer("Internal JSON-RPC error.", -32000))
-    with pytest.raises(FetchError, match="Internal JSON-RPC error"):
+    err_msg = "^blockchain.block.headers: the server answered an error"
+    with pytest.raises(RpcError, match=err_msg) as exc_info:
         endpoint.get_block_headers(1000, 2)
+    assert exc_info.value.code == -32000
 
 
 @pytest.mark.parametrize(

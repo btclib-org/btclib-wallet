@@ -36,6 +36,8 @@ from tests.fetch import (
     Recorded,
     recorded_body,
 )
+from tests.refused_value_test import HEX, SCALAR, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 BASE = "https://esplora.example/api"
 # the coinbase of block 170: a transaction with the same provenance as
@@ -322,7 +324,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     )
     assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
     mainnet = EsploraFetcher(BASE, transport=Recorded(*answers), verify_network=False)
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
         mainnet.get_block_header(0)
 
 
@@ -338,7 +340,7 @@ def test_a_header_that_did_not_mine_the_bits_it_claims_is_refused() -> None:
         (200, forged.encode()),
     )
     esplora = EsploraFetcher(BASE, transport=transport, verify_network=False)
-    with pytest.raises(FetchError, match=f"block header {TIP_HEIGHT}: invalid proof"):
+    with pytest.raises(FetchError, match="^block header: invalid proof"):
         esplora.get_block_header(TIP_HEIGHT)
 
 
@@ -705,8 +707,9 @@ def test_estimate_fee_refuses_a_malformed_payload(body: bytes) -> None:
 
 
 def test_estimate_fee_says_not_an_object_for_a_reply_that_is_not_one() -> None:
-    """A list is named as what it is, with the reply quoted."""
-    with pytest.raises(FetchError, match=r"^fee-estimates: not an object: \[1, 2\]$"):
+    """A list is named as what it is, and described, not quoted."""
+    err_msg = "^fee-estimates: not an object: a list of length 2$"
+    with pytest.raises(FetchError, match=err_msg):
         fetcher((200, b"[1, 2]")).estimate_fee(1)
 
 
@@ -877,7 +880,8 @@ def test_get_balance_verifies_the_network_before_asking_the_balance() -> None:
 def test_get_balance_refuses_an_answer_for_another_address() -> None:
     """The server answered a question that was not asked."""
     body = address_body(address=P2WPKH_ADDRESS)
-    with pytest.raises(FetchError, match=f"answered for '{P2WPKH_ADDRESS}'$"):
+    err_msg = f"answered for a str of length {len(P2WPKH_ADDRESS)}$"
+    with pytest.raises(FetchError, match=err_msg):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
 
 
@@ -903,6 +907,38 @@ def test_get_balance_refuses_stats_that_are_no_object() -> None:
     body = json.dumps({"address": GENESIS_ADDRESS, "chain_stats": None}).encode()
     with pytest.raises(FetchError, match="chain_stats: not an object"):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        (json.dumps(HEX).encode(), "not an object: a str of length 64"),
+        (address_body(address=HEX), "the server answered for a str of length 64"),
+        (
+            json.dumps({"address": GENESIS_ADDRESS, "chain_stats": HEX}).encode(),
+            "chain_stats: not an object: a str of length 64",
+        ),
+        (
+            address_body(chain=(HEX, SCALAR)),
+            "chain_stats: invalid sums: a str of length 64, an int of 256 bits",
+        ),
+    ],
+)
+def test_get_balance_describes_what_it_refuses(body: bytes, message: str) -> None:
+    """What the explorer answered is described, not printed (issue #802)."""
+    with pytest.raises(
+        FetchError, match=f"^address {GENESIS_ADDRESS}: {message}$"
+    ) as e:
+        fetcher((200, body)).get_balance(GENESIS_ADDRESS)
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_estimate_fee_describes_a_reply_that_is_not_an_object() -> None:
+    """What the explorer answered is described, not printed (issue #802)."""
+    err_msg = "^fee-estimates: not an object: a str of length 64$"
+    with pytest.raises(FetchError, match=err_msg) as e:
+        fetcher((200, json.dumps(HEX).encode())).estimate_fee(1)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_get_balance_reports_an_http_failure_with_its_status() -> None:

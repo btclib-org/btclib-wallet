@@ -266,10 +266,11 @@ def __descsum_expand(descriptor_string: str) -> list[int]:
     """Perform the character to symbol expansion."""
     groups: list[int] = []
     symbols: list[int] = []
-    for char in descriptor_string:
+    for position, char in enumerate(descriptor_string):
         index = _INPUT_INDEX.get(char, -1)
         if index == -1:
-            raise BTClibValueError(f"invalid descriptor character: {char!r}")
+            err_msg = f"invalid descriptor character at position {position}"
+            raise BTClibValueError(err_msg)
         symbols.append(index & 31)
         groups.append(index >> 5)
         if len(groups) == 3:

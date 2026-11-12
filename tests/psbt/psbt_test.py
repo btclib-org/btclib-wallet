@@ -2453,6 +2453,81 @@ def test_a_single_key_input_takes_one_signature() -> None:
         finalize(psbt)
 
 
+# issue btclib-org/btclib-wallet#799: the key beside the signature is the one
+# the script commits to
+
+_UNCOMPRESSED_PUB_KEY = PrvKeyData(_PRV_KEY, compressed=False).pub.sec
+
+
+def _key_hash_psbt(
+    kind: str, script_key: bytes, prv_key: int, signing_key: bytes
+) -> tuple[Psbt, list[TxOut]]:
+    """Build a one-input p2pkh, p2wpkh or p2sh-p2wpkh psbt, signed.
+
+    The output commits to `script_key`, and the partial signature is made
+    by `prv_key` and filed under `signing_key`. The scripts are serialized
+    by hand: btclib's ScriptPubKey.p2wpkh refuses an uncompressed key.
+    """
+    pkh = _p2pkh_script_code(hash160(script_key))
+    wpkh = serialize([0, hash160(script_key)])
+    script_pub_key = {
+        "p2pkh": ScriptPubKey(pkh),
+        "p2wpkh": ScriptPubKey(wpkh),
+        "p2sh-p2wpkh": ScriptPubKey.p2sh(wpkh),
+    }[kind]
+    prev_out = TxOut(100_000, script_pub_key)
+    tx, prev_tx = _spending_tx(prev_out)
+
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].non_witness_utxo = prev_tx
+    if kind == "p2pkh":
+        msg_hash = sig_hash.legacy(pkh, tx, 0, 1)
+    else:
+        psbt.inputs[0].witness_utxo = prev_out
+        psbt.inputs[0].redeem_script = wpkh if kind == "p2sh-p2wpkh" else b""
+        msg_hash = sig_hash.segwit_v0(pkh, tx, 0, 1, prev_out.value)
+    sig = dsa.sign_(msg_hash, prv_key).serialize() + b"\x01"
+    psbt.inputs[0].partial_sigs = {signing_key: sig}
+    return psbt, [prev_out]
+
+
+def test_an_uncompressed_p2pkh_input_is_finalized() -> None:
+    """The key a p2pkh output commits to may be uncompressed.
+
+    The engine runs the result: the uncompressed key is the one hashed.
+    """
+    psbt, prev_outs = _key_hash_psbt(
+        "p2pkh", _UNCOMPRESSED_PUB_KEY, _PRV_KEY, _UNCOMPRESSED_PUB_KEY
+    )
+    finalized = finalize(psbt)
+    verify_transaction(prev_outs, extract_tx(finalized, check_validity=False))
+
+
+@pytest.mark.parametrize("kind", ["p2pkh", "p2wpkh", "p2sh-p2wpkh"])
+@pytest.mark.parametrize(
+    "script_key, prv_key, signing_key",
+    [
+        (_UNCOMPRESSED_PUB_KEY, _PRV_KEY, _PUB_KEY),
+        (_PUB_KEY, _PRV_KEY, _UNCOMPRESSED_PUB_KEY),
+        (_PUB_KEY, _OTHER_PRV_KEY, _OTHER_PUB_KEY),
+    ],
+    ids=["compressed-for-uncompressed", "uncompressed-for-compressed", "other"],
+)
+def test_a_key_the_script_does_not_commit_to_is_refused(
+    kind: str, script_key: bytes, prv_key: int, signing_key: bytes
+) -> None:
+    """A valid signature of a key the output does not hash is no spend.
+
+    The signature verifies against the key it is filed under, so the
+    check that refuses it is the one against the script: without it the
+    finalizer built a spend the engine fails.
+    """
+    psbt, _ = _key_hash_psbt(kind, script_key, prv_key, signing_key)
+    err_msg = "the signing key is not the one the spent script commits to"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt)
+
+
 # issue btclib-org/btclib#305: the empty push BIP147 asks for is the script's,
 # not the signatures'
 

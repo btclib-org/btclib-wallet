@@ -117,8 +117,8 @@ def peer() -> TcpPeerTransport:
         ("a" * 64 + ".org", 18444, BTClibValueError, "invalid host"),
         ("peer", "18444", BTClibTypeError, "non-integer port"),
         ("peer", True, BTClibTypeError, "non-integer port"),
-        ("peer", 0, BTClibValueError, "invalid port: 0"),
-        ("peer", 65536, BTClibValueError, "invalid port: 65536"),
+        ("peer", 0, BTClibValueError, "invalid port: an int of 0 bits"),
+        ("peer", 65536, BTClibValueError, "invalid port: an int of 17 bits"),
     ],
 )
 def test_a_host_and_a_port_are_checked(
