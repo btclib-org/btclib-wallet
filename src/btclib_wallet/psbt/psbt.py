@@ -2948,11 +2948,15 @@ def _sign_ecdsa_input(
     spends only the bare anchor, with no signature
     (src/script/sign.cpp:655-658, 722-723 and 815,
     src/script/solver.cpp:169-171, src/script/interpreter.cpp:2000-2008
-    and src/policy/policy.h:126 at bitcoin/bitcoin@f0de87f040). FillPSBT
-    goes on to sign the other inputs, counting the skipped one signed
-    only where PSBTInputSigned finds a final script (src/psbt.cpp:547-550
-    and 756, and src/wallet/scriptpubkeyman.cpp:1447-1458 at the same
-    commit).
+    and src/policy/policy.h:126 at bitcoin/bitcoin@f0de87f040).
+
+    FillPSBT goes on to sign the other inputs unless SignPSBTInput
+    answers an error other than INCOMPLETE for this one, as
+    SIGHASH_MISMATCH is. When signing, it counts the skipped input
+    signed only where PSBTInputSigned finds a final script
+    (src/psbt.cpp:547-550 and 693-695, and
+    src/wallet/scriptpubkeyman.cpp:1447-1458 at
+    bitcoin/bitcoin@f0de87f040).
 
     SIGHASH_SINGLE with no output at the input's index is refused for
     every kind signed here, as Bitcoin Core's signer does: the signature
