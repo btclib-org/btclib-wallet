@@ -98,6 +98,8 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.bip38:encrypt": ["compressed"],
     "btclib_wallet.bip38:intermediate_code": ["lot", "sequence", "owner_salt"],
     "btclib_wallet.bip38:new_key_pair": ["compressed", "seed_b"],
+    "btclib_wallet.bip44:discover_account": ["gap_limit"],
+    "btclib_wallet.bip44:discover_accounts": ["account_gap", "gap_limit"],
     "btclib_wallet.bolt11:Bolt11Invoice.__init__": ["check_validity"],
     "btclib_wallet.bolt11:Bolt11Invoice.from_invoice": ["check_validity"],
     "btclib_wallet.bolt11:Bolt11Invoice.sign": [
