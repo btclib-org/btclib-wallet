@@ -127,6 +127,15 @@ nitpick_ignore = [
     ("py:class", "btclib_wallet.ledger.store._Store"),
 ]
 
+# bip44 imports these from btclib_wallet.fetch.history under
+# TYPE_CHECKING alone, so autodoc gets each as text, which matches the
+# class in fetch.history and its re-export in fetch: two targets, and -W
+# fails. The full name has one. Unlike Octets above, both are classes.
+autodoc_type_aliases = {
+    "HistoryReader": "btclib_wallet.fetch.history.HistoryReader",
+    "ScriptHistory": "btclib_wallet.fetch.history.ScriptHistory",
+}
+
 source_suffix = [".rst", ".md"]
 
 # anchors for h1 to h6, which is what makes a link into a heading of a
