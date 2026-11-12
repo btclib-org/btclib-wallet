@@ -177,10 +177,13 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
         db = sqlite3.connect(uri, uri=True)
     except sqlite3.OperationalError as e:
         raise BTClibValueError(f"cannot open the ledger file {path}: {e}") from None
-    db.execute("PRAGMA secure_delete = ON")
+    # each pragma's row is read: SQLite refuses a commit while a statement
+    # that writes is unfinished, and PyPy finishes an unread one only when
+    # it collects its cursor
+    db.execute("PRAGMA secure_delete = ON").fetchall()
     if mode != "ro":
         try:
-            db.execute("PRAGMA journal_mode = DELETE")
+            db.execute("PRAGMA journal_mode = DELETE").fetchall()
         except sqlite3.DatabaseError as e:
             db.close()
             if isinstance(e, sqlite3.OperationalError):
