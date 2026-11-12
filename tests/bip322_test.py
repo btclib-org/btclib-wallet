@@ -1049,10 +1049,10 @@ def test_b64decode_bounds_the_payload_after_decoding(
 def test_a_valid_proof_of_funds_over_the_bound_is_inconclusive() -> None:
     """A valid proof's text at the bound verifies; one octet longer cannot.
 
-    BIP322 sets no maximum size for a psbt, so the text of a proof over
-    the bound is not invalid: it is inconclusive, and `verify` answers
-    False for it (issue #744). The bound is on text alone: the same proof
-    as a `Sig` verifies.
+    The text of a proof over the bound is inconclusive, as
+    `bip322._MAX_PAYLOAD_SIZES` says, and `verify` answers False for it
+    (issue #744). The bound is on text alone: the same proof as a `Sig`
+    verifies.
     """
     at_bound = _payload_of_size(bip322.PROOF_OF_FUNDS, POF_MAX_SIZE)
     text = bip322.PROOF_OF_FUNDS + base64.b64encode(at_bound).decode("ascii")

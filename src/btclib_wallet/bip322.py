@@ -58,9 +58,9 @@ ecc's, whatever failed being what it says; and *inconclusive*
 is `InconclusiveError`, which is the state for a signature that today's
 rules cannot judge -- a `to_sign` whose version is neither 0 nor 2, an
 upgradeable NOP, a witness program of a version this library does not
-know. The text of a proof of funds longer than this module reads is
-inconclusive too, since BIP322 sets no maximum size for a psbt. ecc's
-classes are no `BTClibException` -- a legacy
+know. The text of a proof of funds over this module's bound is
+inconclusive too, as `_MAX_PAYLOAD_SIZES` says. ecc's classes
+are no `BTClibException` -- a legacy
 signature whose recovered key is the point at infinity is its
 `EccRuntimeError` -- so `_INVALID` names each class a single
 `except` has to catch. `verify` collapses all three states to a
@@ -206,10 +206,11 @@ def _b64_size(size: int) -> int:
 # full signature that a consensus-valid transaction can carry is longer,
 # and a longer one is invalid. A shorter one may still weigh more than a
 # block holds, which this bound does not ask (issue #826). A psbt has no
-# such bound, as it may carry a whole previous transaction per input, so a
-# proof of funds is held to the bound rust-bitcoin/bip322#92 proposes,
-# read at its head `081ed985bc`. That bound is this module's and not the
-# BIP's, so a longer proof of funds is inconclusive
+# such bound, as it may carry a whole previous transaction per input, and
+# BIP322 sets no maximum size for one, so a proof of funds is held to the
+# bound rust-bitcoin/bip322#92 proposes, read at its head `081ed985bc`.
+# That bound is this module's and not the BIP's, so a longer proof of
+# funds is inconclusive
 _MAX_PAYLOAD_SIZES = {
     SIMPLE: MAX_BLOCK_WEIGHT,
     FULL: MAX_BLOCK_WEIGHT,
