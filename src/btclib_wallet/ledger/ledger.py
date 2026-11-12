@@ -77,8 +77,8 @@ spends count and can be spent again.
 **Resubmission.** `resubmit` broadcasts again each transaction in no
 block that is neither conflicted nor abandoned, as Core does on load
 and from time to time (:2147-2180). Here it runs only when its caller
-calls it: the ledger broadcasts nothing that `spend` or `resubmit` was
-not called for.
+calls it: the ledger broadcasts nothing that `spend`, `bump` or
+`resubmit` was not called for.
 
 **What is checked of an unconfirmed transaction** (ISS
 btclib-org/btclib-wallet#642). A backend can report a mempool
@@ -107,17 +107,68 @@ confirmed, or in the mempool with every input spending a trusted output
 of the ledger. A coinbase is immature until 100 blocks are built on top
 of its own.
 
-**The spender.** `fund` selects among the trusted, unlocked, unspent
-coins that are confirmed or in the mempool, with `select_coins`, and
-pays the change to source 0: to the next address of its branch 1 not
-handed out, or of its branch 0 where it has no branch 1, or to the one
-address of that branch where its descriptor is not ranged. The fee
-rate is the caller's where given, refused below the node's minimum relay
-rate; else the backend's estimate, else `fallback_fee_rate`, raised to
-the node's mempool minimum. A spend with no rate, no estimate and no fallback is
-refused, as Core's is with `-fallbackfee=0`. `spend` funds, signs and
-records the transaction as inactive before it broadcasts it, so one the
-node refuses stays, and counts as `nonmempool`.
+**The spender.** `fund` selects among the safe, unlocked, unspent coins
+that are confirmed or in the mempool, with `select_coins`, safe as
+`Ledger.utxos` defines it: trusted, and while unconfirmed neither a bump
+nor replaced by one. It pays the change to source 0: to the next address
+of its branch 1 not handed out, or of its branch 0 where it has no
+branch 1, or to the one address of that branch where its descriptor is
+not ranged. The fee rate is the caller's where given, refused below the
+node's minimum relay rate; else the backend's estimate, else
+`fallback_fee_rate`, raised to the node's mempool minimum. A spend with
+no rate, no estimate and no fallback is refused, as Core's is with
+`-fallbackfee=0`. `spend` funds, signs and records the transaction as
+inactive before it broadcasts it, so one the node refuses stays, and
+counts as `nonmempool`. Its comments are kept with it, as
+`sendtoaddress` keeps `comment` and `comment_to`. Each input signals
+BIP125 replaceability, as Core's wallet does by default
+(`DEFAULT_WALLET_RBF`, src/wallet/wallet.h:132 at
+bitcoin/bitcoin@f0de87f040, the v32.1 tag); `replaceable=False` gives it
+the sequence Core gives an input that does not signal
+(src/wallet/spend.cpp:1303-1311).
+
+**Fee bumping.** `bump_psbt` is Core's `psbtbumpfee`, and `bump` its
+`bumpfee`: it signs, records and broadcasts what `bump_psbt` returns
+(src/wallet/feebumper.cpp and src/wallet/rpc/spend.cpp:962-1178 at the
+same commit). The replacement spends every input of the transaction it
+replaces, and pays its outputs or those the caller names. Its change
+goes to the output `original_change_index` names, or else to the
+transaction's own change, which is change as *Labels* reads it and
+Core's `OutputIsChange` reads it (feebumper.cpp:258), or else to a new
+change address. Where every output is change,
+they are paid as one output and the fee is taken from it, as Core takes
+it (feebumper.cpp:267-279). What the inputs hold over them is a new
+change output of at least Core's `min_viable_change` at
+`DEFAULT_DISCARD_FEE` (src/wallet/spend.cpp:1187-1192), and otherwise
+fee, which the output then pays that much less of.
+Where the inputs fall short, confirmed coins are added, the largest
+first, where Core runs its coin selection over what is short, the
+replaced transaction's inputs preset (`SelectCoins`,
+src/wallet/spend.cpp:811-845): `select_coins` takes no preset input.
+Neither adds an unconfirmed one (feebumper.cpp:313-314). With no rate of
+the caller's, the
+rate is the replaced transaction's own, one sat/kvB more, plus the
+larger of the node's incremental rate and `WALLET_INCREMENTAL_RELAY_FEE`,
+raised to the rate for `conf_target` where that is higher: the
+backend's estimate, else `fallback_fee_rate`, either raised to the
+node's mempool minimum (`EstimateFeeRate`, feebumper.cpp:120-145, and
+`GetMinimumFeeRate`, src/wallet/fees.cpp:32-88). Whatever the rate, the
+replacement's fee must be at least the replaced one's plus the node's
+incremental rate over the replacement's estimated size, as the node's
+`PaysForRBF` asks (src/policy/rbf.cpp:100-125); it is checked here
+before anything is signed, so a watch-only ledger's psbt is checked too.
+`bump` records the link both ways, carries the comments across, and
+marks the replaced transaction inactive once the broadcaster takes the
+replacement, where it was in the mempool: an abandoned one stays
+abandoned. While unconfirmed, neither one's coins are safe, as Core's
+`AvailableCoins` has it (src/wallet/spend.cpp:366-395), so `fund`
+spends none of them.
+
+What a bump does not see: a descendant in the mempool that pays no
+script of the ledger, which Core refuses (feebumper.cpp:31-36), and an
+input spending an output the ledger does not hold, which Core's
+`psbtbumpfee` values from the chain (test/functional/wallet_bumpfee.py:
+412-417) and which is refused here.
 
 **Labels.** Core's address book (src/wallet/wallet.h:238-278 at
 bitcoin/bitcoin@f0de87f040, the v32.1 tag). A label is kept by script,
@@ -188,13 +239,14 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from math import ceil
 from os import PathLike
 from pathlib import Path
 from types import TracebackType
 from typing import Concatenate, ParamSpec, Self, TypeVar
 
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.fee import FeeRate
+from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
 from btclib.network import validated_network_name
 from btclib.script.engine import verify_input
 from btclib.script.script_pub_key import ScriptPubKey
@@ -210,10 +262,10 @@ from btclib_wallet.descriptors import normalized, parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.balance import script_pub_key_for_network
 from btclib_wallet.fetch.broadcaster import Broadcaster
-from btclib_wallet.fetch.fee_estimator import FeeEstimator
+from btclib_wallet.fetch.fee_estimator import FeeEstimator, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef, HistoryReader, ScriptHistory
-from btclib_wallet.fetch.relay_fees import RelayFeeReader
+from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
 from btclib_wallet.ledger.crypto import (
     _cipher,
     _master_key,
@@ -227,6 +279,7 @@ from btclib_wallet.ledger.crypto import (
 )
 from btclib_wallet.ledger.records import (
     Balances,
+    BumpedPsbt,
     GroupedAddress,
     SyncResult,
     TxDetail,
@@ -240,7 +293,14 @@ from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import estimated_input_sizes, miniscript_sizer
 from btclib_wallet.psbt_signer import SoftwareSigner
-from btclib_wallet.tx_builder import FundedPsbt, build_psbt
+from btclib_wallet.tx_builder import (
+    DEFAULT_MAX_FEE,
+    DEFAULT_MAX_FEE_RATE,
+    FundedPsbt,
+    _assert_fee_within,
+    _ShortfallError,
+    build_psbt,
+)
 from btclib_wallet.wallet.descriptor_wallet import DescriptorWallet
 
 __all__ = ["LOOKAHEAD", "MAX_UNLOCK_TIME", "Ledger"]
@@ -268,6 +328,29 @@ MAX_UNLOCK_TIME = 100_000_000
 
 _LOCKED = "the ledger is locked: unlock its keys first"
 _LOCKED_DURING = "the ledger was locked while the call ran: unlock its keys again"
+
+# the sequence of an input that signals BIP125 replaceability, and of one
+# that does not: Core's MAX_BIP125_RBF_SEQUENCE (src/util/rbf.h:12 at
+# bitcoin/bitcoin@f0de87f040, the v32.1 tag) and
+# CTxIn::MAX_SEQUENCE_NONFINAL (src/primitives/transaction.h:83)
+_RBF_SEQUENCE = 0xFFFFFFFD
+_NON_RBF_SEQUENCE = 0xFFFFFFFE
+
+# Core's WALLET_INCREMENTAL_RELAY_FEE (src/wallet/wallet.h:124): the least
+# rise in rate a bump adds where its caller names no rate, unless the
+# node's incremental rate is higher
+_WALLET_INCREMENTAL_FEE_RATE = FeeRate(sats_per_kvbyte=5_000)
+
+# Core's DEFAULT_DISCARD_FEE (src/wallet/wallet.h:108): the rate change
+# is weighed at, to say whether it is worth creating
+_DISCARD_FEE_RATE = FeeRate(sats_per_kvbyte=10_000)
+
+# Core's MAX_MONEY, in satoshi (src/consensus/amount.h:26)
+_MAX_MONEY = 21_000_000 * 100_000_000
+
+# Core's DEFAULT_INCREMENTAL_RELAY_FEE (src/policy/policy.h:48): the
+# node's incremental rate where the ledger has no relay fee reader to ask
+_INCREMENTAL_RELAY_FEE_RATE = FeeRate(sats_per_kvbyte=100)
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -1143,8 +1226,10 @@ class Ledger:
         conflicted spends it; where its own transaction is in no block
         and not in the mempool, a conflicted one included; where it is
         locked, unless `include_locked`; where it is an immature coinbase,
-        unless `include_immature_coinbase`; and where its transaction is
-        not trusted and `include_unsafe` is False.
+        unless `include_immature_coinbase`; and where it is not safe and
+        `include_unsafe` is False. An output is safe where its transaction
+        is trusted and, while in no block, neither a bump nor replaced by
+        one.
         """
         _assert_height(min_depth, "min_depth")
         assert_type(include_immature_coinbase, bool, "include_immature_coinbase")
@@ -1156,7 +1241,9 @@ class Ledger:
         for wtx, vout, tx_out in self._outputs():
             outpoint = OutPoint(wtx.tx.id, vout)
             depth = self._depth(wtx)
-            safe = self._is_trusted(wtx, trusted_set)
+            safe = self._is_trusted(wtx, trusted_set) and not (
+                depth == 0 and (wtx.replaces is not None or wtx.replaced_by is not None)
+            )
             skipped = (
                 (self._is_immature(wtx) and not include_immature_coinbase)
                 or (depth <= 0 and wtx.state is not TxState.MEMPOOL)
@@ -1421,36 +1508,50 @@ class Ledger:
     def _fee_rate(self, fee_rate: FeeRate | None) -> FeeRate:
         """Return the rate a spend pays, as the module docstring says."""
         assert_type(fee_rate, (FeeRate, type(None)), "fee_rate")
-        relay = None
-        if self._relay_fee_reader is not None:
-            relay = self._relay_fee_reader.get_relay_fees()
+        relay = self._relay_fees()
         if fee_rate is not None:
             if relay is not None and fee_rate < relay.min_relay:
                 err_msg = f"fee rate {fee_rate.sats_per_kvbyte} sat/kvB is below"
                 err_msg += f" the minimum relay rate {relay.min_relay.sats_per_kvbyte}"
                 raise BTClibValueError(err_msg)
             return fee_rate
+        rate = self._estimated(_CONFIRMATION_TARGET, relay)
+        if rate is None:
+            err_msg = "no fee estimate and no fallback fee rate: name a fee rate"
+            raise BTClibValueError(err_msg)
+        return rate
+
+    def _estimated(self, target: int, relay: RelayFees | None) -> FeeRate | None:
+        """Return the estimate for `target`, else the fallback, else None.
+
+        Raised to the node's mempool minimum, where the ledger reads it.
+        """
         rate = None
         if self._fee_estimator is not None:
             try:
-                rate = self._fee_estimator.estimate_fee(_CONFIRMATION_TARGET).rate
+                rate = self._fee_estimator.estimate_fee(target).rate
             except FetchError:
                 rate = None
         if rate is None:
             rate = self.fallback_fee_rate
-        if rate is None:
-            err_msg = "no fee estimate and no fallback fee rate: name a fee rate"
-            raise BTClibValueError(err_msg)
-        if relay is not None:
+        if rate is not None and relay is not None:
             rate = max(rate, relay.mempool_min)
         return rate
 
-    def _psbt_in(self, parent: Tx, vout: int) -> PsbtIn:
+    def _relay_fees(self) -> RelayFees | None:
+        """Return the node's relay fee floors, None with no reader to ask."""
+        if self._relay_fee_reader is None:
+            return None
+        return self._relay_fee_reader.get_relay_fees()
+
+    def _psbt_in(self, parent: Tx, vout: int, sequence: int) -> PsbtIn:
         """Return the input map spending an output of the ledger, updated."""
         outpoint = OutPoint(parent.id, vout)
         psbt = Psbt.from_tx(Tx(vin=[TxIn(outpoint)], vout=[parent.vout[vout]]))
         position = self._scripts[_script(parent.vout[vout])]
-        return self._updated(psbt, 0, position, parent).inputs[0]
+        psbt_in = self._updated(psbt, 0, position, parent).inputs[0]
+        psbt_in.sequence = sequence
+        return psbt_in
 
     def _updated(self, psbt: Psbt, i: int, position: _Position, parent: Tx) -> Psbt:
         """Return the psbt with input `i` told what the position is."""
@@ -1471,41 +1572,34 @@ class Ledger:
 
     @_relocking
     def fund(
-        self, outputs: Sequence[TxOut], fee_rate: FeeRate | None = None
+        self,
+        outputs: Sequence[TxOut],
+        fee_rate: FeeRate | None = None,
+        *,
+        replaceable: bool = True,
     ) -> FundedPsbt:
         """Return the unsigned psbt paying `outputs` from the ledger's coins.
 
-        Core's `fundrawtransaction`. The coins, the rate and the change
-        address are the module docstring's; the change address is handed
-        out only where the psbt pays to it. A ledger with no source 0 is
-        refused.
+        Core's `fundrawtransaction`. The coins, the rate, the change
+        address and the sequence `replaceable` chooses are the module
+        docstring's; the change address is handed out only where the psbt
+        pays to it. A ledger with no source 0 is refused.
         """
         assert_type(outputs, Sequence, "outputs")
         for tx_out in outputs:
             assert_type(tx_out, TxOut, "outputs")
+        assert_type(replaceable, bool, "replaceable")
         rate = self._fee_rate(fee_rate)
+        sequence = _RBF_SEQUENCE if replaceable else _NON_RBF_SEQUENCE
         candidates: dict[OutPoint, tuple[Candidate, PsbtIn]] = {}
         for utxo in self.utxos(0, include_unsafe=False):
             psbt_in = self._psbt_in(
-                self._txs[utxo.outpoint.tx_id].tx, utxo.outpoint.vout
+                self._txs[utxo.outpoint.tx_id].tx, utxo.outpoint.vout, sequence
             )
             candidate = Candidate(utxo.outpoint, utxo.tx_out, self._weight(psbt_in))
             candidates[utxo.outpoint] = (candidate, psbt_in)
-        change_branch = 1 if 1 in self._source(0).branches else 0
-        change_position = self._new_position(0, change_branch)
-        _, branch, index = change_position
-        change_script = self._sources[0].script_pub_key(branch, index)
-        # what spending the change will weigh: an input spending an output
-        # of a stand-in parent, the change being no transaction's yet
-        stand_in = Tx(
-            vin=[TxIn(OutPoint(b"\x01" * 32, 0))], vout=[TxOut(0, change_script)]
-        )
-        psbt = Psbt.from_tx(
-            Tx(vin=[TxIn(OutPoint(stand_in.id, 0))], vout=[stand_in.vout[0]])
-        )
-        change_weight = self._weight(
-            self._updated(psbt, 0, change_position, stand_in).inputs[0]
-        )
+        change_position, change_script = self._new_change()
+        change_weight = self._change_spend_weight(change_position, change_script)
         selection = select_coins(
             [candidate for candidate, _ in candidates.values()],
             list(outputs),
@@ -1522,14 +1616,42 @@ class Ledger:
             sizer=miniscript_sizer,
         )
         if funded.change_index is not None:
-            self._hand_out(change_position)
-            self._store.add_handed_out([change_position])
-            self._extend_windows()
-            psbt = self._sources[0].update_psbt_output(
-                funded.psbt, funded.change_index, branch, index
+            psbt = self._paid_new_change(
+                funded.psbt, funded.change_index, change_position
             )
             funded = FundedPsbt(psbt, funded.fee, funded.change_index)
         return funded
+
+    def _new_change(self) -> tuple[_Position, ScriptPubKey]:
+        """Return the position the change of a spend goes to, and its script.
+
+        The module docstring says which; it is not handed out until a psbt
+        pays to it.
+        """
+        change_branch = 1 if 1 in self._source(0).branches else 0
+        position = self._new_position(0, change_branch)
+        _, branch, index = position
+        return position, self._sources[0].script_pub_key(branch, index)
+
+    def _change_spend_weight(self, position: _Position, script: ScriptPubKey) -> int:
+        """Return what an input spending the change will weigh.
+
+        An input spending an output of a stand-in parent, the change being
+        no transaction's yet.
+        """
+        stand_in = Tx(vin=[TxIn(OutPoint(b"\x01" * 32, 0))], vout=[TxOut(0, script)])
+        psbt = Psbt.from_tx(
+            Tx(vin=[TxIn(OutPoint(stand_in.id, 0))], vout=[stand_in.vout[0]])
+        )
+        return self._weight(self._updated(psbt, 0, position, stand_in).inputs[0])
+
+    def _paid_new_change(self, psbt: Psbt, i: int, position: _Position) -> Psbt:
+        """Hand out the position output `i` pays, and update the output."""
+        self._hand_out(position)
+        self._store.add_handed_out([position])
+        self._extend_windows()
+        source, branch, index = position
+        return self._sources[source].update_psbt_output(psbt, i, branch, index)
 
     @_relocking
     def sign(self, psbt: Psbt) -> Psbt:
@@ -1611,34 +1733,350 @@ class Ledger:
         )
 
     @_relocking
-    def spend(self, outputs: Sequence[TxOut], fee_rate: FeeRate | None = None) -> Tx:
+    def spend(
+        self,
+        outputs: Sequence[TxOut],
+        fee_rate: FeeRate | None = None,
+        *,
+        comment: str | None = None,
+        comment_to: str | None = None,
+        replaceable: bool = True,
+    ) -> Tx:
         """Pay `outputs` from the ledger's coins, and broadcast the payment.
 
-        Core's `send`. The transaction is recorded as inactive before it
-        is broadcast, and as in the mempool once the broadcaster accepts
-        it. A refusal is raised as the broadcaster raises it, and leaves
-        the transaction in the ledger as inactive. Each position of the
-        ledger it pays is handed out once the broadcaster accepts it, as
+        Core's `send`, and `sendtoaddress` for its `comment` and
+        `comment_to`, which are kept with the transaction. The
+        transaction is recorded as inactive before it is broadcast, and
+        as in the mempool once the broadcaster accepts it. A refusal is
+        raised as the broadcaster raises it, and leaves the transaction in
+        the ledger as inactive. Each position of the ledger it pays other
+        than the change is handed out once the broadcaster accepts it, as
         Core's wallet marks the scripts a transaction pays used when the
         mempool reports it (src/wallet/wallet.cpp:1263-1280 at
-        bitcoin/bitcoin@f0de87f040, the v32.1 tag): a refusal hands out
-        nothing.
+        bitcoin/bitcoin@f0de87f040, the v32.1 tag); the change is handed
+        out by the call that builds the psbt, as Core keeps its change
+        address once it creates the transaction
+        (src/wallet/spend.cpp:1432-1434).
         """
+        assert_type(comment, (str, type(None)), "comment")
+        assert_type(comment_to, (str, type(None)), "comment_to")
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
         if self._master_key is not None:
             self._assert_unlocked()
-        funded = self.fund(outputs, fee_rate)
+        funded = self.fund(outputs, fee_rate, replaceable=replaceable)
         tx = tx_for_network(extract_tx(finalize(self.sign(funded.psbt))), self.network)
+        self._commit(self._broadcaster, tx, comment, comment_to, None)
+        return tx
+
+    def _commit(
+        self,
+        broadcaster: Broadcaster,
+        tx: Tx,
+        comment: str | None,
+        comment_to: str | None,
+        replaced: WalletTx | None,
+    ) -> None:
+        """Record a transaction as inactive, broadcast it, then as in mempool.
+
+        Core's `CommitTransaction`. Where it replaces `replaced`, both are
+        linked in the same write, as `feebumper::CommitTransaction` marks
+        the original whether or not the node takes the replacement
+        (src/wallet/feebumper.cpp:352-381 at bitcoin/bitcoin@f0de87f040,
+        the v32.1 tag); once the node takes it, the original left its
+        mempool, and is inactive.
+        """
         seq = max((wtx.seq for wtx in self._txs.values()), default=-1) + 1
-        wtx = WalletTx(tx, TxState.INACTIVE, None, seq)
-        self._store.upsert_txs([wtx])
-        self._txs[tx.id] = wtx
-        self._broadcaster.broadcast(tx)
-        wtx = replace(wtx, state=TxState.MEMPOOL)
-        self._store.upsert_txs([wtx])
-        self._txs[tx.id] = wtx
+        replaces = None if replaced is None else replaced.tx.id
+        wtx = WalletTx(
+            tx, TxState.INACTIVE, None, seq, comment, comment_to, replaces, None
+        )
+        written = [wtx]
+        if replaced is not None:
+            replaced = replace(replaced, replaced_by=tx.id)
+            written.append(replaced)
+        self._store.upsert_txs(written)
+        self._txs.update((w.tx.id, w) for w in written)
+        broadcaster.broadcast(tx)
+        written = [replace(wtx, state=TxState.MEMPOOL)]
+        if replaced is not None and replaced.state is TxState.MEMPOOL:
+            written.append(replace(replaced, state=TxState.INACTIVE))
+        self._store.upsert_txs(written)
+        self._txs.update((w.tx.id, w) for w in written)
         self._hand_out_paid([tx])
+
+    # -- fee bumping ------------------------------------------------------
+
+    @_relocking
+    def bump_psbt(
+        self,
+        txid: bytes,
+        fee_rate: FeeRate | None = None,
+        *,
+        conf_target: int | None = None,
+        outputs: Sequence[TxOut] | None = None,
+        original_change_index: int | None = None,
+        replaceable: bool = True,
+    ) -> BumpedPsbt:
+        """Return the unsigned replacement of a transaction, at a higher fee.
+
+        Core's `psbtbumpfee`; the module docstring says what the
+        replacement spends and pays. `fee_rate` is its rate, or
+        `conf_target` the target the estimate is asked for; not both.
+        `outputs` replaces the transaction's outputs, or
+        `original_change_index` names the output whose script takes the
+        change; not both either. `replaceable` is `fund`'s. `txid` is in
+        display order.
+
+        Refused, in Core's order but for the fee of a replacement at the
+        caller's rate, which Core checks before it funds the replacement
+        and the ledger checks on the funded one (src/wallet/feebumper.cpp:
+        24-118 and 160-330 at bitcoin/bitcoin@f0de87f040, the v32.1 tag):
+        a locked
+        ledger, as Core refuses a locked wallet's `psbtbumpfee`
+        (src/wallet/rpc/spend.cpp:1109); a change index out of range; an
+        input spending an output the ledger does not hold, or a coin
+        spent in a block, as a confirmed or conflicted transaction's are,
+        or in no block and no mempool; a transaction with a descendant
+        the ledger holds that is neither abandoned nor conflicted, and
+        one already bumped; a rate below the node's mempool minimum; a
+        replacement the confirmed coins cannot fund, or whose fee is above
+        `build_psbt`'s ceilings; and one whose fee is under the replaced
+        one's plus the incremental rate over its size. An abandoned
+        transaction is bumped, as Core bumps one.
+        """
+        _assert_bump_arguments(
+            fee_rate, conf_target, outputs, original_change_index, replaceable
+        )
+        if self._master_key is not None:
+            self._assert_unlocked()
+        wtx = self._held(txid)
+        tx = wtx.tx
+        if original_change_index is not None and original_change_index >= len(tx.vout):
+            err_msg = f"change index {original_change_index} is out of range"
+            raise BTClibValueError(err_msg)
+        sequence = _RBF_SEQUENCE if replaceable else _NON_RBF_SEQUENCE
+        inputs = self._original_inputs(tx, sequence)
+        self._assert_bumpable(wtx)
+        old_fee = self._debit(tx) - sum(tx_out.value for tx_out in tx.vout)
+        relay = self._relay_fees()
+        rate = self._bump_rate(fee_rate, conf_target, wtx, old_fee, relay)
+        txouts = list(tx.vout) if outputs is None else list(outputs)
+        funded, updates = self._replacement(
+            tx, inputs, txouts, original_change_index, rate, sequence
+        )
+        vsize = funded.psbt.vsize_estimate(miniscript_sizer)
+        incremental = (
+            _INCREMENTAL_RELAY_FEE_RATE if relay is None else relay.incremental
+        )
+        _assert_replaces(old_fee, funded.fee, vsize, incremental)
+        psbt = funded.psbt
+        for i, position, new in updates:
+            if new:
+                psbt = self._paid_new_change(psbt, i, position)
+            else:
+                source, branch, index = position
+                psbt = self._sources[source].update_psbt_output(psbt, i, branch, index)
+        return BumpedPsbt(psbt, txid, old_fee, funded.fee, funded.change_index)
+
+    def _replacement(
+        self,
+        tx: Tx,
+        inputs: list[PsbtIn],
+        txouts: list[TxOut],
+        original_change_index: int | None,
+        rate: FeeRate,
+        sequence: int,
+    ) -> tuple[FundedPsbt, list[tuple[int, _Position, bool]]]:
+        """Return the replacement of `tx` paying `txouts`, and what to update.
+
+        What to update is each output paying the ledger's change: its
+        index, its position, and whether that is the new change's,
+        handed out only once the replacement is checked.
+        """
+        change: TxOut | None = None
+        recipients: list[TxOut] = []
+        ends = self._receive_ends()
+        for i, tx_out in enumerate(txouts):
+            if original_change_index is None:
+                is_change = self._is_change(tx_out, ends)
+            else:
+                is_change = i == original_change_index
+            if is_change:
+                change = tx_out
+            else:
+                recipients.append(tx_out)
+        new_position, new_script = self._new_change()
+        spent = {tx_in.prev_out for tx_in in tx.vin}
+        # BIP125's rule 2: no unconfirmed input is added
+        coins = [
+            u for u in self.utxos(1, include_unsafe=False) if u.outpoint not in spent
+        ]
+        coins.sort(key=lambda u: u.tx_out.value, reverse=True)
+        added = [
+            self._psbt_in(self._txs[u.outpoint.tx_id].tx, u.outpoint.vout, sequence)
+            for u in coins
+        ]
+        updates: list[tuple[int, _Position, bool]] = []
+        if recipients or change is None:
+            script = new_script if change is None else change.script_pub_key
+            funded = _with_inputs_added(
+                inputs,
+                added,
+                lambda ins: build_psbt(
+                    ins, recipients, rate, script.script, sizer=miniscript_sizer
+                ),
+            )
+            position = self._scripts.get(script.script)
+            if funded.change_index is not None and change is None:
+                updates.append((funded.change_index, new_position, True))
+            elif funded.change_index is not None and position is not None:
+                updates.append((funded.change_index, position, False))
+            return funded, updates
+        # every output is change: one output, the fee taken from it
+        value = sum(tx_out.value for tx_out in txouts)
+        weight = self._change_spend_weight(new_position, new_script)
+        least_change = _least_change(new_script, weight)
+        funded = _with_inputs_added(
+            inputs,
+            added,
+            lambda ins: _fee_from_change(
+                ins, change, value, rate, new_script, least_change
+            ),
+        )
+        position = self._scripts.get(_script(change))
+        if position is not None:
+            updates.append((0, position, False))
+        if funded.change_index is not None:
+            updates.append((funded.change_index, new_position, True))
+        return funded, updates
+
+    def _original_inputs(self, tx: Tx, sequence: int) -> list[PsbtIn]:
+        """Return the input maps of what `tx` spends, refusing a spent coin.
+
+        Core's `CreateRateBumpTransaction` finds each coin in the chain
+        and the mempool, and refuses one it does not find
+        (src/wallet/feebumper.cpp:188-209 at bitcoin/bitcoin@f0de87f040,
+        the v32.1 tag). Here a coin is found where its transaction is
+        confirmed or in the mempool, and no confirmed transaction of the
+        ledger spends it.
+        """
+        in_blocks = {
+            tx_in.prev_out
+            for wtx in self._txs.values()
+            if wtx.state is TxState.CONFIRMED and not wtx.tx.is_coinbase
+            for tx_in in wtx.tx.vin
+        }
+        inputs = []
+        for i, tx_in in enumerate(tx.vin):
+            outpoint = tx_in.prev_out
+            prevout = _prevout(tx_in, self._txs)
+            if prevout is None or not self._owned(prevout):
+                err_msg = f"input {i} spends an output the ledger does not hold"
+                raise BTClibValueError(err_msg)
+            parent = self._txs[outpoint.tx_id]
+            if (
+                parent.state not in (TxState.CONFIRMED, TxState.MEMPOOL)
+                or outpoint in in_blocks
+            ):
+                err_msg = f"{outpoint.tx_id.hex()}:{outpoint.vout} is already spent"
+                raise BTClibValueError(err_msg)
+            inputs.append(self._psbt_in(parent.tx, outpoint.vout, sequence))
+        return inputs
+
+    def _assert_bumpable(self, wtx: WalletTx) -> None:
+        """Refuse what Core's `PreconditionChecks` refuses that the ledger sees.
+
+        src/wallet/feebumper.cpp:24-58 at bitcoin/bitcoin@f0de87f040, the
+        v32.1 tag; the module docstring says what is not seen. A confirmed
+        or conflicted transaction is not asked about: it spends a coin
+        spent in a block, or one of a conflicted parent, which
+        `_original_inputs` refuses first, as Core's coin lookup refuses
+        it before these checks (test/functional/wallet_bumpfee.py:667-674).
+        """
+        spends = self._spends()
+        tx = wtx.tx
+        for vout in range(len(tx.vout)):
+            if _how_spent(spends.get(OutPoint(tx.id, vout), [])) is not None:
+                raise BTClibValueError("the transaction has descendants in the ledger")
+        if wtx.replaced_by is not None:
+            err_msg = f"cannot bump transaction {tx.id.hex()}, which was already"
+            err_msg += f" bumped by transaction {wtx.replaced_by.hex()}"
+            raise BTClibValueError(err_msg)
+
+    def _bump_rate(
+        self,
+        fee_rate: FeeRate | None,
+        conf_target: int | None,
+        wtx: WalletTx,
+        old_fee: int,
+        relay: RelayFees | None,
+    ) -> FeeRate:
+        """Return the rate a replacement pays, as the module docstring says.
+
+        A rate of the caller's below the node's mempool minimum is refused,
+        as Core's `CheckFeeRate` refuses it (src/wallet/feebumper.cpp:68-76
+        at bitcoin/bitcoin@f0de87f040, the v32.1 tag).
+        """
+        if fee_rate is not None:
+            if relay is not None and fee_rate < relay.mempool_min:
+                err_msg = f"fee rate {fee_rate.sats_per_kvbyte} sat/kvB is below"
+                err_msg += " the mempool's minimum"
+                err_msg += f" {relay.mempool_min.sats_per_kvbyte}"
+                raise BTClibValueError(err_msg)
+            return fee_rate
+        incremental = (
+            _INCREMENTAL_RELAY_FEE_RATE if relay is None else relay.incremental
+        )
+        # the replaced rate rounded down, as `CFeeRate(old_fee, size)` is
+        old_rate = old_fee * 1000 // wtx.tx.vsize
+        rate = FeeRate(
+            sats_per_kvbyte=old_rate
+            + 1
+            + max(incremental, _WALLET_INCREMENTAL_FEE_RATE).sats_per_kvbyte
+        )
+        target = _CONFIRMATION_TARGET if conf_target is None else conf_target
+        estimate = self._estimated(target, relay)
+        return rate if estimate is None else max(rate, estimate)
+
+    @_relocking
+    def bump(
+        self,
+        txid: bytes,
+        fee_rate: FeeRate | None = None,
+        *,
+        conf_target: int | None = None,
+        outputs: Sequence[TxOut] | None = None,
+        original_change_index: int | None = None,
+        replaceable: bool = True,
+    ) -> Tx:
+        """Replace a transaction with one paying a higher fee, and broadcast it.
+
+        Core's `bumpfee`: `bump_psbt`'s replacement, signed, recorded and
+        broadcast as `spend` does it, with the comments of the transaction
+        it replaces. A ledger holding no private key is refused, as Core
+        refuses a wallet without them (src/wallet/rpc/spend.cpp:1040-1042
+        at bitcoin/bitcoin@f0de87f040, the v32.1 tag): `bump_psbt` is
+        its route. The module docstring says how the two are linked.
+        """
+        if self._broadcaster is None:
+            raise BTClibValueError("no broadcaster: the ledger cannot send")
+        if not self._encrypted and not any(w.prv_keys for w in self._sources.values()):
+            err_msg = "no private key in the ledger: bump_psbt returns the"
+            raise BTClibValueError(f"{err_msg} replacement to sign elsewhere")
+        bumped = self.bump_psbt(
+            txid,
+            fee_rate,
+            conf_target=conf_target,
+            outputs=outputs,
+            original_change_index=original_change_index,
+            replaceable=replaceable,
+        )
+        tx = tx_for_network(extract_tx(finalize(self.sign(bumped.psbt))), self.network)
+        replaced = self._txs[txid]
+        self._commit(
+            self._broadcaster, tx, replaced.comment, replaced.comment_to, replaced
+        )
         return tx
 
     def _hand_out_paid(self, txs: Iterable[Tx]) -> None:
@@ -1679,15 +2117,18 @@ class Ledger:
         Core's `ResubmitWalletTransactions`, run only when the caller
         calls it: each transaction in the mempool or inactive, in the
         order it was recorded. One the broadcaster accepts is in the
-        mempool, and hands out what it pays, as `spend` says. One it
-        refuses stays as it was, and its refusal is returned under its
-        id rather than raised, so that one refusal does not hold back
-        the others.
+        mempool, and hands out what it pays, as `spend` says; where it is
+        a bump, the transaction it replaces is inactive, as *Fee bumping*
+        in the module docstring says. One it refuses keeps its state
+        unless a replacement of it is accepted, and its refusal is
+        returned under its id rather than raised, so that one refusal
+        does not hold back the others.
         """
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
         refused: dict[bytes, FetchError] = {}
-        accepted: list[WalletTx] = []
+        accepted: list[Tx] = []
+        written: dict[bytes, WalletTx] = {}
         for wtx in sorted(self._txs.values(), key=lambda w: w.seq):
             if wtx.state not in (TxState.MEMPOOL, TxState.INACTIVE):
                 continue
@@ -1696,10 +2137,15 @@ class Ledger:
             except FetchError as e:
                 refused[wtx.tx.id] = e
                 continue
-            accepted.append(replace(wtx, state=TxState.MEMPOOL))
-        self._store.upsert_txs(accepted)
-        self._txs.update((wtx.tx.id, wtx) for wtx in accepted)
-        self._hand_out_paid(wtx.tx for wtx in accepted)
+            accepted.append(wtx.tx)
+            written[wtx.tx.id] = replace(wtx, state=TxState.MEMPOOL)
+            if wtx.replaces is not None:
+                replaced = written.get(wtx.replaces) or self._txs.get(wtx.replaces)
+                if replaced is not None and replaced.state is TxState.MEMPOOL:
+                    written[wtx.replaces] = replace(replaced, state=TxState.INACTIVE)
+        self._store.upsert_txs(written.values())
+        self._txs.update(written)
+        self._hand_out_paid(accepted)
         return refused
 
     # -- encryption ---------------------------------------------------------
@@ -1916,6 +2362,154 @@ class Ledger:
             self._key = None
             self._unlocked_until = 0
             self._relock_at = 0.0
+
+
+def _assert_bump_arguments(
+    fee_rate: FeeRate | None,
+    conf_target: int | None,
+    outputs: Sequence[TxOut] | None,
+    original_change_index: int | None,
+    replaceable: bool,
+) -> None:
+    """Refuse what `Ledger.bump_psbt` is handed before the ledger is read."""
+    assert_type(fee_rate, (FeeRate, type(None)), "fee_rate")
+    if conf_target is not None:
+        valid_confirmation_target(conf_target)
+    if outputs is not None:
+        assert_type(outputs, Sequence, "outputs")
+        for tx_out in outputs:
+            assert_type(tx_out, TxOut, "outputs")
+    if original_change_index is not None:
+        _assert_height(original_change_index, "original_change_index")
+    assert_type(replaceable, bool, "replaceable")
+    if fee_rate is not None and conf_target is not None:
+        raise BTClibValueError("name a fee rate or a confirmation target, not both")
+    if outputs is not None and not outputs:
+        raise BTClibValueError("no outputs: name at least one")
+    if outputs is not None and original_change_index is not None:
+        err_msg = (
+            "outputs and original_change_index are incompatible:"
+            " name new outputs, or the change output to reuse"
+        )
+        raise BTClibValueError(err_msg)
+
+
+def _with_inputs_added(
+    inputs: Sequence[PsbtIn],
+    added: Sequence[PsbtIn],
+    build: Callable[[list[PsbtIn]], FundedPsbt],
+) -> FundedPsbt:
+    """Return what `build` funds from `inputs` and the first of `added`.
+
+    An input of `added` is taken, in order, only where those taken so far
+    fall short.
+    """
+    spending = list(inputs)
+    pending = list(added)
+    while True:
+        try:
+            return build(spending)
+        except _ShortfallError as e:
+            if not pending:
+                err_msg = "the confirmed coins cannot fund the replacement"
+                raise BTClibValueError(f"{err_msg}: {e}") from None
+            spending.append(pending.pop(0))
+
+
+def _least_change(script: ScriptPubKey, spend_weight: int) -> int:
+    """Return the least change Core's spender creates, subtracting the fee.
+
+    `min_viable_change`, the larger of one satoshi over what spending the
+    change costs and the change's dust threshold, both at the discard
+    rate (src/wallet/spend.cpp:1187-1192 at bitcoin/bitcoin@f0de87f040,
+    the v32.1 tag). The discard rate is `_DISCARD_FEE_RATE`, where Core
+    takes the lower of that and its estimate for the longest target it
+    tracks, not below the dust relay rate (`GetDiscardRate`,
+    src/wallet/fees.cpp:90-100): a `FeeEstimator` answers the target it
+    is asked for, and names no longest target.
+    """
+    spend_fee = fee_from_vsize(ceil(spend_weight / 4), _DISCARD_FEE_RATE)
+    return max(spend_fee + 1, dust_threshold(script.script, _DISCARD_FEE_RATE))
+
+
+def _fee_from_change(
+    inputs: Sequence[PsbtIn],
+    change: TxOut,
+    value: int,
+    rate: FeeRate,
+    new_script: ScriptPubKey,
+    least_change: int,
+) -> FundedPsbt:
+    """Return the psbt paying `value` to `change`'s script, less the fee.
+
+    Core's bump where every output is change: one recipient, `value`,
+    with its fee subtracted (src/wallet/feebumper.cpp:267-279 at
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag). It is output 0. What the
+    inputs hold over `value` is new change, output 1, where it is at
+    least `least_change`, as `SelectionResult::GetChange` makes it
+    (src/wallet/coinselection.cpp:1043-1060). Otherwise it is fee, and
+    counts toward what the rate asks: the recipient pays only the rest,
+    as `CreateTransactionInternal` reduces it (src/wallet/spend.cpp:
+    1356-1385). An amount left under the dust threshold is refused, as
+    Core refuses it.
+    """
+    # psbts at no fee rate: the fee of each is what the inputs hold over
+    # its outputs, and a shortfall is refused by the first. They have no
+    # fee ceiling: what the first holds over may be change, and the fee
+    # this returns is checked against the ceilings below
+    no_rate = FeeRate(sats_per_kvbyte=0)
+    outputs = [TxOut(value, change.script_pub_key)]
+    probe = _probe(inputs, outputs, no_rate)
+    if probe.fee >= least_change:
+        outputs.append(TxOut(probe.fee, new_script))
+        probe = _probe(inputs, outputs, no_rate)
+    psbt = probe.psbt
+    vsize = psbt.vsize_estimate(miniscript_sizer)
+    fee = fee_from_vsize(vsize, rate)
+    amount = value - (fee - probe.fee)
+    if amount < dust_threshold(_script(change)):
+        reason = "to pay the fee" if amount < 0 else "to send after the fee"
+        err_msg = f"the amount, {value} satoshi, is too small {reason}, {fee}"
+        raise BTClibValueError(err_msg)
+    _assert_fee_within(fee, vsize, DEFAULT_MAX_FEE, DEFAULT_MAX_FEE_RATE)
+    psbt.outputs[0].amount = amount
+    psbt.assert_valid()
+    return FundedPsbt(psbt, fee, 1 if len(outputs) > 1 else None)
+
+
+def _probe(
+    inputs: Sequence[PsbtIn], outputs: list[TxOut], no_rate: FeeRate
+) -> FundedPsbt:
+    """Return `build_psbt`'s psbt at `no_rate`, with no change and no ceiling.
+
+    Its ceilings are Core's `MAX_MONEY` (src/consensus/amount.h:26 at
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag), which no fee exceeds,
+    and that much per virtual byte.
+    """
+    return build_psbt(
+        list(inputs),
+        outputs,
+        no_rate,
+        None,
+        sizer=miniscript_sizer,
+        max_fee=_MAX_MONEY,
+        max_fee_rate=FeeRate(sats_per_kvbyte=_MAX_MONEY * 1000),
+    )
+
+
+def _assert_replaces(old_fee: int, fee: int, vsize: int, incremental: FeeRate) -> None:
+    """Refuse a replacement the node refuses for its fee.
+
+    BIP125's rules 3 and 4, as Core's `PaysForRBF` checks them
+    (src/policy/rbf.cpp:100-125 at bitcoin/bitcoin@f0de87f040, the v32.1
+    tag): the fee is at least the replaced one's plus the incremental
+    rate over the replacement's virtual size.
+    """
+    least = old_fee + fee_from_vsize(vsize, incremental)
+    if fee < least:
+        err_msg = f"insufficient total fee {fee} satoshi, must be at least {least}"
+        err_msg += f" (old fee {old_fee} + incremental fee {least - old_fee})"
+        raise BTClibValueError(err_msg)
 
 
 def _now() -> int:

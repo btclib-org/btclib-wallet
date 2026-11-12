@@ -405,6 +405,29 @@ def test_a_format_1_file_is_migrated(
     assert _layout(path) == _layout(new)
 
 
+def test_a_format_1_transaction_has_no_comments_and_no_bump(
+    chain: FakeChain, path: Path
+) -> None:
+    """Format 2's columns of a transaction v2026.11.11 wrote are empty."""
+    _format_1_file(path)
+    wallet, _ = _FORMAT_1_SOURCES[min(_FORMAT_1_SOURCES)]
+    tx = chain.pay([TxOut(100_000, wallet.script_pub_key(0, 0))])
+    db = sqlite3.connect(path)
+    try:
+        with db:
+            db.execute(
+                "INSERT INTO txs VALUES (?, ?, 'inactive', NULL, NULL, 0)",
+                (tx.id, tx.serialize(include_witness=True)),
+            )
+    finally:
+        db.close()
+    with Ledger.load(path, "regtest", chain) as ledger:
+        (wtx,) = ledger._store.txs("regtest")
+        assert wtx.tx == tx
+        assert (wtx.comment, wtx.comment_to) == (None, None)
+        assert (wtx.replaces, wtx.replaced_by) == (None, None)
+
+
 def test_a_format_1_backup_is_restored(
     chain: FakeChain, path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

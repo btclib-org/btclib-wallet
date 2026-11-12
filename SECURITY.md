@@ -304,10 +304,10 @@ permissions.
     master key the passphrase encrypts: `btclib_wallet.ledger.crypto`
     says with what, and how, and README's *Installing* names the extra
     the encryption needs. The descriptors, which name the extended
-    public keys, the addresses handed out, every transaction and the tip
-    stay plain, as in an encrypted Core wallet: whoever reads the file
-    learns the wallet's history and balance, and can watch it, but
-    cannot spend from it.
+    public keys, the addresses handed out, every transaction with the
+    comments `Ledger.spend` was given, and the tip stay plain, as in an
+    encrypted Core wallet: whoever reads the file learns the wallet's
+    history and balance, and can watch it, but cannot spend from it.
 - **A backup taken before the encryption keeps the keys in plain
     text.** Encrypting a ledger encrypts none of the files `backup`
     wrote before, so those are to be destroyed or kept as safe as the

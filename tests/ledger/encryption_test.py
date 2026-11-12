@@ -612,6 +612,8 @@ def _calls(ledger: Ledger, chain: FakeChain, tmp_path: Path) -> dict[str, object
         "addresses_by_label": lambda: ledger.addresses_by_label(""),
         "backup": lambda: ledger.backup(tmp_path / "relocked.bak"),
         "balances": ledger.balances,
+        "bump": lambda: ledger.bump(txid),
+        "bump_psbt": lambda: ledger.bump_psbt(txid),
         "change_passphrase": lambda: ledger.change_passphrase("wrong", "new"),
         "close": ledger.close,
         "encrypt": lambda: ledger.encrypt("another"),
@@ -1235,6 +1237,8 @@ def test_every_refusal_a_secret_reaches_holds_none(
             "negative birth_height",
         )
         refused(lambda: ledger.add_source(testnet), "a testnet wallet")
+        refused(lambda: ledger.bump(bytes(32)), "the ledger is locked")
+        refused(lambda: ledger.bump_psbt(bytes(32)), "the ledger is locked")
         refused(lambda: ledger.unlock_keys(WRONG, 10), "the passphrase is wrong")
         refused(lambda: ledger.unlock_keys("", 10), "the passphrase is empty")
         refused(lambda: ledger.unlock_keys(SECRET, -1), "negative timeout")
@@ -1249,6 +1253,7 @@ def test_every_refusal_a_secret_reaches_holds_none(
         without_scrypt(lambda: ledger.change_passphrase(SECRET, WRONG))
         ledger.unlock_keys(SECRET, 60)
         refused(lambda: ledger.add_source(_hardened(XPRV2)), "cannot watch")
+        refused(lambda: ledger.bump(bytes(32)), "not a ledger transaction")
     encrypted = _encrypted(path)
     flipped = encrypted[:-1] + bytes([encrypted[-1] ^ 1])
     _damaged(path, "UPDATE sources SET encrypted = ?", flipped)

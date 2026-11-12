@@ -89,6 +89,7 @@ choice of engine, never this module's own hidden one.
 **RBF, CPFP and cancel-by-double-spend stay out**, as the parent issue
 lists them: each needs the ownership and change metadata of a change
 this module does not track once `select_coins` returns it.
+`ledger.Ledger.bump_psbt`, which tracks them, does RBF.
 """
 
 from __future__ import annotations
