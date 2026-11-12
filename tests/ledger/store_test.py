@@ -281,6 +281,9 @@ def test_a_file_a_ledger_holds_opens_in_no_other(
     assert not Path(f"{file}-journal").exists()
 
 
+# Windows' SQLite loads the file with a directory at its journal, as
+# every cell of os-windows.yml measured: no failure to name there
+@pytest.mark.skipif(os.name == "nt", reason="no failure to open on Windows")
 def test_a_file_sqlite_cannot_open_is_not_called_no_ledger(
     chain: FakeChain, path: Path
 ) -> None:
