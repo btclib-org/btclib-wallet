@@ -851,6 +851,39 @@ def test_keys_locked_from_another_thread_mid_sign_refuse_it_as_locked(
             assert all(psbt_in.partial_sigs for psbt_in in signed.inputs)
 
 
+def test_a_key_seen_part_zeroed_mid_sign_refuses_it_as_locked(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`sign` decrypting with a key `lock_keys` zeroes in another thread.
+
+    Without the GIL a reader can see the key part zeroed: decryption
+    fails, and a byte of the key is still not zero. The ledger no longer
+    holds the key, so the call is refused as a ledger locked during it,
+    not as a damaged file.
+    """
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        _funded(ledger, chain)
+        ledger.encrypt(PASSPHRASE)
+        ledger.unlock_keys(PASSPHRASE, 600)
+        psbt = ledger.fund([_outside()]).psbt
+        real = crypto._opened
+
+        def torn(key: bytearray, sealed: bytes, aad: bytes) -> bytearray:
+            half = bytes(key[:16])
+            thread = threading.Thread(target=ledger.lock_keys, daemon=True)
+            thread.start()
+            thread.join(timeout=30)
+            assert not thread.is_alive(), "lock_keys did not finish"
+            # the first half as it was before the zeros landed
+            key[:16] = half
+            return real(key, sealed, aad)
+
+        monkeypatch.setattr(ledger_module, "_opened", torn)
+        with pytest.raises(BTClibValueError) as refusal:
+            ledger.sign(psbt)
+        assert str(refusal.value) == ledger_module._LOCKED_DURING
+
+
 @pytest.mark.parametrize("relock", ["lock_keys", "close", "unlock_keys"])
 def test_keys_locked_from_another_thread_mid_add_source_refuse_it(
     chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch, relock: str
@@ -1461,7 +1494,7 @@ def test_an_unlock_failing_any_way_zeroes_the_key(
             keys.append(key)
             return key
 
-        def interrupted(*args: object) -> None:
+        def interrupted(*args: object, **kwargs: object) -> None:
             raise KeyboardInterrupt
 
         monkeypatch.setattr(ledger_module, "_unlocked", kept)
