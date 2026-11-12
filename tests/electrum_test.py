@@ -437,6 +437,20 @@ def test_decode_response_raises_rpc_error_for_an_error_object() -> None:
     assert exc_info.value.code == -32601
 
 
+@pytest.mark.parametrize(
+    "sent, kept",
+    [(-(2**15), -(2**15)), (2**15 - 1, 2**15 - 1), (2**15, 0), (-(2**15) - 1, 0)],
+)
+def test_decode_response_keeps_a_code_of_16_signed_bits_only(
+    sent: int, kept: int
+) -> None:
+    """A wider code is 0: it could hold the scalar of a key (issue #806)."""
+    line = reply(id=1, error={"code": sent, "message": "x"})
+    with pytest.raises(RpcError, match=rf"\(rpc error code {kept}\)$") as exc_info:
+        decode_response(line, 1, "server.ping")
+    assert exc_info.value.code == kept
+
+
 def test_decode_response_raises_rpc_error_for_a_bare_error() -> None:
     """Protocol 1.0's shape: `error` is a string, not an object."""
     line = reply(id=1, error="no such transaction")

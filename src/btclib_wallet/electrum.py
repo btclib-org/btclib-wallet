@@ -221,6 +221,12 @@ def encode_request(request_id: int, method: str, params: Any = ()) -> bytes:
     raise refusal
 
 
+# A signed 16-bit integer: JSON-RPC 2.0's reserved codes, -32768 to -32000,
+# and the codes electrs, ElectrumX, Fulcrum and Floresta assign lie in it,
+# and it is too narrow to carry a key
+_RPC_CODES = range(-(2**15), 2**15)
+
+
 def _raise_rpc_error(error: object, method: str) -> NoReturn:
     """Raise a JSON-RPC `error` member as `RpcError`: its code and `method`.
 
@@ -233,11 +239,15 @@ def _raise_rpc_error(error: object, method: str) -> NoReturn:
     btclib-org standard, *A refusal carries no secret*, does not relay
     another program's error text that can quote a key: a server's text
     can quote the request, and a key passed in the wrong place is a valid
-    scripthash or tx id. A code that is no integer is 0.
+    scripthash or tx id.
+
+    A code that is no integer, or lies outside `_RPC_CODES`, is 0: JSON
+    bounds no integer, so a code can hold the scalar of a key.
     """
     code = error.get("code") if isinstance(error, dict) else None
-    err_msg = f"{method}: the server answered an error"
-    raise RpcError(err_msg, cast(int, code) if is_integer(code) else 0)
+    if not (is_integer(code) and code in _RPC_CODES):
+        code = 0
+    raise RpcError(f"{method}: the server answered an error", cast(int, code))
 
 
 def _refuse_constant(name: str) -> NoReturn:
@@ -286,15 +296,15 @@ def decode_response(line: bytes, request_id: int, method: str) -> Any:
     `json.loads` runs, which can kill the interpreter on a deeper one --
     not an object, an id that is not this request's own integer id, or
     neither a `result` nor an `error` member. An `error` member is raised
-    as `RpcError` rather than returned, carrying the error object's
-    `code` and `method`, the name of the request this line answers, and
-    nothing else of the server's (`_raise_rpc_error` says why). A server
-    that still answers the elder, non-object form of an error -- a bare
-    string result under protocol 1.0 -- is read the same way, with code
-    0: the protocol carries no code for that shape, and 0 is no code Core
-    or Electrum ever assigns one of their own. A `method` that is not a
-    string is refused (`BTClibTypeError`), and so is one the protocol does
-    not name (`BTClibValueError`).
+    as `RpcError` rather than returned, carrying the error object's `code`
+    where it fits `_RPC_CODES`, and `method`, the name of the request this
+    line answers, and nothing else of the server's (`_raise_rpc_error`
+    says why). A server that still answers the elder, non-object form of
+    an error -- a bare string result under protocol 1.0 -- is read the
+    same way, with code 0: the protocol carries no code for that shape,
+    and 0 is no code Core or Electrum ever assigns one of their own. A
+    `method` that is not a string is refused (`BTClibTypeError`), and so
+    is one the protocol does not name (`BTClibValueError`).
 
     A request the server could not parse enough to answer at all is
     answered under JSON-RPC 2.0 with `"id": null`, so a `null` id

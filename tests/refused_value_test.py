@@ -666,6 +666,14 @@ def test_a_fetch_error_names_what_was_asked_without_its_value(
         ),
         (
             lambda: decode_response(
+                json.dumps({"id": 1, "error": {"code": SCALAR}}).encode(),
+                1,
+                "blockchain.transaction.get",
+            ),
+            0,
+        ),
+        (
+            lambda: decode_response(
                 json.dumps({"id": None, "error": HEX}).encode(),
                 1,
                 "blockchain.transaction.get",
@@ -673,7 +681,7 @@ def test_a_fetch_error_names_what_was_asked_without_its_value(
             0,
         ),
     ],
-    ids=["message and data", "code and data", "bare error"],
+    ids=["message and data", "code and data", "scalar code", "bare error"],
 )
 def test_an_electrum_error_keeps_its_code_and_drops_its_text(
     call: Callable[[], object], code: int

@@ -103,8 +103,9 @@ class RpcError(FetchError):
     two adding its own -- would otherwise have it dropped here, which is
     the one place it cannot be recovered from.
 
-    From an Electrum server the message names the method asked and `data`
-    is None, the server's own text and `data` dropped:
+    From an Electrum server the message names the method asked, `data` is
+    None, and `code` is 0 where the server's is no integer or does not
+    fit in 16 signed bits. The server's own text and `data` are dropped:
     `btclib_wallet.electrum`'s `_raise_rpc_error` says why.
 
     A FetchError still, so code catching that keeps catching this.
