@@ -469,7 +469,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             available = {int(key): value for key, value in payload.items()}
             quoted_target = min((t for t in available if t >= target), default=None)
             if quoted_target is None:
-                err_msg = f"fee-estimates: no target quoted at or above {target}"
+                err_msg = "fee-estimates: no target quoted at or above the one asked"
                 raise FetchError(err_msg)
             rate = FeeRate.from_sats_per_vbyte(available[quoted_target], round_up=True)
             return FeeQuote(rate=rate, target=quoted_target)

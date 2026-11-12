@@ -17,6 +17,7 @@ from collections.abc import Callable
 import pytest
 from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint, Tx
+from typing_extensions import override
 
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fee_estimator import valid_confirmation_target
@@ -24,6 +25,7 @@ from tests.fetch import TX_ID, StubFetcher, recorded_body
 from tests.fetch.compact_filters_test import build
 from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.fetch.esplora_history_test import _explorer, _fetcher
+from tests.fetch.esplora_test import fee_estimates
 from tests.fetch.esplora_test import fetcher as esplora_fetcher
 from tests.fetch.history_test import OURS
 from tests.fetch.peer_chain_test import WALLET
@@ -31,6 +33,22 @@ from tests.refused_value_test import KEY, SCALAR, SPELLINGS
 from tests.secret_free import assert_secret_free
 
 RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
+
+
+class _Unordered(int):
+    """An int no comparison orders, so that it passes every bound."""
+
+    @override
+    def __lt__(self, _other: object) -> bool:
+        return False
+
+    @override
+    def __gt__(self, _other: object) -> bool:
+        return False
+
+    @override
+    def __le__(self, _other: object) -> bool:
+        return False
 
 
 @pytest.mark.parametrize(
@@ -65,6 +83,12 @@ RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
             "^confirmation target an int of 256 bits above the highest quoted, 1008$",
         ),
         (
+            lambda: esplora_fetcher((200, fee_estimates(**{"1": 10}))).estimate_fee(
+                _Unordered(SCALAR)
+            ),
+            "^fee-estimates: no target quoted at or above the one asked$",
+        ),
+        (
             lambda: electrum_fetcher(-1).estimate_fee(SCALAR),
             "^blockchain.estimatefee: no estimate for this target$",
         ),
@@ -87,6 +111,7 @@ RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
         "compact filters stop height",
         "confirmation target",
         "esplora target",
+        "esplora target past every bound",
         "electrum target",
         "esplora max_pages",
         "vout",

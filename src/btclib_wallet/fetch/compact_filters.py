@@ -1100,9 +1100,10 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         """
         # refused as every other backend refuses what is no transaction id
         tx_id_hex(tx_id)
-        err_msg = "a compact filter client cannot serve a transaction by its id,"
-        err_msg += " use scan_blocks"
-        raise FetchError(err_msg)
+        raise FetchError(
+            "a compact filter client cannot serve a transaction by its id,"
+            " use scan_blocks"
+        )
 
     @override
     def get_block_count(self) -> int:
