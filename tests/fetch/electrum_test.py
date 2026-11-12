@@ -688,11 +688,13 @@ def test_get_block_headers_may_answer_fewer_than_asked() -> None:
         ),
         pytest.param({"count": 1, "hex": 5}, "not a hex string", id="hex-not-a-string"),
         pytest.param(
-            chunk_answer(REGTEST_CHUNK[0], count=2), "are not 2 headers", id="too-short"
+            chunk_answer(REGTEST_CHUNK[0], count=2),
+            "not 80 for each header counted",
+            id="too-short",
         ),
         pytest.param(
             chunk_answer(REGTEST_CHUNK[0] + "00", count=1),
-            "are not 1 headers",
+            "not 80 for each header counted",
             id="too-long",
         ),
     ],
@@ -734,8 +736,8 @@ def test_get_block_headers_raises_the_servers_error() -> None:
     [
         (-1, 1, BTClibValueError, "invalid height"),
         ("0", 1, BTClibTypeError, "invalid height type"),
-        (0, 0, BTClibValueError, "invalid count: 0"),
-        (0, -5, BTClibValueError, "invalid count: -5"),
+        (0, 0, BTClibValueError, "invalid count: an int of 0 bits < 1"),
+        (0, -5, BTClibValueError, "invalid count: a negative int of 3 bits < 1"),
         (0, 1.5, BTClibTypeError, "invalid count type"),
         (0, True, BTClibTypeError, "invalid count type"),
     ],
