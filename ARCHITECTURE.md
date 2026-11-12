@@ -96,7 +96,10 @@ submodule loads on first attribute access through the package's own
   receive and change descriptors of an account from that purpose, out of
   `descriptors`' fragments, so `bip44` imports `descriptors`.
   `descriptors` imports nothing of `bip44`: what a path means under BIP44
-  is no part of the descriptor language.
+  is no part of the descriptor language. `bip44.discover_accounts` is
+  BIP44's account discovery over those descriptors, read through a
+  `fetch.HistoryReader` the caller passes. `bip44` imports `fetch` for
+  its annotations alone, so importing `bip44` loads no client.
 - `bip38.py` and `minikey.py` spell a single private key that no seed
   derives: BIP38 encrypts it under a password with scrypt and AES, and a
   Casascius minikey is a short string whose `sha256` is the key itself.

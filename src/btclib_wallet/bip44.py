@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""BIP44: the address of a path and the descriptors of an account.
+"""BIP44: the address of a path, the descriptors of an account, and discovery.
 
 https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki
 
@@ -25,6 +25,10 @@ derives addresses from either.
 receive and change descriptors, built from an account xpub and the master
 fingerprint of the key it came from.
 
+`discover_account` and `discover_accounts` are BIP44's *Account
+discovery*: which accounts and positions have history, read through a
+`fetch.HistoryReader` the caller passes. They take public keys alone.
+
 What imports this module is what the mapping and the checks are for:
 `wallet` takes the encoders and the purpose lookup rather than keeping a
 second copy of either. This module imports `descriptors` for the
@@ -35,13 +39,14 @@ that way.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Container, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from btclib import b32, b58
 from btclib.alias import NetworkType, Octets
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PubKeyData
 from btclib.network import (
     NETWORKS,
@@ -49,7 +54,7 @@ from btclib.network import (
     network_type_from_xkeyversion,
 )
 from btclib.script.taproot import output_pubkey
-from btclib.utils import bytes_from_octets
+from btclib.utils import bytes_from_octets, is_integer
 
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
@@ -76,11 +81,20 @@ from btclib_wallet.descriptors.descriptors import (
 )
 from btclib_wallet.descriptors.key_expression import KeyExpression
 
+# under TYPE_CHECKING: `btclib_wallet.fetch` imports every fetcher, and
+# `urllib`, `ssl` and `socket` behind them, which a caller deriving an
+# address does not need
+if TYPE_CHECKING:
+    from btclib_wallet.fetch.history import HistoryReader, ScriptHistory
+
 __all__ = [
     "SCRIPT_TYPE_FROM_PURPOSE",
+    "AccountUse",
     "BIP44ScriptType",
     "account_descriptors",
     "address_from_der_path",
+    "discover_account",
+    "discover_accounts",
 ]
 
 # The four address encodings a purpose level can name: 44 is p2pkh, 49
@@ -505,3 +519,280 @@ def account_descriptors(
         return build(key, network)
 
     return chain(_RECEIVE_CHAIN), chain(_CHANGE_CHAIN)
+
+
+# BIP44's *Address gap limit*: 20 unused addresses in a row end the
+# search of a chain
+_GAP_LIMIT = 20
+
+# the coin type of a key's BIP44 path, read off the network type of the
+# key, as the inverse of the table above: it registers one coin type for
+# each network type
+_COIN_TYPE_FROM_NETWORK_TYPE: dict[NetworkType, int] = {
+    network_type: coin_type
+    for coin_type, network_type in _NETWORK_TYPE_FROM_COIN_TYPE.items()
+}
+
+
+@dataclass(frozen=True)
+class AccountUse:
+    """The positions of a used account that have history, and that history.
+
+    `descriptors` are the branches read, receive first and change second
+    for a BIP44 account. `used` holds, for each of them, the indexes whose
+    scripts a transaction pays, in ascending order. `history` is one
+    answer of the reader for the scripts the scan found paid, read after
+    it; `used` is read off that answer too, so the two agree.
+    """
+
+    descriptors: tuple[Descriptor, ...]
+    used: tuple[tuple[int, ...], ...]
+    history: ScriptHistory
+
+
+def _assert_limit(value: int, name: str) -> None:
+    """Refuse a limit that is no integer, or that is below one."""
+    if not is_integer(value):
+        raise BTClibTypeError(f"invalid {name} type: {type(value).__name__}")
+    if value < 1:
+        raise BTClibValueError(f"invalid {name}: {value} is below 1")
+
+
+def _assert_gap_limit(gap_limit: int) -> None:
+    """Refuse a gap limit that no branch can hold.
+
+    A branch has `HARDENED_OFFSET` unhardened indexes, so a wider gap is
+    never reached and the scan would end on a refused index instead.
+    """
+    _assert_limit(gap_limit, "gap_limit")
+    if gap_limit > HARDENED_OFFSET:
+        err_msg = f"invalid gap_limit: {gap_limit} is above the"
+        err_msg += f" {HARDENED_OFFSET} indexes of a branch"
+        raise BTClibValueError(err_msg)
+
+
+def _assert_reader(reader: HistoryReader) -> None:
+    """Refuse a reader with no `get_history` to call.
+
+    `HistoryReader` is not `runtime_checkable`, so what is checked is the
+    method alone.
+    """
+    if not callable(getattr(reader, "get_history", None)):
+        raise BTClibTypeError(f"not a HistoryReader: {type(reader).__name__}")
+
+
+def _branches(descriptors: object) -> tuple[Descriptor, ...]:
+    """Return the descriptors as a tuple, refusing any that ranges nothing."""
+    if not isinstance(descriptors, Sequence):
+        err_msg = f"invalid descriptors type: {type(descriptors).__name__}"
+        raise BTClibTypeError(err_msg)
+    for descriptor in descriptors:
+        if not isinstance(descriptor, Descriptor):
+            raise BTClibTypeError(f"not a Descriptor: {type(descriptor).__name__}")
+        if not descriptor.is_ranged:
+            raise BTClibValueError(f"not a ranged descriptor: {descriptor}")
+    if not descriptors:
+        raise BTClibValueError("no descriptor to discover")
+    return tuple(descriptors)
+
+
+def _paid(answer: ScriptHistory, scripts: Container[bytes]) -> set[bytes]:
+    """Return the scripts a transaction of the answer pays.
+
+    A transaction spending from a script is not counted: the reader lists
+    the payment it spends beside it.
+    """
+    return {
+        tx_out.script_pub_key.script
+        for entry in answer.txs
+        for tx_out in entry.tx.vout
+        if tx_out.script_pub_key.script in scripts
+    }
+
+
+def _window_end(used: list[int], gap_limit: int) -> int:
+    """Return the index after the last one the scan reads, so far.
+
+    `gap_limit` past the last paid index, and never past the last index a
+    branch has: there the branch ends, and so does the scan.
+    """
+    return min((used[-1] + 1 if used else 0) + gap_limit, HARDENED_OFFSET)
+
+
+def _scanned_indexes(
+    descriptor: Descriptor, reader: HistoryReader, gap_limit: int
+) -> list[int]:
+    """Return the indexes of one branch the windows of the scan find paid.
+
+    The indexes are read in windows, each up to `gap_limit` past the last
+    paid one, so the scan ends where `gap_limit` indexes in a row have no
+    history, or at the last index of the branch, whichever comes first.
+    """
+    used: list[int] = []
+    read = 0
+    while read < (end := _window_end(used, gap_limit)):
+        index_of = {
+            script_pub_key.script: index
+            for index in range(read, end)
+            for script_pub_key in descriptor.script_pub_keys(index)
+        }
+        paid = _paid(reader.get_history(sorted(index_of)), index_of)
+        used.extend(sorted({index_of[script] for script in paid}))
+        read = end
+    return used
+
+
+def _discover_account(
+    descriptors: tuple[Descriptor, ...], reader: HistoryReader, gap_limit: int
+) -> AccountUse | None:
+    """Return what `discover_account` returns, its arguments already checked.
+
+    The windows are separate reads, and the chain can move between them,
+    so `used` is read off the last read, which is `history`: the two then
+    agree. A position the windows found paid and the last read does not
+    -- its payment taken out by a reorganization, or evicted or replaced
+    in the mempool -- is in neither.
+    """
+    position_of = {
+        script_pub_key.script: (branch, index)
+        for branch, descriptor in enumerate(descriptors)
+        for index in _scanned_indexes(descriptor, reader, gap_limit)
+        for script_pub_key in descriptor.script_pub_keys(index)
+    }
+    if not position_of:
+        return None
+    history = reader.get_history(sorted(position_of))
+    paid = {position_of[script] for script in _paid(history, position_of)}
+    if not paid:
+        return None
+    used = tuple(
+        tuple(sorted(index for paid_branch, index in paid if paid_branch == branch))
+        for branch in range(len(descriptors))
+    )
+    return AccountUse(descriptors, used, history)
+
+
+def discover_account(
+    descriptors: Sequence[Descriptor],
+    reader: HistoryReader,
+    *,
+    gap_limit: int = _GAP_LIMIT,
+) -> AccountUse | None:
+    """Return the positions of an account that have history, and that history.
+
+    `descriptors` are the ranged branches of the account, as
+    `account_descriptors` returns them: receive and change. Each branch is
+    read from index 0 until `gap_limit` indexes in a row have no history,
+    BIP44's gap limit by default, and at most the `HARDENED_OFFSET`
+    indexes a branch has. A position is used where a transaction the
+    reader lists pays its script. `None` where no position is used.
+
+    BIP44 reads the receive branch alone, because change receives only
+    what the receive branch spent. Every branch is read here: a payment
+    to a change address is history too, and a recovery has to find it.
+
+    A descriptor holds no private key, as `descriptors.KeyExpression`
+    refuses one, and none is taken: what the scan derives is public.
+    """
+    branches = _branches(descriptors)
+    _assert_reader(reader)
+    _assert_gap_limit(gap_limit)
+    return _discover_account(branches, reader, gap_limit)
+
+
+def _account_branches(
+    xkey: BIP32Key, purpose: int, account: int, master_fingerprint: Octets
+) -> tuple[Descriptor, ...]:
+    """Return the descriptors of an account, refusing a private key.
+
+    The coin type is the one the key's network registers, which is the
+    only one `account_descriptors` would accept.
+    """
+    key = key_data_from_bip32_key(xkey)
+    if key.is_private:
+        err_msg = f"purpose {purpose}, account {account}:"
+        err_msg += " an extended private key: pass its xpub"
+        raise BTClibValueError(err_msg)
+    coin_type = _COIN_TYPE_FROM_NETWORK_TYPE[network_type_from_xkeyversion(key.version)]
+    der_path = f"m/{purpose}h/{coin_type}h/{account}h"
+    return account_descriptors(key, der_path, master_fingerprint)
+
+
+def _accounts(
+    account_xpubs: object, master_fingerprint: Octets
+) -> dict[int, list[tuple[Descriptor, ...]]]:
+    """Return the descriptors of each account of each purpose, checked."""
+    if not isinstance(account_xpubs, Mapping):
+        err_msg = f"invalid account_xpubs type: {type(account_xpubs).__name__}"
+        raise BTClibTypeError(err_msg)
+    if not account_xpubs:
+        raise BTClibValueError("no purpose to discover")
+    accounts: dict[int, list[tuple[Descriptor, ...]]] = {}
+    for purpose, xpubs in account_xpubs.items():
+        if not is_integer(purpose):
+            raise BTClibTypeError(f"invalid purpose type: {type(purpose).__name__}")
+        # a str is a Sequence too, of one-character keys
+        if not isinstance(xpubs, Sequence) or isinstance(xpubs, (str, bytes)):
+            err_msg = f"purpose {purpose}: invalid xpubs type: {type(xpubs).__name__}"
+            raise BTClibTypeError(err_msg)
+        if not xpubs:
+            raise BTClibValueError(f"purpose {purpose}: no account xpub")
+        accounts[purpose] = [
+            _account_branches(xpub, purpose, account, master_fingerprint)
+            for account, xpub in enumerate(xpubs)
+        ]
+    return accounts
+
+
+def discover_accounts(
+    account_xpubs: Mapping[int, Sequence[BIP32Key]],
+    reader: HistoryReader,
+    master_fingerprint: Octets,
+    *,
+    account_gap: int = 1,
+    gap_limit: int = _GAP_LIMIT,
+) -> dict[tuple[int, int], AccountUse]:
+    """Return the used accounts of a key, by purpose and account.
+
+    BIP44's *Account discovery*, from the account xpubs alone.
+    `account_xpubs` maps each purpose to its account xpubs, account 0
+    first; `master_fingerprint` is the key origin's, which an account xpub
+    cannot supply. The coin type is the one the xpub's network registers.
+    Every argument is checked before the reader is asked anything.
+
+    The accounts of each purpose are read in order with
+    `discover_account`, until `account_gap` accounts in a row have no
+    history. BIP44 stops at the first one, which is the default. A wider
+    gap finds a key whose wallet skipped an account. Where the xpubs of a
+    purpose end before the gap is reached, the discovery is refused, since
+    an account after them may be used: pass more xpubs.
+
+    The answer holds the used accounts alone, in the order read, keyed by
+    (purpose, account).
+
+    An extended private key is refused: the account levels are hardened,
+    so an xpub per account is what a scan needs, and the private key stays
+    where the xpubs were derived.
+    """
+    _assert_reader(reader)
+    _assert_limit(account_gap, "account_gap")
+    _assert_gap_limit(gap_limit)
+    accounts = _accounts(account_xpubs, master_fingerprint)
+
+    found: dict[tuple[int, int], AccountUse] = {}
+    for purpose, branches in accounts.items():
+        unused = 0
+        account = 0
+        while unused < account_gap:
+            if account == len(branches):
+                err_msg = f"purpose {purpose}: no xpub for account {account},"
+                err_msg += f" and {unused} of {account_gap} unused accounts in a row"
+                raise BTClibValueError(err_msg)
+            use = _discover_account(branches[account], reader, gap_limit)
+            if use is None:
+                unused += 1
+            else:
+                unused = 0
+                found[purpose, account] = use
+            account += 1
+    return found

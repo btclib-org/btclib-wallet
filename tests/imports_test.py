@@ -587,20 +587,21 @@ def test_btclib_imports_nothing_of_btclib_wallet() -> None:
 @pytest.mark.parametrize(
     "module_name, heavy_expected",
     [
+        ("btclib_wallet.bip44", False),
         ("btclib_wallet.electrum", False),
         ("btclib_wallet.exceptions", False),
         ("btclib_wallet.fetch", True),
     ],
 )
-def test_the_codec_and_the_exceptions_open_nothing(
-    module_name: str, heavy_expected: bool
-) -> None:
-    """Importing either loads no client, no HTTP and no TLS.
+def test_these_modules_open_no_client(module_name: str, heavy_expected: bool) -> None:
+    """Importing any of them loads no client, no HTTP and no TLS.
 
     `btclib_wallet.fetch`'s `__init__` imports every fetcher, and
     `urllib`, `ssl` and `socket` behind them. A server of the Electrum
     protocol imports the codec alone, and every module catching a
     `FetchError` imports the exceptions alone: neither pays for a client.
+    `bip44` takes a `HistoryReader` and imports `fetch` under
+    `TYPE_CHECKING` alone, so a caller deriving an address pays for none.
 
     `socket` is not asserted absent: `importlib.metadata`, which reads the
     version of btclib, imports it through `email.utils` on interpreters
