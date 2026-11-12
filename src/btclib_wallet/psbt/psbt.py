@@ -881,11 +881,10 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
 
     p2tr and `witness_unknown` are accepted because they are witness
     kinds, which is the whole of the rule: BIP174 wrote the rule when
-    witness v0 was the only witness there was. A p2tr script is a
-    taproot output only unwrapped, BIP341 leaving a p2sh-wrapped one
-    unencumbered, and a redeem script beside a bare one is refused by
-    the hash160 the caller checks next, 20 bytes never equalling the 32
-    of an output key.
+    witness v0 was the only witness there was. A p2tr redeem script is
+    no taproot output (`_is_taproot`), and a redeem script beside a bare
+    one is refused by the hash160 the caller checks next, 20 bytes never
+    equalling the 32 of an output key.
 
     A `witness_unknown` input passes so that `sign` reaches the other
     inputs, `_sign_ecdsa_input` skipping this one and saying what Core's
@@ -955,10 +954,9 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
     stores. Where they disagree, the proof is of a leaf no other reader
     will look up.
     """
-    prev_out = _prev_out(psbt_in)
-    if prev_out is None or not is_p2tr(prev_out.script_pub_key.script):
+    if not _is_taproot(psbt_in):
         return
-    output_key = type_and_payload(prev_out.script_pub_key.script)[1]
+    output_key = type_and_payload(_spent_script(psbt_in))[1]
 
     if psbt_in.taproot_internal_key:
         tweaked = taproot.output_pubkey_from_merkle_root_var(
@@ -1023,15 +1021,14 @@ def _assert_amounts_vouched(inputs: Sequence[PsbtIn]) -> None:
 
     The non_witness_utxo is vouched for by the outpoint's tx_id, and
     `_assert_valid_utxo` holds a witness utxo beside it to the same
-    output. A psbt whose every input spends a p2tr script and none asks
-    for ANYONECANPAY is not asked: a BIP341 signature of any other type
-    commits to the amount and the script of every input, so one that
-    misstates either is invalid. One of ANYONECANPAY commits to its own
-    input's alone, as a BIP143 signature does.
+    output. A psbt whose every input spends a taproot output and none
+    asks for ANYONECANPAY is not asked: a BIP341 signature of any other
+    type commits to the amount and the script of every input, so one
+    that misstates either is invalid. One of ANYONECANPAY commits to its
+    own input's alone, as a BIP143 signature does.
     """
     if all(
-        is_p2tr(_spent_script(psbt_in))
-        and not (psbt_in.sig_hash_type or 0) & ANYONECANPAY
+        _is_taproot(psbt_in) and not (psbt_in.sig_hash_type or 0) & ANYONECANPAY
         for psbt_in in inputs
     ):
         return
@@ -1352,7 +1349,7 @@ class Psbt:
         signs none of them and is told nothing.
 
         Every input has to carry its non_witness_utxo, which BIP174 does
-        not require, unless every input spends a p2tr script and none
+        not require, unless every input spends a taproot output and none
         asks for ANYONECANPAY: `_assert_amounts_vouched` says why. With
         `require_non_witness_utxo=False` a witness utxo alone is
         accepted, and its amount is then the word of whoever wrote the
@@ -2118,6 +2115,34 @@ def _spent_script(psbt_in: PsbtIn) -> bytes:
     return psbt_in.redeem_script if is_p2sh(script) else script
 
 
+def _is_taproot(psbt_in: PsbtIn) -> bool:
+    """Return whether the input spends a taproot output.
+
+    The script_pub_key decides, and not `_spent_script`: BIP341 leaves a
+    p2sh-wrapped version 1 program unencumbered, so a p2tr redeem script
+    is no taproot output. `_spends_unknown_witness_program` says what
+    such an input is instead.
+    """
+    prev_out = _prev_out(psbt_in)
+    return prev_out is not None and is_p2tr(prev_out.script_pub_key.script)
+
+
+def _spends_unknown_witness_program(psbt_in: PsbtIn) -> bool:
+    """Return whether the input spends a witness program of no known rule.
+
+    The `witness_unknown` of `type_and_payload`, bare or as the redeem
+    script, and a p2tr redeem script, which `_is_taproot` says is not
+    taproot. Bitcoin Core's VerifyWitnessProgram checks no signature for
+    any of them, and applies BIP341 and the anchor rule to an unwrapped
+    program only (src/script/interpreter.cpp:1953, 1996-1997 and
+    1999-2003 at bitcoin/bitcoin@a06515e9fd).
+    """
+    script = _spent_script(psbt_in)
+    if type_and_payload(script)[0] == "witness_unknown":
+        return True
+    return is_p2tr(script) and not _is_taproot(psbt_in)
+
+
 def _single_key(psbt_in: PsbtIn) -> bytes:
     """Return the one public key a single-key input is spent with.
 
@@ -2533,8 +2558,8 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
     """Return the script_sig and witness a taproot input is spent with.
 
     An empty script_sig, always: BIP341 spends a witness v1 program with
-    the witness alone, and a p2sh-wrapped one is unspendable by
-    consensus.
+    the witness alone, and a p2sh-wrapped one is not taproot
+    (`_is_taproot`).
 
     The key path is preferred when the input carries both, as Bitcoin
     Core's finalizer prefers it: it is the cheaper spend and the one the
@@ -2637,11 +2662,9 @@ def _sig_hash_from_psbt_in(
     is an error rather than a hash, and rather than the None that would
     have the Finalizer skip the very signature it is checking.
 
-    A witness program this has no rule for raises too, bare or as the
-    redeem script: any version from 2 to 16, or a version 1 program that
-    is not p2tr, which `type_and_payload` calls `witness_unknown`.
-    Bitcoin Core's VerifyWitnessProgram checks no signature for one, so
-    the legacy hash is a hash no signature for it commits to.
+    A witness program this has no rule for raises too, which is what
+    `_spends_unknown_witness_program` answers: the legacy hash is a hash
+    no signature for it commits to.
     `_sign_ecdsa_input` says what Core's signer does with one.
 
     sig_hash.from_tx is the same dispatch for a *signed* transaction, and
@@ -2663,9 +2686,9 @@ def _sig_hash_from_psbt_in(
             return None
         return sig_hash.segwit_v0(script_code, tx, vin_i, hash_type, prev_out.value)
 
-    if not script or is_p2tr(script):
+    if not script or _is_taproot(psbt_in):
         return None
-    if type_and_payload(script)[0] == "witness_unknown":
+    if _spends_unknown_witness_program(psbt_in):
         # OP_1..OP_16 are 0x51..0x60
         version = script[0] - 0x50
         err_msg = f"input {vin_i}: no sig_hash rule for witness version {version}"
@@ -2693,8 +2716,7 @@ def _ecdsa_sig_hash(
     if hash_type == DEFAULT:
         raise BTClibValueError("SIGHASH_DEFAULT is not an ECDSA sig_hash type")
 
-    spent = _spent_script(psbt_in)
-    if is_p2tr(spent):
+    if _is_taproot(psbt_in):
         err_msg = f"input {vin_i} is taproot: its message is taproot_sig_hash's"
         raise BTClibValueError(err_msg)
 
@@ -2708,6 +2730,7 @@ def _ecdsa_sig_hash(
     # output of the same key. A segwit v0 signature of it is valid by
     # consensus, so the hash is computed for the Finalizer to check;
     # `_sign_ecdsa_input` refuses to sign it
+    spent = _spent_script(psbt_in)
     if (
         hash_type & ~ANYONECANPAY == SINGLE
         and vin_i >= len(tx.vout)
@@ -2859,7 +2882,7 @@ def _assert_accepted_sig_hash_type(
     that does not say what it spends cannot be signed anyway.
     """
     hash_type = psbt_in.sig_hash_type
-    if hash_type == DEFAULT and not is_p2tr(_spent_script(psbt_in)):
+    if hash_type == DEFAULT and not _is_taproot(psbt_in):
         err_msg = f"input {vin_i}: SIGHASH_DEFAULT needs an input known to be taproot"
         raise BTClibValueError(err_msg)
     if hash_type is not None and hash_type not in accepted:
@@ -2943,12 +2966,18 @@ def _sign_ecdsa_input(
 
     A witness program `_sig_hash_from_psbt_in` has no rule for is
     skipped as nothing to sign, whatever key_manager holds: no rule
-    checks a partial signature of it. Bitcoin Core signs none either:
-    SignStep refuses to sign every such program but the anchor, and Core
-    spends only the bare anchor, with no signature
-    (src/script/sign.cpp:655-658, 722-723 and 815,
+    checks a partial signature of it. Bitcoin Core signs no
+    `witness_unknown` program either: SignStep refuses to sign every
+    such program but the anchor, and Core spends only the bare anchor,
+    with no signature (src/script/sign.cpp:655-658, 722-723 and 815,
     src/script/solver.cpp:169-171, src/script/interpreter.cpp:2000-2008
     and src/policy/policy.h:126 at bitcoin/bitcoin@f0de87f040).
+
+    A p2tr redeem script is different in Core: SignStep signs it for the
+    key path, and ProduceSignature then puts that signature in no
+    witness, which it builds for an unwrapped version 1 program only
+    (src/script/sign.cpp:724-725 and 803 at bitcoin/bitcoin@a06515e9fd).
+    Skipping it here leaves out only a signature no spend uses.
 
     FillPSBT goes on to sign the other inputs unless SignPSBTInput
     answers an error other than INCOMPLETE for this one, as
@@ -2964,7 +2993,7 @@ def _sign_ecdsa_input(
     output.
     """
     psbt_in = psbt.inputs[vin_i]
-    if type_and_payload(_spent_script(psbt_in))[0] == "witness_unknown":
+    if _spends_unknown_witness_program(psbt_in):
         return False
     hash_type = ALL if psbt_in.sig_hash_type is None else psbt_in.sig_hash_type
     msg_hash: bytes | None = None
@@ -3114,7 +3143,7 @@ def sign(
     question -- and where a candidate's own hash cannot be computed,
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
-    does not raise, nor does a `witness_unknown` input, which
+    does not raise, nor does a witness program of no known rule, which
     `_sign_ecdsa_input` skips. `require_non_witness_utxo` is handed to
     `assert_signable`: at its default an input with no non_witness_utxo
     is refused, whoever holds its keys, unless every input is taproot
@@ -3128,7 +3157,8 @@ def sign(
     a type not named raises once there is a key to ask about.
     SIGHASH_SINGLE on an ECDSA input with no output at its index raises
     whatever is allowed: the signature commits to no output. Neither
-    check reaches a `witness_unknown` input, which is skipped first.
+    check reaches a witness program of no known rule, which is skipped
+    first.
 
     A version 2 psbt comes back with PSBT_GLOBAL_TX_MODIFIABLE updated
     for every signature added, as BIP370 asks of the Signer.
@@ -3151,7 +3181,7 @@ def sign(
         _assert_signable(psbt)
     signed_vins: list[int] = []
     for vin_i, psbt_in in enumerate(psbt.inputs):
-        if is_p2tr(_spent_script(psbt_in)):
+        if _is_taproot(psbt_in):
             # both, and neither short-circuiting the other: an input can
             # be signed for the key path and for a leaf, and `or` would
             # leave the second unasked
@@ -3310,8 +3340,7 @@ def _assert_taproot_sigs_verify(
     if not key_sig and not script_sigs:
         return
 
-    script = _spent_script(psbt_in)
-    if not is_p2tr(script):
+    if not _is_taproot(psbt_in):
         err_msg = f"input {vin_i}: a taproot signature for an input spending "
         err_msg += "no taproot output"
         raise BTClibValueError(err_msg)
@@ -3321,7 +3350,7 @@ def _assert_taproot_sigs_verify(
             key_sig, psbt_in, "taproot key path signature"
         )
         msg = taproot_sig_hash(psbt, vin_i, hash_type=hash_type)
-        output_key = type_and_payload(script)[1]
+        output_key = type_and_payload(_spent_script(psbt_in))[1]
         if not ssa.verify_(msg, output_key, key_sig[:64]):
             err_msg = f"input {vin_i}: invalid taproot key path signature for "
             err_msg += f"output key {output_key.hex()}"
@@ -3816,7 +3845,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
         # signatures: a schnorr signature travels in PSBT_IN_TAP_KEY_SIG
         # or PSBT_IN_TAP_SCRIPT_SIG, and BIP373 is what writes the
         # aggregate signature of a MuSig2 session into them
-        elif is_p2tr(_spent_script(psbt_in)):
+        elif _is_taproot(psbt_in):
             script_sig, witness = _finalized_taproot_input(psbt, vin_i)
         else:
             if not psbt_in.partial_sigs:
