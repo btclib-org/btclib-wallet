@@ -40,6 +40,8 @@ from tests.fetch.history_test import (
     FakeNode,
     _tx,
 )
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 
 class FakeRest:
@@ -228,8 +230,17 @@ def _set(reply: dict[str, Any], key: str, value: Any) -> dict[str, Any]:
         ("chaininfo", lambda _r: {}, "no 'bestblockhash' member"),
         ("mempool", lambda _r: {}, "not an array: dict"),
         ("getutxos", lambda r: _set(r, "chaintipHash", "00" * 32), "read at 00"),
-        ("getutxos", lambda r: _set(r, "bitmap", "10"), "invalid bitmap: '10'"),
-        ("getutxos", lambda r: _set(r, "bitmap", None), "invalid bitmap: None"),
+        (
+            "getutxos",
+            lambda r: _set(r, "bitmap", "10"),
+            "invalid bitmap: a str of length 2",
+        ),
+        ("getutxos", lambda r: _set(r, "bitmap", None), "invalid bitmap: a NoneType"),
+        (
+            "getutxos",
+            lambda r: _set(r, "bitmap", HEX),
+            "invalid bitmap: a str of length 64",
+        ),
         ("getutxos", lambda r: _set(r, "utxos", []), "not an output for each hit"),
         ("getutxos", lambda r: _set(r, "utxos", {}), "not an output for each hit"),
         ("getutxos", lambda _r: [], "no 'chaintipHash' member"),
@@ -244,8 +255,9 @@ def test_get_history_refuses_a_malformed_answer(
     rest.node.mempool = [_tx([old], [OTHER])]
     rest.utxos = {old: OURS}
     rest.edit = lambda k, reply: change(reply) if k == kind else reply
-    with pytest.raises(FetchError, match=match):
+    with pytest.raises(FetchError, match=match) as e:
         _fetcher(rest).get_history([OURS], 3)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_get_history_verifies_the_network_first() -> None:

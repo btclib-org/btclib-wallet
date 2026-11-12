@@ -55,6 +55,7 @@ from btclib.tx import OutPoint, Tx
 from btclib.utils import bytes_from_octets
 from typing_extensions import override
 
+from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.exceptions import HttpError
 from btclib_wallet.fetch.bitcoin_core import (
     _MAX_LARGE_REPLY,
@@ -122,7 +123,9 @@ def _field(reply: Any, name: str) -> Any:
     class `int` and `bytes_from_octets` already raise it as.
     """
     if not isinstance(reply, dict) or name not in reply:
-        raise TypeError(f"no {name!r} member in the chaininfo reply: {reply!r}")
+        raise TypeError(
+            f"no {name!r} member in the chaininfo reply: {_message_text(reply)}"
+        )
     return reply[name]
 
 
@@ -215,9 +218,9 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
             reply = self._get_json("/chaininfo.json", max_body_size=_MAX_CHAININFO_BODY)
             reported = _field(reply, "chain")
             if not isinstance(reported, str):
-                raise TypeError(f"no string 'chain' member: {reported!r}")
+                raise TypeError(f"no string 'chain' member: {_message_text(reported)}")
         if reported != expected:
-            err_msg = f"node at {self.client.url} reports chain {reported!r},"
+            err_msg = f"node at {self.client.url} reports chain {_quoted(reported)},"
             err_msg += f" not the {expected!r} this fetcher was built for"
             raise BTClibValueError(err_msg)
         if expected_magic is None:
@@ -226,7 +229,9 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         with fetch_errors("chaininfo"):
             challenge = _field(reply, "signet_challenge")
             if not isinstance(challenge, str):
-                raise TypeError(f"no string 'signet_challenge' member: {challenge!r}")
+                raise TypeError(
+                    f"no string 'signet_challenge' member: {_message_text(challenge)}"
+                )
             node_magic = magic_from_signet_challenge(challenge)
         if node_magic != expected_magic:
             err_msg = f"node at {self.client.url} is on a signet this fetcher"
@@ -319,7 +324,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         raw = self._get_bin(
             f"/headers/{block_hash}.bin?count=1", max_body_size=_MAX_HEADER_BODY
         )
-        return block_header_from_raw(raw, height, network=self.network)
+        return block_header_from_raw(raw, network=self.network)
 
     def get_relay_fees(self) -> RelayFees:
         """Return the relay fee floors of the node.
@@ -429,7 +434,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
                     raise BTClibValueError(f"read at {answered}, not at {tip_hex}")
                 bitmap = _member(reply, "bitmap")
                 if not isinstance(bitmap, str) or len(bitmap) != len(batch):
-                    raise BTClibValueError(f"invalid bitmap: {bitmap!r}")
+                    raise BTClibValueError(f"invalid bitmap: {_message_text(bitmap)}")
                 hits = [
                     out for out, bit in zip(batch, bitmap, strict=True) if bit == "1"
                 ]

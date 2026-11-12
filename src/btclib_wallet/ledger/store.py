@@ -68,6 +68,7 @@ from urllib.parse import quote
 from btclib.exceptions import BTClibValueError
 from btclib.tx import Tx
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger.crypto import _assert_cost, _MasterKey
@@ -430,7 +431,9 @@ class _Store:
             return None
         kdf, n, r, p, salt, encrypted = row
         if kdf != "scrypt":
-            raise BTClibValueError(f"not a ledger file: unknown kdf {kdf!r}")
+            raise BTClibValueError(
+                f"not a ledger file: unknown kdf, {_message_text(kdf)}"
+            )
         if not all(isinstance(v, int) for v in (n, r, p)) or not all(
             isinstance(v, bytes) for v in (salt, encrypted)
         ):

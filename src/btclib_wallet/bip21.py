@@ -47,6 +47,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.network import network_type_from_network
 from btclib.utils import assert_type
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.bolt11 import Bolt11Invoice
 
 __all__ = [
@@ -267,7 +268,7 @@ class Bip21:
         # RFC 3986 makes a scheme case-insensitive, and a QR code writes
         # the whole URI uppercase to stay in alphanumeric mode
         if not separator or scheme.lower() != _SCHEME:
-            raise BTClibValueError(f"not a bitcoin URI: {uri[:32]!r}")
+            raise BTClibValueError(f"not a bitcoin URI: {_message_text(uri)}")
 
         address, _, query = rest.partition("?")
         # a fragment is not part of BIP21 and is not a parameter either
@@ -330,5 +331,5 @@ def _valid_amount_field(raw_value: str) -> Decimal:
     admits as the number BIP21 means, scale included.
     """
     if not _AMOUNT.match(raw_value):
-        raise BTClibValueError(f"invalid bip21 amount: {raw_value[:32]!r}")
+        raise BTClibValueError(f"invalid bip21 amount: {_message_text(raw_value)}")
     return Decimal(raw_value)

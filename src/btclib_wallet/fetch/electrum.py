@@ -191,7 +191,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """
         request_id = self._next_request_id()
         line = self._round_trip(electrum.block_header_request(request_id, height))
-        with fetch_errors(f"block header {height}"):
+        with fetch_errors("block header"):
             return electrum.block_header_response(line, request_id)
 
     def _header_at(self, height: int) -> BlockHeader:
@@ -202,7 +202,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         and not the server's word.
         """
         raw = self._raw_header_at(height)
-        return block_header_from_raw(raw, height, network=self.network)
+        return block_header_from_raw(raw, network=self.network)
 
     @override
     def get_tx(self, tx_id: Octets) -> Tx:
@@ -211,7 +211,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         hex_ = tx_id_hex(tx_id)
         request_id = self._next_request_id()
         line = self._round_trip(electrum.transaction_get_request(request_id, hex_))
-        with fetch_errors(f"transaction {hex_}"):
+        with fetch_errors("transaction"):
             raw = electrum.transaction_get_response(line, request_id)
         return tx_from_raw(raw, hex_, self.network)
 
@@ -232,7 +232,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """
         self._verify_once()
         tip = self._tip()
-        header = block_header_from_raw(tip.header, tip.height, network=self.network)
+        header = block_header_from_raw(tip.header, network=self.network)
         return header.hash
 
     @override
@@ -264,17 +264,14 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         line = self._round_trip(
             electrum.block_headers_request(request_id, start_height, count)
         )
-        source = f"block headers {start_height}+{count}"
+        source = "block headers"
         with fetch_errors(source):
             raws = electrum.block_headers_response(line, request_id, count)
-        headers = [
-            block_header_from_raw(raw, start_height + i, network=self.network)
-            for i, raw in enumerate(raws)
-        ]
+        headers = [block_header_from_raw(raw, network=self.network) for raw in raws]
         for i in range(1, len(headers)):
             if headers[i].previous_block_hash != headers[i - 1].hash:
-                err_msg = f"{source}: header {start_height + i} does not follow"
-                err_msg += f" header {start_height + i - 1}"
+                err_msg = f"{source}: header {i} of the answer does not follow"
+                err_msg += f" header {i - 1}"
                 raise FetchError(err_msg)
         return headers
 
@@ -340,7 +337,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         line = self._round_trip(
             electrum.transaction_get_merkle_request(request_id, hex_, height)
         )
-        with fetch_errors(f"transaction {hex_} merkle"):
+        with fetch_errors("transaction merkle"):
             return electrum.transaction_get_merkle_response(line, request_id)
 
     def verify_tx(self, tx_id: Octets, height: int) -> bool:
@@ -358,7 +355,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     def _tip_ref(self) -> BlockRef:
         """Return the chain tip, its id the hash of its checked header."""
         tip = self._tip()
-        header = block_header_from_raw(tip.header, tip.height, network=self.network)
+        header = block_header_from_raw(tip.header, network=self.network)
         return BlockRef(tip.height, header.hash)
 
     def get_history(
@@ -454,7 +451,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         line = self._round_trip(
             electrum.scripthash_get_history_request(request_id, scripthash)
         )
-        with fetch_errors(f"scripthash {scripthash}"):
+        with fetch_errors("script history"):
             return electrum.scripthash_get_history_response(line, request_id)
 
     def estimate_fee(self, target: int) -> FeeQuote:

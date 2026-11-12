@@ -78,6 +78,7 @@ from typing import Any
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 
 __all__ = [
@@ -139,7 +140,7 @@ def _assert_timestamp(timestamp: int | str) -> None:
         return
     if timestamp == NOW:
         return
-    err_msg = f'expected a number or "{NOW}" as timestamp: {timestamp!r}'
+    err_msg = f'expected a number or "{NOW}" as timestamp: {_message_text(timestamp)}'
     raise BTClibValueError(err_msg)
 
 

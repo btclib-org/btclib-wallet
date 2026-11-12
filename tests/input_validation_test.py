@@ -185,7 +185,15 @@ def _drivable() -> dict[str, list[str]]:
             # annotation is a state the library does not reach
             annotations = [a.annotation for a in required if a.annotation is not None]
             aliases = [_alias_of(a) for a in annotations]
-            if required and len(aliases) == len(required) and all(aliases):
+            # a call is positional, so a required keyword-only parameter is
+            # one the walk cannot pass
+            keyword_only = any(d is None for d in node.args.kw_defaults)
+            if (
+                required
+                and not keyword_only
+                and len(aliases) == len(required)
+                and all(aliases)
+            ):
                 found[f"{module}.{node.name}"] = [a for a in aliases if a]
     return found
 

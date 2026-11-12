@@ -46,6 +46,7 @@ from btclib.exceptions import (
 from btclib.p2p.message import Message
 from btclib.utils import is_integer
 
+from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.fetch.transport import (
     _MAX_PORT,
     _READ_CHUNK,
@@ -95,19 +96,22 @@ class TcpPeerTransport:
 
     def __init__(self, host: str, port: int) -> None:
         if not isinstance(host, str):
-            raise BTClibTypeError(f"non-string host: {host!r}")
+            raise BTClibTypeError(f"non-string host: {_message_text(host)}")
         if not host:
             raise BTClibValueError("empty host")
-        try:
-            # what `create_connection` encodes the host with, and a
-            # `UnicodeError` rather than an `OSError` there
-            host.encode("idna")
-        except UnicodeError as e:
-            raise BTClibValueError(f"invalid host: {host!r}") from e
+        encoded = False
+        # what `create_connection` encodes the host with, and a
+        # `UnicodeError` rather than an `OSError` there. The refusal is
+        # raised after `suppress`, so that it chains no codec error: one
+        # holds the host
+        with suppress(UnicodeError):
+            encoded = bool(host.encode("idna"))
+        if not encoded:
+            raise BTClibValueError(f"invalid host: {_quoted(host)}")
         if not is_integer(port):
-            raise BTClibTypeError(f"non-integer port: {port!r}")
+            raise BTClibTypeError(f"non-integer port: {_message_text(port)}")
         if not 0 < port <= _MAX_PORT:
-            raise BTClibValueError(f"invalid port: {port}")
+            raise BTClibValueError(f"invalid port: {_message_text(port)}")
         self._host = host
         self._port = port
         self._socket: socket | None = None
@@ -152,7 +156,7 @@ class TcpPeerTransport:
     def send(self, message: Message, timeout: float) -> None:
         """Write one message, connecting first if there is no connection."""
         if not isinstance(message, Message):
-            raise BTClibTypeError(f"non-Message message: {message!r}")
+            raise BTClibTypeError(f"non-Message message: {_message_text(message)}")
         valid_timeout(timeout)
         deadline = monotonic() + timeout
         where = f"{self._host}:{self._port}"

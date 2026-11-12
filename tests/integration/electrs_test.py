@@ -26,7 +26,7 @@ from btclib.amount import sats_from_btc
 from btclib.exceptions import BTClibValueError
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
-from btclib_wallet.exceptions import FetchError, HttpError
+from btclib_wallet.exceptions import FetchError, HttpError, RpcError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import NetworkVerifyingFetcher
@@ -162,8 +162,10 @@ def test_electrum_proves_a_confirmation(stack: Stack, payment: Payment) -> None:
     # the payment's block as below it; a block is mined so that one exists
     stack.mine()
     for height in (payment.height - 1, payment.height + 1):
-        with pytest.raises(FetchError, match="invalid confirmation height"):
+        # electrs's InvalidParams, its text dropped as `RpcError` drops it
+        with pytest.raises(RpcError, match="transaction.get_merkle") as raised:
             fetcher.get_tx_merkle(payment.tx_id, height)
+        assert raised.value.code == -32602
 
 
 def test_esplora_broadcasts_and_the_node_mines_it(stack: Stack) -> None:

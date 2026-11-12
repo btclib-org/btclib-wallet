@@ -90,7 +90,8 @@ def test_history_response_refuses_what_a_history_is_not(
 def test_history_response_raises_the_servers_error() -> None:
     """A server refusing a script with too much history says so."""
     line = json.dumps({"id": 7, "error": {"code": 1, "message": "too many"}})
-    with pytest.raises(RpcError, match="too many"):
+    err_msg = "^blockchain.scripthash.get_history: the server answered an error"
+    with pytest.raises(RpcError, match=err_msg):
         electrum.scripthash_get_history_response(line.encode(), 7)
 
 

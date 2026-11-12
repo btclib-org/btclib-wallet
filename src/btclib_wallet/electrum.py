@@ -105,6 +105,61 @@ __all__ = [
 _TX_ID = re.compile(r"[0-9a-fA-F]{64}")
 
 
+# Every method the Electrum protocol names, those it removed included:
+# docs/protocol-methods.rst and docs/protocol-removed.rst of
+# spesmilo/electrum-protocol@b3db795. `RpcError` names the method asked, so
+# a method outside them is refused before it could print a key
+_METHODS = frozenset(
+    {
+        "blockchain.address.get_balance",
+        "blockchain.address.get_history",
+        "blockchain.address.get_mempool",
+        "blockchain.address.listunspent",
+        "blockchain.address.subscribe",
+        "blockchain.block.get_chunk",
+        "blockchain.block.get_header",
+        "blockchain.block.header",
+        "blockchain.block.headers",
+        "blockchain.estimatefee",
+        "blockchain.headers.subscribe",
+        "blockchain.numblocks.subscribe",
+        "blockchain.outpoint.get_status",
+        "blockchain.outpoint.subscribe",
+        "blockchain.outpoint.unsubscribe",
+        "blockchain.relayfee",
+        "blockchain.scripthash.get_balance",
+        "blockchain.scripthash.get_history",
+        "blockchain.scripthash.get_mempool",
+        "blockchain.scripthash.listunspent",
+        "blockchain.scripthash.subscribe",
+        "blockchain.scripthash.unsubscribe",
+        "blockchain.scriptpubkey.get_balance",
+        "blockchain.scriptpubkey.get_history",
+        "blockchain.scriptpubkey.get_mempool",
+        "blockchain.scriptpubkey.listunspent",
+        "blockchain.scriptpubkey.subscribe",
+        "blockchain.scriptpubkey.unsubscribe",
+        "blockchain.transaction.broadcast",
+        "blockchain.transaction.broadcast_package",
+        "blockchain.transaction.get",
+        "blockchain.transaction.get_merkle",
+        "blockchain.transaction.id_from_pos",
+        "blockchain.transaction.testmempoolaccept",
+        "blockchain.utxo.get_address",
+        "mempool.get_fee_histogram",
+        "mempool.get_info",
+        "mempool.recent",
+        "server.add_peer",
+        "server.banner",
+        "server.donation_address",
+        "server.features",
+        "server.peers.subscribe",
+        "server.ping",
+        "server.version",
+    }
+)
+
+
 def _assert_integer(value: object, what: str, *, non_negative: bool) -> None:
     """Refuse what is not an integer, a bool not being one.
 
@@ -166,19 +221,33 @@ def encode_request(request_id: int, method: str, params: Any = ()) -> bytes:
     raise refusal
 
 
-def _raise_rpc_error(error: object) -> NoReturn:
-    """Raise a JSON-RPC `error` member as `RpcError`.
+# A signed 16-bit integer: JSON-RPC 2.0's reserved codes, -32768 to -32000,
+# and the codes electrs, ElectrumX, Fulcrum and Floresta assign lie in it,
+# and it is too narrow to carry a key
+_RPC_CODES = range(-(2**15), 2**15)
+
+
+def _raise_rpc_error(error: object, method: str) -> NoReturn:
+    """Raise a JSON-RPC `error` member as `RpcError`: its code and `method`.
 
     Shared by the sites that read one: an ordinary reply whose id matches
     the request, the JSON-RPC 2.0 reply whose `id` is `null` because the
     server could not parse the request enough to answer it at all, and a
     batch refused whole.
+
+    The server's `message` and `data` are dropped. Section 7 of the
+    btclib-org standard, *A refusal carries no secret*, does not relay
+    another program's error text that can quote a key: a server's text
+    can quote the request, and a key passed in the wrong place is a valid
+    scripthash or tx id.
+
+    A code that is no integer, or lies outside `_RPC_CODES`, is 0: JSON
+    bounds no integer, so a code can hold the scalar of a key.
     """
-    if isinstance(error, dict):
-        message = str(error.get("message", error))
-        code = error.get("code", 0)
-        raise RpcError(message, code if is_integer(code) else 0, error.get("data"))
-    raise RpcError(str(error), 0)
+    code = error.get("code") if isinstance(error, dict) else None
+    if not (is_integer(code) and code in _RPC_CODES):
+        code = 0
+    raise RpcError(f"{method}: the server answered an error", cast(int, code))
 
 
 def _refuse_constant(name: str) -> NoReturn:
@@ -215,7 +284,7 @@ def _too_deep(text: str) -> bool:
     return False
 
 
-def decode_response(line: bytes, request_id: int) -> Any:
+def decode_response(line: bytes, request_id: int, method: str) -> Any:
     """Return the `result` of one response line, matched to `request_id`.
 
     `line` is bytes, UTF-8 as Electrum sends it, decoded once so that the
@@ -227,15 +296,15 @@ def decode_response(line: bytes, request_id: int) -> Any:
     `json.loads` runs, which can kill the interpreter on a deeper one --
     not an object, an id that is not this request's own integer id, or
     neither a `result` nor an `error` member. An `error` member is raised
-    as `RpcError` rather than returned -- a JSON-RPC error object,
-    `{"code", "message"}` and an optional `data`, every field this
-    module's own caller in
-    `btclib_wallet.fetch.electrum` asks for the way it asks a bitcoind
-    JSON-RPC error's fields. A server that still answers the elder,
-    non-object form of an error -- a bare string result under protocol
-    1.0 -- is read the same way, with code 0: the protocol carries no
-    code for that shape, and 0 is no code Core or Electrum ever assigns
-    one of their own.
+    as `RpcError` rather than returned, carrying the error object's `code`
+    where it fits `_RPC_CODES`, and `method`, the name of the request this
+    line answers, and nothing else of the server's (`_raise_rpc_error`
+    says why). A server that still answers the elder, non-object form of
+    an error -- a bare string result under protocol 1.0 -- is read the
+    same way, with code 0: the protocol carries no code for that shape,
+    and 0 is no code Core or Electrum ever assigns one of their own. A
+    `method` that is not a string is refused (`BTClibTypeError`), and so
+    is one the protocol does not name (`BTClibValueError`).
 
     A request the server could not parse enough to answer at all is
     answered under JSON-RPC 2.0 with `"id": null`, so a `null` id
@@ -248,7 +317,11 @@ def decode_response(line: bytes, request_id: int) -> Any:
     compare equal to the integers they neighbour, and this module
     already refuses a bool as a number of any other kind (`is_integer`).
     """
-    return _response_result(_decode_line(line), request_id)
+    if not isinstance(method, str):
+        raise BTClibTypeError(f"invalid method type: {type(method).__name__}")
+    if method not in _METHODS:
+        raise BTClibValueError(f"unknown method: {_message_text(method)}")
+    return _response_result(_decode_line(line), request_id, method)
 
 
 def _decode_line(line: bytes) -> Any:
@@ -271,20 +344,20 @@ def _decode_line(line: bytes) -> Any:
     raise BTClibValueError(f"not a JSON-RPC line: {_message_text(line)}, not JSON")
 
 
-def _response_result(reply: object, request_id: int) -> Any:
+def _response_result(reply: object, request_id: int, method: str) -> Any:
     """Read one response object, preserving single or batch reply errors."""
     if not isinstance(reply, dict):
         raise BTClibTypeError(f"not a JSON-RPC response object: {_message_text(reply)}")
     reply_id = reply.get("id")
     error = reply.get("error")
     if reply_id is None and error is not None:
-        _raise_rpc_error(error)
+        _raise_rpc_error(error, method)
     if not (is_integer(reply_id) and reply_id == request_id):
         err_msg = f"response id {_message_text(reply_id)}"
         err_msg += f" does not answer request {_message_text(request_id)}"
         raise BTClibValueError(err_msg)
     if error is not None:
-        _raise_rpc_error(error)
+        _raise_rpc_error(error, method)
     if "result" not in reply:
         raise BTClibValueError(f"neither a result nor an error: {_message_text(reply)}")
     return reply["result"]
@@ -328,7 +401,9 @@ def _script_balance(result: object) -> ScriptBalance:
 def scripthash_get_balance_response(line: bytes, request_id: int) -> ScriptBalance:
     """Return the balances a matching `scripthash.get_balance` reply carries."""
     _assert_integer(request_id, "request_id", non_negative=False)
-    return _script_balance(decode_response(line, request_id))
+    return _script_balance(
+        decode_response(line, request_id, "blockchain.scripthash.get_balance")
+    )
 
 
 def scripthash_get_balance_batch_request(requests: Mapping[int, str]) -> bytes:
@@ -380,7 +455,7 @@ def scripthash_get_balance_batch_response(
     if isinstance(replies, dict) and replies.get("id") is None:
         error = replies.get("error")
         if error is not None:
-            _raise_rpc_error(error)
+            _raise_rpc_error(error, "blockchain.scripthash.get_balance")
     if not isinstance(replies, list):
         raise BTClibTypeError("balance batch: not a response array")
     balances: dict[int, ScriptBalance] = {}
@@ -393,7 +468,9 @@ def scripthash_get_balance_batch_response(
             raise BTClibValueError("balance batch: unasked response id")
         if request_id in balances:
             raise BTClibValueError("balance batch: repeated response id")
-        balances[request_id] = _script_balance(_response_result(reply, request_id))
+        balances[request_id] = _script_balance(
+            _response_result(reply, request_id, "blockchain.scripthash.get_balance")
+        )
     if balances.keys() != expected:
         raise BTClibValueError("balance batch: missing response id")
     return tuple(balances[request_id] for request_id in request_ids)
@@ -439,7 +516,7 @@ def scripthash_get_history_response(
     hex characters, an entry out of that order and a repeated `tx_hash`
     (`BTClibValueError`).
     """
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.scripthash.get_history")
     if not isinstance(result, list):
         raise BTClibTypeError("scripthash.get_history: not a list")
     items: list[HistoryItem] = []
@@ -483,7 +560,7 @@ def transaction_get_response(line: bytes, request_id: int) -> bytes:
     the same octets to -- reads the transaction and not a string it has
     to already know is hex.
     """
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.transaction.get")
     if not isinstance(result, str):
         err_msg = f"transaction.get: not a hex string: {_message_text(result)}"
         raise BTClibTypeError(err_msg)
@@ -517,7 +594,7 @@ def headers_subscribe_request(request_id: int) -> bytes:
 
 def headers_subscribe_response(line: bytes, request_id: int) -> HeaderTip:
     """Return the chain tip `blockchain.headers.subscribe` answered."""
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.headers.subscribe")
     if not isinstance(result, dict):
         err_msg = f"headers.subscribe: not an object: {_message_text(result)}"
         raise BTClibTypeError(err_msg)
@@ -551,7 +628,7 @@ def block_header_request(request_id: int, height: int) -> bytes:
 
 def block_header_response(line: bytes, request_id: int) -> bytes:
     """Return the raw header `blockchain.block.header` answered."""
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.block.header")
     if not isinstance(result, str):
         err_msg = f"block.header: not a hex string: {_message_text(result)}"
         raise BTClibTypeError(err_msg)
@@ -602,7 +679,7 @@ def block_headers_response(line: bytes, request_id: int, count: int) -> list[byt
     if count < 0:
         err_msg = f"block.headers: invalid count asked: {_message_text(count)}"
         raise BTClibValueError(err_msg)
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.block.headers")
     if not isinstance(result, dict):
         raise BTClibTypeError(f"block.headers: not an object: {_message_text(result)}")
     answered = result.get("count")
@@ -657,7 +734,7 @@ def transaction_get_merkle_request(request_id: int, tx_id: str, height: int) -> 
 
 def transaction_get_merkle_response(line: bytes, request_id: int) -> MerkleProof:
     """Return the merkle proof `blockchain.transaction.get_merkle` answered."""
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.transaction.get_merkle")
     if not isinstance(result, dict):
         err_msg = f"transaction.get_merkle: not an object: {_message_text(result)}"
         raise BTClibTypeError(err_msg)
@@ -719,7 +796,7 @@ def estimate_fee_response(line: bytes, request_id: int) -> float:
     same split `decode_response` already draws for a JSON-RPC `error`
     member. Any other answer, below 0 or not finite, is refused.
     """
-    result = decode_response(line, request_id)
+    result = decode_response(line, request_id, "blockchain.estimatefee")
     if isinstance(result, bool) or not isinstance(result, (int, float)):
         raise BTClibTypeError(f"estimatefee: not a number: {_message_text(result)}")
     if (isinstance(result, float) and not math.isfinite(result)) or not (

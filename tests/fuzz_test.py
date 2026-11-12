@@ -360,6 +360,7 @@ ELECTRUM_RESPONSES: dict[str, Callable[[bytes], Any]] = {
             if name == "block_headers_response"
             else {}
         ),
+        **({"method": "server.ping"} if name == "decode_response" else {}),
     )
     for name in electrum.__all__
     if name.endswith("_response")
@@ -499,9 +500,9 @@ def test_decode_response_refuses_nesting_past_the_bound(depth: int) -> None:
     line = b'{"id":1,"result":' + b"[" * (depth - 1) + b"]" * (depth - 1) + b"}"
     if depth > 16:
         with pytest.raises(BTClibValueError, match="nested beyond"):
-            electrum.decode_response(line, ELECTRUM_REQUEST_ID)
+            electrum.decode_response(line, ELECTRUM_REQUEST_ID, "server.ping")
     else:
-        electrum.decode_response(line, ELECTRUM_REQUEST_ID)
+        electrum.decode_response(line, ELECTRUM_REQUEST_ID, "server.ping")
 
 
 @_ELECTRUM_REFUSED

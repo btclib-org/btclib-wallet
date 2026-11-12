@@ -32,6 +32,8 @@ from btclib_wallet.fetch.history import BlockRef
 from tests.fetch.electrum_test import TESTNET_GENESIS, TESTNET_GENESIS_HEADER
 from tests.fetch.history_test import OTHER, OURS, _tx
 from tests.fetch.peer_chain_test import REGTEST_BITS, REGTEST_HALVING, mined
+from tests.refused_value_test import KEY, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 MINE = bytes.fromhex("0014" + "33" * 20)
 
@@ -200,7 +202,8 @@ def test_a_mempool_transaction_gone_mid_read_is_the_servers_error() -> None:
         return server(request, timeout)
 
     fetcher = ElectrumFetcher("regtest", transport=gone, verify_network=False)
-    with pytest.raises(RpcError, match="transaction not found") as raised:
+    err_msg = "^blockchain.transaction.get: the server answered an error"
+    with pytest.raises(RpcError, match=err_msg) as raised:
         fetcher.get_history([OURS])
     assert isinstance(raised.value, FetchError)
     assert raised.value.code == 2
@@ -292,10 +295,10 @@ def test_a_branch_that_proves_nothing_is_refused() -> None:
 
 
 def test_a_history_that_is_not_one_is_refused() -> None:
-    """The codec's refusal leaves as a FetchError naming the script hash."""
+    """The codec's refusal leaves as a FetchError naming the request."""
     server = _edited(_chain(), "blockchain.scripthash.get_history", lambda _r: {})
     with pytest.raises(
-        FetchError, match=r"scripthash [0-9a-f]{64}: scripthash.get_history: not a list"
+        FetchError, match="^script history: scripthash.get_history: not a list"
     ):
         _fetcher(server).get_history([OURS])
 
@@ -319,3 +322,14 @@ def test_get_history_verifies_the_network_first() -> None:
     with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
         endpoint.get_history([OURS])
     assert server.methods == ["blockchain.block.header"]
+
+
+def test_a_history_label_carries_no_hash_of_the_script() -> None:
+    """A script hash confirms a guess at the script (issue #805)."""
+    server = _edited(_chain(), "blockchain.scripthash.get_history", lambda _r: {})
+    err_msg = "^script history: scripthash.get_history: not a list$"
+    with pytest.raises(FetchError, match=err_msg) as e:
+        _fetcher(server).get_history([KEY])
+    assert_secret_free(
+        e.value, [*SPELLINGS, sha256(KEY).hex(), sha256(KEY)[::-1].hex()]
+    )

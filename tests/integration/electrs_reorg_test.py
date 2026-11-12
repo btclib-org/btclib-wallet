@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 from btclib.block.block_header import BlockHeader
 
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import RpcError
 from btclib_wallet.fetch.decorators import CachingFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
@@ -128,8 +128,10 @@ def test_fetchers_follow_the_chain_that_replaced_a_block(
     if kind == "electrum":
         assert isinstance(fetcher.fetcher, ElectrumFetcher)
         assert fetcher.fetcher.verify_tx(new_spend.tx_id, height)
-        with pytest.raises(FetchError, match="tx not found or is unconfirmed"):
+        # electrs's InternalError, its text dropped as `RpcError` drops it
+        with pytest.raises(RpcError, match="transaction.get_merkle") as raised:
             fetcher.fetcher.get_tx_merkle(old_spend.tx_id, height)
+        assert raised.value.code == -32603
     else:
         new_status = stack.http_json(f"/tx/{new_spend.tx_id}/status")
         assert new_status["confirmed"]
