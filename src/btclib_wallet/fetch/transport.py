@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import ssl
 from collections.abc import Callable
+from contextlib import suppress
 from socket import create_connection
 from time import monotonic
 
@@ -78,6 +79,8 @@ from bitcoin_core_rpc import (
 )
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import is_integer
+
+from btclib_wallet._refusal import _message_text, _quoted
 
 LineTransport = Callable[[bytes, float], bytes]
 
@@ -246,25 +249,32 @@ class TlsLineTransport:
         max_line_size: int = DEFAULT_MAX_BODY_SIZE,
     ) -> None:
         if not isinstance(host, str):
-            raise BTClibTypeError(f"non-string host: {host!r}")
+            raise BTClibTypeError(f"non-string host: {_message_text(host)}")
         if not host:
             raise BTClibValueError("empty host")
-        try:
-            # what `create_connection` and the handshake both encode the
-            # host with, and a `UnicodeError` rather than an `OSError` there
-            host.encode("idna")
-        except UnicodeError as e:
-            raise BTClibValueError(f"invalid host: {host!r}") from e
+        encoded = False
+        # what `create_connection` and the handshake both encode the host
+        # with, and a `UnicodeError` rather than an `OSError` there. The
+        # refusal is raised after `suppress`, so that it chains no codec
+        # error: one holds the host
+        with suppress(UnicodeError):
+            encoded = bool(host.encode("idna"))
+        if not encoded:
+            raise BTClibValueError(f"invalid host: {_quoted(host)}")
         if not is_integer(port):
-            raise BTClibTypeError(f"non-integer port: {port!r}")
+            raise BTClibTypeError(f"non-integer port: {_message_text(port)}")
         if not 0 < port <= _MAX_PORT:
-            raise BTClibValueError(f"invalid port: {port}")
+            raise BTClibValueError(f"invalid port: {_message_text(port)}")
         if context is not None and not isinstance(context, ssl.SSLContext):
-            raise BTClibTypeError(f"not an ssl.SSLContext: {context!r}")
+            raise BTClibTypeError(f"not an ssl.SSLContext: {_message_text(context)}")
         if not is_integer(max_line_size):
-            raise BTClibTypeError(f"non-integer max_line_size: {max_line_size!r}")
+            raise BTClibTypeError(
+                f"non-integer max_line_size: {_message_text(max_line_size)}"
+            )
         if max_line_size < 1:
-            raise BTClibValueError(f"invalid max_line_size: {max_line_size}")
+            raise BTClibValueError(
+                f"invalid max_line_size: {_message_text(max_line_size)}"
+            )
         if context is None:
             context = ssl.create_default_context()
             # CPython's default context sets this floor itself and PyPy's
@@ -303,9 +313,11 @@ class TlsLineTransport:
         would never read.
         """
         if not isinstance(request, bytes):
-            raise BTClibTypeError(f"non-bytes request: {request!r}")
+            raise BTClibTypeError(f"non-bytes request: {_message_text(request)}")
         if request.count(b"\n") != 1 or not request.endswith(b"\n"):
-            raise BTClibValueError(f"not one newline-terminated line: {request!r}")
+            raise BTClibValueError(
+                f"not one newline-terminated line: {_message_text(request)}"
+            )
         valid_timeout(timeout)
 
         where = f"{self._host}:{self._port}"

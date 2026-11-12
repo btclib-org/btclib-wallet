@@ -60,6 +60,8 @@ from tests.fetch import (
     chain_mismatch,
     recorded_body,
 )
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 # the rpc credentials every test here passes. Named once rather than
 # written at each call, which is what keeps the string out of a
@@ -541,7 +543,7 @@ def test_a_tip_hash_that_is_not_one(result: object) -> None:
 def test_a_raw_transaction_that_is_not_one(result: object) -> None:
     """Refuse a getrawtransaction result that is not a hex tx."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
-    with pytest.raises(FetchError, match=f"transaction {TX_ID}:"):
+    with pytest.raises(FetchError, match="^transaction:"):
         fetcher((200, body)).get_tx(TX_ID)
 
 
@@ -577,7 +579,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     answers = ((200, recorded_body("getblockhash.json")), (200, reply.encode()))
     regtest = fetcher(*answers, network="regtest")
     assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
-    with pytest.raises(FetchError, match="block header 0: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: .*above the limit"):
         fetcher(*answers).get_block_header(0)
 
 
@@ -871,9 +873,10 @@ def test_estimate_fee_refuses_a_reply_with_no_feerate_and_no_errors() -> None:
 @pytest.mark.parametrize(
     "result, detail",
     [
-        ("not an object", "'not an object'"),
-        (["feerate", 0.0001], "['feerate', Decimal('0.0001')]"),
-        (None, "None"),
+        ("not an object", "a str of length 13"),
+        (["feerate", 0.0001], "a list of length 2"),
+        (None, "a NoneType"),
+        (HEX, "a str of length 64"),
     ],
 )
 def test_estimate_fee_refuses_a_reply_that_is_not_an_object(
@@ -883,13 +886,19 @@ def test_estimate_fee_refuses_a_reply_that_is_not_an_object(
     """A malformed reply is a FetchError, not an AttributeError on `.get`."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
     message = f"estimatesmartfee: not an object: {detail}"
-    with pytest.raises(FetchError, match=f"^{re.escape(message)}$"):
+    with pytest.raises(FetchError, match=f"^{re.escape(message)}$") as e:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize(
     "blocks, detail",
-    [("not an int", "'not an int'"), (None, "None"), (1.5, "Decimal('1.5')")],
+    [
+        ("not an int", "a str of length 10"),
+        (None, "a NoneType"),
+        (1.5, "a Decimal"),
+        (HEX, "a str of length 64"),
+    ],
 )
 def test_estimate_fee_refuses_a_blocks_field_that_is_not_an_int(
     blocks: object,
@@ -900,8 +909,9 @@ def test_estimate_fee_refuses_a_blocks_field_that_is_not_an_int(
         {"jsonrpc": "2.0", "result": {"feerate": 0.00001, "blocks": blocks}, "id": "x"}
     ).encode()
     message = f"estimatesmartfee: invalid blocks: {detail}"
-    with pytest.raises(FetchError, match=f"^{re.escape(message)}$"):
+    with pytest.raises(FetchError, match=f"^{re.escape(message)}$") as e:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize("target", [0, -1])

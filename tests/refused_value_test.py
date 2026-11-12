@@ -18,14 +18,21 @@ from hashlib import shake_256
 
 import pytest
 from base58_bech32.bech32 import BECH32_M_CONST, bech32_encode
+from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.b32 import power_of_2_base_conversion
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.curves import bytes_from_point, mult
+from ecc.dsa import Sig as DsaSig
 
+import btclib_wallet
 from btclib_wallet import electrum, silent_payments
+from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip322 import Sig
+from btclib_wallet.bolt11 import Bolt11Invoice
+from btclib_wallet.core_import import import_request
+from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.electrum import (
     block_header_request,
     block_headers_request,
@@ -33,14 +40,28 @@ from btclib_wallet.electrum import (
     decode_response,
     transaction_get_request,
 )
+from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
+from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
-from btclib_wallet.fetch.fetcher import block_header_height
+from btclib_wallet.fetch.esplora import EsploraFetcher
+from btclib_wallet.fetch.fetcher import block_header_height, tx_from_raw
+from btclib_wallet.fetch.peer_transport import TcpPeerTransport
 from btclib_wallet.fetch.transport import TlsLineTransport
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.psbt.psbt_utils import PSBT_V2
 from btclib_wallet.tx_or_psbt import tx_or_psbt_from_any
+from tests.core_import_test import account_pair
+from tests.fetch import SEGWIT_TX_RAW
+from tests.fetch.electrum_test import RpcErrorAnswer
+from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.secret_free import assert_secret_free
 
+URL = "http://127.0.0.1:8332"
+ADDRESS = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+# credentials of no node, named so that no `password=` argument holds a literal
+RPC_USER = "rpcuser"
+RPC_PASSWORD = "rpcpassword"  # noqa: S105  # pragma: allowlist secret
 KEY = shake_256(b"btclib-wallet issues 745 and 749").digest(32)
 SCALAR = int.from_bytes(KEY)
 # each spelling of the key a refusal could print, the decimal included
@@ -50,7 +71,7 @@ SPELLINGS: list[str | bytes] = [KEY, KEY.hex(), str(SCALAR), f"{SCALAR:x}"]
 @pytest.mark.parametrize(
     "call",
     [
-        lambda: decode_response(b'{"id": 1, "result": 0}\n', SCALAR),
+        lambda: decode_response(b'{"id": 1, "result": 0}\n', SCALAR, "server.ping"),
         lambda: block_header_request(1, -SCALAR),
         lambda: block_headers_request(1, -SCALAR, 1),
         lambda: block_headers_request(1, 0, -SCALAR),
@@ -137,15 +158,15 @@ HEADERS = b'{"id": 1, "result": {}}\n'
             "^block.headers: invalid count asked: a negative int of 256 bits$",
         ),
         (
-            lambda: decode_response(KEY.hex(), 1),  # type: ignore[arg-type]
+            lambda: decode_response(KEY.hex(), 1, "server.ping"),  # type: ignore[arg-type]
             "^not a JSON-RPC line: a str of length 64$",
         ),
         (
-            lambda: decode_response(KEY.hex().encode() + b"\xff", 1),
+            lambda: decode_response(KEY.hex().encode() + b"\xff", 1, "server.ping"),
             "^not a JSON-RPC line: a bytes of length 65, not UTF-8$",
         ),
         (
-            lambda: decode_response(KEY.hex().encode(), 1),
+            lambda: decode_response(KEY.hex().encode(), 1, "server.ping"),
             "^not a JSON-RPC line: a bytes of length 64, not JSON$",
         ),
     ],
@@ -248,19 +269,23 @@ HEX = KEY.hex()
     "call, err_msg",
     [
         (
-            lambda: decode_response(str(SCALAR).encode(), 1),
+            lambda: decode_response(str(SCALAR).encode(), 1, "server.ping"),
             "^not a JSON-RPC response object: an int of 256 bits$",
         ),
         (
-            lambda: decode_response(json.dumps(HEX).encode(), 1),
+            lambda: decode_response(json.dumps(HEX).encode(), 1, "server.ping"),
             "^not a JSON-RPC response object: a str of length 64$",
         ),
         (
-            lambda: decode_response(json.dumps({"id": SCALAR}).encode(), 1),
+            lambda: decode_response(
+                json.dumps({"id": SCALAR}).encode(), 1, "server.ping"
+            ),
             "^response id an int of 256 bits does not answer request an int of 1 bits$",
         ),
         (
-            lambda: decode_response(json.dumps({"id": 1, "x": HEX}).encode(), 1),
+            lambda: decode_response(
+                json.dumps({"id": 1, "x": HEX}).encode(), 1, "server.ping"
+            ),
             "^neither a result nor an error: a dict of length 2$",
         ),
         (
@@ -396,4 +421,281 @@ def test_electrum_describes_a_refused_reply_or_answered_field(
     """
     with pytest.raises((BTClibTypeError, BTClibValueError), match=err_msg) as e:
         call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def _bech32(hrp: str, data: bytes) -> str:
+    """Return a bech32 string of `hrp` and the 5-bit words of `data`."""
+    words = power_of_2_base_conversion(data, 8, 5)
+    return bech32_encode(hrp, words, m=1, limit=None).decode("ascii")
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: getattr(btclib_wallet, HEX),
+            "^module 'btclib_wallet' has no attribute a value of 64 characters$",
+        ),
+        (lambda: Bip21.parse(HEX), "^not a bitcoin URI: a str of length 64$"),
+        (
+            lambda: Bip21.parse(f"bitcoin:{ADDRESS}?amount={HEX}"),
+            "^invalid bip21 amount: a str of length 64$",
+        ),
+        (
+            lambda: Bolt11Invoice.from_invoice(_bech32(HEX, b"")),
+            "^not a lightning invoice prefix: a str of length 64$",
+        ),
+        (
+            lambda: Bolt11Invoice.from_invoice(_bech32(f"ln{HEX}", b"")),
+            "^unknown network prefix: a str of length 66$",
+        ),
+        (
+            lambda: Bolt11Invoice.from_invoice(_bech32(f"lnbc{HEX}", b"")),
+            "^invalid amount: a str of length 64$",
+        ),
+        (
+            lambda: Bolt11Invoice.from_invoice(_bech32("lnbc", KEY)),
+            "^invoice too short: a str of length 63$",
+        ),
+        (
+            lambda: Bolt11Invoice(HEX, 0, [], DsaSig(1, 1, check_validity=False), 0),
+            "^not a lightning network: a value of 64 characters$",
+        ),
+        (
+            lambda: Bolt11Invoice.sign(
+                1, HEX, 0, b"\x00" * 32, b"\x00" * 32, description="d"
+            ),
+            "^not a lightning network: a value of 64 characters$",
+        ),
+        (
+            lambda: import_request(account_pair()[0], HEX),
+            '^expected a number or "now" as timestamp: a str of length 64$',
+        ),
+        (
+            lambda: parse_descriptor(f"wpkh(\N{LATIN SMALL LETTER E WITH ACUTE}{HEX})"),
+            "^invalid descriptor character at position 5$",
+        ),
+    ],
+    ids=[
+        "attribute",
+        "bip21 uri",
+        "bip21 amount",
+        "bolt11 prefix",
+        "bolt11 network prefix",
+        "bolt11 amount",
+        "bolt11 invoice",
+        "bolt11 network",
+        "bolt11 network signed",
+        "core import timestamp",
+        "descriptor character",
+    ],
+)
+def test_a_refused_argument_is_described(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A key passed in the wrong place is not in the refusal (issue #802)."""
+    with pytest.raises((AttributeError, BTClibValueError), match=err_msg) as e:
+        call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: TlsLineTransport(KEY, 1),  # type: ignore[arg-type]
+            "^non-string host: a bytes of length 32$",
+        ),
+        (lambda: TlsLineTransport(HEX, 1), "^invalid host: a value of 64 characters$"),
+        (
+            lambda: TlsLineTransport("h", HEX),  # type: ignore[arg-type]
+            "^non-integer port: a str of length 64$",
+        ),
+        (lambda: TlsLineTransport("h", SCALAR), "^invalid port: an int of 256 bits$"),
+        (
+            lambda: TlsLineTransport("h", 1, context=KEY),  # type: ignore[arg-type]
+            "^not an ssl.SSLContext: a bytes of length 32$",
+        ),
+        (
+            lambda: TlsLineTransport("h", 1, max_line_size=HEX),  # type: ignore[arg-type]
+            "^non-integer max_line_size: a str of length 64$",
+        ),
+        (
+            lambda: TlsLineTransport("h", 1, max_line_size=-SCALAR),
+            "^invalid max_line_size: a negative int of 256 bits$",
+        ),
+        (
+            lambda: TlsLineTransport("h", 1)(HEX, 1.0),  # type: ignore[arg-type]
+            "^non-bytes request: a str of length 64$",
+        ),
+        (
+            lambda: TlsLineTransport("h", 1)(KEY, 1.0),
+            "^not one newline-terminated line: a bytes of length 32$",
+        ),
+        (
+            lambda: TcpPeerTransport(KEY, 1),  # type: ignore[arg-type]
+            "^non-string host: a bytes of length 32$",
+        ),
+        (lambda: TcpPeerTransport(HEX, 1), "^invalid host: a value of 64 characters$"),
+        (
+            lambda: TcpPeerTransport("h", HEX),  # type: ignore[arg-type]
+            "^non-integer port: a str of length 64$",
+        ),
+        (lambda: TcpPeerTransport("h", SCALAR), "^invalid port: an int of 256 bits$"),
+        (
+            lambda: TcpPeerTransport("h", 1).send(KEY, 1.0),  # type: ignore[arg-type]
+            "^non-Message message: a bytes of length 32$",
+        ),
+        (
+            lambda: CompactFilterFetcher("regtest", transport=KEY),  # type: ignore[arg-type]
+            "^not a peer transport: a bytes of length 32$",
+        ),
+        (
+            lambda: EsploraFetcher(
+                "https://esplora.example/api",
+                transport=KEY,  # type: ignore[arg-type]
+            ),
+            "^not a callable transport: a bytes of length 32$",
+        ),
+        (
+            lambda: BitcoinCoreFetcher(
+                BitcoinCoreRpcClient(URL, user=RPC_USER, password=RPC_PASSWORD),
+                estimate_mode=HEX,
+            ),
+            "^invalid estimate_mode: a value of 64 characters$",
+        ),
+    ],
+    ids=[
+        "tls host",
+        "tls host name",
+        "tls port type",
+        "tls port",
+        "tls context",
+        "tls max_line_size type",
+        "tls max_line_size",
+        "tls request type",
+        "tls request",
+        "peer host",
+        "peer host name",
+        "peer port type",
+        "peer port",
+        "peer message",
+        "compact filters transport",
+        "esplora transport",
+        "estimate_mode",
+    ],
+)
+def test_a_refused_fetch_argument_is_described(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A key a transport or fetcher refuses is not in the text (issue #802).
+
+    The host is refused after `suppress`: the idna codec's error holds it.
+    """
+    with pytest.raises((BTClibTypeError, BTClibValueError), match=err_msg) as e:
+        call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: electrum_fetcher(5).get_tx(KEY),
+            "^transaction: transaction.get: not a hex string: an int of 3 bits$",
+        ),
+        (
+            lambda: electrum_fetcher([]).get_tx_merkle(KEY, 1),
+            (
+                "^transaction merkle: transaction.get_merkle: not an object:"
+                " a list of length 0$"
+            ),
+        ),
+        (
+            lambda: electrum_fetcher(5).get_block_header(SCALAR),
+            "^block header: block.header: not a hex string: an int of 3 bits$",
+        ),
+        (
+            lambda: electrum_fetcher(5).get_block_headers(0, SCALAR),
+            "^block headers: block.headers: not an object: an int of 3 bits$",
+        ),
+        (
+            lambda: tx_from_raw(5, HEX, "mainnet"),  # type: ignore[arg-type]
+            "^transaction: not a serialization, but a int$",
+        ),
+        (
+            lambda: tx_from_raw(SEGWIT_TX_RAW, HEX, "mainnet"),
+            "^transaction: the answer is [0-9a-f]{64}, not the one asked$",
+        ),
+    ],
+    ids=[
+        "transaction",
+        "transaction merkle",
+        "block header",
+        "block headers",
+        "not a serialization",
+        "another transaction",
+    ],
+)
+def test_a_fetch_error_names_what_was_asked_without_its_value(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """The label names the request, not the tx id or height (issue #805)."""
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call, code",
+    [
+        (
+            lambda: electrum_fetcher(
+                RpcErrorAnswer(f"{HEX} should be a transaction hash", 2, data=HEX)
+            ).get_tx(KEY),
+            2,
+        ),
+        (
+            lambda: decode_response(
+                json.dumps({"id": 1, "error": {"code": HEX, "data": HEX}}).encode(),
+                1,
+                "blockchain.transaction.get",
+            ),
+            0,
+        ),
+        (
+            lambda: decode_response(
+                json.dumps({"id": None, "error": HEX}).encode(),
+                1,
+                "blockchain.transaction.get",
+            ),
+            0,
+        ),
+    ],
+    ids=["message and data", "code and data", "bare error"],
+)
+def test_an_electrum_error_keeps_its_code_and_drops_its_text(
+    call: Callable[[], object], code: int
+) -> None:
+    """A server's text can quote the request it refuses (issue #806)."""
+    err_msg = "^blockchain.transaction.get: the server answered an error"
+    err_msg += rf" \(rpc error code {code}\)$"
+    with pytest.raises(RpcError, match=err_msg) as e:
+        call()
+    assert e.value.code == code
+    assert e.value.data is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
+    """An `RpcError` names the method, so a key in its place is refused first.
+
+    The refusal describes it (issue #806).
+    """
+    line = json.dumps({"id": 1, "error": {"code": 2, "message": "x"}}).encode()
+    with pytest.raises(
+        BTClibValueError, match="^unknown method: a str of length 64$"
+    ) as e:
+        decode_response(line, 1, HEX)
     assert_secret_free(e.value, SPELLINGS)

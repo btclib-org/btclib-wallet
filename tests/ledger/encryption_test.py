@@ -52,6 +52,7 @@ from tests.ledger.conftest import (
     source,
     without_cryptography,
 )
+from tests.refused_value_test import HEX, SPELLINGS
 from tests.secret_free import assert_secret_free, chained, windows
 
 # an install on Windows arm64 leaves `cryptography` out;
@@ -1525,7 +1526,8 @@ def test_a_passphrase_another_ledger_changed_is_the_files(
     "statement, err_msg",
     [
         ("DELETE FROM master_key", "source 0's keys have no master key"),
-        ("UPDATE master_key SET kdf = 'pbkdf2'", "unknown kdf 'pbkdf2'"),
+        ("UPDATE master_key SET kdf = 'pbkdf2'", "unknown kdf, a str of length 6"),
+        (f"UPDATE master_key SET kdf = '{HEX}'", "unknown kdf, a str of length 64"),  # noqa: S608
         (
             'UPDATE sources SET encrypted = NULL, prv_keys = \'{"a": "b"}\'',
             "source 0's keys are plain in an encrypted file",
@@ -1545,12 +1547,16 @@ def test_a_passphrase_another_ledger_changed_is_the_files(
 def test_a_malformed_encryption_is_refused_at_the_load(
     chain: FakeChain, path: Path, statement: str, err_msg: str
 ) -> None:
-    """What `store` reads of the encryption is checked as it is read."""
+    """What `store` reads of the encryption is checked as it is read.
+
+    What it read is described, not printed (issue #802).
+    """
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(PASSPHRASE)
     _damaged(path, statement)
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
         _loaded(path, chain)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_plain_keys_beside_their_ciphertext_are_refused_at_a_restore(

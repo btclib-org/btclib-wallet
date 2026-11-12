@@ -124,6 +124,7 @@ from btclib.tx import Tx
 from btclib.utils import is_integer
 from typing_extensions import override
 
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -188,7 +189,7 @@ def _assert_transport(transport: object) -> None:
         callable(getattr(transport, name, None))
         for name in ("send", "receive", "close")
     ):
-        raise BTClibTypeError(f"not a peer transport: {transport!r}")
+        raise BTClibTypeError(f"not a peer transport: {_message_text(transport)}")
 
 
 def _output_scripts(block: Block) -> set[bytes]:

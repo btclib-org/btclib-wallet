@@ -367,13 +367,14 @@ def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
         # through untouched, so a json number where the hex belongs
         # surfaces as AttributeError on `.read` -- a traceback into the
         # parser for what is the backend answering the wrong shape
-        err_msg = f"transaction {tx_id}: not a serialization,"  # type: ignore[unreachable]
+        err_msg = "transaction: not a serialization,"  # type: ignore[unreachable]
         err_msg += f" but a {type(raw).__name__}"
         raise FetchError(err_msg)
-    with fetch_errors(f"transaction {tx_id}"):
+    with fetch_errors("transaction"):
         tx = tx_for_network(Tx.parse(raw), network)
     if tx.id.hex() != tx_id:
-        raise FetchError(f"transaction {tx_id}: the answer is {tx.id.hex()}")
+        err_msg = f"transaction: the answer is {tx.id.hex()}, not the one asked"
+        raise FetchError(err_msg)
     return tx
 
 
@@ -397,7 +398,7 @@ def block_header_height(height: int) -> int:
     return height
 
 
-def block_header_from_raw(raw: Octets, height: int, *, network: str) -> BlockHeader:
+def block_header_from_raw(raw: Octets, *, network: str) -> BlockHeader:
     """Return the header a serialization holds, checked on arrival.
 
     The backends that call this get the raw serialization rather than a
@@ -415,7 +416,7 @@ def block_header_from_raw(raw: Octets, height: int, *, network: str) -> BlockHea
     has is a `BTClibValueError`.
     """
     pow_limit_bits = network_from_name(network).consensus.pow_limit_bits
-    with fetch_errors(f"block header {height}"):
+    with fetch_errors("block header"):
         header = BlockHeader.parse(raw, check_validity=False)
         header.assert_valid()
         header.assert_valid_pow(pow_limit_bits)

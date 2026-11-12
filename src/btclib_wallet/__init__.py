@@ -88,11 +88,16 @@ def __getattr__(published: str) -> ModuleType:
     *`, which asks for each name in the list.
 
     Anything not in `__all__` raises `AttributeError`, with the
-    interpreter's own wording.
+    interpreter's own wording up to the name, which `_quoted` writes: a
+    name in the wrong place may be a key.
     """
     if published in __all__:
         return import_module(f"{__name__}.{published}")
-    raise AttributeError(f"module {__name__!r} has no attribute {published!r}")
+    # lazily, as the module docstring says
+    from btclib_wallet._refusal import _quoted  # noqa: PLC0415
+
+    err_msg = f"module {__name__!r} has no attribute {_quoted(published)}"
+    raise AttributeError(err_msg)
 
 
 def __dir__() -> list[str]:

@@ -41,6 +41,7 @@ from btclib.tx import OutPoint, Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
+from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
@@ -192,7 +193,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
             err_msg = f"non-string estimate_mode: {type(estimate_mode).__name__}"  # type: ignore[unreachable]
             raise BTClibTypeError(err_msg)
         if not estimate_mode.isascii() or estimate_mode.lower() not in _ESTIMATE_MODES:
-            raise BTClibValueError(f"invalid estimate_mode: {estimate_mode!r}")
+            raise BTClibValueError(f"invalid estimate_mode: {_quoted(estimate_mode)}")
         if signet_challenge is not None:
             if chain_from_network(self.network) != "signet":
                 err_msg = f"a signet_challenge for {self.network},"
@@ -285,7 +286,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         raw = self._call(
             "getblockheader", [block_hash, False], max_body_size=_MAX_SMALL_REPLY
         )
-        return block_header_from_raw(raw, height, network=self.network)
+        return block_header_from_raw(raw, network=self.network)
 
     @override
     def assert_network(self) -> None:
@@ -386,7 +387,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 max_body_size=_MAX_SMALL_REPLY,
             )
             if not isinstance(reply, dict):
-                raise BTClibTypeError(f"not an object: {reply!r}")
+                raise BTClibTypeError(f"not an object: {_message_text(reply)}")
             feerate = reply.get("feerate")
             if feerate is None:
                 errors = reply.get("errors") or ["no estimate for this target"]
@@ -394,7 +395,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 raise FetchError(err_msg)
             blocks = reply.get("blocks")
             if not is_integer(blocks):
-                raise BTClibTypeError(f"invalid blocks: {blocks!r}")
+                raise BTClibTypeError(f"invalid blocks: {_message_text(blocks)}")
             rate = FeeRate.from_btc_per_kvbyte(feerate, round_up=True)
             return FeeQuote(rate=rate, target=cast(int, blocks))
 
