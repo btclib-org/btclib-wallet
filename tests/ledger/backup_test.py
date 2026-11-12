@@ -124,6 +124,7 @@ def test_a_backup_refuses_anything_at_its_path(
     assert other.read_bytes() == b"kept"
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "ledger.sqlite",
+        "ledger.sqlite-journal",
         "link.bak",
         "other.bak",
     ]
@@ -187,24 +188,22 @@ def test_a_copy_that_cannot_write_names_the_copy_and_leaves_none(
 
 @pytest.mark.parametrize("secure_delete", [0, 1])
 def test_a_backup_keeps_the_old_bytes_of_freed_pages(
-    ledger: Ledger, path: Path, tmp_path: Path, secure_delete: int
+    ledger: Ledger, tmp_path: Path, secure_delete: int
 ) -> None:
     """A row deleted from the file is in the backup's freed pages.
 
-    Unless the delete zeroed them: `PRAGMA secure_delete`, which some
-    builds of SQLite turn on by default, so the test sets it either way.
+    Unless the delete zeroed them: `PRAGMA secure_delete`, which the
+    ledger's connection turns on, so the test sets it either way. The
+    ledger holds the file, so the row is written through its connection.
     """
     secret = b"a deleted secret " * 300
-    db = sqlite3.connect(path)
-    try:
-        db.execute(f"PRAGMA secure_delete = {secure_delete}")
-        with db:
-            db.execute("CREATE TABLE scratch(x BLOB)")
-            db.execute("INSERT INTO scratch VALUES (?)", (secret,))
-        with db:
-            db.execute("DELETE FROM scratch")
-    finally:
-        db.close()
+    db = ledger._store._db
+    db.execute(f"PRAGMA secure_delete = {secure_delete}").fetchall()
+    with db:
+        db.execute("CREATE TABLE scratch(x BLOB)")
+        db.execute("INSERT INTO scratch VALUES (?)", (secret,))
+    with db:
+        db.execute("DELETE FROM scratch")
     backup = tmp_path / "ledger.bak"
     ledger.backup(backup)
     kept = b"a deleted secret " * 10 in backup.read_bytes()

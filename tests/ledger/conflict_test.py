@@ -278,6 +278,29 @@ def test_abandon_frees_the_coins_and_survives_a_load(
         assert loaded.balances() == Balances(100_000, 0, 0, 0)
 
 
+def test_an_abandon_mark_no_other_ledger_writes_over(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """A ledger loaded while the spend was in the mempool is refused.
+
+    It would hold the spend as in the mempool, find it gone at its next
+    sync, and write it inactive over the mark (ISS
+    btclib-org/btclib-wallet#800). Loaded once the first is closed, it
+    reads the mark and keeps it.
+    """
+    _funded(ledger, chain, 100_000)
+    spend = ledger.spend([_outside()])
+    with pytest.raises(BTClibValueError, match="is open in another ledger"):
+        Ledger.load(path, "regtest", chain)
+    chain.mempool.clear()
+    ledger.sync()
+    ledger.abandon(spend.id)
+    ledger.close()
+    with Ledger.load(path, "regtest", chain) as loaded:
+        loaded.sync()
+        assert _state(loaded, spend) is TxState.ABANDONED
+
+
 def test_an_abandoned_spend_a_block_conflicts_with_is_conflicted(
     ledger: Ledger, chain: FakeChain
 ) -> None:

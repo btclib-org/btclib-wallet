@@ -478,6 +478,51 @@ def test_a_coin_added_to_change_paid_to_itself_comes_back_as_change(
     _assert_fee_amount(_fee(ledger, bumped), bumped.vsize, _rate(20))
 
 
+def test_a_bump_keeps_its_links_in_a_file_no_other_ledger_holds(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """A ledger loaded before the bump is refused.
+
+    At its next sync it would write both transactions back without the
+    links and the comments (ISS btclib-org/btclib-wallet#800). Loaded once
+    the first is closed, it reads and keeps them.
+    """
+    _funded(ledger, chain)
+    spent = ledger.spend([_outside()], comment="c", comment_to="t")
+    with pytest.raises(BTClibValueError, match="is open in another ledger"):
+        Ledger.load(path, "regtest", chain)
+    bumped = ledger.bump(spent.id)
+    ledger.close()
+    with Ledger.load(path, "regtest", chain) as loaded:
+        loaded.sync()
+        assert _wtx(loaded, spent).replaced_by == bumped.id
+        held = _wtx(loaded, bumped)
+        assert (held.replaces, held.comment, held.comment_to) == (spent.id, "c", "t")
+
+
+def test_a_bump_made_is_seen_by_the_next_ledger_on_the_file(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """A ledger loaded before the bump is refused, so it bumps nothing again.
+
+    It would bump the original a second time, and a broadcast refused
+    would leave the original linked to that replacement (ISS
+    btclib-org/btclib-wallet#800). Loaded once the first is closed, it
+    refuses the second bump and keeps the link.
+    """
+    _funded(ledger, chain)
+    spent = ledger.spend([_outside()])
+    with pytest.raises(BTClibValueError, match="is open in another ledger"):
+        Ledger.load(path, "regtest", chain)
+    bumped = ledger.bump(spent.id)
+    ledger.close()
+    with Ledger.load(path, "regtest", chain, broadcaster=chain) as loaded:
+        chain.refuse = "insufficient fee"
+        with pytest.raises(BTClibValueError, match="already bumped"):
+            loaded.bump(spent.id)
+        assert _wtx(loaded, spent).replaced_by == bumped.id
+
+
 def test_a_descendant_is_refused_and_an_abandoned_one_is_not(
     ledger: Ledger, chain: FakeChain
 ) -> None:
