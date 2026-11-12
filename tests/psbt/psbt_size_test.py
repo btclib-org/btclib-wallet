@@ -477,6 +477,40 @@ def test_a_taproot_script_path_has_no_estimate() -> None:
         _ = psbt.estimated_vsize
 
 
+def test_a_wrapped_version_1_program_is_priced_as_no_taproot_input() -> None:
+    """BIP341 leaves a p2sh-wrapped version 1 program unencumbered.
+
+    BIP371's key path input, its program wrapped in p2sh and its taproot
+    fields kept: it is refused as a witness program of no known rule, as
+    a version 2 program is, bare or wrapped. A sizer's answer is its
+    witness stack, beside the push of the redeem script.
+    """
+    psbt = bip371_psbt(0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    utxo = psbt_in.witness_utxo
+    assert utxo is not None
+    assert psbt_in.taproot_internal_key
+    v1_program = utxo.script_pub_key.script
+    v2_program = serialize(["OP_2", v1_program[2:]])
+    stack = [SCHNORR_SIG_SIZE]
+
+    for program, wrapped in (
+        (v1_program, True),
+        (v2_program, False),
+        (v2_program, True),
+    ):
+        script_pub_key = ScriptPubKey.p2sh(program).script if wrapped else program
+        psbt_in.witness_utxo = TxOut(utxo.value, script_pub_key)
+        psbt_in.redeem_script = program if wrapped else b""
+        with pytest.raises(BTClibValueError, match="type 'witness_unknown'"):
+            estimated_input_sizes(psbt_in, tx_in)
+
+        script_sig = serialize([program]) if wrapped else b""
+        expected = (len(script_sig), stack)
+        sizes = estimated_input_sizes(psbt_in, tx_in, sizer=lambda _in, _tx: stack)
+        assert sizes == expected
+
+
 def test_a_bare_multisig_is_solved_where_it_is_found() -> None:
     """p2ms as the script_pub_key, and not only as a redeem script."""
     redeem_script = Psbt.b64decode(BIP174_SIGNED_PSBT).inputs[0].redeem_script

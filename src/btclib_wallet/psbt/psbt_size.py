@@ -316,6 +316,11 @@ def estimated_input_sizes(
         # hash160 that names it, and _assert_input_signable is where the
         # two are checked against each other
         script_type, payload = type_and_payload(redeem_script)
+        if script_type == "p2tr":
+            # BIP341 leaves a p2sh-wrapped version 1 program unencumbered,
+            # so it is no taproot output but a witness program of no known
+            # rule, as psbt.py's `_spends_unknown_witness_program` reads it
+            script_type = "witness_unknown"
 
     # the push of the redeem script ends the script_sig of a wrapped
     # input, and is the whole of it when what is wrapped is segwit
@@ -325,10 +330,14 @@ def estimated_input_sizes(
         return len(serialize(wrapper)), _p2wsh_witness_sizes(psbt_in, tx_in, sizer)
 
     if script_type == "p2tr":
-        # a witness v1 program wrapped in p2sh is not refused here: it is
-        # unspendable by consensus, so what a psbt carrying one is missing
-        # is not an estimate
         return len(serialize(wrapper)), _taproot_witness_sizes(psbt_in, tx_in, sizer)
+
+    if script_type == "witness_unknown":
+        # no rule says what its witness holds, so only a sizer answers;
+        # what it answers is the witness stack, and the script_sig is
+        # the wrapper alone, as for every other witness program
+        err_msg = f"no estimate for a script of type '{script_type}'"
+        return len(serialize(wrapper)), _asked(sizer, psbt_in, tx_in, err_msg)
 
     sizes = _solution_sizes(script_type, payload, psbt_in)
     if sizes is None:
