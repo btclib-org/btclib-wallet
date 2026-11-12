@@ -180,6 +180,17 @@ def _key_bytes(directory: Path, secrets: list[bytes]) -> dict[str, int]:
     }
 
 
+def _key_bytes_out_of_wal(directory: Path, secrets: list[bytes]) -> dict[str, int]:
+    """Return `_key_bytes` of a file taken out of WAL mode, but its -shm's.
+
+    Apple's SQLite, which PyPy links on macOS, leaves the WAL index in
+    the -shm file once the file leaves WAL mode; it holds no key byte.
+    """
+    left = _key_bytes(directory, secrets)
+    assert left.pop("ledger.sqlite-shm", 0) == 0
+    return left
+
+
 def _funded(ledger: Ledger, chain: FakeChain) -> None:
     """Pay the ledger from outside and confirm it."""
     chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
@@ -272,7 +283,7 @@ def test_a_file_another_program_set_to_wal_keeps_no_key_byte(
         # the control: the file holds the keys the search looks for
         assert _key_bytes(directory, secrets)["ledger.sqlite"] > 0
         ledger.encrypt(PASSPHRASE)
-        assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
+        assert _key_bytes_out_of_wal(directory, secrets) == {"ledger.sqlite": 0}
 
 
 def test_a_file_set_to_wal_while_open_is_not_encrypted(
@@ -298,7 +309,7 @@ def test_a_file_set_to_wal_while_open_is_not_encrypted(
     with _loaded(path, chain) as ledger:
         assert ledger.unlocked_until is None
         ledger.encrypt(PASSPHRASE)
-        assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
+        assert _key_bytes_out_of_wal(directory, secrets) == {"ledger.sqlite": 0}
 
 
 def test_a_wal_file_open_in_another_program_is_refused(
