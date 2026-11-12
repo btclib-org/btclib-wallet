@@ -409,7 +409,8 @@ def test_bolt11_coerces_the_network_name_regardless_of_check_validity() -> None:
 @pytest.mark.parametrize(
     "word, error, err_msg",
     [
-        (32, BTClibValueError, "^invalid 5-bit value: 32$"),
+        # older base58-bech32 releases print the value, newer ones describe it
+        (32, BTClibValueError, "^invalid 5-bit value: (32|an int of 6 bits)$"),
         ("0", BTClibTypeError, "^invalid 5-bit value type: str$"),
     ],
 )

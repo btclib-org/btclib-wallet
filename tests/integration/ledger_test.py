@@ -12,8 +12,9 @@ double spend taken through a reorganization, an unload and load, and a
 node restart -- the ledger is synced and its answers are compared with
 what `twin` answers: its balances, coins and transactions, and its
 labels, what each address and label received, and its address groupings.
-A ledger restored from a backup, and an encrypted one, are compared the
-same way.
+A ledger restored from a backup, an encrypted one, and one that bumps a
+fee are compared the same way; the bump's replacement rule is compared
+with what the node accepts.
 
 The node is this module's own, so that it can be restarted; it refuses
 a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Callable, Iterator
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -34,15 +36,17 @@ from bitcoin_core_rpc import BitcoinCoreRpcClient
 from bitcoin_core_rpc import RpcError as CoreRpcError
 from btclib.amount import btc_from_sats, sats_from_btc
 from btclib.exceptions import BTClibValueError
-from btclib.fee import FeeRate
+from btclib.fee import FeeRate, fee_from_vsize
 from btclib.script import ScriptPubKey
-from btclib.tx import Tx, TxIn, TxOut
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet.descriptors import add_checksum, parse
 from btclib_wallet.exceptions import RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.ledger import Ledger, TxState
+from btclib_wallet.ledger.ledger import _assert_replaces
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
+from btclib_wallet.psbt.psbt_size import miniscript_sizer
 from btclib_wallet.wallet import DescriptorWallet
 from tests.integration.conftest import _start_node, _stop, start_on_free_ports
 
@@ -61,6 +65,9 @@ BACKUP_CHANGE = f"wpkh({XPRV}/84h/1h/1h/1/*)"
 # and another, for the encrypted ledger's test
 ENCRYPTED_RECEIVE = f"wpkh({XPRV}/84h/1h/2h/0/*)"
 ENCRYPTED_CHANGE = f"wpkh({XPRV}/84h/1h/2h/1/*)"
+# and another, for the bump's
+BUMP_RECEIVE = f"wpkh({XPRV}/84h/1h/3h/0/*)"
+BUMP_CHANGE = f"wpkh({XPRV}/84h/1h/3h/1/*)"
 # the node's own floor, 2 sat/vB, and the fallback the ledger pays above it
 MIN_RELAY = "0.00002"
 FALLBACK = FeeRate.from_sats_per_vbyte(5)
@@ -528,6 +535,106 @@ def test_an_encrypted_ledger_answers_locked_and_spends_unlocked(
         _mine(node)
         ledger.sync()
         _compare(node, ledger, "encrypted-twin")
+
+
+def test_a_bump_is_what_the_node_takes_and_cores_wallet_answers(
+    node: Node, tmp_path: Path
+) -> None:
+    """Core's wallet_bumpfee.py at bitcoin/bitcoin@f0de87f040, lines 307-347.
+
+    The replaced fee is the one Core's `psbtbumpfee` reads; around the
+    threshold, the node takes each fee the replacement rule takes over
+    its signed size, and refuses each fee it refuses; the bump itself is
+    taken, and once mined the ledger answers what its twin answers.
+    """
+    path = tmp_path / "ledger.sqlite"
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    _create_twin(node, "bump-twin", BUMP_RECEIVE, BUMP_CHANGE)
+    twin = node.wallet("bump-twin")
+    with Ledger.create(
+        path,
+        "regtest",
+        fetcher,
+        broadcaster=fetcher,
+        relay_fee_reader=fetcher,
+        fallback_fee_rate=FALLBACK,
+    ) as ledger:
+        ledger.add_source(_source(BUMP_RECEIVE, BUMP_CHANGE))
+        _pay_ledger(node, ledger)
+        _mine(node)
+        ledger.sync()
+        spend = ledger.spend(
+            [_miner_output(node, ledger.balances().trusted // 3)],
+            comment="comment value",
+            comment_to="to value",
+        )
+        assert {tx_in.sequence for tx_in in spend.vin} == {0xFFFFFFFD}
+        _settle(node)
+        bumped = ledger.bump_psbt(spend.id)
+        core = twin.call("psbtbumpfee", [spend.id.hex()])
+        assert bumped.old_fee == _sats(core["origfee"])
+
+        # the replacement rule at its threshold: each fee around it is
+        # signed, and its signature's length can move the size by a
+        # vbyte, so each is judged on its own signed size
+        incremental = FeeRate.from_btc_per_kvbyte(
+            Decimal(str(node.client.call("getmempoolinfo")["incrementalrelayfee"]))
+        )
+        vsize = bumped.psbt.vsize_estimate(miniscript_sizer)
+        least = bumped.old_fee + fee_from_vsize(vsize, incremental)
+        outcomes = set()
+        for fee in range(least - 4, least + 3):
+            signed = _paying(ledger, bumped.psbt, fee)
+            (answer,) = node.client.call(
+                "testmempoolaccept", [[signed.serialize(include_witness=True).hex()]]
+            )
+            pays = fee >= bumped.old_fee + fee_from_vsize(signed.vsize, incremental)
+            assert answer["allowed"] is pays
+            if pays:
+                _assert_replaces(bumped.old_fee, fee, signed.vsize, incremental)
+            else:
+                assert answer["reject-reason"] == "insufficient fee"
+                with pytest.raises(ValueError, match="insufficient total fee"):
+                    _assert_replaces(bumped.old_fee, fee, signed.vsize, incremental)
+            outcomes.add(pays)
+        assert outcomes == {True, False}
+
+        replacement = ledger.bump(spend.id)
+        mempool = node.client.call("getrawmempool")
+        assert replacement.id.hex() in mempool
+        assert spend.id.hex() not in mempool
+        ledger.sync()
+        new = ledger.transaction(replacement.id).wallet_tx
+        assert (new.replaces, new.comment, new.comment_to) == (
+            spend.id,
+            "comment value",
+            "to value",
+        )
+        assert ledger.transaction(spend.id).wallet_tx.replaced_by == replacement.id
+        # Core's own bump would leave them unsafe; its twin, which only saw
+        # the replacement arrive, does not
+        assert not [
+            u
+            for u in ledger.utxos(0, include_unsafe=False)
+            if u.outpoint.tx_id == replacement.id
+        ]
+        _mine(node)
+        ledger.sync()
+        _compare(node, ledger, "bump-twin")
+
+
+def _paying(ledger: Ledger, psbt: Psbt, fee: int) -> Tx:
+    """Return the psbt's transaction paying `fee`, its last output changed."""
+    paid = deepcopy(psbt)
+    total_in = sum(
+        _value_spent(
+            ledger, TxIn(OutPoint(psbt_in.previous_tx_id, psbt_in.output_index or 0))
+        )
+        for psbt_in in paid.inputs
+    )
+    others = sum(o.amount or 0 for o in paid.outputs[:-1])
+    paid.outputs[-1].amount = total_in - others - fee
+    return extract_tx(finalize(ledger.sign(paid)))
 
 
 def _value_spent(ledger: Ledger, tx_in: TxIn) -> int:

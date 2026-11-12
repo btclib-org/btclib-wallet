@@ -152,13 +152,18 @@ def encode_request(request_id: int, method: str, params: Any = ()) -> bytes:
     if not isinstance(params, (list, tuple)):
         raise BTClibTypeError(f"invalid params type: {type(params).__name__}")
     request = {"id": request_id, "method": method, "params": list(params)}
+    # the refusal is raised after the `except` block, so that it chains no
+    # error of json's: their notes quote the dict keys of `params`
+    refusal: BTClibTypeError | BTClibValueError
     try:
         line = json.dumps(request, allow_nan=False)
     except TypeError as e:
-        raise BTClibTypeError(f"request not JSON: {e}") from e
+        refusal = BTClibTypeError(f"request not JSON: {e}")
     except (ValueError, RecursionError) as e:
-        raise BTClibValueError(f"request not JSON: {e}") from e
-    return line.encode("utf-8") + b"\n"
+        refusal = BTClibValueError(f"request not JSON: {e}")
+    else:
+        return line.encode("utf-8") + b"\n"
+    raise refusal
 
 
 def _raise_rpc_error(error: object) -> NoReturn:
@@ -269,19 +274,19 @@ def _decode_line(line: bytes) -> Any:
 def _response_result(reply: object, request_id: int) -> Any:
     """Read one response object, preserving single or batch reply errors."""
     if not isinstance(reply, dict):
-        raise BTClibTypeError(f"not a JSON-RPC response object: {reply!r}")
+        raise BTClibTypeError(f"not a JSON-RPC response object: {_message_text(reply)}")
     reply_id = reply.get("id")
     error = reply.get("error")
     if reply_id is None and error is not None:
         _raise_rpc_error(error)
     if not (is_integer(reply_id) and reply_id == request_id):
-        err_msg = f"response id {reply_id!r}"
+        err_msg = f"response id {_message_text(reply_id)}"
         err_msg += f" does not answer request {_message_text(request_id)}"
         raise BTClibValueError(err_msg)
     if error is not None:
         _raise_rpc_error(error)
     if "result" not in reply:
-        raise BTClibValueError(f"neither a result nor an error: {reply!r}")
+        raise BTClibValueError(f"neither a result nor an error: {_message_text(reply)}")
     return reply["result"]
 
 
@@ -447,7 +452,9 @@ def scripthash_get_history_response(
         _assert_tx_id(cast(str, tx_id))
         height = cast(int, height)
         if height < -1:
-            raise BTClibValueError(f"scripthash.get_history: invalid height {height}")
+            err_msg = "scripthash.get_history: invalid height:"
+            err_msg += f" {_message_text(height)} < -1"
+            raise BTClibValueError(err_msg)
         previous = items[-1].height if items else 1
         if height > 0 and (previous < 1 or height < previous):
             raise BTClibValueError("scripthash.get_history: an entry out of order")
@@ -478,7 +485,8 @@ def transaction_get_response(line: bytes, request_id: int) -> bytes:
     """
     result = decode_response(line, request_id)
     if not isinstance(result, str):
-        raise BTClibTypeError(f"transaction.get: not a hex string: {result!r}")
+        err_msg = f"transaction.get: not a hex string: {_message_text(result)}"
+        raise BTClibTypeError(err_msg)
     return bytes_from_octets(result)
 
 
@@ -511,13 +519,16 @@ def headers_subscribe_response(line: bytes, request_id: int) -> HeaderTip:
     """Return the chain tip `blockchain.headers.subscribe` answered."""
     result = decode_response(line, request_id)
     if not isinstance(result, dict):
-        raise BTClibTypeError(f"headers.subscribe: not an object: {result!r}")
+        err_msg = f"headers.subscribe: not an object: {_message_text(result)}"
+        raise BTClibTypeError(err_msg)
     height = result.get("height")
     header = result.get("hex")
     if not is_integer(height):
-        raise BTClibTypeError(f"headers.subscribe: invalid height: {height!r}")
+        err_msg = f"headers.subscribe: invalid height: {_message_text(height)}"
+        raise BTClibTypeError(err_msg)
     if not isinstance(header, str):
-        raise BTClibTypeError(f"headers.subscribe: invalid hex: {header!r}")
+        err_msg = f"headers.subscribe: invalid hex: {_message_text(header)}"
+        raise BTClibTypeError(err_msg)
     return HeaderTip(cast(int, height), bytes_from_octets(header))
 
 
@@ -542,7 +553,8 @@ def block_header_response(line: bytes, request_id: int) -> bytes:
     """Return the raw header `blockchain.block.header` answered."""
     result = decode_response(line, request_id)
     if not isinstance(result, str):
-        raise BTClibTypeError(f"block.header: not a hex string: {result!r}")
+        err_msg = f"block.header: not a hex string: {_message_text(result)}"
+        raise BTClibTypeError(err_msg)
     return bytes_from_octets(result)
 
 
@@ -592,19 +604,22 @@ def block_headers_response(line: bytes, request_id: int, count: int) -> list[byt
         raise BTClibValueError(err_msg)
     result = decode_response(line, request_id)
     if not isinstance(result, dict):
-        raise BTClibTypeError(f"block.headers: not an object: {result!r}")
+        raise BTClibTypeError(f"block.headers: not an object: {_message_text(result)}")
     answered = result.get("count")
     if not is_integer(answered):
-        raise BTClibTypeError(f"block.headers: invalid count: {answered!r}")
+        err_msg = f"block.headers: invalid count: {_message_text(answered)}"
+        raise BTClibTypeError(err_msg)
     n = cast(int, answered)
     if not 0 <= n <= count:
-        raise BTClibValueError(f"block.headers: invalid count: {answered!r}")
+        err_msg = f"block.headers: invalid count: {_message_text(answered)}"
+        raise BTClibValueError(err_msg)
     hex_ = result.get("hex")
     if not isinstance(hex_, str):
-        raise BTClibTypeError(f"block.headers: not a hex string: {hex_!r}")
+        raise BTClibTypeError(f"block.headers: not a hex string: {_message_text(hex_)}")
     raw = bytes_from_octets(hex_)
     if len(raw) != n * 80:
-        err_msg = f"block.headers: {len(raw)} bytes are not {n} headers"
+        err_msg = f"block.headers: hex of {len(raw)} bytes,"
+        err_msg += " not 80 for each header counted"
         raise BTClibValueError(err_msg)
     return [raw[i * 80 : (i + 1) * 80] for i in range(n)]
 
@@ -644,17 +659,21 @@ def transaction_get_merkle_response(line: bytes, request_id: int) -> MerkleProof
     """Return the merkle proof `blockchain.transaction.get_merkle` answered."""
     result = decode_response(line, request_id)
     if not isinstance(result, dict):
-        raise BTClibTypeError(f"transaction.get_merkle: not an object: {result!r}")
+        err_msg = f"transaction.get_merkle: not an object: {_message_text(result)}"
+        raise BTClibTypeError(err_msg)
     block_height = result.get("block_height")
     branch = result.get("merkle")
     pos = result.get("pos")
     if not is_integer(block_height):
-        err_msg = f"transaction.get_merkle: invalid block_height: {block_height!r}"
+        err_msg = "transaction.get_merkle: invalid block_height:"
+        err_msg += f" {_message_text(block_height)}"
         raise BTClibTypeError(err_msg)
     if not isinstance(branch, list):
-        raise BTClibTypeError(f"transaction.get_merkle: invalid merkle: {branch!r}")
+        err_msg = f"transaction.get_merkle: invalid merkle: {_message_text(branch)}"
+        raise BTClibTypeError(err_msg)
     if not is_integer(pos):
-        raise BTClibTypeError(f"transaction.get_merkle: invalid pos: {pos!r}")
+        err_msg = f"transaction.get_merkle: invalid pos: {_message_text(pos)}"
+        raise BTClibTypeError(err_msg)
     return MerkleProof(
         cast(int, block_height),
         tuple(bytes_from_octets(sibling, 32) for sibling in branch),
@@ -702,9 +721,10 @@ def estimate_fee_response(line: bytes, request_id: int) -> float:
     """
     result = decode_response(line, request_id)
     if isinstance(result, bool) or not isinstance(result, (int, float)):
-        raise BTClibTypeError(f"estimatefee: not a number: {result!r}")
+        raise BTClibTypeError(f"estimatefee: not a number: {_message_text(result)}")
     if (isinstance(result, float) and not math.isfinite(result)) or not (
         result >= 0 or result == -1
     ):
-        raise BTClibValueError(f"estimatefee: not a rate or -1: {result!r}")
+        err_msg = f"estimatefee: not a rate or -1: {_message_text(result)}"
+        raise BTClibValueError(err_msg)
     return result

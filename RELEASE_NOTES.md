@@ -9,6 +9,80 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.12
+
+A ledger encrypts its private keys at rest and bumps a transaction's
+fee, and its file moves to format 2, which v2026.11.11 cannot read.
+
+- **A ledger's file is format 2**
+  ([ISS 717](https://github.com/btclib-org/btclib-wallet/issues/717)).
+  `ledger.FORMAT_VERSION` is 2. A format-1 file, as v2026.11.11 writes
+  it, and a backup of one migrate on load, keeping every source and key.
+  v2026.11.11 refuses a format-2 file as newer. Act on it if you may go
+  back to v2026.11.11: keep a copy of the file from before the upgrade.
+- **`Ledger.encrypt` encrypts a ledger's private keys under a
+  passphrase**
+  ([ISS 717](https://github.com/btclib-org/btclib-wallet/issues/717)),
+  as Core's `encryptwallet` does, and leaves the ledger locked.
+  `unlock_keys`, `lock_keys`, `change_passphrase` and `unlocked_until`
+  follow Core's `walletpassphrase`, `walletlock`,
+  `walletpassphrasechange` and `getwalletinfo`. While locked, `sign`,
+  `spend`, `bump_psbt`, `bump` and `add_source` of a wallet holding keys
+  are refused. `encrypt` refuses a source whose scripts need a private
+  key at every index, a hardened `/*h`, and an encrypted ledger refuses
+  to add one.
+  `cryptography` 47.0.0 or later is a dependency, except on Windows
+  arm64, where the `encryption` extra asks for it. Act on it if you keep
+  a ledger: encrypt it, take a backup, restore it and unlock the copy
+  with `unlock_keys` to check it, and only then destroy the backups
+  taken before, which keep the keys in plain text, as `SECURITY.md`
+  says. A copy kept to go back to v2026.11.11 holds them in plain text
+  too: keep it where only you can read it.
+- **`Ledger.bump_psbt` and `Ledger.bump` replace a transaction at a
+  higher fee**
+  ([ISS 715](https://github.com/btclib-org/btclib-wallet/issues/715)),
+  as Core's `psbtbumpfee` and `bumpfee` do. `fund` and `spend` give
+  each input Core's sequence `0xfffffffd`, where they gave 0, and
+  `replaceable=False` gives `0xfffffffe`, which does not signal BIP125.
+  `spend` takes `comment` and `comment_to`, and `WalletTx` gains
+  `comment`, `comment_to`, `replaces` and `replaced_by`, which default
+  to `None`. Act on it if you need a spend that does not signal BIP125:
+  pass `replaceable=False`. That does not stop a replacement: a node
+  with full RBF, Core's default since 28.0, accepts one all the same.
+- **An ECDSA sig_hash is refused for a psbt input whose script is a
+  witness program of a version with no rule**
+  ([ISS 747](https://github.com/btclib-org/btclib-wallet/issues/747)),
+  as Core does: a version from 2 to 16, or a version 1 program that is
+  not p2tr. `ecdsa_sig_hash` and `PsbtView.ecdsa_sig_hash` raise
+  `BTClibValueError` where they answered the legacy hash, `sign` skips
+  such an input, and `finalize` and `assert_signatures_only` refuse a
+  partial signature on one. Act on it if you call `ecdsa_sig_hash` on
+  such an input: expect the refusal.
+- **A refusal describes the value it refuses by its type and size**
+  ([ISS 745](https://github.com/btclib-org/btclib-wallet/issues/745),
+  [ISS 749](https://github.com/btclib-org/btclib-wallet/issues/749),
+  [ISS 790](https://github.com/btclib-org/btclib-wallet/issues/790),
+  [ISS 791](https://github.com/btclib-org/btclib-wallet/issues/791),
+  [ISS 792](https://github.com/btclib-org/btclib-wallet/issues/792),
+  [ISS 793](https://github.com/btclib-org/btclib-wallet/issues/793),
+  [ISS 795](https://github.com/btclib-org/btclib-wallet/issues/795)),
+  so that a key passed in the wrong place is not printed. Refusals of
+  `electrum`, `fetch`, `psbt`, `bip322` and `silent_payments`, among
+  others, change text, as `invalid height: a negative int of 1 bits < 0`
+  in place of `invalid height: -1`. Act on it if you match those
+  messages: match the new ones.
+- **`PsbtOut.parse` refuses a `PSBT_OUT_TAP_TREE` key with key data**
+  ([ISS 754](https://github.com/btclib-org/btclib-wallet/issues/754)),
+  as BIP-174 and Core do. Nothing to act on: such a psbt is invalid.
+- **`Bolt11Invoice.to_invoice` and `payee` refuse a network BOLT11 has
+  no prefix for with `BTClibValueError`**
+  ([ISS 770](https://github.com/btclib-org/btclib-wallet/issues/770)),
+  on an invoice built with `check_validity=False`, where they raised
+  `KeyError`. Act on it if you catch that `KeyError`: catch
+  `BTClibValueError`.
+
+`CHANGELOG.md`'s own `v2026.11.12` section has the rest.
+
 ## v2026.11.11
 
 A fresh install of 2026.11.7 does not work: most of its modules,

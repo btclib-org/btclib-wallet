@@ -12,6 +12,7 @@ key where another value belongs, and checks the refusal's chain with
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from hashlib import shake_256
 
@@ -23,7 +24,7 @@ from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.curves import bytes_from_point, mult
 
-from btclib_wallet import silent_payments
+from btclib_wallet import electrum, silent_payments
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.electrum import (
     block_header_request,
@@ -32,7 +33,9 @@ from btclib_wallet.electrum import (
     decode_response,
     transaction_get_request,
 )
+from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.fetcher import block_header_height
+from btclib_wallet.fetch.transport import TlsLineTransport
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.psbt.psbt_utils import PSBT_V2
 from btclib_wallet.tx_or_psbt import tx_or_psbt_from_any
@@ -220,4 +223,177 @@ def test_block_header_height_describes_a_negative_height() -> None:
     err_msg = "^invalid height: a negative int of 256 bits < 0$"
     with pytest.raises(BTClibValueError, match=err_msg) as e:
         block_header_height(-SCALAR)
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def _answer(result: object) -> bytes:
+    """Return the reply line answering request 1 with `result`."""
+    return json.dumps({"id": 1, "result": result}).encode() + b"\n"
+
+
+def _headers(**members: object) -> bytes:
+    """Return a `blockchain.block.headers` answer of these members."""
+    return _answer({"count": 1, "hex": "00" * 80, **members})
+
+
+def _merkle(**members: object) -> bytes:
+    """Return a `blockchain.transaction.get_merkle` answer of these members."""
+    return _answer({"block_height": 1, "merkle": [], "pos": 0, **members})
+
+
+HEX = KEY.hex()
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: decode_response(str(SCALAR).encode(), 1),
+            "^not a JSON-RPC response object: an int of 256 bits$",
+        ),
+        (
+            lambda: decode_response(json.dumps(HEX).encode(), 1),
+            "^not a JSON-RPC response object: a str of length 64$",
+        ),
+        (
+            lambda: decode_response(json.dumps({"id": SCALAR}).encode(), 1),
+            "^response id an int of 256 bits does not answer request an int of 1 bits$",
+        ),
+        (
+            lambda: decode_response(json.dumps({"id": 1, "x": HEX}).encode(), 1),
+            "^neither a result nor an error: a dict of length 2$",
+        ),
+        (
+            lambda: electrum.scripthash_get_history_response(
+                _answer([{"height": -SCALAR, "tx_hash": "00" * 32}]), 1
+            ),
+            "^scripthash.get_history: invalid height: a negative int of 256 bits < -1$",
+        ),
+        (
+            lambda: electrum.transaction_get_response(_answer(SCALAR), 1),
+            "^transaction.get: not a hex string: an int of 256 bits$",
+        ),
+        (
+            lambda: electrum.headers_subscribe_response(_answer([HEX]), 1),
+            "^headers.subscribe: not an object: a list of length 1$",
+        ),
+        (
+            lambda: electrum.headers_subscribe_response(
+                _answer({"height": HEX, "hex": ""}), 1
+            ),
+            "^headers.subscribe: invalid height: a str of length 64$",
+        ),
+        (
+            lambda: electrum.headers_subscribe_response(
+                _answer({"height": 1, "hex": SCALAR}), 1
+            ),
+            "^headers.subscribe: invalid hex: an int of 256 bits$",
+        ),
+        (
+            lambda: electrum.block_header_response(_answer(SCALAR), 1),
+            "^block.header: not a hex string: an int of 256 bits$",
+        ),
+        (
+            lambda: block_headers_response(_answer([HEX]), 1, 1),
+            "^block.headers: not an object: a list of length 1$",
+        ),
+        (
+            lambda: block_headers_response(_headers(count=HEX), 1, 1),
+            "^block.headers: invalid count: a str of length 64$",
+        ),
+        (
+            lambda: block_headers_response(_headers(count=SCALAR), 1, 1),
+            "^block.headers: invalid count: an int of 256 bits$",
+        ),
+        (
+            lambda: block_headers_response(_headers(hex=SCALAR), 1, 1),
+            "^block.headers: not a hex string: an int of 256 bits$",
+        ),
+        (
+            lambda: block_headers_response(_headers(count=SCALAR), 1, SCALAR),
+            "^block.headers: hex of 80 bytes, not 80 for each header counted$",
+        ),
+        (
+            lambda: electrum.transaction_get_merkle_response(_answer([HEX]), 1),
+            "^transaction.get_merkle: not an object: a list of length 1$",
+        ),
+        (
+            lambda: electrum.transaction_get_merkle_response(
+                _merkle(block_height=HEX), 1
+            ),
+            "^transaction.get_merkle: invalid block_height: a str of length 64$",
+        ),
+        (
+            lambda: electrum.transaction_get_merkle_response(_merkle(merkle=HEX), 1),
+            "^transaction.get_merkle: invalid merkle: a str of length 64$",
+        ),
+        (
+            lambda: electrum.transaction_get_merkle_response(_merkle(pos=HEX), 1),
+            "^transaction.get_merkle: invalid pos: a str of length 64$",
+        ),
+        (
+            lambda: electrum.estimate_fee_response(_answer(HEX), 1),
+            "^estimatefee: not a number: a str of length 64$",
+        ),
+        (
+            lambda: electrum.estimate_fee_response(_answer(-SCALAR), 1),
+            "^estimatefee: not a rate or -1: a negative int of 256 bits$",
+        ),
+        (
+            lambda: electrum.encode_request(1, "m", [{HEX: object()}]),
+            "^request not JSON: Object of type object is not JSON serializable$",
+        ),
+        (
+            lambda: electrum.encode_request(1, "m", [{HEX: float("nan")}]),
+            "^request not JSON: Out of range float values are not JSON compliant",
+        ),
+        (
+            lambda: ElectrumFetcher(transport=KEY),  # type: ignore[arg-type]
+            "^not a callable transport: a bytes of length 32$",
+        ),
+        (
+            lambda: ElectrumFetcher(
+                transport=TlsLineTransport("localhost", 1), verify_network=False
+            ).get_block_headers(0, -SCALAR),
+            "^invalid count: a negative int of 256 bits < 1$",
+        ),
+    ],
+    ids=[
+        "line of decimal digits",
+        "line of a hex string",
+        "response id",
+        "reply with neither",
+        "history height",
+        "transaction",
+        "tip not an object",
+        "tip height",
+        "tip hex",
+        "header",
+        "headers not an object",
+        "headers count of hex",
+        "headers count above the asked",
+        "headers hex",
+        "headers length",
+        "merkle not an object",
+        "merkle block_height",
+        "merkle branch",
+        "merkle pos",
+        "fee not a number",
+        "fee not a rate",
+        "request params unwritable",
+        "request params not finite",
+        "fetcher transport",
+        "fetcher count",
+    ],
+)
+def test_electrum_describes_a_refused_reply_or_answered_field(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A line that is no reply, and each answered field refused (issue #795).
+
+    A request json cannot write chains none of json's errors, whose notes
+    quote the dict keys of the params.
+    """
+    with pytest.raises((BTClibTypeError, BTClibValueError), match=err_msg) as e:
+        call()
     assert_secret_free(e.value, SPELLINGS)

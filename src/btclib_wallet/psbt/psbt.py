@@ -879,12 +879,19 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     p2sh one -- the hash160 the caller checks that redeem script
     against. A non_witness_utxo alone leaves every kind open.
 
-    p2tr is one of the three because it is a witness kind, which is the
-    whole of the rule: BIP174 wrote the rule when witness v0 was the
-    only witness there was. Only unwrapped, there being no p2sh-wrapped
-    taproot spend -- and a redeem script beside one is refused by the
-    hash160 the caller checks next, 20 bytes never equalling the 32 of
-    an output key.
+    p2tr and `witness_unknown` are accepted because they are witness
+    kinds, which is the whole of the rule: BIP174 wrote the rule when
+    witness v0 was the only witness there was. A p2tr script is a
+    taproot output only unwrapped, BIP341 leaving a p2sh-wrapped one
+    unencumbered, and a redeem script beside a bare one is refused by
+    the hash160 the caller checks next, 20 bytes never equalling the 32
+    of an output key.
+
+    A `witness_unknown` input passes so that `sign` reaches the other
+    inputs, `_sign_ecdsa_input` skipping this one and saying what Core's
+    signer does next. Bitcoin Core's SignPSBTInput refuses neither utxo
+    field for such an input (src/psbt.cpp:664-683 at
+    bitcoin/bitcoin@f0de87f040).
     """
     prev_out = _prev_out(psbt_in)
     if prev_out is None:
@@ -895,8 +902,11 @@ def _signable_payload(psbt_in: PsbtIn) -> bytes:
     if psbt_in.witness_utxo is not None:
         if script_type == "p2sh":
             script_type, _ = type_and_payload(psbt_in.redeem_script)
-        if script_type not in {"p2wpkh", "p2wsh", "p2tr"}:
-            raise BTClibValueError("script type not in ('p2wpkh', 'p2wsh', 'p2tr')")
+        if script_type not in {"p2wpkh", "p2wsh", "p2tr", "witness_unknown"}:
+            err_msg = (
+                "script type not in ('p2wpkh', 'p2wsh', 'p2tr', 'witness_unknown')"
+            )
+            raise BTClibValueError(err_msg)
     return payload
 
 
@@ -2612,7 +2622,7 @@ def _sig_hash_from_psbt_in(
     and travel in the taproot fields, so a partial signature beside a
     p2tr script_pub_key is not a signature this hash would check.
 
-    A non-witness spend described by a witness utxo alone is the case
+    A non-witness spend described by a witness utxo alone is a case
     that raises instead, being neither of those: the input says what is
     signed and says it on no authority. `PSBT_IN_WITNESS_UTXO` "should
     only be present for inputs which spend segwit outputs, including P2SH
@@ -2626,6 +2636,13 @@ def _sig_hash_from_psbt_in(
     bytes commits to a script_pub_key nobody vouched for, so the answer
     is an error rather than a hash, and rather than the None that would
     have the Finalizer skip the very signature it is checking.
+
+    A witness program this has no rule for raises too, bare or as the
+    redeem script: any version from 2 to 16, or a version 1 program that
+    is not p2tr, which `type_and_payload` calls `witness_unknown`.
+    Bitcoin Core's VerifyWitnessProgram checks no signature for one, so
+    the legacy hash is a hash no signature for it commits to.
+    `_sign_ecdsa_input` says what Core's signer does with one.
 
     sig_hash.from_tx is the same dispatch for a *signed* transaction, and
     cannot serve here: it reads the redeem script out of the input's
@@ -2649,6 +2666,11 @@ def _sig_hash_from_psbt_in(
 
     if not script or is_p2tr(script):
         return None
+    if type_and_payload(script)[0] == "witness_unknown":
+        # OP_1..OP_16 are 0x51..0x60
+        version = script[0] - 0x50
+        err_msg = f"input {vin_i}: no sig_hash rule for witness version {version}"
+        raise BTClibValueError(err_msg)
     if psbt_in.non_witness_utxo is None:
         err_msg = f"input {vin_i}: a witness utxo alone does not say what a "
         err_msg += "non-witness spend signs"
@@ -2725,8 +2747,9 @@ def ecdsa_sig_hash(psbt: Psbt, vin_i: int, *, hash_type: int | None = None) -> b
     a Finalizer checking a signature it was handed learns nothing from a
     psbt that does not say what was signed, while a Signer about to make
     one has to stop. Where it raises -- a non-witness spend described by
-    a witness utxo alone -- every caller stops, that being an input no
-    role may sign, verify or finalize.
+    a witness utxo alone, or a witness program it has no rule for --
+    every caller stops: such an input has no partial signature to make
+    or to check.
 
     An input's amount is its witness utxo's where it carries no
     non_witness_utxo, and nothing vouches for it: a caller signing this
@@ -2918,11 +2941,31 @@ def _sign_ecdsa_input(
     holds nothing for never reaches `ecdsa_sig_hash` to be refused for a
     reason that is not key_manager's.
 
+    A witness program `_sig_hash_from_psbt_in` has no rule for is
+    skipped as nothing to sign, whatever key_manager holds: no rule
+    checks a partial signature of it. Bitcoin Core signs none either:
+    SignStep refuses to sign every such program but the anchor, and Core
+    spends only the bare anchor, with no signature
+    (src/script/sign.cpp:655-658, 722-723 and 815,
+    src/script/solver.cpp:169-171, src/script/interpreter.cpp:2000-2008
+    and src/policy/policy.h:126 at bitcoin/bitcoin@f0de87f040).
+
+    FillPSBT goes on to sign the other inputs unless SignPSBTInput
+    answers an error other than INCOMPLETE for this one, as
+    SIGHASH_MISMATCH is. When signing, it counts the skipped input
+    signed only where PSBTInputSigned finds a final script
+    (src/psbt.cpp:547-550 and 693-695, and
+    src/wallet/scriptpubkeyman.cpp:1447-1458 at
+    bitcoin/bitcoin@f0de87f040).
+
     SIGHASH_SINGLE with no output at the input's index is refused for
-    every kind, as Bitcoin Core's signer does: the signature commits to no
-    output, and whoever holds it spends the input to any output.
+    every kind signed here, as Bitcoin Core's signer does: the signature
+    commits to no output, and whoever holds it spends the input to any
+    output.
     """
     psbt_in = psbt.inputs[vin_i]
+    if type_and_payload(_spent_script(psbt_in))[0] == "witness_unknown":
+        return False
     hash_type = ALL if psbt_in.sig_hash_type is None else psbt_in.sig_hash_type
     msg_hash: bytes | None = None
     signed = False
@@ -3073,7 +3116,8 @@ def sign(
     question -- and where a candidate's own hash cannot be computed,
     which is `ecdsa_sig_hash` refusing to guess at a caller's stop. A key
     key_manager has nothing to say about is a different question and
-    does not raise. `require_non_witness_utxo` is handed to
+    does not raise, nor does a `witness_unknown` input, which
+    `_sign_ecdsa_input` skips. `require_non_witness_utxo` is handed to
     `assert_signable`: at its default an input with no non_witness_utxo
     is refused, whoever holds its keys, unless every input is taproot
     and none asks for ANYONECANPAY.
@@ -3085,7 +3129,8 @@ def sign(
     change outputs or inputs (GHSA-qq38-77mp-j6wr). An input asking for
     a type not named raises once there is a key to ask about.
     SIGHASH_SINGLE on an ECDSA input with no output at its index raises
-    whatever is allowed: the signature commits to no output.
+    whatever is allowed: the signature commits to no output. Neither
+    check reaches a `witness_unknown` input, which is skipped first.
 
     A version 2 psbt comes back with PSBT_GLOBAL_TX_MODIFIABLE updated
     for every signature added, as BIP370 asks of the Signer.
@@ -3646,10 +3691,13 @@ def _assert_partial_sigs_verify(psbt_in: PsbtIn, tx: Tx, vin_i: int) -> None:
     An input whose sig_hash is not computable is left alone rather than
     refused: what is missing there is the utxo or a script, which is not
     evidence against the signature. A non-witness spend carrying a
-    witness utxo alone is the exception, and raises out of
+    witness utxo alone is an exception, and raises out of
     `_sig_hash_from_psbt_in`: there the input does say what was signed,
     on bytes nothing vouches for, so skipping the check would finalize
     exactly the input whose signature cannot be believed.
+
+    A witness program `_sig_hash_from_psbt_in` has no rule for raises out
+    of it too: no hash is the one a partial signature of it commits to.
 
     The question here is whether that key made that signature, and not
     which form its s took: the low-s rule is policy, applied by the script

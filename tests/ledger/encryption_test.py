@@ -180,6 +180,17 @@ def _key_bytes(directory: Path, secrets: list[bytes]) -> dict[str, int]:
     }
 
 
+def _key_bytes_out_of_wal(directory: Path, secrets: list[bytes]) -> dict[str, int]:
+    """Return `_key_bytes` of a file taken out of WAL mode, but its -shm's.
+
+    Apple's SQLite, which PyPy links on macOS, leaves the WAL index in
+    the -shm file once the file leaves WAL mode; it holds no key byte.
+    """
+    left = _key_bytes(directory, secrets)
+    assert left.pop("ledger.sqlite-shm", 0) == 0
+    return left
+
+
 def _funded(ledger: Ledger, chain: FakeChain) -> None:
     """Pay the ledger from outside and confirm it."""
     chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
@@ -272,7 +283,7 @@ def test_a_file_another_program_set_to_wal_keeps_no_key_byte(
         # the control: the file holds the keys the search looks for
         assert _key_bytes(directory, secrets)["ledger.sqlite"] > 0
         ledger.encrypt(PASSPHRASE)
-        assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
+        assert _key_bytes_out_of_wal(directory, secrets) == {"ledger.sqlite": 0}
 
 
 def test_a_file_set_to_wal_while_open_is_not_encrypted(
@@ -298,7 +309,7 @@ def test_a_file_set_to_wal_while_open_is_not_encrypted(
     with _loaded(path, chain) as ledger:
         assert ledger.unlocked_until is None
         ledger.encrypt(PASSPHRASE)
-        assert _key_bytes(directory, secrets) == {"ledger.sqlite": 0}
+        assert _key_bytes_out_of_wal(directory, secrets) == {"ledger.sqlite": 0}
 
 
 def test_a_wal_file_open_in_another_program_is_refused(
@@ -612,6 +623,8 @@ def _calls(ledger: Ledger, chain: FakeChain, tmp_path: Path) -> dict[str, object
         "addresses_by_label": lambda: ledger.addresses_by_label(""),
         "backup": lambda: ledger.backup(tmp_path / "relocked.bak"),
         "balances": ledger.balances,
+        "bump": lambda: ledger.bump(txid),
+        "bump_psbt": lambda: ledger.bump_psbt(txid),
         "change_passphrase": lambda: ledger.change_passphrase("wrong", "new"),
         "close": ledger.close,
         "encrypt": lambda: ledger.encrypt("another"),
@@ -1235,6 +1248,8 @@ def test_every_refusal_a_secret_reaches_holds_none(
             "negative birth_height",
         )
         refused(lambda: ledger.add_source(testnet), "a testnet wallet")
+        refused(lambda: ledger.bump(bytes(32)), "the ledger is locked")
+        refused(lambda: ledger.bump_psbt(bytes(32)), "the ledger is locked")
         refused(lambda: ledger.unlock_keys(WRONG, 10), "the passphrase is wrong")
         refused(lambda: ledger.unlock_keys("", 10), "the passphrase is empty")
         refused(lambda: ledger.unlock_keys(SECRET, -1), "negative timeout")
@@ -1249,6 +1264,7 @@ def test_every_refusal_a_secret_reaches_holds_none(
         without_scrypt(lambda: ledger.change_passphrase(SECRET, WRONG))
         ledger.unlock_keys(SECRET, 60)
         refused(lambda: ledger.add_source(_hardened(XPRV2)), "cannot watch")
+        refused(lambda: ledger.bump(bytes(32)), "not a ledger transaction")
     encrypted = _encrypted(path)
     flipped = encrypted[:-1] + bytes([encrypted[-1] ^ 1])
     _damaged(path, "UPDATE sources SET encrypted = ?", flipped)

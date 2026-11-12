@@ -66,6 +66,7 @@ from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet import electrum
+from btclib_wallet._refusal import _message_text
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
@@ -147,7 +148,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     ) -> None:
         super().__init__(network, verify_network=verify_network)
         if not callable(transport):
-            raise BTClibTypeError(f"not a callable transport: {transport!r}")
+            err_msg = f"not a callable transport: {_message_text(transport)}"  # type: ignore[unreachable]
+            raise BTClibTypeError(err_msg)
         self.transport = transport
         # checked here for a transport of the caller's that checks nothing
         self.timeout = valid_timeout(timeout)
@@ -257,7 +259,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         if not is_integer(count):
             raise BTClibTypeError(f"invalid count type: {type(count).__name__}")
         if count < 1:
-            raise BTClibValueError(f"invalid count: {count}")
+            raise BTClibValueError(f"invalid count: {_message_text(count)} < 1")
         request_id = self._next_request_id()
         line = self._round_trip(
             electrum.block_headers_request(request_id, start_height, count)
