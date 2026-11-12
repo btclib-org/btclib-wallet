@@ -71,6 +71,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _touching_ids,
     block_header_from_raw,
     block_header_height,
     client_errors,
@@ -374,15 +375,24 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         parents. `blockchain.headers.subscribe` is asked first and last,
         and a tip that moved is a `FetchError`.
 
+        A listed transaction that touches none of the scripts, in
+        `HistoryReader`'s sense, is left out. Where only an input can
+        settle it and spends a transaction not listed, that one is asked
+        for with `get_tx`.
+
         What the server lists is unverified beyond that. It can leave a
         transaction out, and it reports the mempool's with nothing to
-        check them against: their signatures are not verified, and a
-        transaction it reports may never confirm. A mempool transaction
-        the server no longer has when it is asked for is the server's
-        `RpcError`, a `FetchError`, and the caller asks again.
+        check them against: their signatures are not verified, a
+        transaction it reports may never confirm, and one it reports in
+        the mempool may be confirmed already. The witness of each
+        transaction is the server's word, since neither the txid nor the
+        merkle branch commits to it. A mempool transaction the server no
+        longer has when it is asked for is the server's `RpcError`, a
+        `FetchError`, and the caller asks again.
 
         The cost is a request per script, per block holding one of the
-        transactions, and two per transaction. A server refuses a script
+        transactions, two per transaction, and at most one per
+        transaction spent that is not listed. A server refuses a script
         with more history than it serves, as an `RpcError`.
         """
         elements = history_scripts(scripts)
@@ -405,6 +415,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             for tx_id, height in heights.items()
             if height is None
         ]
+        touching = _touching_ids([entry.tx for entry in txs], elements, self.get_tx)
+        txs = [entry for entry in txs if entry.tx.id in touching]
         if self._tip_ref() != tip:
             raise FetchError("the tip moved while the history was read")
         return ScriptHistory(start=start, tip=tip, txs=tuple(txs))
