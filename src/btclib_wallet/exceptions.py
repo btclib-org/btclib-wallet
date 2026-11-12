@@ -188,6 +188,10 @@ class InconclusiveError(BTClibValueError):
     fork can give a meaning to, so a validator saying "valid" would be
     speaking for rules it does not have.
 
+    The text of a proof of funds longer than `btclib_wallet.bip322` reads
+    is one too: BIP322 sets no maximum size for a psbt, so the size is a
+    limit of this library and not a reason to call the proof invalid.
+
     A BTClibValueError, so code catching that keeps catching this, and
     so that `btclib_wallet.bip322.verify` answers False without a second
     `except`: an inconclusive signature is not one that verified. A

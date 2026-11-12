@@ -58,7 +58,9 @@ ecc's, whatever failed being what it says; and *inconclusive*
 is `InconclusiveError`, which is the state for a signature that today's
 rules cannot judge -- a `to_sign` whose version is neither 0 nor 2, an
 upgradeable NOP, a witness program of a version this library does not
-know. ecc's classes are no `BTClibException` -- a legacy
+know. The text of a proof of funds longer than this module reads is
+inconclusive too, since BIP322 sets no maximum size for a psbt. ecc's
+classes are no `BTClibException` -- a legacy
 signature whose recovered key is the point at infinity is its
 `EccRuntimeError` -- so `_INVALID` names each class a single
 `except` has to catch. `verify` collapses all three states to a
@@ -101,13 +103,15 @@ https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki
 from __future__ import annotations
 
 import base64
+import contextlib
 import string
 from dataclasses import dataclass
+from typing import NoReturn
 
 from btclib import bms
 from btclib.alias import Octets, String
 from btclib.b58 import prv_key_data_from_wif
-from btclib.block.limits import MAX_BLOCK_SIGOPS_COST
+from btclib.block.limits import MAX_BLOCK_SIGOPS_COST, MAX_BLOCK_WEIGHT
 from btclib.exceptions import (
     BTClibRuntimeError,
     BTClibValueError,
@@ -188,6 +192,65 @@ _OP_RETURN = b"\x6a"
 # So the two encodings do not overlap and a prefixless signature can be
 # read as whichever of the two it is
 _BMS_SIZE = 65
+
+
+def _b64_size(size: int) -> int:
+    """Return the length of the canonical base64 text of `size` octets."""
+    return 4 * ((size + 2) // 3)
+
+
+# the bound on each variant's payload, which bounds its text before it is
+# decoded and the payload after (issue #744). A transaction's weight is at
+# least its own serialized size, Core's MAX_BLOCK_WEIGHT bounds that
+# weight, and a witness stack is part of a transaction: so no simple or
+# full signature that a consensus-valid transaction can carry is longer,
+# and a longer one is invalid. A shorter one may still weigh more than a
+# block holds, which this bound does not ask (issue #826). A psbt has no
+# such bound, as it may carry a whole previous transaction per input, so a
+# proof of funds is held to the bound rust-bitcoin/bip322#92 proposes,
+# read at its head `081ed985bc`. That bound is this module's and not the
+# BIP's, so a longer proof of funds is inconclusive
+_MAX_PAYLOAD_SIZES = {
+    SIMPLE: MAX_BLOCK_WEIGHT,
+    FULL: MAX_BLOCK_WEIGHT,
+    PROOF_OF_FUNDS: 16 * 1024 * 1024,
+}
+
+_B64_ALPHABET = (string.ascii_letters + string.digits + "+/").encode("ascii")
+
+# the characters that leave zero in the bits left over before one `=`,
+# and before two
+_B64_BEFORE_PADDING = {1: b"AEIMQUYcgkosw048", 2: b"AQgw"}
+
+
+def _assert_canonical_base64(text: str) -> None:
+    """Refuse an ASCII text that is not canonical base64, not decoding it.
+
+    Canonical is what `_b64decode` reads, and this answers the same
+    question without building the payload: for a text over its bound.
+    """
+    data = text.encode("ascii")
+    body = data.rstrip(b"=")
+    padding = len(data) - len(body)
+    if (
+        len(data) % 4
+        or padding > 2
+        or body.translate(None, _B64_ALPHABET)
+        or (padding and body[-1:] not in _B64_BEFORE_PADDING[padding])
+    ):
+        raise BTClibValueError("invalid base64 encoding: not canonical")
+
+
+def _refuse_too_long(prefix: str, detail: str) -> NoReturn:
+    """Refuse a signature over its variant's bound, as its variant says.
+
+    A proof of funds over it is inconclusive; see `_MAX_PAYLOAD_SIZES`.
+    """
+    err_msg = f"{prefix} signature too long: {detail}"
+    if prefix == PROOF_OF_FUNDS:
+        raise InconclusiveError(err_msg)
+    raise BTClibValueError(err_msg)
+
 
 # the rules of BIP322's "Check the required rules", plus the consensus
 # ones every spend is held to. Failing one of these is *invalid*: the
@@ -363,6 +426,13 @@ class Sig:
         refuses it. Absent a prefix the signature is *simple*, which is
         what BIP322 says a verifier may assume of the implementations
         that predate them.
+
+        A text longer than the base64 of its variant's bound in
+        `_MAX_PAYLOAD_SIZES` is refused before it is decoded, and a
+        payload over that bound after. A proof of funds over it is
+        inconclusive, as `_MAX_PAYLOAD_SIZES` says, and refused with
+        `InconclusiveError`, unless its text is not canonical base64,
+        which is refused as such.
         """
         # the coercion before the strip, as in
         # `btclib.bms.Sig.b64decode` and for its reason: what is neither
@@ -377,8 +447,17 @@ class Sig:
             prefix = SIMPLE
         else:
             text = text[_PREFIX_SIZE:]
+        max_size = _MAX_PAYLOAD_SIZES[prefix]
+        if len(text) > _b64_size(max_size):
+            if prefix == PROOF_OF_FUNDS:
+                _assert_canonical_base64(text)
+            detail = f"{len(text)} base64 characters, over {_b64_size(max_size)}"
+            _refuse_too_long(prefix, detail)
         # canonical base64 alone (issue #114)
         payload_bin = _b64decode(text)
+        # the longest text holds up to two octets more than the bound
+        if len(payload_bin) > max_size:
+            _refuse_too_long(prefix, f"{len(payload_bin)} octets, over {max_size}")
 
         if prefix == SIMPLE:
             return cls(Witness.parse(payload_bin, check_validity=check_validity))
@@ -721,13 +800,19 @@ def _assert_structurally_valid_(addr: String, sig: Sig | String) -> None:
     `assert_as_valid` reads the text again with its checks on, below,
     inside the try.
 
+    A proof of funds in canonical base64 that is longer than this module
+    reads is let through: it is inconclusive and not invalid, so
+    `assert_as_valid` refuses it again inside the try, and `verify`
+    answers False.
+
     The message is not asked here, as in `btclib.bms`: it is what the
     signature is verified about, and issue btclib-org/btclib#814 is where that
     was settled.
     """
     ScriptPubKey.from_address(addr)
     if not isinstance(sig, Sig) and not _is_bms(sig):
-        Sig.b64decode(sig, check_validity=False)
+        with contextlib.suppress(InconclusiveError):
+            Sig.b64decode(sig, check_validity=False)
 
 
 def verify(
@@ -736,9 +821,10 @@ def verify(
     """Verify the BIP322 signature of a message for an address.
 
     Raises where the address or the signature is structurally invalid --
-    no address at all, or text no encoding this module reads is written
-    in -- and answers False for a well-formed pair that is merely not
-    authentic. See `_assert_structurally_valid_`.
+    no address at all, text no encoding this module reads is written in,
+    or the text of a simple or full signature over the bound
+    `Sig.b64decode` states -- and answers False for a well-formed pair
+    that is merely not authentic. See `_assert_structurally_valid_`.
 
     False for an inconclusive signature as well as for an invalid one:
     the two states are worth telling apart, and `assert_as_valid` is
@@ -839,6 +925,10 @@ def _is_bms(sig: String) -> bool:
     """
     # ASCII whitespace alone (issue #102)
     text = str_from_string(sig, "base64 signature").strip(string.whitespace)
+    # no other length is the canonical base64 of 65 octets, so a text of
+    # another length is not decoded here (issue #744)
+    if len(text) != _b64_size(_BMS_SIZE):
+        return False
     # canonical base64 alone (issue #114): other text is not recognised
     # here, so `Sig.b64decode` is what refuses it
     try:
