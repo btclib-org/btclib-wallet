@@ -227,7 +227,8 @@ class TcpPeerTransport:
         where = f"{self._host}:{self._port}"
         try:
             sock = self._socket
-            if sock is None:
+            # a close interrupted once the socket closed leaves it held
+            if sock is None or sock.fileno() == -1:
                 sock = self._socket = create_connection(
                     (self._host, self._port), timeout=timeout
                 )
@@ -383,8 +384,7 @@ class V2PeerTransport:
         # one built with check_validity=False is asked again, before
         # anything is connected or encrypted
         message.assert_valid()
-        if self._magic and message.magic != self._magic:
-            raise BTClibValueError("message for another network than the connection")
+        self._assert_network(message)
         from btclib.p2p.bip324 import contents_from_message  # noqa: PLC0415
 
         deadline = monotonic() + timeout
@@ -417,6 +417,18 @@ class V2PeerTransport:
             # a `KeyboardInterrupt` can leave a packet half written
             self._discard()
             raise
+
+    def _assert_network(self, message: Message) -> None:
+        """Refuse a message for another network than the connection's.
+
+        A v1 connection that closed itself, on a failure that an interrupt
+        kept from closing this transport, is closed first: the next `send`
+        starts again, over v2, as after `close`.
+        """
+        if self._v1 is not None and not self._v1.is_open:
+            self._discard()
+        if self._magic and message.magic != self._magic:
+            raise BTClibValueError("message for another network than the connection")
 
     def _open_v1(self, v1: TcpPeerTransport, message: Message, timeout: float) -> None:
         """Send the first message over the v1 fallback, and keep it only then.

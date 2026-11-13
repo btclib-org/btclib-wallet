@@ -955,6 +955,64 @@ def test_a_close_interrupted_once_the_socket_closed_leaves_it_not_open(
     assert not transport.is_open
 
 
+def test_a_send_after_a_close_interrupted_once_the_socket_closed_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The closed socket still held is not written to: as `is_open` says."""
+    closed, again = FakeSocket([]), FakeSocket([])
+    sockets = iter([closed, again])
+    monkeypatch.setattr(
+        peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
+    )
+    transport = peer()
+    transport.send(MESSAGE, 5)
+    close = closed.close
+
+    def closed_then_interrupted() -> None:
+        close()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(closed, "close", closed_then_interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        transport.close()
+    transport.send(MESSAGE, 5)
+    assert closed.written == WIRE
+    assert again.written == WIRE
+    assert transport.is_open
+
+
+def test_a_v1_fallback_that_closed_itself_is_not_used_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An interrupt kept the transport from closing it: v2 is tried again."""
+    plain, again = FakeSocket([WIRE[:10]]), V2Peer()
+    sockets = iter([FakeSocket([]), plain, again])
+    monkeypatch.setattr(
+        peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
+    )
+    transport = v2_peer(v1_fallback=True)
+    transport.send(MESSAGE, 5)
+    discard = transport._discard
+    interrupted: list[bool] = []
+
+    def interrupted_discard() -> None:
+        if not interrupted:
+            interrupted.append(True)
+            raise KeyboardInterrupt
+        discard()
+
+    # the v1 transport closes its socket on the short read, and the
+    # interrupt comes as this transport is about to close itself
+    monkeypatch.setattr(transport, "_discard", interrupted_discard)
+    with pytest.raises(KeyboardInterrupt):
+        transport.receive(5)
+    assert plain.closed == 1
+    assert not transport.is_open
+    transport.send(MESSAGE, 5)
+    assert again.sent() == [(MESSAGE.command, MESSAGE.payload)]
+    assert transport.session_id is not None
+
+
 def test_a_v1_fallback_that_fails_to_close_is_a_fetch_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
