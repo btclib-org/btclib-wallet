@@ -108,6 +108,7 @@ from btclib_wallet.fetch.bitcoin_core_rest import (
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
+from btclib_wallet.fetch.peer_transport import V2PeerTransport
 from btclib_wallet.hwi import HwiSigner, enumerate_devices
 from btclib_wallet.ledger import Ledger
 from btclib_wallet.mnemonic import bip39
@@ -248,6 +249,16 @@ def _frost_partial_sign(**kwargs: Any) -> bytes:
     return psbt_frost.partial_sign(
         psbt, 0, sec_nonces[my_id], my_id, share[my_id], thresh_pk, **kwargs
     )
+
+
+def _v2_peer_transport(**kwargs: Any) -> V2PeerTransport:
+    """Return a v2 transport to a peer that does not exist.
+
+    Skipped where `cryptography` is missing (README's *Installing*):
+    construction then refuses after the flag is checked.
+    """
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+    return V2PeerTransport("peer.example", 18444, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -526,6 +537,15 @@ _KINDS = (
             partial(_spent_by_a_ledger, method),
         )
         for method in ("bump", "bump_psbt", "fund", "spend")
+    ),
+    # whether a peer that hangs up on the v2 handshake is connected to
+    # again over v1
+    _Case(
+        "btclib_wallet.fetch.peer_transport.V2PeerTransport.__init__",
+        "v1_fallback",
+        _v2_peer_transport,
+        reason="`True` lets the connection fall back to plain text, so a"
+        " non-bool would turn the encryption off",
     ),
 )
 

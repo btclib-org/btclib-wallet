@@ -49,11 +49,14 @@ re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
 It depends on `cryptography`, except on Windows arm64, for the cipher a
-ledger's private keys are encrypted with: `ledger.crypto` imports it,
-and no other module does. `bip38` takes its cipher from its caller
-instead, since a table-driven cipher leaks its key through cache timing,
-as its docstring says; a ledger takes none, so that it opens its own
-file alone.
+ledger's private keys are encrypted with, which `ledger.crypto` imports,
+and for BIP324's, which `fetch.peer_transport` reaches through
+`btclib.p2p.bip324`. No other module imports either, and `ledger.crypto`
+and `fetch.peer_transport` import them at the call that needs them, so
+the rest of the package works without `cryptography`. `bip38` takes its
+cipher from its caller instead, since a table-driven cipher leaks its
+key through cache timing, as its docstring says; a ledger takes none, so
+that it opens its own file alone.
 
 The line between this package and btclib is Bitcoin Core's between
 `src/consensus` and `src/wallet`: what places a module here is everything
@@ -200,24 +203,26 @@ verifies it, so a taproot, p2wsh or multisig address can sign.
 `fetch/` is the one package that goes and asks where the chain is, and
 it answers in btclib's own types, `Tx`, `TxOut` and `BlockHeader`.
 `Fetcher` is the interface, implemented once per backend —
-`BitcoinCoreFetcher` over a full node's JSON-RPC, `BitcoinCoreRestFetcher`
-over the same node's unauthenticated `-rest` interface, `EsploraFetcher`
-over a block explorer's HTTP API, `ElectrumFetcher` over an Electrum
-server, `CompactFilterFetcher` over peers' BIP157 filters — so calling
-code takes a `Fetcher` and never branches on which one it got.
-`CompactFilterFetcher`'s docstrings say what it serves of `Fetcher` and what
-its `scan_blocks` does.
+`BitcoinCoreFetcher` over a full node's JSON-RPC,
+`BitcoinCoreRestFetcher` over the same node's unauthenticated `-rest`
+interface, `EsploraFetcher` over a block explorer's HTTP API,
+`ElectrumFetcher` over an Electrum server, `CompactFilterFetcher` over
+peers' BIP157 filters — so calling code takes a `Fetcher` and never
+branches on which one it got. `CompactFilterFetcher`'s docstrings say
+what it serves of `Fetcher` and what its `scan_blocks` does.
 `Broadcaster`, `FeeEstimator`, `BalanceReader`, `HistoryReader` and
 `RelayFeeReader` are further protocols a backend may or may not satisfy:
 `BitcoinCoreRestFetcher` answers only `HistoryReader` and
 `RelayFeeReader`. Core's `-rest` interface is read-only and carries no
 fee estimation and no address index, so the fetcher reads a script's
-history from the blocks and the mempool.
-`fetch.transport` is the client seam — over HTTP and over the Electrum
-line protocol, one connection per call and one kept open across calls —
-and `fetch.peer_transport` is the seam of the p2p peer:
-`TcpPeerTransport` holds one TCP connection to it, plain and without
-authentication. The codec each backend speaks is `btclib.p2p` or
+history from the blocks and the mempool. `fetch.transport` is the client
+seam — over HTTP and over the Electrum line protocol, one connection per
+call and one kept open across calls — and `fetch.peer_transport` is the
+seam of the p2p peer: `TcpPeerTransport` holds one TCP connection to it,
+plain and without authentication, and `V2PeerTransport` one encrypted by
+BIP324's v2 transport, which protects against a passive observer only,
+or plain v1 to a peer without v2 where its caller asks for that
+fallback. The codec each backend speaks is `btclib.p2p` or
 `electrum.py`, outside `fetch/`: importing `fetch` costs `urllib`, `ssl`
 and `socket`, never the reverse.
 
