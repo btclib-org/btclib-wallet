@@ -40,6 +40,7 @@ from ecc.curves import secp256k1 as ec
 from typing_extensions import override
 
 import btclib_wallet
+from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.bip32 import BIP32KeyData, derive, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip85 import (
     _HMAC_KEY,
@@ -634,6 +635,45 @@ def test_a_subclass_does_not_shorten_what_is_quoted() -> None:
     with pytest.raises(AttributeError, match=err_msg) as name_e:
         getattr(btclib_wallet, lang)
     assert_secret_free(name_e.value, secrets)
+
+
+class _LyingInt(int):
+    """An int whose `__int__` and `__index__` answer 1."""
+
+    @override
+    def __int__(self) -> int:
+        return 1
+
+    @override
+    def __index__(self) -> int:
+        return 1
+
+
+def test_an_int_is_measured_by_its_digits_not_its_int() -> None:
+    """On PyPy, `int.__abs__` calls the value's `__int__`, which can lie."""
+    words = _LyingInt(10**17)
+    assert (int(words), words.__index__()) == (1, 1)
+    err_msg = "^invalid number of words: a value of more than 16 digits;"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        mnemonic_from_root_key(_ROOT, words)
+    assert _message_text(_LyingInt(-5)) == "a negative int of 3 bits"
+
+
+class _Unreadable:
+    """An object whose every attribute lookup raises, `__class__` included."""
+
+    @override
+    def __getattribute__(self, name: str) -> Any:
+        raise RuntimeError(name)
+
+
+def test_a_value_whose_attributes_raise_is_described_by_its_type() -> None:
+    """The type is tested before isinstance, which asks for the `__class__`."""
+    unreadable = _Unreadable()
+    with pytest.raises(RuntimeError, match="^__class__$"):
+        _ = unreadable.__class__
+    assert _quoted(unreadable) == "an _Unreadable"  # type: ignore[arg-type]
+    assert _message_text(unreadable) == "an _Unreadable"
 
 
 def test_an_object_claiming_int_is_described_by_its_type() -> None:
