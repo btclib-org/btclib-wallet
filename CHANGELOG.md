@@ -24,6 +24,104 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.13
+
+### `bip44` discovers an account's used addresses from public keys
+
+`discover_account` and `discover_accounts` scan each branch through a
+`fetch.HistoryReader` up to the gap limit, as BIP44 does (closes #816).
+
+### A ledger holds its file from load to close
+
+A second ledger, a restore or another SQLite connection on the file is
+refused, as Core holds a wallet's (closes #800); an open error naming no
+SQLite code is refused, not raised as `AttributeError` (closes #870).
+
+### A key let go mid-sign is refused as locked
+
+`sign` calls a ledger locked, not damaged, where another thread locks it
+while it decrypts a source's keys (closes #801).
+
+### A tapscript's duplicate keys are compared by their x
+
+Parsing refuses a miniscript tr() leaf naming one x under two parities
+(closes #824).
+
+### A history server's list keeps only what touches a script
+
+`ElectrumFetcher.get_history` and `EsploraFetcher.get_history` drop a
+listed transaction that pays or spends none of the scripts (closes #703)
+(closes #704) (closes #709).
+
+### Electrum's history headers chain to the tip
+
+`ElectrumFetcher.get_history` refuses a confirmation, or a start, whose header
+no chain to the server's tip holds (closes #708) (closes #873).
+
+### A psbt's text is bounded before it is decoded
+
+`Psbt.b64decode` and `tx_or_psbt_from_any` refuse a base64 or hex text
+over the size of a 16 MiB psbt (closes #823).
+
+### `finalize` refuses a key or a spend Core leaves incomplete
+
+A single key whose hash the script does not hold, and an uncompressed
+p2wpkh key, are refused; p2sh-p2pkh carries its redeem script (closes #799)
+(closes #830) (closes #831).
+
+### A p2sh-wrapped p2tr program is no taproot input
+
+`sign`, `finalize`, the amount check and `estimated_input_sizes` read it as
+a witness program of no known rule (closes #804) (closes #818).
+
+### A MuSig2 or FROST session refuses a non-taproot input
+
+Or one whose control block does not prove its leaf, before round 1
+(closes #820).
+
+### BIP322 bounds a signature's text and its to_sign's weight
+
+`b64decode` refuses a text over its variant's bound, and `assert_as_valid`
+a to_sign over `MAX_BLOCK_WEIGHT` (closes #744) (closes #826).
+
+### A refusal describes the value it refuses, or names it
+
+The fetchers, electrum's errors and the descriptor parser print no value the
+caller passed but a CompactFilterFetcher's height of its chain, nor an Electrum
+server's text (closes #802) (closes #805) (closes #806).
+
+### The fetchers' bounds and codes are described, not printed
+
+`max_blocks`, `max_pages`, an RPC code and an HTTP path print no caller's
+value (closes #828) (closes #836) (closes #837) (closes #843).
+
+### speculos runs its arm build under qemu-user
+
+(closes #825).
+
+### qa-assets' btclib output is named by its locked tag
+
+(closes #784).
+
+### Shared files follow btclib-org/.github
+
+Sourcery, fuzz's cadence, vendored vectors, the docs block, RootFileLinks
+(issue btclib-org/.github#2162, btclib-org/.github#2190, btclib-org/.github#1927,
+btclib-org/.github#2152, btclib-org/.github#2015, btclib-org/.github#2166).
+
+### AGENTS.md carries the organization's code review rules
+
+(issue btclib-org/.github#2009).
+
+### The bestpractices.dev answers are re-measured at v2026.11.12
+
+(closes #803) (issue #784, btclib-org/.github#2205, btclib-org/.github#2214).
+
+### The dev tooling moves to newer releases
+
+Dependabot's coverage bump (#844); soupsieve 4.1, past
+GHSA-mmhr-3c5m-f64f, in the docs group (closes #875).
+
 ## v2026.11.12
 
 ### A ledger encrypts its private keys at rest
