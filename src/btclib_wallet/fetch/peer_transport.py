@@ -422,8 +422,8 @@ class V2PeerTransport:
         """Refuse a message for another network than the connection's.
 
         A v1 connection that closed itself, on a failure that an interrupt
-        kept from closing this transport, is closed first: the next `send`
-        starts again, over v2, as after `close`.
+        kept from closing this transport, is closed first, so that the
+        `send` calling this starts again over v2, as after `close`.
         """
         if self._v1 is not None and not self._v1.is_open:
             self._discard()
