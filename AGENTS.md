@@ -21,3 +21,12 @@ Read [ARCHITECTURE.md](./ARCHITECTURE.md) before changing
 interfaces.
 
 [org-standard]: https://github.com/btclib-org/.github/blob/main/README.md
+
+## Code Review Rules
+
+Review against [REVIEWING.md](./REVIEWING.md). Its *The verdict* says
+which review opens with a verdict line and what every other review
+posts.
+
+The heading is the one Codex's GitHub review asks for
+([Customize what Codex reviews](https://learn.chatgpt.com/docs/third-party/github#customize-what-codex-reviews)).
