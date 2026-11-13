@@ -32,6 +32,8 @@ from btclib_wallet.electrum import (
     _MAX_NESTING,
     HeaderTip,
     MerkleProof,
+    _reply_ids,
+    _request_ids,
     assert_merkle_proof,
     block_header_request,
     block_header_response,
@@ -821,3 +823,92 @@ def test_a_refusal_describes_a_value_str_or_len_cannot_read(
     """Refused as this library's error, the value described and not quoted."""
     with pytest.raises(BTClibValueError, match=message):
         call()
+
+
+@pytest.mark.parametrize(
+    "line, ids",
+    [
+        (b'{"id": 3, "method": "server.ping", "params": []}', frozenset({3})),
+        (b'[{"id": 3, "method": "a"}, {"id": 4, "method": "b"}]', frozenset({3, 4})),
+    ],
+    ids=["request", "batch"],
+)
+def test_request_ids_reads_the_ids_a_request_carries(
+    line: bytes, ids: frozenset[int]
+) -> None:
+    """A request's id, or a batch's."""
+    assert _request_ids(line) == ids
+
+
+@pytest.mark.parametrize(
+    "line, match",
+    [
+        (b'{"method": "server.ping"}', "no request id"),
+        (b'{"id": null, "method": "server.ping"}', "no request id"),
+        (b"[]", "no request id"),
+        (b"[1]", "not a JSON-RPC message: an int of 1 bits"),
+        (b'{"id": "3"}', "not an integer id: a str of length 1"),
+        (b'{"id": true}', "not an integer id: a bool"),
+        (b'[{"id": 3}, {"id": 3}]', "repeated request id: an int of 2 bits"),
+        (b"ping", "not JSON"),
+    ],
+)
+def test_request_ids_refuses_a_line_no_answer_would_match(
+    line: bytes, match: str
+) -> None:
+    """Refused, and described rather than quoted."""
+    with pytest.raises(BTClibValueError, match=match):
+        _request_ids(line)
+
+
+@pytest.mark.parametrize(
+    "line, ids",
+    [
+        (b'{"id": 3, "result": null}', frozenset({3})),
+        (b'{"id": 3, "error": {"code": 1}}', frozenset({3})),
+        (b'[{"id": 3, "result": 1}, {"id": 4, "error": 2}]', frozenset({3, 4})),
+        (b'{"id": null, "error": {"code": -32700}}', frozenset()),
+        (b'{"method": "blockchain.headers.subscribe", "params": [{}]}', None),
+        (b'{"id": null, "method": "blockchain.headers.subscribe"}', None),
+    ],
+    ids=[
+        "result",
+        "error",
+        "batch",
+        "null id error",
+        "notification",
+        "null id notification",
+    ],
+)
+def test_reply_ids_reads_the_ids_a_line_answers(
+    line: bytes, ids: frozenset[int] | None
+) -> None:
+    """A response's ids, and `None` for a notification."""
+    assert _reply_ids(line) == ids
+
+
+@pytest.mark.parametrize(
+    "line, match",
+    [
+        (b'{"result": 1}', "not an integer id: a NoneType"),
+        (b'{"id": null, "result": 1}', "not an integer id: a NoneType"),
+        (b'{"id": 3}', "not a JSON-RPC response: a dict of length 1"),
+        (b'{"id": 3, "method": "a"}', "not a JSON-RPC response: a dict of length 2"),
+        (b"[]", "not a JSON-RPC response: an empty batch"),
+        (b"[1]", "not a JSON-RPC response: an int of 1 bits"),
+        (b'"abc"', "not a JSON-RPC response: a str of length 3"),
+        (b'{"id": "3", "result": 1}', "not an integer id: a str of length 1"),
+        (b'{"id": true, "result": 1}', "not an integer id: a bool"),
+        (b'{"id": 3.0, "result": 1}', "not an integer id: a float"),
+        (
+            b'[{"id": 3, "result": 1}, {"id": 3, "result": 2}]',
+            "repeated response id: an int of 2 bits",
+        ),
+        (b"ping", "not JSON"),
+        (b"[" * (_MAX_NESTING + 1) + b"]" * (_MAX_NESTING + 1), "nested beyond"),
+    ],
+)
+def test_reply_ids_refuses_a_line_that_answers_nothing(line: bytes, match: str) -> None:
+    """Refused, and described rather than quoted."""
+    with pytest.raises(BTClibValueError, match=match):
+        _reply_ids(line)

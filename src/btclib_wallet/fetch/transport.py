@@ -7,7 +7,7 @@
 Two seams here, one per wire shape; a p2p peer's is
 `btclib_wallet.fetch.peer_transport`. `HttpTransport` is re-exported under
 btclib's name with its implementations; `LineTransport` is declared here,
-and `TlsLineTransport` and `TcpLineTransport` implement it here.
+with its implementations.
 
 The HTTP half's implementation is `bitcoin_core_rpc`'s: a bounded read, no
 redirect followed and no proxy taken from the environment, in a package
@@ -53,19 +53,29 @@ the vocabulary `HttpTransport` already raises through this same package;
 `ElectrumFetcher` call the way it is at every other backend's.
 
 **`LineTransport` carries no host, so each implementation is an object
-that does.** `TlsLineTransport(host, port)` or
-`TcpLineTransport(host, port)` is the callable `ElectrumFetcher` takes,
-and that fetcher has no default for it: a default transport would have
-to be a default server, which `ElectrumFetcher`'s own docstring refuses.
+that does.** One constructed with a host and a port is the callable
+`ElectrumFetcher` takes, and that fetcher has no default for it: a
+default transport would have to be a default server, which
+`ElectrumFetcher`'s own docstring refuses.
+
+The line implementations differ in how they hold the connection, as the
+HTTP ones do. `TlsLineTransport` and `TcpLineTransport` open one
+connection per call. `PersistentTlsLineTransport` keeps one TLS
+connection across calls, which is worth choosing for many calls against
+one server, a scan among them: the connect and the handshake are paid
+once. It has a `close()` and works as a context manager.
 """
 
 from __future__ import annotations
 
+import select
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
 from socket import create_connection, socket
+from threading import Lock
 from time import monotonic
+from typing import Self
 
 from bitcoin_core_rpc import (
     DEFAULT_MAX_BODY_SIZE,
@@ -81,6 +91,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import is_integer
 
 from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet.electrum import _reply_ids, _request_ids
 
 LineTransport = Callable[[bytes, float], bytes]
 
@@ -91,6 +102,7 @@ __all__ = [
     "MAX_TIMEOUT",
     "HttpTransport",
     "LineTransport",
+    "PersistentTlsLineTransport",
     "SessionTransport",
     "TcpLineTransport",
     "TlsLineTransport",
@@ -104,6 +116,11 @@ __all__ = [
 _READ_CHUNK = 64 * 1024
 
 _MAX_PORT = 65535
+
+# how many request ids one connection of `PersistentTlsLineTransport`
+# carries before it is replaced, so that the ids it keeps stay bounded;
+# each replacement costs a handshake
+_MAX_IDS_PER_CONNECTION = 1000
 
 # the longest timeout, in seconds, a socket waits for on every platform
 # this package supports. CPython on Windows builds without poll(), and its
@@ -156,41 +173,40 @@ def _time_left(deadline: float, timeout: float, where: str) -> float:
 
 def _read_line(
     connection: socket,
+    buffer: bytearray,
     max_line_size: int,
     where: str,
     deadline: float,
     timeout: float,
 ) -> bytes:
-    """Return the first line the connection delivers, without its newline.
+    """Return the next line, its newline dropped, from `buffer` or the socket.
 
-    Never holds more than one octet past `max_line_size`: each read asks
-    for at most what would take the line there, which is what tells a line
-    at the limit from one over it. What
-    follows the newline -- a notification the server pushed after the
-    answer -- is read or not and discarded either way, the connection
-    closing behind this call.
+    `buffer` holds what earlier reads delivered past the last line, and
+    keeps what this one delivers past its own. It never holds more than
+    one octet past `max_line_size`: each read asks for at most what would
+    take it there, which is what tells a line at the limit from one over
+    it.
     """
-    buffer = bytearray()
     while True:
-        connection.settimeout(_time_left(deadline, timeout, where))
-        chunk = connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer)))
-        if not chunk:
-            raise FetchError(f"{where}: connection closed before a whole line")
-        end = chunk.find(b"\n")
+        end = buffer.find(b"\n")
         if end != -1:
-            buffer.extend(chunk[:end])
-            return bytes(buffer)
-        buffer.extend(chunk)
+            line = bytes(buffer[:end])
+            del buffer[: end + 1]
+            return line
         if len(buffer) > max_line_size:
             err_msg = f"{where}: line longer than the max_line_size of {max_line_size}"
             raise FetchError(err_msg)
+        connection.settimeout(_time_left(deadline, timeout, where))
+        if chunk := connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer))):
+            buffer.extend(chunk)
+        else:
+            raise FetchError(f"{where}: connection closed before a whole line")
 
 
 def _valid_endpoint(host: str, port: int, max_line_size: int) -> None:
     """Refuse a host, a port or a line limit no line transport can use.
 
-    The checks `TlsLineTransport` and `TcpLineTransport` make where they
-    are constructed.
+    The checks a line transport makes where it is constructed.
     """
     if not isinstance(host, str):
         raise BTClibTypeError(f"non-string host: {_message_text(host)}")
@@ -217,6 +233,32 @@ def _valid_endpoint(host: str, port: int, max_line_size: int) -> None:
         raise BTClibValueError(f"invalid max_line_size: {_message_text(max_line_size)}")
 
 
+def _tls_context(context: ssl.SSLContext | None) -> ssl.SSLContext:
+    """Return `context`, or the default one where it is `None`.
+
+    The default is `ssl.create_default_context()` with its
+    `minimum_version` set to TLS 1.2.
+    """
+    if context is not None and not isinstance(context, ssl.SSLContext):
+        raise BTClibTypeError(f"not an ssl.SSLContext: {_message_text(context)}")
+    if context is None:
+        context = ssl.create_default_context()
+        # CPython's default context sets this floor itself and PyPy's
+        # leaves it to OpenSSL, so the transport states it
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def _valid_request(request: bytes) -> None:
+    """Refuse a request that is not one line of bytes, ending at its newline."""
+    if not isinstance(request, bytes):
+        raise BTClibTypeError(f"non-bytes request: {_message_text(request)}")
+    if request.count(b"\n") != 1 or not request.endswith(b"\n"):
+        raise BTClibValueError(
+            f"not one newline-terminated line: {_message_text(request)}"
+        )
+
+
 def _exchange(
     host: str,
     port: int,
@@ -227,15 +269,13 @@ def _exchange(
 ) -> bytes:
     """Send one request line and return the line answering it.
 
-    The call of both line transports: over TLS where `context` is given,
-    over plain TCP where it is `None`.
+    The call of the transports opening one connection per call: over TLS
+    where `context` is given, over plain TCP where it is `None`. What
+    follows the answer's newline -- a notification the server pushed after
+    it -- is read or not and discarded either way, the connection closing
+    behind this call.
     """
-    if not isinstance(request, bytes):
-        raise BTClibTypeError(f"non-bytes request: {_message_text(request)}")
-    if request.count(b"\n") != 1 or not request.endswith(b"\n"):
-        raise BTClibValueError(
-            f"not one newline-terminated line: {_message_text(request)}"
-        )
+    _valid_request(request)
     valid_timeout(timeout)
 
     where = f"{host}:{port}"
@@ -249,7 +289,9 @@ def _exchange(
             with connection:
                 connection.settimeout(_time_left(deadline, timeout, where))
                 connection.sendall(request)
-                return _read_line(connection, max_line_size, where, deadline, timeout)
+                return _read_line(
+                    connection, bytearray(), max_line_size, where, deadline, timeout
+                )
     except OSError as e:
         # `ssl.SSLError`, `socket.gaierror` and `TimeoutError` all derive
         # from it, which makes it every way the exchange did not happen
@@ -265,14 +307,9 @@ class TlsLineTransport:
 
     **One connection per call.** Each call connects, performs the TLS
     handshake, sends the one request line, reads the one line answering
-    it, and closes. A connection kept across calls is what
-    `blockchain.headers.subscribe` rules out: the server then pushes a
-    notification line down that same connection at every new block, and a
-    later call reading the next line would read the notification in place
-    of its own answer. What a kept connection would save -- the connect
-    and the handshake -- is paid on every call instead. Nothing is kept
-    between calls, so concurrent calls share the `ssl.SSLContext` and
-    nothing else.
+    it, and closes. Nothing is kept between calls, so concurrent calls
+    share the `ssl.SSLContext` and nothing else.
+    `PersistentTlsLineTransport` keeps the connection instead.
 
     **The network policy**, the one `urlopen_transport` keeps for HTTP:
 
@@ -317,16 +354,9 @@ class TlsLineTransport:
         max_line_size: int = DEFAULT_MAX_BODY_SIZE,
     ) -> None:
         _valid_endpoint(host, port, max_line_size)
-        if context is not None and not isinstance(context, ssl.SSLContext):
-            raise BTClibTypeError(f"not an ssl.SSLContext: {_message_text(context)}")
-        if context is None:
-            context = ssl.create_default_context()
-            # CPython's default context sets this floor itself and PyPy's
-            # leaves it to OpenSSL, so the transport states it
-            context.minimum_version = ssl.TLSVersion.TLSv1_2
         self._host = host
         self._port = port
-        self._context = context
+        self._context = _tls_context(context)
         self._max_line_size = max_line_size
 
     @property
@@ -414,3 +444,251 @@ class TcpLineTransport:
         return _exchange(
             self._host, self._port, None, self._max_line_size, request, timeout
         )
+
+
+def _readable(connection: socket) -> bool:
+    """Return whether `connection` has something to read, without waiting.
+
+    `select.poll` where the platform has it, and `select.select` only where
+    it does not, which is Windows: elsewhere `select.select` refuses a
+    descriptor at or above `FD_SETSIZE`, which a process holding that many
+    files reaches.
+    """
+    if hasattr(select, "poll"):
+        poller = select.poll()
+        poller.register(connection, select.POLLIN)
+        return bool(poller.poll(0))
+    readable, _, _ = select.select([connection], [], [], 0)
+    return bool(readable)
+
+
+def _line_ids(line: bytes, where: str) -> frozenset[int] | None:
+    """Return the request ids a line the server sent answers, or `None`.
+
+    `None` is a notification. A line that is no JSON-RPC message is a
+    `FetchError`, raised after `suppress` so that it chains no codec
+    error.
+    """
+    ids: frozenset[int] | None = frozenset()
+    refused = True
+    with suppress(BTClibValueError):
+        ids = _reply_ids(line)
+        refused = False
+    if refused:
+        raise FetchError(f"{where}: a line that is no JSON-RPC message")
+    return ids
+
+
+class PersistentTlsLineTransport:
+    """A `LineTransport` over one TLS connection, kept across calls.
+
+    Constructed as `TlsLineTransport` is, with the same checks, and
+    keeping its network policy: the bounded line, no proxy from the
+    environment, TLS verified by default, and one deadline over each call.
+    The first call opens the connection and later calls reuse it, so many
+    calls against one server pay the connect and the handshake once.
+
+    **Each answer is matched to its request by the JSON-RPC id.** A
+    request carries an integer id, as `encode_request` writes it, or a
+    batch carries several. The line returned is the first whose ids are
+    the request's, or the error with a `null` id that answers a request
+    the server could not parse. A notification read before it -- a line
+    the server pushes after `blockchain.headers.subscribe` -- is set
+    aside. Any other line is a `FetchError`.
+
+    **No answer is read from a stale connection.** A call that fails once
+    it holds the connection closes it, a line over the limit and a
+    deadline passed among the failures, so the late answer to an
+    abandoned request is never read: the next call opens a new
+    connection. A call that finds something to read on the kept
+    connection before it sends -- the server closed it, or pushed a
+    notification since the last answer -- opens a new one too, and so
+    does a request with an id already sent on the connection, since what
+    is checked before sending cannot see a copy of an earlier answer that
+    arrives after it. Fetchers sharing a transport count their ids each
+    from 1. A connection that has carried `_MAX_IDS_PER_CONNECTION` ids
+    is replaced too, so that the ids kept of it stay bounded.
+
+    **Calls are made one at a time.** A call holds the connection until it
+    returns, and the wait for it counts against that call's deadline, as
+    does each line it reads, those already buffered included.
+
+    **The caller closes it**, with `close()` or a `with` block. A call
+    after that opens a new connection.
+
+    Everything that goes wrong below the answer is a `FetchError`, as for
+    `TlsLineTransport`.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        context: ssl.SSLContext | None = None,
+        max_line_size: int = DEFAULT_MAX_BODY_SIZE,
+    ) -> None:
+        _valid_endpoint(host, port, max_line_size)
+        self._host = host
+        self._port = port
+        self._context = _tls_context(context)
+        self._max_line_size = max_line_size
+        self._lock = Lock()
+        self._connection: ssl.SSLSocket | None = None
+        # what the connection delivered past the last line read
+        self._buffer = bytearray()
+        # the request ids sent on the connection
+        self._sent: set[int] = set()
+
+    @property
+    def host(self) -> str:
+        """Return the host this transport connects to."""
+        return self._host
+
+    @property
+    def port(self) -> int:
+        """Return the port this transport connects to."""
+        return self._port
+
+    @property
+    def context(self) -> ssl.SSLContext:
+        """Return the context the TLS handshake is verified against."""
+        return self._context
+
+    @property
+    def max_line_size(self) -> int:
+        """Return the octets an answering line may hold before it is refused."""
+        return self._max_line_size
+
+    @property
+    def is_open(self) -> bool:
+        """Return whether a connection is open."""
+        return self._connection is not None
+
+    def __enter__(self) -> Self:
+        """Return this transport."""
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        """Close the connection."""
+        self.close()
+
+    def close(self) -> None:
+        """Close the connection, if there is one, once no call holds it."""
+        with self._lock:
+            self._close()
+
+    def _close(self) -> None:
+        """Close the connection, if there is one, the lock held."""
+        self._buffer.clear()
+        self._sent.clear()
+        if self._connection is not None:
+            connection, self._connection = self._connection, None
+            try:
+                connection.close()
+            except OSError as e:
+                raise FetchError(f"closing {self._host}:{self._port}: {e}") from e
+
+    def _discard(self) -> None:
+        """Close the connection after a failure, which stays the one raised."""
+        with suppress(FetchError):
+            self._close()
+
+    def __call__(self, request: bytes, timeout: float) -> bytes:
+        """Send one request line and return the line answering it.
+
+        `request` is what `TlsLineTransport.__call__` takes, and carries a
+        JSON-RPC id: a request with none is refused, since no line would
+        answer it.
+        """
+        _valid_request(request)
+        ids = _request_ids(request)
+        valid_timeout(timeout)
+
+        where = f"{self._host}:{self._port}"
+        deadline = monotonic() + timeout
+        if not self._lock.acquire(timeout=timeout):
+            raise FetchError(f"{where}: timeout expired before an answer arrived")
+        try:
+            return self._answer(request, ids, where, deadline, timeout)
+        except OSError as e:
+            # `ssl.SSLError`, `socket.gaierror` and `TimeoutError` all derive
+            # from it, which makes it every way the exchange did not happen
+            raise FetchError(f"no answer from {where}: {e}") from e
+        finally:
+            self._lock.release()
+
+    def _answer(
+        self,
+        request: bytes,
+        ids: frozenset[int],
+        where: str,
+        deadline: float,
+        timeout: float,
+    ) -> bytes:
+        """Send `request` and return the line answering it, the lock held.
+
+        Closes the connection on any failure.
+        """
+        try:
+            connection = self._connected(ids, where, deadline, timeout)
+            self._sent |= ids
+            connection.settimeout(_time_left(deadline, timeout, where))
+            connection.sendall(request)
+            return self._read_answer(connection, ids, where, deadline, timeout)
+        except BaseException:
+            self._discard()
+            raise
+
+    def _read_answer(
+        self,
+        connection: ssl.SSLSocket,
+        ids: frozenset[int],
+        where: str,
+        deadline: float,
+        timeout: float,
+    ) -> bytes:
+        """Return the first line answering `ids`, notifications set aside."""
+        while True:
+            line = _read_line(
+                connection, self._buffer, self._max_line_size, where, deadline, timeout
+            )
+            answered = _line_ids(line, where)
+            # after the line is read, which a buffered one costs no
+            # socket wait for, and before an answer is accepted
+            _time_left(deadline, timeout, where)
+            if answered is not None:
+                if not answered or answered == ids:
+                    return line
+                raise FetchError(f"{where}: a line answering another request")
+
+    def _connected(
+        self, ids: frozenset[int], where: str, deadline: float, timeout: float
+    ) -> ssl.SSLSocket:
+        """Return the kept connection, or a new one where that is unfit.
+
+        Unfit where it has data, has carried one of `ids` before, or has
+        carried as many ids as it may.
+        """
+        connection = self._connection
+        if connection is not None and (
+            self._buffer
+            or connection.pending()
+            or _readable(connection)
+            or not self._sent.isdisjoint(ids)
+            or len(self._sent) >= _MAX_IDS_PER_CONNECTION
+        ):
+            self._close()
+            connection = None
+        if connection is None:
+            sock = create_connection(
+                (self._host, self._port), timeout=_time_left(deadline, timeout, where)
+            )
+            try:
+                sock.settimeout(_time_left(deadline, timeout, where))
+                connection = self._context.wrap_socket(sock, server_hostname=self._host)
+            except BaseException:
+                sock.close()
+                raise
+            self._connection = connection
+        return connection

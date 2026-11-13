@@ -14,9 +14,8 @@ own transports.
 **`transport` is required, keyword-only, and has no default.**
 `LineTransport` (`btclib_wallet.fetch.transport`) carries no host, so a
 transport that reaches a server is one constructed with that server's
-host -- `TlsLineTransport(host, port)` and `TcpLineTransport(host, port)`
-are the ones shipped -- and a default transport would be a default
-server, which the next paragraph refuses.
+host, as those that module ships are, and a default transport would be a
+default server, which the next paragraph refuses.
 
 **No `base_url` and no default server.** Unlike `EsploraFetcher`, which
 takes a required url with no default, this fetcher takes none at all:

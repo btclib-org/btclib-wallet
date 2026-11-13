@@ -213,13 +213,13 @@ its `scan_blocks` does.
 `RelayFeeReader`. Core's `-rest` interface is read-only and carries no
 fee estimation and no address index, so the fetcher reads a script's
 history from the blocks and the mempool.
-`fetch.transport` is the client seam — one HTTP connection per call, one
-kept open across calls, and `TlsLineTransport` and `TcpLineTransport`
-for the Electrum line protocol — and `fetch.peer_transport` is the seam
-of the p2p peer: `TcpPeerTransport` holds one TCP connection to it,
-plain and without authentication. The codec each backend speaks is
-`btclib.p2p` or `electrum.py`, outside `fetch/`: importing `fetch` costs
-`urllib`, `ssl` and `socket`, never the reverse.
+`fetch.transport` is the client seam — over HTTP and over the Electrum
+line protocol, one connection per call and one kept open across calls —
+and `fetch.peer_transport` is the seam of the p2p peer:
+`TcpPeerTransport` holds one TCP connection to it, plain and without
+authentication. The codec each backend speaks is `btclib.p2p` or
+`electrum.py`, outside `fetch/`: importing `fetch` costs `urllib`, `ssl`
+and `socket`, never the reverse.
 
 `exceptions.py` declares the public classes this package raises and
 btclib does not, each derived from btclib's class of its kind. A fetcher

@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""Tests for `TlsLineTransport` and `TcpLineTransport`, over a fake connection.
+"""Tests for the line transports, over a fake connection.
 
 No socket is opened: `create_connection` is replaced in the module under
 test and returns a scripted socket, and the context handed to
@@ -11,6 +11,10 @@ scripted connection rather than performing a handshake. What that leaves
 untested is the handshake itself, which is `ssl`'s; what it tests is
 everything this module decides around it -- the deadline, the bounded
 read, and what a failure becomes -- over TLS and over plain TCP.
+
+`PersistentTlsLineTransport` is constructed as `TlsLineTransport` is, and
+its construction is tested with theirs; its calls are tested against
+servers, in `tests/fetch/persistent_transport_test.py`.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from btclib_wallet.fetch.transport import (
     DEFAULT_MAX_BODY_SIZE,
     DEFAULT_TIMEOUT,
     MAX_TIMEOUT,
+    PersistentTlsLineTransport,
     TcpLineTransport,
     TlsLineTransport,
     valid_timeout,
@@ -44,8 +49,12 @@ HOST = "electrum.example"
 PORT = 50002
 REQUEST = b'{"id": 1, "method": "server.ping", "params": []}\n'
 
-# the two line transports, for the tests of what they share
+# the two line transports opening a connection per call, for the tests of
+# what they share
 KINDS = ["tls", "tcp"]
+# the line transports, and those over TLS, for the tests of construction
+CLASSES = [TlsLineTransport, TcpLineTransport, PersistentTlsLineTransport]
+TLS_CLASSES = [TlsLineTransport, PersistentTlsLineTransport]
 
 
 class FakeConnection:
@@ -184,15 +193,20 @@ def timeouts_set(sock: FakeConnection, connection: FakeConnection) -> list[float
     return sock.timeouts + connection.timeouts
 
 
-def test_the_default_context_verifies_the_certificate_and_the_host() -> None:
+@pytest.mark.parametrize("cls", TLS_CLASSES)
+def test_the_default_context_verifies_the_certificate_and_the_host(
+    cls: type[TlsLineTransport | PersistentTlsLineTransport],
+) -> None:
     """The strict posture: a chain to the trust store, and the host checked."""
-    context = TlsLineTransport(HOST, PORT).context
+    context = cls(HOST, PORT).context
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname
     assert context.minimum_version == ssl.TLSVersion.TLSv1_2
 
 
+@pytest.mark.parametrize("cls", TLS_CLASSES)
 def test_the_transport_sets_the_default_context_floor(
+    cls: type[TlsLineTransport | PersistentTlsLineTransport],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """TLS 1.2 is the floor where the interpreter's default sets none.
@@ -207,13 +221,13 @@ def test_the_transport_sets_the_default_context_floor(
         return context
 
     monkeypatch.setattr(ssl, "create_default_context", create_default_context)
-    context = TlsLineTransport(HOST, PORT).context
+    context = cls(HOST, PORT).context
     assert context.minimum_version == ssl.TLSVersion.TLSv1_2
 
 
-@pytest.mark.parametrize("cls", [TlsLineTransport, TcpLineTransport])
+@pytest.mark.parametrize("cls", CLASSES)
 def test_construction_keeps_what_it_was_given(
-    cls: type[TlsLineTransport | TcpLineTransport],
+    cls: type[TlsLineTransport | TcpLineTransport | PersistentTlsLineTransport],
 ) -> None:
     """The host, the port and the line limit, the limit defaulted."""
     transport = cls(HOST, PORT, max_line_size=10)
@@ -223,10 +237,13 @@ def test_construction_keeps_what_it_was_given(
     assert cls(HOST, PORT).max_line_size == DEFAULT_MAX_BODY_SIZE
 
 
-def test_the_context_passed_is_the_one_used() -> None:
+@pytest.mark.parametrize("cls", TLS_CLASSES)
+def test_the_context_passed_is_the_one_used(
+    cls: type[TlsLineTransport | PersistentTlsLineTransport],
+) -> None:
     """Not a copy or a default."""
     context = fake_context()
-    assert TlsLineTransport(HOST, PORT, context=context).context is context
+    assert cls(HOST, PORT, context=context).context is context
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -405,7 +422,7 @@ def test_electrum_fetcher_answers_over_it(kind: str, tcp: Calls) -> None:
     assert timeout == DEFAULT_TIMEOUT
 
 
-@pytest.mark.parametrize("cls", [TlsLineTransport, TcpLineTransport])
+@pytest.mark.parametrize("cls", CLASSES)
 @pytest.mark.parametrize(
     "args, kwargs, error, match",
     [
@@ -421,7 +438,7 @@ def test_electrum_fetcher_answers_over_it(kind: str, tcp: Calls) -> None:
     ],
 )
 def test_construction_validates_its_arguments(
-    cls: type[TlsLineTransport | TcpLineTransport],
+    cls: type[TlsLineTransport | TcpLineTransport | PersistentTlsLineTransport],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     error: type[Exception],
@@ -432,10 +449,13 @@ def test_construction_validates_its_arguments(
         cls(*args, **kwargs)
 
 
-def test_a_context_that_is_not_one_is_refused() -> None:
+@pytest.mark.parametrize("cls", TLS_CLASSES)
+def test_a_context_that_is_not_one_is_refused(
+    cls: type[TlsLineTransport | PersistentTlsLineTransport],
+) -> None:
     """Only an `ssl.SSLContext` is a context."""
     with pytest.raises(BTClibTypeError, match="SSLContext"):
-        TlsLineTransport(HOST, PORT, context=object())  # type: ignore[arg-type]
+        cls(HOST, PORT, context=object())  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("kind", KINDS)
