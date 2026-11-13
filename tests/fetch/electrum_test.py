@@ -673,6 +673,15 @@ def test_get_block_headers_may_answer_fewer_than_asked() -> None:
     assert none.get_block_headers(7, 5) == []
 
 
+def test_get_block_headers_asks_at_most_a_retarget_period() -> None:
+    """A larger count is asked as 2016, and an answer of more is refused."""
+    endpoint = fetcher(chunk_answer(count=2017), network="regtest")
+    with pytest.raises(FetchError, match="invalid count: an int of 11 bits"):
+        endpoint.get_block_headers(0, 10**9)
+    request = json.loads(transport_of(endpoint).requests[0])
+    assert request["params"] == [0, 2016]
+
+
 @pytest.mark.parametrize(
     "result, match",
     [

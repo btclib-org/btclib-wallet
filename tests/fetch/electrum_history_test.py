@@ -30,6 +30,7 @@ from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.fetch import electrum as fetch_electrum
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger import Ledger, TxState
@@ -618,7 +619,67 @@ def test_a_tip_descending_from_the_last_keeps_its_headers() -> None:
     assert [entry.block for entry in history.txs] == [server.ref(1), server.ref(3)]
     assert asked == [[0, 5], [5, 2]]
     assert fetcher._chained is not None
-    assert sorted(fetcher._chained[1]) == [0, 1, 3, 4, 6]
+    # the last tip is not kept: it is none of the heights asked, and no anchor
+    assert sorted(fetcher._chained[1]) == [0, 1, 3, 6]
+
+
+def _growing(blocks: int) -> tuple[FakeServer, list[Block]]:
+    """Return a server holding the genesis block, and the chain it grows to."""
+    server = FakeServer([[FUNDING]] + [[] for _ in range(blocks - 1)])
+    longer = server.chain
+    server.chain = longer[:1]
+    return server, longer
+
+
+def test_a_fetcher_syncing_each_block_keeps_no_more_headers() -> None:
+    """The last tip is dropped, and each sync reads one header (issue #877)."""
+    server, longer = _growing(14)
+    asked = _asked(server)
+    fetcher = _fetcher(server)
+    for height in range(4, 15):
+        server.chain = longer[: height + 1]
+        fetcher.get_history([OURS])
+        assert fetcher._chained is not None
+        assert sorted(fetcher._chained[1]) == [0, 1, height]
+    assert asked == [[0, 5]] + [[height, 1] for height in range(5, 15)]
+
+
+def test_headers_are_asked_a_chunk_at_a_time_and_kept_at_its_multiples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chunk per request, and a header kept at each multiple of it."""
+    monkeypatch.setattr(fetch_electrum, "_MAX_HEADERS", 2)
+    server, longer = _growing(9)
+    server.max_headers = 10**9
+    asked = _asked(server)
+    fetcher = _fetcher(server)
+    server.chain = longer[:5]
+    fetcher.get_history([OURS])
+    assert asked == [[0, 2], [2, 2], [4, 1]]
+    for height in range(5, 10):
+        server.chain = longer[: height + 1]
+        fetcher.get_history([OURS], height)
+    assert fetcher._chained is not None
+    assert sorted(fetcher._chained[1]) == [0, 2, 4, 6, 8, 9]
+    history = fetcher.get_history([OURS], 1)
+    assert [entry.block for entry in history.txs] == [server.ref(1)]
+    history = fetcher.get_history([OURS], 5)
+    assert history.start == server.ref(5)
+    assert asked[3:] == [[height, 1] for height in range(5, 10)] + [[1, 2], [5, 2]]
+
+
+def test_an_answer_of_more_headers_than_asked_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A server answering the whole range is read no further (issue #872)."""
+    monkeypatch.setattr(fetch_electrum, "_MAX_HEADERS", 2)
+    server = _edited(
+        _chain(),
+        "blockchain.block.headers",
+        lambda result: {**result, "count": 4, "hex": result["hex"] * 2},
+    )
+    with pytest.raises(FetchError, match="invalid count"):
+        _fetcher(server).get_history([OURS], 1)
 
 
 class Switched:
