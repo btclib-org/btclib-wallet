@@ -91,6 +91,20 @@ __all__ = [
     "ElectrumFetcher",
 ]
 
+# the most headers one `blockchain.block.headers` request asks, so the most
+# a reply can hold: a retarget period, and the `max` Floresta answers
+# (`electrum_protocol.rs`, floresta-electrum, commit cdbcf5a)
+_MAX_HEADERS = 2016
+
+
+def _anchor(height: int) -> bool:
+    """Return whether a header read at `height` is kept for a later call.
+
+    One in each `_MAX_HEADERS`, so a later walk from a height read before
+    and no longer kept reads at most that many headers.
+    """
+    return height % _MAX_HEADERS == 0
+
 
 class ElectrumFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, and a merkle branch, from an Electrum server.
@@ -107,9 +121,10 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
     `get_block_header` is `blockchain.block.header`, `cp_height` left
     unsent.
 
-    `get_block_headers` is `blockchain.block.headers`: up to a server's
-    own maximum of consecutive headers in one answer, each checked as
-    `get_block_header` checks one, and each chained to the one before it.
+    `get_block_headers` is `blockchain.block.headers`: up to a retarget
+    period of consecutive headers in one answer, or a server's own
+    maximum where that is lower, each checked as `get_block_header`
+    checks one, and each chained to the one before it.
 
     `get_tx_merkle` is `blockchain.transaction.get_merkle`, returning the
     branch and position `btclib_wallet.electrum.MerkleProof` carries.
@@ -249,11 +264,13 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
 
         `blockchain.block.headers`, through `btclib_wallet.electrum`'s
         `block_headers_request` and `block_headers_response`, whose
-        docstring says which answer shape is read and what it refuses. A
-        server may answer fewer than asked, by its own maximum or by
-        reaching its tip, so the list can be shorter than `count`, or
-        empty. Each header is then checked by `block_header_from_raw`, and
-        each must name the hash of the one before it as its
+        docstring says which answer shape is read and what it refuses. It
+        asks at most `_MAX_HEADERS`, a retarget period: a larger `count`
+        is asked as that, and an answer holding more than asked is
+        refused. A server may answer fewer than asked, by its own maximum
+        or by reaching its tip, so the list can be shorter than `count`,
+        or empty. Each header is then checked by `block_header_from_raw`,
+        and each must name the hash of the one before it as its
         `previous_block_hash`. The first header's parent is not checked:
         the chunk carries no header below it.
         """
@@ -263,6 +280,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             raise BTClibTypeError(f"invalid count type: {type(count).__name__}")
         if count < 1:
             raise BTClibValueError(f"invalid count: {_message_text(count)} < 1")
+        count = min(count, _MAX_HEADERS)
         request_id = self._next_request_id()
         line = self._round_trip(
             electrum.block_headers_request(request_id, start_height, count)
@@ -419,17 +437,21 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         80-byte header per block from `start`, and from each confirmation
         listed above it, up to the next header already chained, and from
         just above the last tip to a new tip higher than it, each checked
-        as above, in a request per chunk of the server's maximum. A
+        as above, in a request per chunk `get_block_headers` asks. A
         confirmation left out for touching none of the scripts still
         counts there. On a fetcher's first call, that is every block from
         `start` to the tip. A later call for the same scripts from the
         same `start`, at a tip descending from the last, reads only the
         blocks above the last tip. The headers are held a chunk at a
         time, and only those at `start`, at the confirmations and at the
-        tip are kept. So memory grows with the server's chunk and with
-        the heights kept, which each new `start`, confirmation or tip
-        adds to, and not with the blocks read. A server refuses a script
-        with more history than it serves, as an `RpcError`.
+        tip are kept, with one at each multiple of `_MAX_HEADERS`. They
+        stay while the tip does. At a new tip, a call keeps of them only
+        those at a multiple, so a height asked only at an earlier tip
+        costs it at most `_MAX_HEADERS` headers more. So memory grows
+        with the chunk, with the heights asked at one tip, and by a
+        header per `_MAX_HEADERS` blocks of the chain read, and not with
+        the tips seen. A server refuses a script with more history than
+        it serves, as an `RpcError`.
         """
         elements = history_scripts(scripts)
         first = block_header_height(start_height)
@@ -507,22 +529,26 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """
         held = self._chained
         chained: dict[int, BlockHeader] = {}
+        kept = heights | {tip.height}
         if held is not None and held[0] == tip:
             chained = dict(held[1])
+            kept |= chained.keys()
         elif held is not None and held[0].height < tip.height:
             old, above = held[0], held[0].height + 1
-            walked = self._walk(above, tip, heights | {above})
-            chained = {h: walked[h] for h in heights & walked.keys()}
+            chained = self._walk(above, tip, heights | {above})
             # the walk chains the header above the old tip to the new tip;
             # where its parent is the old tip, so are the headers held
-            if walked[above].previous_block_hash == old.block_id:
+            if chained[above].previous_block_hash == old.block_id:
                 chained = {**held[1], **chained}
         chained[tip.height] = top
         for low in sorted(heights):
             if low not in chained:
                 end = min(h for h in chained if h > low)
                 chained |= self._walk(low, BlockRef(end, chained[end].hash), heights)
-        self._chained = (tip, chained)
+        self._chained = (
+            tip,
+            {h: header for h, header in chained.items() if h in kept or _anchor(h)},
+        )
         return {height: chained[height] for height in heights}
 
     def _walk(
@@ -532,7 +558,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
 
         `get_block_headers` chains the headers of one chunk; this chains
         each chunk to the one before it, which is all it holds of that
-        one, and the last header to `end`.
+        one, and the last header to `end`. The headers at the heights
+        `_anchor` names are returned too.
         """
         kept: dict[int, BlockHeader] = {}
         height, last = low, None
@@ -546,7 +573,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
                 err_msg += " the one before it"
                 raise FetchError(err_msg)
             for header in chunk:
-                if height in heights:
+                if height in heights or _anchor(height):
                     kept[height] = header
                 height += 1
             last = chunk[-1]
