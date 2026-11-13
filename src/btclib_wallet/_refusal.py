@@ -63,9 +63,7 @@ def _quoted(value: int | str) -> str:
         length = len(text)
     else:
         return _message_text(value)
-    if length > _QUOTED_MAX:
-        return f"a value of {length} characters"
-    return quoted
+    return f"a value of {length} characters" if length > _QUOTED_MAX else quoted
 
 
 def _message_text(value: object) -> str:
