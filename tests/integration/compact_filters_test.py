@@ -13,6 +13,10 @@ p2p port, because the session's node of the conftest beside this does not
 listen at all. Two of them serve one chain, and a transport over one of
 the two lies about a filter, to check the cross-check between peers.
 
+Each node names `-v2transport` rather than taking Core's default: the
+BIP324 transport is tried against nodes that speak it and against one
+that speaks v1 only.
+
 Skipped unless `BTCLIB_INTEGRATION=1` and a `bitcoind` is available.
 """
 
@@ -33,7 +37,7 @@ from typing_extensions import override
 
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
-from btclib_wallet.fetch.peer_transport import TcpPeerTransport
+from btclib_wallet.fetch.peer_transport import TcpPeerTransport, V2PeerTransport
 from tests.integration.conftest import (
     PortTaken,
     _free_port,
@@ -58,9 +62,12 @@ _INDEX_TIMEOUT = 30.0
 
 
 def _start_peer_node(
-    bitcoind_path: str, datadir: Path
+    bitcoind_path: str, datadir: Path, *, v2transport: bool
 ) -> tuple[subprocess.Popen[bytes], BitcoinCoreRpcClient, int]:
     """Return a node, a client of it and its p2p port, once it answers.
+
+    `v2transport` is whether the node speaks BIP324's v2 transport as
+    well as v1.
 
     Both ports are picked on every call, so that a call is a fresh try
     for `start_on_free_ports`. The node is stopped again where it does
@@ -90,6 +97,7 @@ def _start_peer_node(
             "-fallbackfee=0.0002",
             "-blockfilterindex=1",
             "-peerblockfilters=1",
+            f"-v2transport={int(v2transport)}",
             "-printtoconsole=0",
         ],
         datadir / "stdout.log",
@@ -129,7 +137,7 @@ def peer_node(
     """
     datadir = tmp_path_factory.mktemp("regtest-p2p")
     process, client, p2p_port = start_on_free_ports(
-        lambda: _start_peer_node(bitcoind_path, datadir)
+        lambda: _start_peer_node(bitcoind_path, datadir, v2transport=True)
     )
     try:
         yield client, p2p_port
@@ -250,7 +258,9 @@ def two_peer_nodes(
         for name in ("regtest-p2p-a", "regtest-p2p-b"):
             datadir = tmp_path_factory.mktemp(name)
             started.append(
-                start_on_free_ports(partial(_start_peer_node, bitcoind_path, datadir))
+                start_on_free_ports(
+                    partial(_start_peer_node, bitcoind_path, datadir, v2transport=True)
+                )
             )
         yield tuple((client, port) for _, client, port in started)
     finally:
@@ -376,3 +386,85 @@ def test_a_peer_serving_a_wrong_filter_is_dropped_and_the_payment_found(
         assert fetcher.cross_check == []
         for height, block in blocks.items():
             assert block.header.hash.hex() == first.call("getblockhash", [height])
+
+
+def test_a_sync_over_v2_reads_the_blocks_a_sync_over_v1_reads(
+    two_peer_nodes: tuple[tuple[BitcoinCoreRpcClient, int], ...],
+    shared_chain: tuple[bytes, int, int],
+) -> None:
+    """The v2 transport finds, against a node, what plain TCP finds.
+
+    The node reports the connection as v2, with the session id the
+    transport holds: a transport that fell back to v1, or whose handshake
+    reached anything but this node, shows neither.
+    """
+    (node, p2p_port), _ = two_peer_nodes
+    script, paid, spent = shared_chain
+    with CompactFilterFetcher(
+        "regtest", transport=TcpPeerTransport("127.0.0.1", p2p_port)
+    ) as fetcher:
+        over_v1 = fetcher.scan_blocks([script])
+
+    transport = V2PeerTransport("127.0.0.1", p2p_port)
+    with CompactFilterFetcher("regtest", transport=transport) as fetcher:
+        over_v2 = fetcher.scan_blocks([script])
+        assert transport.session_id is not None
+        session = [
+            peer["transport_protocol_type"]
+            for peer in node.call("getpeerinfo")
+            if peer["session_id"] == transport.session_id.hex()
+        ]
+        assert session == ["v2"]
+
+    assert list(over_v2) == [paid, spent]
+    assert over_v2 == over_v1
+
+
+@pytest.fixture(scope="module")
+def v1_peer_node(
+    bitcoind_path: str, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[tuple[BitcoinCoreRpcClient, int]]:
+    """Yield a node started as `peer_node` is, with `-v2transport=0`.
+
+    The node hangs up on a v2 handshake, as a node that speaks v1 only
+    does.
+    """
+    datadir = tmp_path_factory.mktemp("regtest-p2p-v1")
+    process, client, p2p_port = start_on_free_ports(
+        lambda: _start_peer_node(bitcoind_path, datadir, v2transport=False)
+    )
+    try:
+        yield client, p2p_port
+    finally:
+        _stop(process)
+
+
+def test_a_v1_node_is_refused_without_the_fallback_and_synced_with_it(
+    v1_peer_node: tuple[BitcoinCoreRpcClient, int],
+) -> None:
+    """A node that speaks v1 only is reached over v1 only where asked.
+
+    Without `v1_fallback` the transport refuses, naming it. With it, the
+    fetcher syncs over plain v1, and the node reports the connection as
+    v1.
+    """
+    node, p2p_port = v1_peer_node
+    node.call("createwallet", ["miner"])
+    miner = node.for_wallet("miner")
+    miner.call("generatetoaddress", [3, miner.call("getnewaddress")])
+
+    refused = V2PeerTransport("127.0.0.1", p2p_port)
+    with (
+        CompactFilterFetcher("regtest", transport=refused) as fetcher,
+        pytest.raises(FetchError, match="hung up on the v2 handshake.*v1_fallback"),
+    ):
+        fetcher.get_block_count()
+
+    transport = V2PeerTransport("127.0.0.1", p2p_port, v1_fallback=True)
+    with CompactFilterFetcher("regtest", transport=transport) as fetcher:
+        assert fetcher.get_block_count() == node.call("getblockcount")
+        assert fetcher.get_best_block_id().hex() == node.call("getbestblockhash")
+        assert transport.is_open
+        assert transport.session_id is None
+        peers = node.call("getpeerinfo")
+        assert [peer["transport_protocol_type"] for peer in peers] == ["v1"]
