@@ -9,6 +9,108 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.13
+
+`bip44` discovers a key's used accounts, and several calls answer or
+refuse differently: a caller that relies on one of the answers below, or
+matches the text of a refusal changed below, breaks. Against
+v2026.11.12, the breaks griffe reports in the public API are in the last
+bullet. `api_gaps.py` reports none.
+
+- **`bip44.discover_account` and `bip44.discover_accounts` find used
+  accounts from public data**
+  ([ISS 816](https://github.com/btclib-org/btclib-wallet/issues/816)), as
+  BIP44's account discovery does, reading the change branch too.
+  `discover_account` scans one account's descriptors; `discover_accounts`
+  takes account xpubs and refuses an extended private key.
+- **A ledger holds its file's exclusive lock from create, load or restore
+  until `close`**
+  ([ISS 800](https://github.com/btclib-org/btclib-wallet/issues/800)), as
+  Core holds a wallet's. A second `Ledger` on one file, in one process or
+  two, and a restore from the file are refused at once; another SQLite
+  connection is refused once its busy timeout runs out. Act on it if you
+  open one file twice, or copy it while a ledger holds it: copy it with
+  `Ledger.backup`.
+- **`Ledger.sign` refuses as locked, not as a damaged file, where another
+  thread locks or closes the ledger while it decrypts a source's keys**
+  ([ISS 801](https://github.com/btclib-org/btclib-wallet/issues/801)).
+  Act on it if you match the text of that refusal.
+- **A descriptor whose miniscript `tr()` leaf names two keys of one x
+  under two parities is refused**
+  ([ISS 824](https://github.com/btclib-org/btclib-wallet/issues/824)),
+  where it was accepted, as BIP379's duplicate-key rule asks: a tapscript
+  pushes only the x. A bare `multi_a` or `sortedmulti_a` leaf is still
+  accepted, as Core accepts it.
+- **`ElectrumFetcher.get_history` and `EsploraFetcher.get_history` keep
+  only the transactions that pay to or spend from the scripts asked**
+  ([ISS 703](https://github.com/btclib-org/btclib-wallet/issues/703)),
+  where they returned every transaction the server listed. Where only a
+  spent transaction the history does not return can settle whether a
+  listed one touches the scripts, they ask `get_tx` for it, and refuse
+  one the server does not serve.
+  Act on it if you relied on the server's whole list.
+- **`ElectrumFetcher.get_history` refuses, with `FetchError`, a
+  confirmation, or the block the history starts from, whose header does
+  not chain to the tip the server reports**
+  ([ISS 708](https://github.com/btclib-org/btclib-wallet/issues/708),
+  [ISS 873](https://github.com/btclib-org/btclib-wallet/issues/873)),
+  where it checked each header on its own. It asks for the headers from
+  `start_height` up to the next header it has already chained: the tip,
+  or one from an earlier call, one request per chunk.
+- **`Psbt.b64decode` and `tx_or_psbt_from_any` refuse a base64 or hex text
+  longer than a 16 MiB psbt's before decoding it**
+  ([ISS 823](https://github.com/btclib-org/btclib-wallet/issues/823)),
+  where they decoded a text of any length.
+- **`psbt.finalize` refuses a single-key input whose key the script does
+  not hash, and an uncompressed p2wpkh key, wrapped or not**, with
+  `BTClibValueError`
+  ([ISS 799](https://github.com/btclib-org/btclib-wallet/issues/799),
+  [ISS 831](https://github.com/btclib-org/btclib-wallet/issues/831)), as
+  Core's `finalizepsbt` leaves such an input incomplete. A p2sh-p2pkh
+  input's script_sig now carries its redeem script
+  ([ISS 830](https://github.com/btclib-org/btclib-wallet/issues/830)).
+- **A p2sh-wrapped p2tr program is a witness program of no known rule**
+  ([ISS 804](https://github.com/btclib-org/btclib-wallet/issues/804),
+  [ISS 818](https://github.com/btclib-org/btclib-wallet/issues/818)):
+  `sign` gives it no taproot signature, and asks for its
+  `non_witness_utxo` as for any non-taproot input; `ecdsa_sig_hash` and
+  `finalize` refuse it; `estimated_input_sizes` refuses it unless a sizer
+  answers, where it priced a 64-byte key path signature. A sizer's answer
+  for a witness_unknown input, bare or wrapped, is its witness stack,
+  where it went into the script_sig.
+- **A MuSig2 or FROST session refuses a non-taproot input, or one whose
+  control block does not prove its leaf against the output key the input
+  spends**
+  ([ISS 820](https://github.com/btclib-org/btclib-wallet/issues/820)),
+  before round 1 spends a nonce on it.
+- **BIP322's `verify` and `assert_as_valid` refuse the text of a simple or
+  full signature over its bound**, signatures that verified `True`
+  included
+  ([ISS 744](https://github.com/btclib-org/btclib-wallet/issues/744)), and
+  a to_sign heavier than `MAX_BLOCK_WEIGHT` is invalid, so `verify`
+  answers `False` for it
+  ([ISS 826](https://github.com/btclib-org/btclib-wallet/issues/826)). A
+  proof of funds over its bound is inconclusive. A `Sig` built from the
+  payload skips the text bound, and a simple or full one over it is
+  refused by the weight bound.
+- **The fetchers', electrum's and the descriptor parser's refusals
+  describe a value the caller passed, or name it**
+  ([ISS 802](https://github.com/btclib-org/btclib-wallet/issues/802),
+  [ISS 828](https://github.com/btclib-org/btclib-wallet/issues/828),
+  [ISS 836](https://github.com/btclib-org/btclib-wallet/issues/836),
+  [ISS 843](https://github.com/btclib-org/btclib-wallet/issues/843),
+  and the issues their pull requests close): a bound by its sign and bit
+  length, a height or a tx id by its parameter's name, an HTTP error by
+  its endpoint with `<txid>` or `<height>` in place of the value. A
+  `CompactFilterFetcher` label still names a height of the chain it
+  syncs, at most its tip, which a caller's height can be. An
+  Electrum `RpcError` carries the server's code where it fits 16 signed
+  bits, else 0, and the method, and its `data` is `None`.
+  `electrum.decode_response` takes the method its line answers and
+  refuses one the Electrum protocol does not name, and
+  `fetcher.block_header_from_raw` takes no height. Act on it if you match
+  a refusal's text or read an Electrum error's message, data or code.
+
 ## v2026.11.12
 
 A ledger encrypts its private keys at rest and bumps a transaction's
