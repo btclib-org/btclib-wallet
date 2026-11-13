@@ -201,12 +201,16 @@ class TcpPeerTransport:
 
     def close(self) -> None:
         """Close the connection, if there is one."""
-        if self._socket is not None:
-            sock, self._socket = self._socket, None
+        sock = self._socket
+        if sock is not None:
+            # let go of only once closed, or once its close failed: a
+            # close interrupted before that leaves it to the next close
             try:
                 sock.close()
             except OSError as e:
+                self._socket = None
                 raise FetchError(f"closing {self._host}:{self._port}: {e}") from e
+            self._socket = None
 
     def _discard(self) -> None:
         """Close the connection after a failure, which stays the one raised."""
@@ -298,6 +302,11 @@ class V2PeerTransport:
         self._magic = b""
         # the connection over v1, where the fallback took over
         self._v1: TcpPeerTransport | None = None
+        # a socket or a v1 transport not yet kept, or one being closed:
+        # it is held here from the moment it is made until it is closed,
+        # so that whatever interrupts its opening or its closing, a
+        # `KeyboardInterrupt` included, leaves it to `close`
+        self._pending: socket | TcpPeerTransport | None = None
 
     @property
     def host(self) -> str:
@@ -335,17 +344,30 @@ class V2PeerTransport:
 
         The next `send` tries v2 again.
         """
-        v1, sock = self._v1, self._socket
-        # every field cleared before anything is closed, so that a close
-        # that fails or is interrupted leaves no connection behind
-        self._v1, self._socket, self._cipher, self._magic = None, None, None, b""
-        if v1 is not None:
-            v1.close()
-        if sock is not None:
+        # at most one of the three is set; from here it is pending, no
+        # longer open, and it is let go of only once closed
+        self._pending, self._v1, self._socket, self._cipher, self._magic = (
+            self._pending or self._v1 or self._socket,
+            None,
+            None,
+            None,
+            b"",
+        )
+        self._close_pending()
+
+    def _close_pending(self) -> None:
+        """Close what is pending, and only then let go of it."""
+        pending = self._pending
+        if pending is not None:
             try:
-                sock.close()
+                pending.close()
             except OSError as e:
+                self._pending = None
                 raise FetchError(f"closing {self._host}:{self._port}: {e}") from e
+            except FetchError:
+                self._pending = None
+                raise
+            self._pending = None
 
     def _discard(self) -> None:
         """Close the connection after a failure, which stays the one raised."""
@@ -398,15 +420,11 @@ class V2PeerTransport:
     def _open_v1(self, v1: TcpPeerTransport, message: Message, timeout: float) -> None:
         """Send the first message over the v1 fallback, and keep it only then.
 
-        Anything raised, `KeyboardInterrupt` included, closes it.
+        Until then it is pending, so that anything raised, `KeyboardInterrupt`
+        included, leaves it to `close`.
         """
-        try:
-            v1.send(message, timeout)
-        except BaseException:
-            with suppress(FetchError):
-                v1.close()
-            raise
-        self._v1, self._magic = v1, message.magic
+        v1.send(message, timeout)
+        self._v1, self._magic, self._pending = v1, message.magic, None
 
     def _connection(self) -> tuple[socket, Cipher]:
         """Return the socket and the cipher of the open v2 connection."""
@@ -419,26 +437,34 @@ class V2PeerTransport:
     ) -> TcpPeerTransport | None:
         """Connect and complete the handshake as its initiator.
 
-        The connection is kept only once the handshake completes: anything
-        raised before, `KeyboardInterrupt` included, closes the socket. A
-        peer that hangs up before sending a byte of its key, as a v1 peer
-        does, is refused, or answered with a v1 transport, not yet open nor
-        kept, where the caller asked for one. A v2 connection is kept on
-        the network of `magic`.
+        The connection is kept only once the handshake completes: until
+        then the socket is pending, so that anything raised, `KeyboardInterrupt`
+        included, leaves it to `close`. A peer that hangs up before sending a
+        byte of its key, as a v1 peer does, is refused, or answered with a
+        v1 transport, not yet open, pending in its place, where the caller
+        asked for one. A v2 connection is kept on the network of `magic`.
         """
-        sock = create_connection((self._host, self._port), timeout=timeout)
-        try:
-            cipher = _handshake(sock, magic, deadline, timeout, where)
-        except BaseException:
-            _close_quietly(sock)
-            raise
+        # what an interrupted call left pending, if anything
+        with suppress(FetchError):
+            self._close_pending()
+        sock = self._pending = create_connection(
+            (self._host, self._port), timeout=timeout
+        )
+        cipher = _handshake(sock, magic, deadline, timeout, where)
         if cipher is None:
-            _close_quietly(sock)
+            with suppress(FetchError):
+                self._close_pending()
             if not self._v1_fallback:
                 err_msg = f"{where} hung up on the v2 handshake, as a v1 peer"
                 raise FetchError(f"{err_msg} does, and v1_fallback is off")
-            return TcpPeerTransport(self._host, self._port)
-        self._socket, self._cipher, self._magic = sock, cipher, magic
+            v1 = self._pending = TcpPeerTransport(self._host, self._port)
+            return v1
+        self._socket, self._cipher, self._magic, self._pending = (
+            sock,
+            cipher,
+            magic,
+            None,
+        )
         return None
 
     def receive(self, timeout: float) -> Message:
@@ -478,12 +504,6 @@ class V2PeerTransport:
             # a `KeyboardInterrupt` can leave a packet half read
             self._discard()
             raise
-
-
-def _close_quietly(sock: socket) -> None:
-    """Close a socket after a failure, which stays the one raised."""
-    with suppress(OSError):
-        sock.close()
 
 
 def _handshake(

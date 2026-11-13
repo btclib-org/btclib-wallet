@@ -830,6 +830,113 @@ def test_a_failed_v1_connection_closes_the_transport(
     assert again.sent() == [(MESSAGE.command, MESSAGE.payload)]
 
 
+def interrupted_when_kept(field: str, *, v1_fallback: bool = False) -> V2PeerTransport:
+    """Return a v2 transport interrupted as it first keeps a connection.
+
+    The `KeyboardInterrupt` comes as `field`, `_socket` or `_v1`, is set
+    to the connection: after the call that opened it returned, before the
+    transport holds it as open.
+    """
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+
+    class Interrupted(V2PeerTransport):
+        @override
+        def __setattr__(self, name: str, value: object) -> None:
+            if name == field and value is not None:
+                raise KeyboardInterrupt
+            super().__setattr__(name, value)
+
+    return Interrupted("peer.example", 18444, v1_fallback=v1_fallback)
+
+
+def test_an_interrupt_as_the_v2_connection_is_kept_closes_its_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The socket is the transport's from the moment it is made."""
+    fake = V2Peer()
+    connect_to(monkeypatch, fake)
+    transport = interrupted_when_kept("_socket")
+    with pytest.raises(KeyboardInterrupt):
+        transport.send(MESSAGE, 5)
+    assert fake.closed == 1
+    assert not transport.is_open
+
+
+def test_an_interrupt_as_the_v1_fallback_is_kept_closes_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The v1 transport is the v2 one's from the moment it is made."""
+    refusing, plain = FakeSocket([]), FakeSocket([])
+    sockets = iter([refusing, plain])
+    monkeypatch.setattr(
+        peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
+    )
+    transport = interrupted_when_kept("_v1", v1_fallback=True)
+    with pytest.raises(KeyboardInterrupt):
+        transport.send(MESSAGE, 5)
+    assert plain.written == WIRE
+    assert (refusing.closed, plain.closed) == (1, 1)
+    assert not transport.is_open
+
+
+@pytest.mark.parametrize("kind", ["v1", "v2", "v1 fallback"])
+def test_an_interrupted_close_leaves_the_socket_to_the_next_close(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """A socket is let go of only once closed."""
+    transport: TcpPeerTransport | V2PeerTransport
+    if kind == "v1":
+        fake = FakeSocket([])
+        connect_to(monkeypatch, fake)
+        transport = peer()
+    elif kind == "v2":
+        fake = V2Peer()
+        connect_to(monkeypatch, fake)
+        transport = v2_peer()
+    else:
+        fake = FakeSocket([])
+        sockets = iter([FakeSocket([]), fake])
+        monkeypatch.setattr(
+            peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
+        )
+        transport = v2_peer(v1_fallback=True)
+    transport.send(MESSAGE, 5)
+    close = fake.close
+    interrupted: list[bool] = []
+
+    def interrupted_close() -> None:
+        if not interrupted:
+            interrupted.append(True)
+            raise KeyboardInterrupt
+        close()
+
+    monkeypatch.setattr(fake, "close", interrupted_close)
+    with pytest.raises(KeyboardInterrupt):
+        transport.close()
+    assert fake.closed == 0
+    transport.close()
+    assert fake.closed == 1
+    assert not transport.is_open
+
+
+def test_a_v1_fallback_that_fails_to_close_is_a_fetch_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The connection is dropped all the same, as over v2."""
+    plain = FakeSocket([], close_error=OSError("bad descriptor"))
+    sockets = iter([FakeSocket([]), plain])
+    monkeypatch.setattr(
+        peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
+    )
+    transport = v2_peer(v1_fallback=True)
+    transport.send(MESSAGE, 5)
+    with pytest.raises(FetchError, match="closing peer.example:18444: bad descriptor"):
+        transport.close()
+    assert not transport.is_open
+    transport.close()
+    assert plain.closed == 1
+
+
 def test_a_v2_connection_that_cannot_be_made_is_a_fetch_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
