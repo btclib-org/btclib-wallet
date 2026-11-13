@@ -117,6 +117,11 @@ _READ_CHUNK = 64 * 1024
 
 _MAX_PORT = 65535
 
+# how many request ids one connection of `PersistentTlsLineTransport`
+# carries before it is replaced, so that the ids it keeps stay bounded;
+# each replacement costs a handshake
+_MAX_IDS_PER_CONNECTION = 1000
+
 # the longest timeout, in seconds, a socket waits for on every platform
 # this package supports. CPython on Windows builds without poll(), and its
 # socket module refuses a timeout past INT_MAX milliseconds with an
@@ -192,10 +197,10 @@ def _read_line(
             err_msg = f"{where}: line longer than the max_line_size of {max_line_size}"
             raise FetchError(err_msg)
         connection.settimeout(_time_left(deadline, timeout, where))
-        chunk = connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer)))
-        if not chunk:
+        if chunk := connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer))):
+            buffer.extend(chunk)
+        else:
             raise FetchError(f"{where}: connection closed before a whole line")
-        buffer.extend(chunk)
 
 
 def _valid_endpoint(host: str, port: int, max_line_size: int) -> None:
@@ -501,7 +506,8 @@ class PersistentTlsLineTransport:
     does a request with an id already sent on the connection, since what
     is checked before sending cannot see a copy of an earlier answer that
     arrives after it. Fetchers sharing a transport count their ids each
-    from 1.
+    from 1. A connection that has carried `_MAX_IDS_PER_CONNECTION` ids
+    is replaced too, so that the ids kept of it stay bounded.
 
     **Calls are made one at a time.** A call holds the connection until it
     returns, and the wait for it counts against that call's deadline, as
@@ -661,7 +667,8 @@ class PersistentTlsLineTransport:
     ) -> ssl.SSLSocket:
         """Return the kept connection, or a new one where that is unfit.
 
-        Unfit where it has data, or has carried one of `ids` before.
+        Unfit where it has data, has carried one of `ids` before, or has
+        carried as many ids as it may.
         """
         connection = self._connection
         if connection is not None and (
@@ -669,6 +676,7 @@ class PersistentTlsLineTransport:
             or connection.pending()
             or _readable(connection)
             or not self._sent.isdisjoint(ids)
+            or len(self._sent) >= _MAX_IDS_PER_CONNECTION
         ):
             self._close()
             connection = None

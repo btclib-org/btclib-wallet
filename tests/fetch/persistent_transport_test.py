@@ -182,10 +182,10 @@ class Peer:
     def read(self) -> bytes | None:
         """Return the next request line, or None once the client closed."""
         while b"\n" not in self._buffer:
-            chunk = self.connection.recv(4096)
-            if not chunk:
+            if chunk := self.connection.recv(4096):
+                self._buffer += chunk
+            else:
                 return None
-            self._buffer += chunk
         line, _, self._buffer = self._buffer.partition(b"\n")
         return line + b"\n"
 
@@ -426,6 +426,26 @@ def test_a_reused_id_opens_a_new_connection(
         answer(2, "2.2"),
     ]
     assert server.accepted == 2
+
+
+def test_a_connection_is_replaced_once_it_carried_its_ids(
+    serve: Callable[[Handler], Server],
+    authority: Authority,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ids kept of a connection are bounded, and kept until it goes."""
+    monkeypatch.setattr(transport_module, "_MAX_IDS_PER_CONNECTION", 2)
+    server = serve(numbered)
+    with client(server, authority) as transport:
+        lines = [transport(request(i), TIMEOUT) for i in (1, 2, 3, 4, 5)]
+    assert lines == [
+        answer(1, 1),
+        answer(2, 1),
+        answer(3, 2),
+        answer(4, 2),
+        answer(5, 3),
+    ]
+    assert server.accepted == 3
 
 
 @pytest.mark.parametrize(
