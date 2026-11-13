@@ -415,22 +415,21 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         `FetchError`, and the caller asks again.
 
         The cost is a request per script, two per transaction, at most
-        one per transaction spent that is not returned, and the chain:
-        an 80-byte header per block from `start`, and from each
-        confirmation listed above it, up to the next header already
-        chained, and from just above the last tip to a new tip that
-        descends from it, each checked as above, in a request per chunk
-        of the server's maximum. A confirmation left out for touching
-        none of the scripts still counts there. On a fetcher's first
-        call, that is every block from `start` to the tip. A later call
-        for the same scripts from the same `start`, at a tip descending
-        from the last, reads only the blocks above the last tip. The
-        headers are held a chunk at a time, and only those at `start`, at
-        the confirmations and at the tip are kept. So memory grows with
-        the server's chunk and with the heights kept, which each new
-        `start`, confirmation or tip adds to, and not with the blocks
-        read. A server refuses a script with more history than it serves,
-        as an `RpcError`.
+        one per transaction spent that is not returned, and the chain: an
+        80-byte header per block from `start`, and from each confirmation
+        listed above it, up to the next header already chained, and from
+        just above the last tip to a new tip higher than it, each checked
+        as above, in a request per chunk of the server's maximum. A
+        confirmation left out for touching none of the scripts still
+        counts there. On a fetcher's first call, that is every block from
+        `start` to the tip. A later call for the same scripts from the
+        same `start`, at a tip descending from the last, reads only the
+        blocks above the last tip. The headers are held a chunk at a
+        time, and only those at `start`, at the confirmations and at the
+        tip are kept. So memory grows with the server's chunk and with
+        the heights kept, which each new `start`, confirmation or tip
+        adds to, and not with the blocks read. A server refuses a script
+        with more history than it serves, as an `RpcError`.
         """
         elements = history_scripts(scripts)
         first = block_header_height(start_height)
