@@ -14,9 +14,11 @@ from btclib.alias import String
 from btclib.exceptions import BTClibValueError
 from btclib.tx import Tx
 
+from btclib_wallet import tx_or_psbt
 from btclib_wallet.psbt import Psbt
+from btclib_wallet.psbt.psbt import _MAX_PSBT_SIZE, _b64_size
 from btclib_wallet.tx_or_psbt import _octets_from_text, tx_or_psbt_from_any
-from tests import NOT_STRIPPED, padding_bits_set
+from tests import NOT_STRIPPED, padding_bits_set, psbt_of_size
 
 # BIP174's creator output, the psbt with nothing in it but the unsigned
 # transaction, and block 170's transaction: one of each, at the shortest
@@ -164,3 +166,43 @@ def test_a_padding_bit_set_is_neither() -> None:
     assert base64.b64decode(altered, validate=True) == base64.b64decode(PSBT_B64)
     with pytest.raises(BTClibValueError, match="^neither hex nor base64$"):
         tx_or_psbt_from_any(altered)
+
+
+def test_the_text_is_bounded_before_decoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Either encoding of a psbt at the bound is read, a character more is not.
+
+    The bound is `_MAX_PSBT_SIZE` octets, and is on the text with its
+    whitespace dropped (issue #823). A hex-string one character over is
+    refused before `bytes.fromhex`, and a base64 one before base64 is
+    decoded. The longest base64 the bound admits holds two octets more,
+    which are refused once decoded.
+    """
+    psbt_bin = psbt_of_size(PSBT_B64, _MAX_PSBT_SIZE)
+    hex_text = psbt_bin.hex()
+    b64_text = base64.b64encode(psbt_bin).decode("ascii")
+    assert len(hex_text) == 2 * _MAX_PSBT_SIZE
+    assert len(b64_text) == _b64_size(_MAX_PSBT_SIZE)
+    for text in (hex_text, b64_text):
+        parsed = tx_or_psbt_from_any(wrapped(text))
+        assert isinstance(parsed, Psbt)
+        assert parsed.serialize() == psbt_bin
+
+    over = base64.b64encode(psbt_of_size(PSBT_B64, _MAX_PSBT_SIZE + 2))
+    assert len(over) == len(b64_text)
+    octets = _MAX_PSBT_SIZE + 2
+    too_long = f"^base64 text too long: {octets} octets, over {_MAX_PSBT_SIZE}$"
+    with pytest.raises(BTClibValueError, match=too_long):
+        tx_or_psbt_from_any(over.decode("ascii"))
+
+    max_size = 2 * _MAX_PSBT_SIZE
+    too_long = f"^text too long: {max_size + 1} characters, over {max_size}$"
+    with pytest.raises(BTClibValueError, match=too_long):
+        tx_or_psbt_from_any(wrapped(f"{hex_text}0"))
+
+    decoded: list[str] = []
+    monkeypatch.setattr(tx_or_psbt, "_b64decode", decoded.append)
+    max_size = _b64_size(_MAX_PSBT_SIZE)
+    too_long = f"^base64 text too long: {max_size + 1} characters, over {max_size}$"
+    with pytest.raises(BTClibValueError, match=too_long):
+        tx_or_psbt_from_any(wrapped(f"{b64_text}A"))
+    assert not decoded

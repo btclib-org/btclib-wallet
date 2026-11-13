@@ -87,6 +87,25 @@ def padding_bits_set(text: str) -> str:
 EXCESS_PADDING = "^invalid base64 encoding: (not canonical|Excess padding not allowed)$"
 
 
+def psbt_of_size(psbt_b64: str, size: int) -> bytes:
+    """Return the psbt the base64 text holds, serialized to `size` octets.
+
+    One unknown global record, whose value takes what is left over, is
+    the psbt's only one. Its length takes five octets from 65536 octets
+    on.
+    """
+    from btclib_wallet.psbt import Psbt  # noqa: PLC0415
+
+    psbt = Psbt.b64decode(psbt_b64)
+    assert not psbt.unknown
+    # the key's length, the key, then the value's length
+    filler = size - len(psbt.serialize()) - 1 - 1 - 5
+    psbt.unknown = {b"\x7f": b"\x01" * filler}
+    psbt_bin = psbt.serialize()
+    assert len(psbt_bin) == size
+    return psbt_bin
+
+
 def module_names() -> list[str]:
     """Return every module of the installed btclib_wallet, the root included.
 
