@@ -619,7 +619,7 @@ def test_a_tip_descending_from_the_last_keeps_its_headers() -> None:
     assert [entry.block for entry in history.txs] == [server.ref(1), server.ref(3)]
     assert asked == [[0, 5], [5, 2]]
     assert fetcher._chained is not None
-    # the last tip, a chunk or less below the new one, is not kept
+    # the last tip is not kept: it is none of the heights asked, and no anchor
     assert sorted(fetcher._chained[1]) == [0, 1, 3, 6]
 
 
@@ -644,7 +644,7 @@ def test_a_fetcher_syncing_each_block_keeps_no_more_headers() -> None:
     assert asked == [[0, 5]] + [[height, 1] for height in range(5, 15)]
 
 
-def test_headers_are_asked_and_kept_a_chunk_apart(
+def test_headers_are_asked_a_chunk_at_a_time_and_kept_at_its_multiples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A chunk per request, and a header kept at each multiple of it."""
