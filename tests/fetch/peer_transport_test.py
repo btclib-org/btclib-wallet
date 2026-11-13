@@ -974,10 +974,13 @@ def test_a_v1_fallback_that_fails_to_close_is_a_fetch_error(
 
 
 class HangingUp(FakeSocket):
-    """A peer that hangs up once `after` octets of ours are written."""
+    """A peer that hangs up once `after` octets of ours are written.
+
+    `sendall`, which cannot say how much it wrote, raises the hang-up.
+    """
 
     def __init__(self, after: int, hang_up: ConnectionError) -> None:
-        super().__init__([])
+        super().__init__([], send_error=hang_up)
         self.after = after
         self.hang_up = hang_up
 
@@ -989,12 +992,6 @@ class HangingUp(FakeSocket):
             raise self.hang_up
         self.written += data[:room]
         return min(room, len(data))
-
-    @override
-    def sendall(self, data: bytes) -> None:
-        """Write what fits before the hang-up, and raise it if any is left."""
-        if self.send(data) < len(data):
-            raise self.hang_up
 
 
 HANG_UPS = pytest.mark.parametrize(
