@@ -23,16 +23,33 @@ _RPC_CODES = range(-(2**15), 2**15)
 def _quoted(value: int | str) -> str:
     """Return a refused parameter as a refusal may print it.
 
-    It is quoted up to `_QUOTED_MAX` characters, and described by its
-    length past them.
+    An int or a str is quoted up to `_QUOTED_MAX` characters, and
+    described by its length past them. Anything else is described as
+    `_message_text` describes it.
     """
-    # an int past the interpreter's digit limit has no str
-    if isinstance(value, int) and not -(10**_QUOTED_MAX) < value < 10**_QUOTED_MAX:
-        return f"a value of more than {_QUOTED_MAX} digits"
-    text = str(value)
-    if len(text) > _QUOTED_MAX:
-        return f"a value of {len(text)} characters"
-    return repr(value)
+    # issubclass on the type decides: isinstance also reads a `__class__`
+    # of the value's own, which can claim bool, int or str, and stays only
+    # to narrow the type for mypy. int's and str's own methods then measure
+    # and write the value: a subclass can override the comparison, the
+    # length and the formatting
+    kind = type(value)
+    if kind is bool:
+        # bool's own repr, True or False, where int's writes a digit
+        return repr(value)
+    if isinstance(value, int) and issubclass(kind, int):
+        # an int past the interpreter's digit limit has no str
+        if not int.__lt__(int.__abs__(value), 10**_QUOTED_MAX):
+            return f"a value of more than {_QUOTED_MAX} digits"
+        quoted = int.__repr__(value)
+        length = len(quoted)
+    elif isinstance(value, str) and issubclass(kind, str):
+        quoted = str.__repr__(value)
+        length = str.__len__(value)
+    else:
+        return _message_text(value)
+    if length > _QUOTED_MAX:
+        return f"a value of {length} characters"
+    return quoted
 
 
 def _message_text(value: object) -> str:
@@ -54,9 +71,10 @@ def _message_text(value: object) -> str:
     `sys.get_int_max_str_digits()` digits raises ValueError, which would
     leave through the refusal the description is for.
     """
-    if isinstance(value, int) and not isinstance(value, bool):
-        # int's own methods, not the value's: a subclass can override the
-        # comparison and bit_length
+    kind = type(value)
+    if isinstance(value, int) and issubclass(kind, int) and kind is not bool:
+        # the type as `_quoted` reads it, and int's own methods, not the
+        # value's: a subclass can override the comparison and bit_length
         sign = "a negative" if int.__lt__(value, 0) else "an"
         return f"{sign} int of {int.bit_length(value)} bits"
     name = type(value).__name__
