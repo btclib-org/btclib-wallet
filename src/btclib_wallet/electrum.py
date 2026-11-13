@@ -357,6 +357,69 @@ def _response_result(reply: object, request_id: int, method: str) -> Any:
     return reply["result"]
 
 
+def _request_ids(line: bytes) -> frozenset[int]:
+    """Return the ids of the request, or of the batch, `line` carries.
+
+    What a transport keeping one connection matches the answer by. Each
+    request carries an integer id, and those of a batch are distinct. A
+    line without one, a notification included, is refused, since no line
+    would answer it, and so is a line that is no request, described and
+    not quoted.
+    """
+    message = _decode_line(line)
+    ids: set[int] = set()
+    for member in message if isinstance(message, list) else [message]:
+        if not isinstance(member, dict):
+            raise BTClibValueError(f"not a JSON-RPC message: {_message_text(member)}")
+        request_id = member.get("id")
+        if request_id is None:
+            raise BTClibValueError(f"no request id: {_message_text(line)}")
+        if not is_integer(request_id):
+            raise BTClibValueError(f"not an integer id: {_message_text(request_id)}")
+        if request_id in ids:
+            raise BTClibValueError(f"repeated request id: {_message_text(request_id)}")
+        ids.add(request_id)
+    if not ids:
+        raise BTClibValueError(f"no request id: {_message_text(line)}")
+    return frozenset(ids)
+
+
+def _reply_ids(line: bytes) -> frozenset[int] | None:
+    """Return the request ids a line the server sent answers, or `None`.
+
+    `None` is a notification: an object with a `method` and no id, or a
+    `null` one, as the elder JSON-RPC writes it. A response is an object
+    with no `method`, an integer id, and a `result` or an `error`. One with
+    a `null` id and an `error` answers a request the server could not
+    parse, and no id: the empty set. A batch is a nonempty array of
+    responses with distinct ids. A line that is none of these is refused,
+    described and not quoted.
+    """
+    message = _decode_line(line)
+    if isinstance(message, dict) and message.get("id") is None:
+        if "method" in message:
+            return None
+        if "error" in message:
+            return frozenset()
+    ids: set[int] = set()
+    for member in message if isinstance(message, list) else [message]:
+        if not (
+            isinstance(member, dict)
+            and "method" not in member
+            and ("result" in member or "error" in member)
+        ):
+            raise BTClibValueError(f"not a JSON-RPC response: {_message_text(member)}")
+        reply_id = member.get("id")
+        if not is_integer(reply_id):
+            raise BTClibValueError(f"not an integer id: {_message_text(reply_id)}")
+        if reply_id in ids:
+            raise BTClibValueError(f"repeated response id: {_message_text(reply_id)}")
+        ids.add(cast(int, reply_id))
+    if not ids:
+        raise BTClibValueError("not a JSON-RPC response: an empty batch")
+    return frozenset(ids)
+
+
 @dataclass(frozen=True)
 class ScriptBalance:
     """Confirmed satoshis and the signed mempool delta for a script hash.
