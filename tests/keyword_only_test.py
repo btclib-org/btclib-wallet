@@ -253,6 +253,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     ],
     "btclib_wallet.fetch:TcpLineTransport.__init__": ["max_line_size"],
     "btclib_wallet.fetch:TlsLineTransport.__init__": ["context", "max_line_size"],
+    "btclib_wallet.fetch:V2PeerTransport.__init__": ["v1_fallback"],
     "btclib_wallet.hwi:HwiSigner.__init__": [
         "executable",
         "network",

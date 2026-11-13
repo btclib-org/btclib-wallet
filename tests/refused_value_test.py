@@ -47,7 +47,7 @@ from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import block_header_height, tx_from_raw
-from btclib_wallet.fetch.peer_transport import TcpPeerTransport
+from btclib_wallet.fetch.peer_transport import TcpPeerTransport, V2PeerTransport
 from btclib_wallet.fetch.transport import (
     PersistentTlsLineTransport,
     TcpLineTransport,
@@ -653,6 +653,11 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
             lambda: TcpPeerTransport("h", 1).send(KEY, 1.0),  # type: ignore[arg-type]
             "^non-Message message: a bytes of length 32$",
         ),
+        (lambda: V2PeerTransport(HEX, 1), "^invalid host: a value of 64 characters$"),
+        (
+            lambda: V2PeerTransport("h", 1, v1_fallback=KEY),  # type: ignore[arg-type]
+            "^invalid v1_fallback type: bytes$",
+        ),
         (
             lambda: CompactFilterFetcher("regtest", transport=KEY),  # type: ignore[arg-type]
             "^not a peer transport: a bytes of length 32$",
@@ -706,6 +711,8 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
         "peer port type",
         "peer port",
         "peer message",
+        "v2 peer host name",
+        "v2 peer v1_fallback",
         "compact filters transport",
         "esplora transport",
         "estimate_mode",

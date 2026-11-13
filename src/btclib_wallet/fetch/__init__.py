@@ -58,7 +58,10 @@ and `CompactFilterFetcher` do not, and each says why.
 
 **It adds no dependency.** The standard library is the whole of every
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`
-for the Electrum protocol's line, `socket` for the p2p stream. The HTTP
+for the Electrum protocol's line, `socket` for the p2p stream.
+`V2PeerTransport` is an exception: its key exchange and cipher are `ecc`'s
+and `btclib.p2p.bip324`'s. The cipher needs `cryptography`, and
+`btclib_wallet.fetch.peer_transport` says where that comes from. The HTTP
 client's canonical implementation is the `bitcoin-core-rpc` package, which
 btclib depends on and does not contain, and its transport exports here are
 aliases to that same source, not another implementation; those of
@@ -104,14 +107,13 @@ what raises if there is nothing to connect to.
 implement, `Broadcaster` and `FeeEstimator` beside it with `FeeQuote`,
 `BalanceReader` with `Balance`, `HistoryReader` with `ScriptHistory`,
 `HistoryTx`, `BlockRef` and `start_height_for_time`, `RelayFeeReader`
-with `RelayFees`,
-the clients a Bitcoin Core node is reached through --
+with `RelayFees`, the clients a Bitcoin Core node is reached through --
 `BitcoinCoreRpcClient` for the JSON-RPC server, `BitcoinCoreRestClient`
 for `-rest` -- and the transport seam:
 the timeout, the protocols a substitute has to satisfy and the
 implementations that open a socket -- over HTTP and over `LineTransport`,
 `ElectrumFetcher`'s own protocol, one connection per call and one kept
-open across calls, and `TcpPeerTransport` for
+open across calls, and `TcpPeerTransport` and `V2PeerTransport` for
 `PeerTransport`, `CompactFilterFetcher`'s. That last group is here
 because the seam is the supported way to test calling code without a
 node, and because a transport is how `ElectrumFetcher` and
@@ -163,7 +165,11 @@ from btclib_wallet.fetch.history import (
     ScriptHistory,
     start_height_for_time,
 )
-from btclib_wallet.fetch.peer_transport import PeerTransport, TcpPeerTransport
+from btclib_wallet.fetch.peer_transport import (
+    PeerTransport,
+    TcpPeerTransport,
+    V2PeerTransport,
+)
 from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
 from btclib_wallet.fetch.transport import (
     DEFAULT_TIMEOUT,
@@ -208,6 +214,7 @@ __all__ = [
     "TcpLineTransport",
     "TcpPeerTransport",
     "TlsLineTransport",
+    "V2PeerTransport",
     "start_height_for_time",
     "urlopen_transport",
 ]

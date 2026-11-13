@@ -49,11 +49,14 @@ re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
 It depends on `cryptography`, except on Windows arm64, for the cipher a
-ledger's private keys are encrypted with: `ledger.crypto` imports it,
-and no other module does. `bip38` takes its cipher from its caller
-instead, since a table-driven cipher leaks its key through cache timing,
-as its docstring says; a ledger takes none, so that it opens its own
-file alone.
+ledger's private keys are encrypted with, which `ledger.crypto` imports,
+and for BIP324's, which `fetch.peer_transport` reaches through
+`btclib.p2p.bip324`. No other module imports either, and `ledger.crypto`
+and `fetch.peer_transport` import them at the call that needs them, so
+the rest of the package works without `cryptography`. `bip38` takes its
+cipher from its caller instead, since a table-driven cipher leaks its
+key through cache timing, as its docstring says; a ledger takes none, so
+that it opens its own file alone.
 
 The line between this package and btclib is Bitcoin Core's between
 `src/consensus` and `src/wallet`: what places a module here is everything
@@ -217,7 +220,10 @@ history from the blocks and the mempool.
 line protocol, one connection per call and one kept open across calls —
 and `fetch.peer_transport` is the seam of the p2p peer:
 `TcpPeerTransport` holds one TCP connection to it, plain and without
-authentication. The codec each backend speaks is `btclib.p2p` or
+authentication, and `V2PeerTransport` one encrypted by BIP324's v2
+transport, which protects against a passive observer only, or plain v1
+to a peer without v2 where its caller asks for that fallback. The codec
+each backend speaks is `btclib.p2p` or
 `electrum.py`, outside `fetch/`: importing `fetch` costs `urllib`, `ssl`
 and `socket`, never the reverse.
 

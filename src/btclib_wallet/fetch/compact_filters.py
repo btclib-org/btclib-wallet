@@ -270,8 +270,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
 
     `transport` is required, keyword-only, and has no default, as it is
     for `ElectrumFetcher`: which peer sees this client is not this
-    package's decision. `TcpPeerTransport(host, port)` is the one shipped,
-    and closes its connection when used as a context manager.
+    package's decision. `TcpPeerTransport(host, port)` and
+    `V2PeerTransport(host, port)` are the ones shipped, and each closes
+    its connection when used as a context manager.
 
     `cross_check` is more peers, none by default. Their filter headers are
     compared with those `transport` served at every `sync` and
