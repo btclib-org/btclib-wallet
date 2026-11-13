@@ -38,7 +38,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from socket import create_connection
 from typing import Any, TypeVar
 
 import pytest
@@ -53,7 +52,11 @@ from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import NetworkVerifyingFetcher
-from btclib_wallet.fetch.transport import LineTransport, TlsLineTransport
+from btclib_wallet.fetch.transport import (
+    LineTransport,
+    TcpLineTransport,
+    TlsLineTransport,
+)
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 
@@ -370,39 +373,13 @@ def electrs_binary() -> str:
     return path
 
 
-class PlainLineTransport:
-    """A `LineTransport` over plain TCP to one server.
-
-    `TlsLineTransport`, the package's one `LineTransport`, has no plain
-    TCP, so the tests that reach an Electrum server without TLS write
-    their own. One connection per call, as there.
-    """
-
-    def __init__(self, host: str, port: int) -> None:
-        self.host = host
-        self.port = port
-
-    def __call__(self, request: bytes, timeout: float) -> bytes:
-        """Send one request line and return the line answering it."""
-        try:
-            with create_connection((self.host, self.port), timeout=timeout) as sock:
-                sock.sendall(request)
-                with sock.makefile("rb") as stream:
-                    line = stream.readline()
-        except OSError as e:
-            raise FetchError(f"no answer from {self.host}:{self.port}: {e}") from e
-        if not line.endswith(b"\n"):
-            raise FetchError("connection closed before a whole line")
-        return line[:-1]
-
-
 @dataclass
 class Stack:
     """A `bitcoind` on regtest and the index server reading it."""
 
     node: BitcoinCoreRpcClient
     reward_address: str
-    electrum: PlainLineTransport
+    electrum: TcpLineTransport
     http_url: str
     server: subprocess.Popen[bytes]
     server_log: Path
@@ -548,7 +525,7 @@ def _start_server(
     stack = Stack(
         miner,
         address,
-        PlainLineTransport("127.0.0.1", electrum_port),
+        TcpLineTransport("127.0.0.1", electrum_port),
         f"http://127.0.0.1:{http_port}",
         server,
         log,
@@ -813,7 +790,7 @@ def _start_floresta(
         stack = FlorestaStack(
             miner,
             address,
-            JsonRpc2Transport(PlainLineTransport("127.0.0.1", electrum_port)),
+            JsonRpc2Transport(TcpLineTransport("127.0.0.1", electrum_port)),
             JsonRpc2Transport(TlsLineTransport("localhost", tls_port, context=context)),
             server,
             logs[1],

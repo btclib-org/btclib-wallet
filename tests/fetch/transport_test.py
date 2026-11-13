@@ -2,14 +2,15 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""Tests for `TlsLineTransport`, over a fake connection.
+"""Tests for `TlsLineTransport` and `TcpLineTransport`, over a fake connection.
 
 No socket is opened: `create_connection` is replaced in the module under
-test, and the context handed to the transport is an `ssl.SSLContext`
-whose `wrap_socket` returns a scripted connection rather than performing
-a handshake. What that leaves untested is the handshake itself, which is
-`ssl`'s; what it tests is everything this module decides around it --
-the deadline, the bounded read, and what a failure becomes.
+test and returns a scripted socket, and the context handed to
+`TlsLineTransport` is an `ssl.SSLContext` whose `wrap_socket` returns a
+scripted connection rather than performing a handshake. What that leaves
+untested is the handshake itself, which is `ssl`'s; what it tests is
+everything this module decides around it -- the deadline, the bounded
+read, and what a failure becomes -- over TLS and over plain TCP.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from btclib_wallet.fetch.transport import (
     DEFAULT_MAX_BODY_SIZE,
     DEFAULT_TIMEOUT,
     MAX_TIMEOUT,
+    TcpLineTransport,
     TlsLineTransport,
     valid_timeout,
 )
@@ -41,6 +43,9 @@ from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT
 HOST = "electrum.example"
 PORT = 50002
 REQUEST = b'{"id": 1, "method": "server.ping", "params": []}\n'
+
+# the two line transports, for the tests of what they share
+KINDS = ["tls", "tcp"]
 
 
 class FakeConnection:
@@ -114,22 +119,69 @@ def fake_context(
     return context
 
 
+class Calls(list[tuple[tuple[str, int], float, FakeConnection]]):
+    """The calls `create_connection` took, and what the next one returns.
+
+    `socket` is the socket the next call returns, `failure` what it raises
+    instead, once the call is recorded.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.socket = FakeConnection()
+        self.failure: Exception | None = None
+
+
 @pytest.fixture
-def tcp(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+def tcp(monkeypatch: pytest.MonkeyPatch) -> Calls:
     """Replace `create_connection`, recording each call and its socket.
 
     Every test that reaches `__call__` takes this, so a test that forgot
     it would be the one test here that opens a real socket.
     """
-    calls: list[Any] = []
+    calls = Calls()
 
     def create_connection(address: tuple[str, int], timeout: float) -> FakeConnection:
-        sock = FakeConnection()
+        sock = calls.socket
+        calls.socket = FakeConnection()
         calls.append((address, timeout, sock))
+        if calls.failure is not None:
+            raise calls.failure
         return sock
 
     monkeypatch.setattr(transport_module, "create_connection", create_connection)
     return calls
+
+
+def line_transport(
+    kind: str,
+    calls: Calls,
+    *chunks: bytes | Exception,
+    failure: Exception | None = None,
+    max_line_size: int = DEFAULT_MAX_BODY_SIZE,
+) -> tuple[TlsLineTransport | TcpLineTransport, FakeConnection]:
+    """Return a transport of `kind` and the connection answering its call.
+
+    Over TLS that connection is the one the handshake returns, and
+    `failure` is what the handshake raises; over TCP it is the socket
+    `create_connection` returns, and `failure` is what the connect raises.
+    """
+    if kind == "tls":
+        context = fake_context(*chunks, failure=failure)
+        transport = TlsLineTransport(
+            HOST, PORT, context=context, max_line_size=max_line_size
+        )
+        return transport, context.tls
+    calls.socket = FakeConnection(*chunks)
+    calls.failure = failure
+    return TcpLineTransport(HOST, PORT, max_line_size=max_line_size), calls.socket
+
+
+def timeouts_set(sock: FakeConnection, connection: FakeConnection) -> list[float]:
+    """Return every timeout set, on the socket and on the TLS one over it."""
+    if connection is sock:
+        return sock.timeouts
+    return sock.timeouts + connection.timeouts
 
 
 def test_the_default_context_verifies_the_certificate_and_the_host() -> None:
@@ -159,50 +211,72 @@ def test_the_transport_sets_the_default_context_floor(
     assert context.minimum_version == ssl.TLSVersion.TLSv1_2
 
 
-def test_construction_keeps_what_it_was_given() -> None:
-    """The context passed is the one used, not a copy or a default."""
-    context = fake_context()
-    transport = TlsLineTransport(HOST, PORT, context=context, max_line_size=10)
+@pytest.mark.parametrize("cls", [TlsLineTransport, TcpLineTransport])
+def test_construction_keeps_what_it_was_given(
+    cls: type[TlsLineTransport | TcpLineTransport],
+) -> None:
+    """The host, the port and the line limit, the limit defaulted."""
+    transport = cls(HOST, PORT, max_line_size=10)
     assert transport.host == HOST
     assert transport.port == PORT
-    assert transport.context is context
     assert transport.max_line_size == 10
-    assert TlsLineTransport(HOST, PORT).max_line_size == DEFAULT_MAX_BODY_SIZE
+    assert cls(HOST, PORT).max_line_size == DEFAULT_MAX_BODY_SIZE
 
 
-def test_one_line_is_sent_and_one_line_read(tcp: list[Any]) -> None:
+def test_the_context_passed_is_the_one_used() -> None:
+    """Not a copy or a default."""
+    context = fake_context()
+    assert TlsLineTransport(HOST, PORT, context=context).context is context
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_one_line_is_sent_and_one_line_read(kind: str, tcp: Calls) -> None:
     """The answer without its newline; what follows it is not returned."""
     answer = b'{"id": 1, "result": null}'
     notification = b'{"method": "blockchain.headers.subscribe"}\n'
-    context = fake_context(answer + b"\n" + notification)
-    line = TlsLineTransport(HOST, PORT, context=context)(REQUEST, 7.0)
+    transport, connection = line_transport(kind, tcp, answer + b"\n" + notification)
+    line = transport(REQUEST, 7.0)
     assert line == answer
     [(address, timeout, sock)] = tcp
     assert address == (HOST, PORT)
     assert timeout == 7.0
-    assert context.wrapped is sock
-    assert context.server_hostname == HOST
-    assert context.tls.sent == REQUEST
-    assert context.tls.closed
+    assert connection.sent == REQUEST
+    assert connection.closed
     assert sock.closed
 
 
+def test_the_handshake_is_over_the_socket_and_names_the_host(tcp: Calls) -> None:
+    """TLS wraps the connected socket, and nothing goes out in the clear."""
+    context = fake_context(b"{}\n")
+    TlsLineTransport(HOST, PORT, context=context)(REQUEST, 1.0)
+    [(_, _, sock)] = tcp
+    assert context.wrapped is sock
+    assert context.server_hostname == HOST
+    assert not sock.sent
+
+
+@pytest.mark.parametrize(
+    "kind, expected",
+    [("tls", [2.5, 2.0, 1.5, 1.0, 0.5]), ("tcp", [2.5, 2.0, 1.5, 1.0])],
+)
 def test_every_operation_gets_what_is_left_of_one_deadline(
-    tcp: list[Any], monkeypatch: pytest.MonkeyPatch
+    kind: str, expected: list[float], tcp: Calls, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No operation is given more than what is left of the one deadline."""
+    """No operation is given more than what is left of the one deadline.
+
+    Over TLS the handshake is one more operation than over TCP.
+    """
     clock = iter([100.0, 100.5, 101.0, 101.5, 102.0, 102.5])
     monkeypatch.setattr(transport_module, "monotonic", lambda: next(clock))
-    context = fake_context(b'{"id"', b": 1}", b"\n")
-    TlsLineTransport(HOST, PORT, context=context)(REQUEST, 3.0)
+    transport, connection = line_transport(kind, tcp, b'{"id"', b": 1}", b"\n")
+    transport(REQUEST, 3.0)
     [(_, _, sock)] = tcp
-    timeouts = sock.timeouts + context.tls.timeouts
-    assert len(timeouts) == 1 + 1 + 3
-    assert timeouts == [2.5, 2.0, 1.5, 1.0, 0.5]
+    assert timeouts_set(sock, connection) == expected
 
 
+@pytest.mark.parametrize("kind", KINDS)
 def test_no_operation_is_given_more_than_the_timeout(
-    tcp: list[Any], monkeypatch: pytest.MonkeyPatch
+    kind: str, tcp: Calls, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two equal reads of the clock leave no more time than the timeout.
 
@@ -211,115 +285,127 @@ def test_no_operation_is_given_more_than_the_timeout(
     now = 4094.001074717207
     assert (now + 3.0) - now > 3.0
     monkeypatch.setattr(transport_module, "monotonic", lambda: now)
-    context = fake_context(b'{"id": 1}\n')
-    TlsLineTransport(HOST, PORT, context=context)(REQUEST, 3.0)
+    transport, connection = line_transport(kind, tcp, b'{"id": 1}\n')
+    transport(REQUEST, 3.0)
     [(_, _, sock)] = tcp
-    timeouts = sock.timeouts + context.tls.timeouts
+    timeouts = timeouts_set(sock, connection)
     assert timeouts
     assert all(0 < timeout <= 3.0 for timeout in timeouts)
 
 
-def test_a_line_arriving_in_pieces_is_joined(tcp: list[Any]) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_line_arriving_in_pieces_is_joined(kind: str, tcp: Calls) -> None:
     """A line is what ends at the newline, not what one read returns."""
-    context = fake_context(b'{"id": 1, ', b'"result": ', b"true}\n")
-    line = TlsLineTransport(HOST, PORT, context=context)(REQUEST, 1.0)
-    assert line == b'{"id": 1, "result": true}'
+    transport, _ = line_transport(kind, tcp, b'{"id": 1, ', b'"result": ', b"true}\n")
+    assert transport(REQUEST, 1.0) == b'{"id": 1, "result": true}'
 
 
+@pytest.mark.parametrize("kind", KINDS)
 def test_the_deadline_is_over_the_whole_exchange(
-    tcp: list[Any], monkeypatch: pytest.MonkeyPatch
+    kind: str, tcp: Calls, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A server dripping a line cannot hold the call past its timeout."""
     clock = iter([100.0, 100.5, 101.0, 101.5, 102.5])
     monkeypatch.setattr(transport_module, "monotonic", lambda: next(clock))
-    context = fake_context(b"{", b"}")
+    transport, _ = line_transport(kind, tcp, b"{", b"}")
     with pytest.raises(RpcFetchError, match="timeout expired"):
-        TlsLineTransport(HOST, PORT, context=context)(REQUEST, 2.0)
+        transport(REQUEST, 2.0)
 
 
-def test_a_line_at_the_limit_is_an_answer(tcp: list[Any]) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_line_at_the_limit_is_an_answer(kind: str, tcp: Calls) -> None:
     """`max_line_size` counts the line, the newline not included."""
-    context = fake_context(b"12345", b"\n")
-    assert (
-        TlsLineTransport(HOST, PORT, context=context, max_line_size=5)(REQUEST, 1.0)
-        == b"12345"
-    )
+    transport, _ = line_transport(kind, tcp, b"12345", b"\n", max_line_size=5)
+    assert transport(REQUEST, 1.0) == b"12345"
 
 
-def test_a_line_over_the_limit_is_refused(tcp: list[Any]) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_line_over_the_limit_is_refused(kind: str, tcp: Calls) -> None:
     """Refused rather than truncated, and never read far past the limit."""
-    context = fake_context(b"123", b"456", b"\n")
-    transport = TlsLineTransport(HOST, PORT, context=context, max_line_size=5)
+    transport, connection = line_transport(
+        kind, tcp, b"123", b"456", b"\n", max_line_size=5
+    )
     with pytest.raises(RpcFetchError, match="max_line_size of 5"):
         transport(REQUEST, 1.0)
-    assert context.tls.asked == [6, 3]
+    assert connection.asked == [6, 3]
 
 
-def test_a_read_asks_for_no_more_than_a_chunk(tcp: list[Any]) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_read_asks_for_no_more_than_a_chunk(kind: str, tcp: Calls) -> None:
     """A large limit is not what one read allocates."""
-    context = fake_context(b"{}\n")
-    TlsLineTransport(HOST, PORT, context=context)(REQUEST, 1.0)
-    assert context.tls.asked == [transport_module._READ_CHUNK]
+    transport, connection = line_transport(kind, tcp, b"{}\n")
+    transport(REQUEST, 1.0)
+    assert connection.asked == [transport_module._READ_CHUNK]
 
 
+@pytest.mark.parametrize("kind", KINDS)
 def test_a_connection_closed_before_the_newline_is_a_fetch_error(
-    tcp: list[Any],
+    kind: str, tcp: Calls
 ) -> None:
     """A partial line is not an answer, however much of one arrived."""
-    context = fake_context(b'{"id": 1, "result"')
+    transport, _ = line_transport(kind, tcp, b'{"id": 1, "result"')
     with pytest.raises(RpcFetchError, match="closed before a whole line"):
-        TlsLineTransport(HOST, PORT, context=context)(REQUEST, 1.0)
+        transport(REQUEST, 1.0)
 
 
 @pytest.mark.parametrize(
-    "failure",
+    "kind, failure",
     [
-        ConnectionRefusedError("connection refused"),
-        TimeoutError("timed out"),
-        ssl.SSLCertVerificationError("certificate verify failed"),
+        ("tls", ConnectionRefusedError("connection refused")),
+        ("tls", TimeoutError("timed out")),
+        ("tls", ssl.SSLCertVerificationError("certificate verify failed")),
+        ("tcp", ConnectionRefusedError("connection refused")),
+        ("tcp", TimeoutError("timed out")),
+        ("tcp", socket.gaierror("name or service not known")),
     ],
 )
 def test_what_goes_wrong_below_the_answer_is_a_fetch_error(
-    tcp: list[Any], failure: Exception
+    kind: str, failure: Exception, tcp: Calls
 ) -> None:
     """The contract `LineTransport` states, the cause kept."""
-    context = fake_context(failure=failure)
+    transport, _ = line_transport(kind, tcp, failure=failure)
     with pytest.raises(RpcFetchError, match=f"no answer from {HOST}:{PORT}") as e:
-        TlsLineTransport(HOST, PORT, context=context)(REQUEST, 1.0)
+        transport(REQUEST, 1.0)
     assert e.value.__cause__ is failure
 
 
-def test_a_failed_read_is_a_fetch_error(tcp: list[Any]) -> None:
-    """A reset after the handshake is the same answer as a refused connect."""
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_failed_read_is_a_fetch_error(kind: str, tcp: Calls) -> None:
+    """A reset after the connection is the same answer as a refused connect."""
     reset = ConnectionResetError("reset")
-    context = fake_context(b"{", reset)
+    transport, connection = line_transport(kind, tcp, b"{", reset)
     with pytest.raises(RpcFetchError, match="reset") as e:
-        TlsLineTransport(HOST, PORT, context=context)(REQUEST, 1.0)
+        transport(REQUEST, 1.0)
     assert e.value.__cause__ is reset
-    assert context.tls.closed
+    assert connection.closed
 
 
-def test_electrum_fetcher_translates_what_the_transport_raises(tcp: list[Any]) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+def test_electrum_fetcher_translates_what_the_transport_raises(
+    kind: str, tcp: Calls
+) -> None:
     """A failed transport is this package's `FetchError` to the caller."""
-    context = fake_context(b"")
-    transport = TlsLineTransport(HOST, PORT, context=context)
+    transport, _ = line_transport(kind, tcp, b"")
     endpoint = ElectrumFetcher(transport=transport, verify_network=False)
     with pytest.raises(FetchError, match="closed before a whole line"):
         endpoint.get_block_count()
 
 
-def test_electrum_fetcher_answers_over_it(tcp: list[Any]) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+def test_electrum_fetcher_answers_over_it(kind: str, tcp: Calls) -> None:
     """The fetcher and this transport agree on the line at the boundary."""
     reply = {"id": 1, "result": {"height": TIP_HEIGHT, "hex": TIP_HEADER_RAW}}
-    context = fake_context(json.dumps(reply).encode() + b"\n")
-    transport = TlsLineTransport(HOST, PORT, context=context)
+    transport, connection = line_transport(
+        kind, tcp, json.dumps(reply).encode() + b"\n"
+    )
     endpoint = ElectrumFetcher(transport=transport, verify_network=False)
     assert endpoint.get_block_count() == TIP_HEIGHT
-    assert json.loads(context.tls.sent)["method"] == "blockchain.headers.subscribe"
+    assert json.loads(connection.sent)["method"] == "blockchain.headers.subscribe"
     [(_, timeout, _)] = tcp
     assert timeout == DEFAULT_TIMEOUT
 
 
+@pytest.mark.parametrize("cls", [TlsLineTransport, TcpLineTransport])
 @pytest.mark.parametrize(
     "args, kwargs, error, match",
     [
@@ -330,19 +416,29 @@ def test_electrum_fetcher_answers_over_it(tcp: list[Any]) -> None:
         ((HOST, "50002"), {}, BTClibTypeError, "non-integer port"),
         ((HOST, 0), {}, BTClibValueError, "invalid port"),
         ((HOST, 65536), {}, BTClibValueError, "invalid port"),
-        ((HOST, PORT), {"context": object()}, BTClibTypeError, "SSLContext"),
         ((HOST, PORT), {"max_line_size": 1.5}, BTClibTypeError, "max_line_size"),
         ((HOST, PORT), {"max_line_size": 0}, BTClibValueError, "max_line_size"),
     ],
 )
 def test_construction_validates_its_arguments(
-    args: tuple[Any, ...], kwargs: dict[str, Any], error: type[Exception], match: str
+    cls: type[TlsLineTransport | TcpLineTransport],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    error: type[Exception],
+    match: str,
 ) -> None:
     """A malformed argument is refused where it is given, not at the call."""
     with pytest.raises(error, match=match):
-        TlsLineTransport(*args, **kwargs)
+        cls(*args, **kwargs)
 
 
+def test_a_context_that_is_not_one_is_refused() -> None:
+    """Only an `ssl.SSLContext` is a context."""
+    with pytest.raises(BTClibTypeError, match="SSLContext"):
+        TlsLineTransport(HOST, PORT, context=object())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize(
     "request_, timeout, error, match",
     [
@@ -388,10 +484,15 @@ def test_construction_validates_its_arguments(
     ],
 )
 def test_a_call_validates_its_arguments_before_connecting(
-    tcp: list[Any], request_: Any, timeout: Any, error: type[Exception], match: str
+    kind: str,
+    tcp: Calls,
+    request_: Any,
+    timeout: Any,
+    error: type[Exception],
+    match: str,
 ) -> None:
     """Refused before anything is opened, so no connection is attempted."""
-    transport = TlsLineTransport(HOST, PORT, context=fake_context(b"{}\n"))
+    transport, _ = line_transport(kind, tcp, b"{}\n")
     with pytest.raises(error, match=match):
         transport(request_, timeout)
     assert not tcp

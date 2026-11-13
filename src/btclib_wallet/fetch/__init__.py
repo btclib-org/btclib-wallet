@@ -62,9 +62,9 @@ for the Electrum protocol's line, `socket` for the p2p stream. The HTTP
 client's canonical implementation is the `bitcoin-core-rpc` package, which
 btclib depends on and does not contain, and its transport exports here are
 aliases to that same source, not another implementation;
-`TlsLineTransport` is implemented in `btclib_wallet.fetch.transport`
-itself. The seam lets the test suite exercise all of this while opening no
-socket.
+`TlsLineTransport` and `TcpLineTransport` are implemented in
+`btclib_wallet.fetch.transport` itself. The seam lets the test suite
+exercise all of this while opening no socket.
 
 **A protocol's code is split in three, and where each part lives is one rule for
 every protocol.** The codec -- the framing, the envelope and the shape of each
@@ -111,8 +111,9 @@ the clients a Bitcoin Core node is reached through --
 for `-rest` -- and the transport seam:
 the timeout, the protocols a substitute has to satisfy and the
 implementations that open a socket -- over HTTP one connection per call
-and one kept open across calls, `TlsLineTransport` for `LineTransport`,
-`ElectrumFetcher`'s own protocol, and `TcpPeerTransport` for
+and one kept open across calls, `TlsLineTransport` and
+`TcpLineTransport` for `LineTransport`, `ElectrumFetcher`'s own
+protocol, and `TcpPeerTransport` for
 `PeerTransport`, `CompactFilterFetcher`'s. That last group is here
 because the seam is the supported way to test calling code without a
 node, and because a transport is how `ElectrumFetcher` and
@@ -171,6 +172,7 @@ from btclib_wallet.fetch.transport import (
     HttpTransport,
     LineTransport,
     SessionTransport,
+    TcpLineTransport,
     TlsLineTransport,
     urlopen_transport,
 )
@@ -203,6 +205,7 @@ __all__ = [
     "RelayFees",
     "ScriptHistory",
     "SessionTransport",
+    "TcpLineTransport",
     "TcpPeerTransport",
     "TlsLineTransport",
     "start_height_for_time",

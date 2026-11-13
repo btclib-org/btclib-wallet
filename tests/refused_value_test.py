@@ -48,7 +48,7 @@ from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import block_header_height, tx_from_raw
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport
-from btclib_wallet.fetch.transport import TlsLineTransport
+from btclib_wallet.fetch.transport import TcpLineTransport, TlsLineTransport
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.psbt.psbt_utils import PSBT_V2
 from btclib_wallet.tx_or_psbt import tx_or_psbt_from_any
@@ -564,6 +564,32 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
             "^not one newline-terminated line: a bytes of length 32$",
         ),
         (
+            lambda: TcpLineTransport(KEY, 1),  # type: ignore[arg-type]
+            "^non-string host: a bytes of length 32$",
+        ),
+        (lambda: TcpLineTransport(HEX, 1), "^invalid host: a value of 64 characters$"),
+        (
+            lambda: TcpLineTransport("h", HEX),  # type: ignore[arg-type]
+            "^non-integer port: a str of length 64$",
+        ),
+        (lambda: TcpLineTransport("h", SCALAR), "^invalid port: an int of 256 bits$"),
+        (
+            lambda: TcpLineTransport("h", 1, max_line_size=HEX),  # type: ignore[arg-type]
+            "^non-integer max_line_size: a str of length 64$",
+        ),
+        (
+            lambda: TcpLineTransport("h", 1, max_line_size=-SCALAR),
+            "^invalid max_line_size: a negative int of 256 bits$",
+        ),
+        (
+            lambda: TcpLineTransport("h", 1)(HEX, 1.0),  # type: ignore[arg-type]
+            "^non-bytes request: a str of length 64$",
+        ),
+        (
+            lambda: TcpLineTransport("h", 1)(KEY, 1.0),
+            "^not one newline-terminated line: a bytes of length 32$",
+        ),
+        (
             lambda: TcpPeerTransport(KEY, 1),  # type: ignore[arg-type]
             "^non-string host: a bytes of length 32$",
         ),
@@ -606,6 +632,14 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
         "tls max_line_size",
         "tls request type",
         "tls request",
+        "tcp host",
+        "tcp host name",
+        "tcp port type",
+        "tcp port",
+        "tcp max_line_size type",
+        "tcp max_line_size",
+        "tcp request type",
+        "tcp request",
         "peer host",
         "peer host name",
         "peer port type",
