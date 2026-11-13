@@ -2,12 +2,12 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""`btclib_wallet.fetch` with `cryptography` out of reach, as on Windows arm64.
+"""`btclib_wallet.fetch` with `cryptography` out of reach.
 
-An install on Windows arm64 leaves `cryptography` out unless the
-`encryption` extra asks for it. The package still imports, and
-`V2PeerTransport`, whose cipher needs it, refuses on construction,
-naming the extra. These run whether or not it is installed.
+README's *Installing* says which installs lack it. The package still
+imports, and `V2PeerTransport`, whose cipher needs it, refuses on
+construction, naming the extra. These run whether or not it is
+installed.
 """
 
 from __future__ import annotations

@@ -39,11 +39,9 @@ so a caller that compares `session_id` with the one the peer reports
 (`getpeerinfo` on Bitcoin Core) detects it.
 
 The cipher and the framing are `btclib.p2p.bip324`'s, which needs the
-`cryptography` package. That is a dependency of this package except on
-Windows arm64, where the `encryption` extra brings it:
-``pip install "btclib-wallet[encryption]"``. Where it is missing,
-`V2PeerTransport` refuses on construction, and the rest of this module
-works without it.
+`cryptography` package: README's *Installing* says which installs lack
+it and how to add it. Where it is missing, `V2PeerTransport` refuses on
+construction, and the rest of this module works without it.
 
 A peer that speaks v1 only hangs up on the v2 handshake. Bitcoin Core
 then reconnects over v1; `V2PeerTransport` does so only where the caller
@@ -111,8 +109,8 @@ _NO_CRYPTOGRAPHY = (
 def _assert_bip324() -> None:
     """Refuse where `btclib.p2p.bip324` cannot be imported.
 
-    It imports `cryptography`, which an install on Windows arm64 leaves
-    out, so it is imported only where a v2 transport is built.
+    It imports `cryptography`, which an install can lack (README's
+    *Installing*), so it is imported only where a v2 transport is built.
     """
     try:
         import_module("btclib.p2p.bip324")

@@ -254,8 +254,8 @@ def _frost_partial_sign(**kwargs: Any) -> bytes:
 def _v2_peer_transport(**kwargs: Any) -> V2PeerTransport:
     """Return a v2 transport to a peer that does not exist.
 
-    Skipped where `cryptography` is missing, as an install on Windows
-    arm64 leaves it: construction then refuses after the flag is checked.
+    Skipped where `cryptography` is missing (README's *Installing*):
+    construction then refuses after the flag is checked.
     """
     pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
     return V2PeerTransport("peer.example", 18444, **kwargs)

@@ -404,8 +404,8 @@ PEER_PRV_KEY = 2
 def v2_peer(*, v1_fallback: bool = False) -> V2PeerTransport:
     """Return a v2 transport to a peer that does not exist.
 
-    Skipped where `cryptography` is missing, as an install on Windows
-    arm64 leaves it: `no_cryptography_test.py` asks what happens then.
+    Skipped where `cryptography` is missing (README's *Installing*):
+    `no_cryptography_test.py` asks what happens then.
     """
     pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
     return V2PeerTransport("peer.example", 18444, v1_fallback=v1_fallback)
@@ -434,7 +434,7 @@ class V2Peer(FakeSocket):
         send_error: BaseException | None = None,
     ) -> None:
         super().__init__([], error=error)
-        # an install on Windows arm64 leaves `cryptography` out
+        # skipped where `cryptography` is missing (README's *Installing*)
         pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
         from btclib.p2p.bip324 import Cipher  # noqa: PLC0415
 

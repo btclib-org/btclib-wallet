@@ -60,13 +60,13 @@ and `CompactFilterFetcher` do not, and each says why.
 client: `urllib.request`, `json` and `base64` over HTTP, `socket` and `ssl`
 for the Electrum protocol's line, `socket` for the p2p stream.
 `V2PeerTransport` is an exception: its key exchange and cipher are `ecc`'s
-and `btclib.p2p.bip324`'s. The cipher needs `cryptography`, and
-`btclib_wallet.fetch.peer_transport` says where that comes from. The HTTP
-client's canonical implementation is the `bitcoin-core-rpc` package, which
-btclib depends on and does not contain, and its transport exports here are
-aliases to that same source, not another implementation; those of
-`LineTransport` are implemented in `btclib_wallet.fetch.transport` itself.
-The seam lets the test suite exercise all of this while opening no socket.
+and `btclib.p2p.bip324`'s. The cipher needs `cryptography`, and README's
+*Installing* says where that comes from. The HTTP client's canonical
+implementation is the `bitcoin-core-rpc` package, which btclib depends on
+and does not contain, and its transport exports here are aliases to that
+same source, not another implementation; those of `LineTransport` are
+implemented in `btclib_wallet.fetch.transport` itself. The seam lets the
+test suite exercise all of this while opening no socket.
 
 **A protocol's code is split in three, and where each part lives is one rule for
 every protocol.** The codec -- the framing, the envelope and the shape of each
