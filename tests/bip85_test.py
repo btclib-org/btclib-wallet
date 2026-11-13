@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import hmac
 from hashlib import shake_256
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from bip39_slip39.bip39 import entropy_from_mnemonic
@@ -37,7 +37,10 @@ from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
 from ecc.curves import secp256k1 as ec
+from typing_extensions import override
 
+import btclib_wallet
+from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.bip32 import BIP32KeyData, derive, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip85 import (
     _HMAC_KEY,
@@ -551,3 +554,136 @@ def test_a_huge_integer_for_the_number_of_words_is_a_refusal() -> None:
         mnemonic_from_root_key(_ROOT, 10**5000)
     with pytest.raises(BTClibValueError, match="^invalid number of words: 1000000"):
         mnemonic_from_root_key(_ROOT, 1_000_000)
+
+
+# a `__class__` that isinstance reads in place of the type
+_CLAIMS_BOOL: Any = property(lambda _self: bool)
+_CLAIMS_INT: Any = property(lambda _self: int)
+
+
+class _InBounds(int):
+    """An int inside any bound by its own comparisons, whose str is a digit.
+
+    Its `__class__` claims bool, which isinstance reads.
+    """
+
+    __class__ = _CLAIMS_BOOL
+
+    @override
+    def __lt__(self, _other: object) -> bool:
+        return True
+
+    @override
+    def __gt__(self, _other: object) -> bool:
+        return True
+
+    @override
+    def __str__(self) -> str:
+        return "1"
+
+
+class _OneCharacter(str):
+    """A str one character long by its own `str` and `len`.
+
+    Its `__class__` claims bool, which isinstance reads.
+    """
+
+    __slots__ = ()
+
+    __class__ = _CLAIMS_BOOL
+
+    @override
+    def __str__(self) -> str:
+        return "x"
+
+    @override
+    def __len__(self) -> int:
+        return 1
+
+
+class _ClaimsInt:
+    """An object no int, whose `__class__` claims int."""
+
+    __class__ = _CLAIMS_INT
+
+
+def test_a_subclass_does_not_shorten_what_is_quoted() -> None:
+    """A subclass's own methods do not decide what is quoted (issue #851)."""
+    scalar = int.from_bytes(shake_256(b"btclib-wallet issue 851").digest(32))
+    secrets = [str(scalar), f"{scalar:064x}"]
+
+    words = _InBounds(scalar)
+    assert isinstance(cast("object", words), bool)
+    assert words < 0
+    assert words > 0
+    assert str(words) == "1"
+    err_msg = "^invalid number of words: a value of more than 16 digits;"
+    with pytest.raises(BTClibValueError, match=err_msg) as words_e:
+        mnemonic_from_root_key(_ROOT, words)
+    assert_secret_free(words_e.value, secrets)
+
+    lang = _OneCharacter(f"{scalar:064x}")
+    assert isinstance(cast("object", lang), bool)
+    assert (str(lang), len(lang)) == ("x", 1)
+    err_msg = "^unnumbered bip85 language: a value of 64 characters;"
+    with pytest.raises(BTClibValueError, match=err_msg) as lang_e:
+        mnemonic_from_root_key(_ROOT, 12, lang)
+    assert_secret_free(lang_e.value, secrets)
+
+    # the module's own `__getattr__` quotes the name it does not publish
+    err_msg = "^module 'btclib_wallet' has no attribute a value of 64 characters$"
+    with pytest.raises(AttributeError, match=err_msg) as name_e:
+        getattr(btclib_wallet, lang)
+    assert_secret_free(name_e.value, secrets)
+
+
+class _LyingInt(int):
+    """An int whose `__int__` and `__index__` answer 1."""
+
+    @override
+    def __int__(self) -> int:
+        return 1
+
+    @override
+    def __index__(self) -> int:
+        return 1
+
+
+def test_an_int_is_measured_by_its_digits_not_its_int() -> None:
+    """On PyPy, `int.__abs__` calls the value's `__int__`, which can lie."""
+    words = _LyingInt(10**17)
+    assert (int(words), words.__index__()) == (1, 1)
+    err_msg = "^invalid number of words: a value of more than 16 digits;"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        mnemonic_from_root_key(_ROOT, words)
+    assert _message_text(_LyingInt(-5)) == "a negative int of 3 bits"
+
+
+class _Unreadable:
+    """An object whose every attribute lookup raises, `__class__` included."""
+
+    @override
+    def __getattribute__(self, name: str) -> Any:
+        raise RuntimeError(name)
+
+
+def test_a_value_whose_attributes_raise_is_described_by_its_type() -> None:
+    """The type is tested before isinstance, which asks for the `__class__`."""
+    unreadable = _Unreadable()
+    with pytest.raises(RuntimeError, match="^__class__$"):
+        _ = unreadable.__class__
+    assert _quoted(unreadable) == "an _Unreadable"  # type: ignore[arg-type]
+    assert _message_text(unreadable) == "an _Unreadable"
+
+
+def test_an_object_claiming_int_is_described_by_its_type() -> None:
+    """Neither int's methods nor str's take it, and nothing builtin leaves."""
+    err_msg = "^invalid number of words: a _ClaimsInt;"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        mnemonic_from_root_key(_ROOT, _ClaimsInt())  # type: ignore[arg-type]
+
+
+def test_a_bool_for_the_number_of_words_is_quoted_as_a_bool() -> None:
+    """As True or False, not as the digit int's repr writes."""
+    with pytest.raises(BTClibValueError, match="^invalid number of words: True;"):
+        mnemonic_from_root_key(_ROOT, True)
