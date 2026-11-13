@@ -715,8 +715,8 @@ class Ledger:
         """Return a wallet's watched descriptors, and its keys encrypted.
 
         A locked ledger is refused, and so is one whose master key
-        `lock_keys`, `close` or a new `unlock_keys` in another thread
-        zeroed while the keys were encrypted: they may be under zeros.
+        another thread let go of while the keys were encrypted, zeroing
+        it as `_holds` says: they may be under zeros.
         """
         key = self._assert_unlocked()
         descriptors = _watched(wallet)
@@ -1717,21 +1717,28 @@ class Ledger:
                 raise BTClibValueError(_LOCKED_DURING)
             return list(self._sources.values())
         return [
-            self._decrypted(key, source_id) if source_id in self._encrypted else wallet
+            self._decrypted(key, source_id, was_held=True)
+            if source_id in self._encrypted
+            else wallet
             for source_id, wallet in self._sources.items()
         ]
 
-    def _decrypted(self, key: bytearray, source_id: int) -> DescriptorWallet:
+    def _decrypted(
+        self, key: bytearray, source_id: int, *, was_held: bool
+    ) -> DescriptorWallet:
         """Return a source as it was added, its keys decrypted under `key`.
 
-        A `key` zeroed in place, as `lock_keys` and a new `unlock_keys`
-        zero the one held, from another thread while this ran, is refused
-        as a ledger locked during the call, not as a damaged file.
+        `was_held` says `key` is the master key the ledger held when the
+        caller read it. Another thread may let go of that key while this
+        runs, zeroing it as `_holds` says, and a thread may see it part
+        zeroed. So where the ledger no longer holds it, a key that fails
+        is refused as a ledger locked during the call, not as a damaged
+        file.
         """
         try:
             plaintext = _opened(key, self._encrypted[source_id], _aad(source_id))
         except _WrongKeyError:
-            if not any(key):
+            if was_held and not self._holds(key):
                 raise BTClibValueError(_LOCKED_DURING) from None
             err_msg = f"not a ledger file: source {source_id}'s keys do not decrypt"
             raise BTClibValueError(err_msg) from None
@@ -2239,7 +2246,7 @@ class Ledger:
             # every source is decrypted once, as Core's `Unlock` checks
             # its keys: a damaged ciphertext is refused here, not at a sign
             for source_id in self._encrypted:
-                self._decrypted(key, source_id)
+                self._decrypted(key, source_id, was_held=False)
         except BaseException:
             _wipe(key)
             raise
