@@ -1,9 +1,9 @@
 # Repository instructions
 
 Follow [CONTRIBUTING.md](./CONTRIBUTING.md) for issues, pull requests,
-local gates, and worktree commands. Use [REVIEWING.md](./REVIEWING.md)
-for reviews, the [organization's standard][org-standard] for the rules
-both cite, and [REPOSITORY.md](./REPOSITORY.md) before changing workflows
+local gates, and worktree commands. Use the
+[organization's standard][org-standard] for the rules this tree's files
+cite, and [REPOSITORY.md](./REPOSITORY.md) before changing workflows
 or settings.
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
