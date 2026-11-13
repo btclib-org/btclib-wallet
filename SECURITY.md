@@ -203,7 +203,8 @@ used to teach and to prototype as much as to build.
     script's history, except the ids of the transactions it lists, from
     `EsploraFetcher` and `ElectrumFetcher` that each touches one of the
     scripts, and from `ElectrumFetcher` that each confirmed one is in a
-    header chained to the tip it reports.
+    header chained to the tip it reports, as is the block the history
+    starts from.
     `ElectrumFetcher.get_history`'s docstring says how far those headers
     are checked and what the chain costs. The id does not commit to the
     witness, so the witness of a transaction those two answer rests on
