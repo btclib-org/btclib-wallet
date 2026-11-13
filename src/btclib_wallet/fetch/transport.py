@@ -120,9 +120,7 @@ MAX_TIMEOUT = 2_147_483
 def valid_timeout(timeout: float) -> float:
     """Return `timeout`, refusing what no socket will wait for.
 
-    The check `TlsLineTransport`, `TcpPeerTransport`, `EsploraFetcher`,
-    `ElectrumFetcher` and `CompactFilterFetcher` make of the timeout they
-    take. A bool is not a duration, `timeout=True` being one second.
+    A bool is not a duration, `timeout=True` being one second.
 
     The bound is `MAX_TIMEOUT`, a timeout a socket takes on every
     platform: past it, a socket raises an `OverflowError`, which is no
