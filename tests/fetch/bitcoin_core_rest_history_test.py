@@ -255,7 +255,7 @@ def test_get_history_refuses_a_malformed_answer(
     rest.node.mempool = [_tx([old], [OTHER])]
     rest.utxos = {old: OURS}
     rest.edit = lambda k, reply: change(reply) if k == kind else reply
-    with pytest.raises(FetchError, match=match) as e:
+    with pytest.raises(FetchError, match=": a malformed answer") as e:
         _fetcher(rest).get_history([OURS], 3)
     assert_secret_free(e.value, SPELLINGS)
 

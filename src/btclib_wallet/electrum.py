@@ -67,7 +67,7 @@ from btclib.block.merkle_proof import verify as verify_merkle_branch
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _RPC_CODES, _message_text
+from btclib_wallet._refusal import _code, _message_text, _quoted
 from btclib_wallet.exceptions import RpcError
 
 __all__ = [
@@ -213,9 +213,9 @@ def encode_request(request_id: int, method: str, params: Any = ()) -> bytes:
     try:
         line = json.dumps(request, allow_nan=False)
     except TypeError as e:
-        refusal = BTClibTypeError(f"request not JSON: {e}")
+        refusal = BTClibTypeError(f"request not JSON: {type(e).__name__}")
     except (ValueError, RecursionError) as e:
-        refusal = BTClibValueError(f"request not JSON: {e}")
+        refusal = BTClibValueError(f"request not JSON: {type(e).__name__}")
     else:
         return line.encode("utf-8") + b"\n"
     raise refusal
@@ -238,15 +238,13 @@ def _raise_rpc_error(error: object, method: str) -> NoReturn:
     A code that is no integer, or lies outside `_RPC_CODES`, is 0: JSON
     bounds no integer, so a code can hold the scalar of a key.
     """
-    code = error.get("code") if isinstance(error, dict) else None
-    if not (is_integer(code) and code in _RPC_CODES):
-        code = 0
-    raise RpcError(f"{method}: the server answered an error", cast(int, code))
+    code = _code(error.get("code") if isinstance(error, dict) else None)
+    raise RpcError(f"{method}: the server answered an error", code)
 
 
 def _refuse_constant(name: str) -> NoReturn:
     """Refuse `NaN`, `Infinity` and `-Infinity`, which RFC 8259 lacks."""
-    raise BTClibValueError(f"not JSON: {name}")
+    raise BTClibValueError(f"not JSON: {_quoted(name)}")
 
 
 # The deepest answer Electrum's own client reads, `server.peers.subscribe`,
@@ -315,7 +313,9 @@ def decode_response(line: bytes, request_id: int, method: str) -> Any:
         raise BTClibTypeError(f"invalid method type: {type(method).__name__}")
     if method not in _METHODS:
         raise BTClibValueError(f"unknown method: {_message_text(method)}")
-    return _response_result(_decode_line(line), request_id, method)
+    # the protocol's own spelling, which is what a refusal names
+    known = next(name for name in _METHODS if name == method)
+    return _response_result(_decode_line(line), request_id, known)
 
 
 def _decode_line(line: bytes) -> Any:

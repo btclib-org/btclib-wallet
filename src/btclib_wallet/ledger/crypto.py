@@ -56,6 +56,8 @@ from typing import TYPE_CHECKING
 
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 
+from btclib_wallet._refusal import _quoted
+
 if TYPE_CHECKING:
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -122,7 +124,8 @@ def _assert_cost(n: int, r: int, p: int) -> None:
         and 1 <= r <= _SCRYPT_R
         and 1 <= p <= _SCRYPT_P
     ):
-        err_msg = f"not a ledger file: scrypt's cost N={n}, r={r}, p={p}"
+        err_msg = "not a ledger file: scrypt's cost "
+        err_msg += f"N={_quoted(n)}, r={_quoted(r)}, p={_quoted(p)}"
         raise BTClibValueError(f"{err_msg} is outside what this release writes")
 
 

@@ -157,6 +157,10 @@ def test_a_backup_that_cannot_open_its_file_leaves_none(
     assert not backup.exists()
 
 
+# the path is the caller's and SQLite's text is not relayed
+_COPY_REFUSED = "^cannot copy the ledger file: OperationalError$"
+
+
 def test_a_copy_that_cannot_write_names_the_copy_and_leaves_none(
     ledger: Ledger, chain: FakeChain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -177,12 +181,12 @@ def test_a_copy_that_cannot_write_names_the_copy_and_leaves_none(
     second = tmp_path / "second.bak"
     with pytest.raises(_COPY_REFUSALS) as refused:
         ledger.backup(second)
-    assert _PYPY or re.match("cannot copy into .*readonly", str(refused.value))
+    assert _PYPY or re.match(_COPY_REFUSED, str(refused.value))
     assert not second.exists()
     restored = tmp_path / "restored.sqlite"
     with pytest.raises(_COPY_REFUSALS) as refused:
         Ledger.restore(backup, restored, "regtest", chain)
-    assert _PYPY or re.match("cannot copy into .*readonly", str(refused.value))
+    assert _PYPY or re.match(_COPY_REFUSED, str(refused.value))
     assert not restored.exists()
 
 
@@ -270,7 +274,7 @@ def test_a_restore_is_refused_and_leaves_nothing(
     with db:
         db.execute("CREATE TABLE t(x INTEGER)")
     db.close()
-    with pytest.raises(BTClibValueError, match="application id 0x0"):
+    with pytest.raises(BTClibValueError, match="not a ledger file: application id 0"):
         Ledger.restore(foreign, target, "regtest", chain)
     assert not target.exists()
 

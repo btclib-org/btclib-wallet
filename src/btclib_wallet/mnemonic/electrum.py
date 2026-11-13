@@ -19,6 +19,7 @@ from btclib.network import network_from_name
 from ecc.curves.curve import mult, secp256k1
 from ecc.curves.sec_point import bytes_from_point, scalar_from_prv_key
 
+from btclib_wallet._refusal import _label
 from btclib_wallet.bip32 import derive, rootxprv_from_seed
 from btclib_wallet.bip32.der_path import HARDENED_OFFSET
 
@@ -31,6 +32,10 @@ __all__ = [
     "mxprv_from_mnemonic",
     "old_master_pub_key_from_mnemonic",
 ]
+
+
+# the versions Electrum writes, which a refusal names as they stand
+_VERSIONS = ("standard", "segwit", "2fa", "2fa_segwit", "old")
 
 
 def mxprv_from_mnemonic(
@@ -46,7 +51,7 @@ def mxprv_from_mnemonic(
     """
     version, _ = bip39_slip39.electrum.version_from_mnemonic(mnemonic)
     if version not in {"standard", "segwit"}:
-        err_msg = f"unmanaged electrum mnemonic version: {version}"
+        err_msg = f"unmanaged electrum mnemonic version: {_label(version, _VERSIONS)}"
         if version == "old":
             # the pre-2.0 scheme has no BIP32 master key to return: its keys
             # hang off the master public key by an addition of its own, not

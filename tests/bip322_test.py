@@ -1285,7 +1285,9 @@ def test_shape_of_to_sign_is_checked() -> None:
     other_id = bytes(range(32))
     tx.vin[0].prev_out = OutPoint(other_id, 0)
     tx.vin.append(TxIn(OutPoint(spend.id, 0), b"", 0))
-    with pytest.raises(BTClibValueError, match=other_id.hex()):
+    with pytest.raises(
+        BTClibValueError, match="^the first input does not spend to_spend$"
+    ):
         bip322._assert_shape(tx, spend, [spend.vout[0], spend.vout[0]])
 
 

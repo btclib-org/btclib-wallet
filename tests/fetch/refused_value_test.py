@@ -22,12 +22,11 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.fee_estimator import valid_confirmation_target
 from tests.fetch import TX_ID, StubFetcher, recorded_body
-from tests.fetch.bitcoin_core_rest_test import URL
 from tests.fetch.bitcoin_core_rest_test import fetcher as rest_fetcher
 from tests.fetch.compact_filters_test import build
 from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.fetch.esplora_history_test import _explorer, _fetcher
-from tests.fetch.esplora_test import BASE, fee_estimates
+from tests.fetch.esplora_test import fee_estimates
 from tests.fetch.esplora_test import fetcher as esplora_fetcher
 from tests.fetch.history_test import OURS
 from tests.fetch.peer_chain_test import WALLET
@@ -172,19 +171,19 @@ _QUOTING = (404, f"not found: {HEX} {SCALAR}".encode())
     [
         (
             lambda: esplora_fetcher(_QUOTING).get_tx(KEY),
-            f"^HTTP 404 from {BASE}/tx/<txid>/hex$",
+            "^HTTP 404 from /tx/<txid>/hex$",
         ),
         (
             lambda: esplora_fetcher(_QUOTING).get_block_header(SCALAR),
-            f"^HTTP 404 from {BASE}/block-height/<height>$",
+            "^HTTP 404 from /block-height/<height>$",
         ),
         (
             lambda: rest_fetcher(_QUOTING).get_tx(KEY),
-            f"^GET /tx/<txid>.bin at {URL}: HTTP 404$",
+            "^GET /tx/<txid>.bin: HTTP 404$",
         ),
         (
             lambda: rest_fetcher(_QUOTING).get_block_header(SCALAR),
-            f"^GET /blockhashbyheight/<height>.bin at {URL}: HTTP 404$",
+            "^GET /blockhashbyheight/<height>.bin: HTTP 404$",
         ),
     ],
     ids=["esplora tx", "esplora height", "rest tx", "rest height"],

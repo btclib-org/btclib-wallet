@@ -45,6 +45,7 @@ from ecc.curves.sec_point import bytes_from_point
 from ecc.musig2 import key_agg_var, key_sort
 from typing_extensions import override
 
+from btclib_wallet._refusal import _label, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP328_CHAIN_CODE,
     BIP32KeyData,
@@ -110,7 +111,7 @@ def _assert_index_range(index: int) -> None:
         err_msg = f"invalid derivation index type: {type(index).__name__}"
         raise BTClibTypeError(err_msg)
     if not 0 <= index < HARDENED_OFFSET:
-        raise BTClibValueError(f"invalid derivation index: {index}")
+        raise BTClibValueError(f"invalid derivation index: {_quoted(index)}")
 
 
 _T = TypeVar("_T")
@@ -535,10 +536,10 @@ def _der_path(steps: list[str]) -> list[int]:
         return indexes_from_der_path("/".join(steps), bip380_enforced=True)
     # a step is caller text that can hold a key: one written after a path
     # without the comma before it is read as the path's last step. So the
-    # refusal carries what precedes the colon, the fault alone, whatever
-    # der_path's own message goes on to say
+    # refusal is the head of der_path's own, which names the fault, written
+    # out where it is one of `_PATH_FAULTS`, and chains it
     except BTClibValueError as e:
-        raise BTClibValueError(str(e).partition(":")[0]) from None
+        raise BTClibValueError(_label(str(e).partition(":")[0], _PATH_FAULTS)) from e
 
 
 def _hardening(path: str) -> str:
@@ -665,7 +666,7 @@ def _pub_key_from_hex(key: str, *, x_only: bool) -> tuple[bytes, bool]:
         ):
             # 06 and 07 are the hybrid encoding, which nothing in bitcoin
             # produces and Bitcoin Core refuses in a descriptor too
-            raise BTClibValueError(f"invalid public key prefix: 0x{prefix}")
+            raise BTClibValueError("invalid public key prefix")
         pub_key = bytes_from_octets(key)
     else:
         raise BTClibValueError(f"invalid public key length: {length} characters")
@@ -759,12 +760,11 @@ _NO_KEY = "No key provided"
 class _MultipathKeyError(BTClibValueError):
     """A key, or a ``musig()``, with a multipath step to expand first.
 
-    `length` is the number of items of the step.
+    The step is read again from the expression, by `_step_length`.
     """
 
-    def __init__(self, length: int, message: str = _MULTIPATH_KEY) -> None:
+    def __init__(self, message: str = _MULTIPATH_KEY) -> None:
         super().__init__(message)
-        self.length = length
 
 
 def _assert_same_length(lengths: list[int]) -> None:
@@ -774,7 +774,8 @@ def _assert_same_length(lengths: list[int]) -> None:
     """
     different = sorted({length for length in lengths if length})
     if len(different) > 1:
-        raise BTClibValueError(f"multipath steps of different length: {different}")
+        quoted = ", ".join(_quoted(n) for n in different)
+        raise BTClibValueError(f"multipath steps of different length: [{quoted}]")
 
 
 # the lengths of the multipath steps `_parse_key` has read and set aside, or
@@ -821,11 +822,21 @@ def _first_path(key: str) -> str:
     return re.sub(r"<([^;>]*)[^>]*>", r"\1", key)
 
 
+def _step_length(key: str) -> int:
+    """Return the number of items of the first multipath step of a key.
+
+    A key holds one step at most, and the steps of the participants of a
+    ``musig()`` are of one length, or it was refused before.
+    """
+    start = key.find("<")
+    return key.count(";", start, key.find(">", start)) + 1
+
+
 def _expand_first(length: int) -> None:
     """Note a step of `length` items to expand, or refuse it where none is."""
     steps = _SET_ASIDE.get()
     if steps is None:
-        raise _MultipathKeyError(length)
+        raise _MultipathKeyError
     steps.append(length)
 
 
@@ -876,7 +887,9 @@ def _assert_step_items(step: str) -> None:
     for item in items:
         (index,) = _der_path([item])
         if index in seen:
-            err_msg = f"Duplicated key path value {index} in multipath specifier"
+            err_msg = (
+                f"Duplicated key path value {_quoted(index)} in multipath specifier"
+            )
             raise BTClibValueError(err_msg)
         seen.add(index)
 
@@ -935,9 +948,9 @@ def _assert_key_characters(rest: str, *, extended: bool) -> None:
         raise BTClibValueError(_UNDERIVABLE)
     # the path is checked whether or not it has a multipath step, so the
     # call stays out of the branch below
-    length = _assert_key_path(_split_wildcard(steps)[0])  # sourcery skip: move-assign
+    _assert_key_path(_split_wildcard(steps)[0])
     if "<" in rest:
-        raise _MultipathKeyError(length)
+        raise _MultipathKeyError
 
 
 def _split_wildcard(steps: list[str]) -> tuple[list[str], int | None, str]:
@@ -980,11 +993,75 @@ def _assert_network(key: KeyExpression, network: str) -> None:
     for participant in key.participants:
         _assert_network(participant, network)
     if key.wif_prefix and key.wif_prefix != NETWORKS[network].wif:
-        raise BTClibValueError(f"not a {network} key: WIF prefix")
+        raise BTClibValueError(f"not a {_label(network, NETWORKS)} key: WIF prefix")
     if key.xkey and not _PLACEHOLDER.fullmatch(key.xkey):
         version = BIP32KeyData.b58decode(key.xkey).version
         if version not in xpubversions_from_network(network):
-            raise BTClibValueError(f"not a {network} key: version 0x{version.hex()}")
+            raise BTClibValueError(f"not a {_label(network, NETWORKS)} key: version")
+
+
+# the heads of what `indexes_from_der_path` refuses a step with
+_PATH_FAULTS = frozenset(
+    (
+        "invalid derivation index",
+        "invalid index",
+        "invalid hardening symbol",
+        "depth greater than 255",
+    )
+)
+
+# the refusals a musig() participant or path can meet, this module's and
+# ecc's fixed one, whose text `_fault` writes after Bitcoin Core's
+# "musig(): " prefix
+_FAULTS = frozenset(
+    (
+        *_PATH_FAULTS,
+        _SEVERAL_ORIGIN_ENDS,
+        _MISSING_ORIGIN_END,
+        _ORIGIN_WITHOUT_START,
+        _MULTIPLE_MULTIPATH,
+        _ONE_ITEM_STEP,
+        _MULTIPATH_KEY,
+        _UNDERIVABLE,
+        _NO_KEY,
+        "Key is invalid due to whitespace",
+        "key is not valid",
+        "Key path value is not a valid uint32",
+        (
+            "Key path value specifies multipath in a section where multipath is"
+            " not allowed"
+        ),
+        "invalid key origin fingerprint: 8 hex digits expected",
+        "not a key expression",
+        "invalid key expression",
+        "invalid public key prefix",
+        "not a public key",
+        "uncompressed public keys are not allowed here",
+        "x-only public keys are allowed in a taproot key expression only",
+        "unbalanced brackets",
+        "musig() cannot be nested inside a key origin",
+        "musig() is only allowed in tr() and rawtr()",
+        *(
+            f"not a {name} key: {what}"
+            for name in NETWORKS
+            for what in ("WIF prefix", "version")
+        ),
+    )
+)
+
+
+def _fault(error: Exception, default: str) -> str:
+    """Return the text of `error` where it is one of `_FAULTS`, else `default`.
+
+    A participant is caller text that can be a private key, and what refuses
+    it can be btclib's, whose text the census does not read. So a text is
+    written out only where it equals one of this module's own.
+    """
+    text = str(error)
+    for fault in _FAULTS:
+        if fault == text:
+            return fault
+    return default
 
 
 _RANGED_PARTICIPANT = "musig() cannot have a ranged participant and derivation too"
@@ -1032,7 +1109,8 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, int]:
     try:
         length = _assert_key_path(steps)
     except BTClibValueError as e:
-        raise BTClibValueError(f"musig(): {e}") from e
+        fault = _fault(e, "invalid key path")
+        raise BTClibValueError(f"musig(): {fault}") from e
     der_path = _path_indexes(steps)
     if any(index >= HARDENED_OFFSET for index in der_path):
         raise BTClibValueError(_HARDENED_MUSIG_STEP)
@@ -1052,9 +1130,9 @@ def _assert_musig_multipath(*, participants: list[int], path: int) -> None:
         raise BTClibValueError(_MUSIG_ONE_MULTIPATH)
     _assert_same_length(participants)
     if any(participants):
-        raise _MultipathKeyError(max(participants), f"musig(): {_MULTIPATH_KEY}")
+        raise _MultipathKeyError(f"musig(): {_MULTIPATH_KEY}")
     if path:
-        raise _MultipathKeyError(path)
+        raise _MultipathKeyError
 
 
 def _musig_participants(
@@ -1075,14 +1153,13 @@ def _musig_participants(
                 key, prv_keys, x_only=False, compressed=True, musig_allowed=False
             ),
         )
-    # which of several participants was wrong is half the answer, and the
-    # inner message names neither the function nor the position. Bitcoin
-    # Core prefixes its own the same way, "musig(): ...". ValueError: a
+    # the refusal names the function, as Bitcoin Core prefixes its own
+    # "musig(): ...", and chains the participant's own. ValueError: a
     # participant that is no point is refused by
-    # ecc.exceptions.EccValueError, which is no
-    # BTClibValueError
+    # ecc.exceptions.EccValueError, which is no BTClibValueError
     except ValueError as e:
-        raise BTClibValueError(f"musig(): {e}") from e
+        fault = _fault(e, "invalid participant")
+        raise BTClibValueError(f"musig(): {fault}") from e
 
 
 def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:
@@ -1170,11 +1247,11 @@ def _parse_key(
             compressed=compressed,
             musig_allowed=musig_allowed,
         )
-    except _MultipathKeyError as e:
+    except _MultipathKeyError:
         steps = _SET_ASIDE.get()
         if steps is None:
             raise
-        steps.append(e.length)
+        steps.append(_step_length(expression))
     return _read_key(
         _first_path(expression),
         prv_keys,

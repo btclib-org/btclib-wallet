@@ -118,6 +118,7 @@ from ecc.curves import (
 from ecc.ssa import point_from_bip340pub_key_var
 
 from btclib_wallet import silent_payments as sp
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.psbt.psbt import (
     INPUTS_MODIFIABLE,
     OUTPUTS_MODIFIABLE,
@@ -386,7 +387,9 @@ def _taproot_eligibility(psbt_in: PsbtIn, output_key: bytes) -> _Eligibility:
 
 def _no_key_error(i: int) -> BTClibValueError:
     """Return the refusal of a counted input whose key the psbt lacks."""
-    err_msg = f"input {i}: BIP352 counts it and the psbt carries no public key "
+    err_msg = (
+        f"input {_quoted(i)}: BIP352 counts it and the psbt carries no public key "
+    )
     err_msg += "the script it spends commits to; BIP375 asks an Updater for "
     err_msg += "PSBT_IN_BIP32_DERIVATION so that there is one"
     return BTClibValueError(err_msg)
@@ -556,13 +559,11 @@ def _assert_pair(
     """
     for scan_key in shares:
         if scan_key not in proofs:
-            err_msg = f"{what} ECDH share with no proof beside it: scan key "
-            err_msg += scan_key.hex()
+            err_msg = f"{what} ECDH share with no proof beside it"
             raise BTClibValueError(err_msg)
     for scan_key in proofs:
         if scan_key not in shares:
-            err_msg = f"{what} DLEQ proof with no share to prove: scan key "
-            err_msg += scan_key.hex()
+            err_msg = f"{what} DLEQ proof with no share to prove"
             raise BTClibValueError(err_msg)
 
 
@@ -585,7 +586,7 @@ def _assert_global_shares(psbt: Psbt) -> None:
     A_sum = sp.pub_key_sum(list(pub_keys.values()))
     for scan_key, share in psbt.sp_ecdh_shares.items():
         if not dleq.verify_proof(A_sum, scan_key, share, psbt.sp_dleq_proofs[scan_key]):
-            raise BTClibValueError(f"invalid global DLEQ proof for {scan_key.hex()}")
+            raise BTClibValueError("invalid global DLEQ proof for a scan key")
 
 
 def _assert_input_shares(psbt: Psbt, eligible: dict[int, Point | None]) -> None:
@@ -605,13 +606,15 @@ def _assert_input_shares(psbt: Psbt, eligible: dict[int, Point | None]) -> None:
         for scan_key, share in psbt_in.sp_ecdh_shares.items():
             A = eligible.get(i)
             if A is None:
-                err_msg = f"input {i}: ECDH share on an input with no public key to "
+                err_msg = (
+                    f"input {_quoted(i)}: ECDH share on an input with no public key to "
+                )
                 err_msg += "prove it against; BIP375 asks an Updater for "
                 err_msg += "PSBT_IN_BIP32_DERIVATION so that there is one"
                 raise BTClibValueError(err_msg)
             proof = psbt_in.sp_dleq_proofs[scan_key]
             if not dleq.verify_proof(A, scan_key, share, proof):
-                err_msg = f"input {i}: invalid DLEQ proof for {scan_key.hex()}"
+                err_msg = f"input {_quoted(i)}: invalid DLEQ proof for a scan key"
                 raise BTClibValueError(err_msg)
 
 
@@ -648,7 +651,7 @@ def _assert_covered(psbt: Psbt, scan_key: bytes) -> None:
         if pub_key is None:
             raise _no_key_error(i)
         if scan_key not in psbt.inputs[i].sp_ecdh_shares:
-            err_msg = f"input {i}: no ECDH share for scan key {scan_key.hex()}, "
+            err_msg = f"input {_quoted(i)}: no ECDH share for a scan key, "
             err_msg += "which every counted input owes a script derived for it"
             raise BTClibValueError(err_msg)
 
@@ -671,11 +674,11 @@ def assert_eligibility_as_valid(psbt: Psbt) -> None:
     for i, psbt_in in enumerate(psbt.inputs):
         version = _witness_version(_script_pub_key(psbt_in))
         if version is not None and version > _MAX_WITNESS_VERSION:
-            err_msg = f"input {i}: spends witness version {version}, which a psbt "
+            err_msg = f"input {_quoted(i)}: spends witness version {_quoted(version)}, which a psbt "
             err_msg += "with a silent payment output must not"
             raise BTClibValueError(err_msg)
         if psbt_in.sig_hash_type is not None and psbt_in.sig_hash_type != ALL:
-            err_msg = f"input {i}: sig hash type {psbt_in.sig_hash_type}, where a "
+            err_msg = f"input {_quoted(i)}: sig hash type {_quoted(psbt_in.sig_hash_type)}, where a "
             err_msg += "psbt with a silent payment output requires SIGHASH_ALL"
             raise BTClibValueError(err_msg)
 
@@ -700,16 +703,16 @@ def assert_output_scripts_as_valid(psbt: Psbt) -> None:
     for _, info, _ in scripted:
         _assert_covered(psbt, info[:SP_SCAN_KEY_SIZE])
     derived = output_scripts(psbt) if scripted else {}
-    for i, info, script in scripted:
-        scan_key = info[:SP_SCAN_KEY_SIZE]
+    for i, _info, script in scripted:
         if i not in derived:
-            err_msg = f"output {i}: PSBT_OUT_SCRIPT with no ECDH share to derive it "
-            err_msg += f"from, for scan key {scan_key.hex()}"
+            err_msg = (
+                f"output {_quoted(i)}: PSBT_OUT_SCRIPT with no ECDH share to derive it "
+            )
+            err_msg += "from, for its scan key"
             raise BTClibValueError(err_msg)
         if script != derived[i]:
-            err_msg = f"output {i}: PSBT_OUT_SCRIPT is not the silent payment script "
-            err_msg += f"its address derives: {script.hex()} instead of "
-            err_msg += derived[i].hex()
+            err_msg = f"output {_quoted(i)}: PSBT_OUT_SCRIPT is not the silent payment script "
+            err_msg += "its address derives"
             raise BTClibValueError(err_msg)
 
 
@@ -762,7 +765,9 @@ def _assert_output_scripts_set(psbt: Psbt, what: str) -> None:
     """
     for i, psbt_out in enumerate(psbt.outputs):
         if psbt_out.sp_v0_info and psbt_out.script_pub_key is None:
-            err_msg = f"output {i}: silent payment output with no PSBT_OUT_SCRIPT, "
+            err_msg = (
+                f"output {_quoted(i)}: silent payment output with no PSBT_OUT_SCRIPT, "
+            )
             raise BTClibValueError(err_msg + what)
 
 
@@ -841,13 +846,17 @@ def set_input_share(
     psbt_in = psbt.inputs[vin_i]
     counted, A = _input_eligibility(psbt_in)
     if not counted:
-        err_msg = f"input {vin_i}: no public key, so no share BIP352 would count"
+        err_msg = (
+            f"input {_quoted(vin_i)}: no public key, so no share BIP352 would count"
+        )
         raise BTClibValueError(err_msg)
     if A is None:
         raise _no_key_error(vin_i)
     a = scalar_from_prv_key(prv_key)
     if mult(a) != A:
-        err_msg = f"input {vin_i}: the private key is not the one of its public key"
+        err_msg = (
+            f"input {_quoted(vin_i)}: the private key is not the one of its public key"
+        )
         raise BTClibValueError(err_msg)
     for scan_key in _scan_keys(psbt):
         share, proof = _share_for(a, scan_key, aux)
@@ -914,7 +923,8 @@ def set_output_scripts(psbt: Psbt) -> None:
     if missing := [
         i for i, o in enumerate(psbt.outputs) if o.sp_v0_info and i not in scripts
     ]:
-        err_msg = f"no ECDH share to derive the script of output(s) {missing}"
+        err_msg = "no ECDH share to derive the script of output(s) "
+        err_msg += ", ".join(_quoted(i) for i in missing)
         raise BTClibValueError(err_msg)
     if not scripts:
         return

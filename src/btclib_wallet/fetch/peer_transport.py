@@ -77,6 +77,7 @@ from btclib_wallet.fetch.transport import (
     _MAX_PORT,
     _READ_CHUNK,
     _time_left,
+    _TransportError,
     valid_timeout,
 )
 
@@ -210,7 +211,9 @@ class TcpPeerTransport:
                 sock.close()
             except OSError as e:
                 self._socket = None
-                raise FetchError(f"closing {self._host}:{self._port}: {e}") from e
+                raise _TransportError(
+                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+                ) from e
             self._socket = None
 
     def _discard(self) -> None:
@@ -224,7 +227,7 @@ class TcpPeerTransport:
             raise BTClibTypeError(f"non-Message message: {_message_text(message)}")
         valid_timeout(timeout)
         deadline = monotonic() + timeout
-        where = f"{self._host}:{self._port}"
+        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
         try:
             sock = self._socket
             # a close interrupted once the socket closed leaves it held
@@ -236,7 +239,7 @@ class TcpPeerTransport:
             sock.sendall(message.serialize())
         except OSError as e:
             self._discard()
-            raise FetchError(f"no connection to {where}: {e}") from e
+            raise _TransportError(f"no connection to {where}") from e
         except FetchError:
             self._discard()
             raise
@@ -244,10 +247,10 @@ class TcpPeerTransport:
     def receive(self, timeout: float) -> Message:
         """Return the next message the peer sends, waiting up to `timeout`."""
         valid_timeout(timeout)
-        where = f"{self._host}:{self._port}"
+        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
         sock = self._socket
         if sock is None:
-            raise FetchError(f"{where}: not connected")
+            raise _TransportError(f"{where}: not connected")
         deadline = monotonic() + timeout
         try:
             header = _read(sock, _HEADER_SIZE, deadline, timeout, where)
@@ -259,10 +262,10 @@ class TcpPeerTransport:
             return Message.parse(header + rest)
         except OSError as e:
             self._discard()
-            raise FetchError(f"no message from {where}: {e}") from e
+            raise _TransportError(f"no message from {where}") from e
         except ValueError as e:
             self._discard()
-            raise FetchError(f"{where}: {e}") from e
+            raise _TransportError(f"{where}: a message that does not parse") from e
         except FetchError:
             self._discard()
             raise
@@ -365,7 +368,9 @@ class V2PeerTransport:
                 pending.close()
             except OSError as e:
                 self._pending = None
-                raise FetchError(f"closing {self._host}:{self._port}: {e}") from e
+                raise _TransportError(
+                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+                ) from e
             except FetchError:
                 self._pending = None
                 raise
@@ -388,7 +393,7 @@ class V2PeerTransport:
         from btclib.p2p.bip324 import contents_from_message  # noqa: PLC0415
 
         deadline = monotonic() + timeout
-        where = f"{self._host}:{self._port}"
+        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
         try:
             if self._v1 is not None:
                 self._v1.send(message, timeout)
@@ -406,10 +411,10 @@ class V2PeerTransport:
             sock.sendall(packet)
         except OSError as e:
             self._discard()
-            raise FetchError(f"no connection to {where}: {e}") from e
+            raise _TransportError(f"no connection to {where}") from e
         except ValueError as e:
             self._discard()
-            raise FetchError(f"{where}: {e}") from e
+            raise _TransportError(f"{where}: {type(e).__name__}") from e
         except FetchError:
             self._discard()
             raise
@@ -442,7 +447,9 @@ class V2PeerTransport:
     def _connection(self) -> tuple[socket, Cipher]:
         """Return the socket and the cipher of the open v2 connection."""
         if self._socket is None or self._cipher is None:
-            raise FetchError(f"{self._host}:{self._port}: not connected")
+            raise _TransportError(
+                f"{_quoted(self._host)}:{_quoted(self._port)}: not connected"
+            )
         return self._socket, self._cipher
 
     def _connect(
@@ -470,7 +477,7 @@ class V2PeerTransport:
                 self._close_pending()
             if not self._v1_fallback:
                 err_msg = f"{where} hung up on the v2 handshake, as a v1 peer"
-                raise FetchError(f"{err_msg} does, and v1_fallback is off")
+                raise _TransportError(f"{err_msg} does, and v1_fallback is off")
             v1 = self._pending = TcpPeerTransport(self._host, self._port)
             return v1
         self._socket, self._cipher, self._magic, self._pending = (
@@ -490,7 +497,7 @@ class V2PeerTransport:
         valid_timeout(timeout)
         from btclib.p2p.bip324 import message_from_contents  # noqa: PLC0415
 
-        where = f"{self._host}:{self._port}"
+        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
         deadline = monotonic() + timeout
         try:
             if self._v1 is not None:
@@ -507,10 +514,10 @@ class V2PeerTransport:
                 return Message(self._magic, command, payload)
         except OSError as e:
             self._discard()
-            raise FetchError(f"no message from {where}: {e}") from e
+            raise _TransportError(f"no message from {where}") from e
         except ValueError as e:
             self._discard()
-            raise FetchError(f"{where}: {e}") from e
+            raise _TransportError(f"{where}: {type(e).__name__}") from e
         except FetchError:
             self._discard()
             raise
@@ -556,7 +563,7 @@ def _handshake(
     received = _read(sock, GARBAGE_TERMINATOR_LEN, deadline, timeout, where)
     while received[-GARBAGE_TERMINATOR_LEN:] != cipher.recv_garbage_terminator:
         if len(received) == _MAX_GARBAGE_LEN + GARBAGE_TERMINATOR_LEN:
-            raise FetchError(f"{where}: no garbage terminator")
+            raise _TransportError(f"{where}: no garbage terminator")
         received += _read(sock, 1, deadline, timeout, where)
     # the peer's garbage is authenticated by its first packet, a decoy
     # or the version packet, whose contents are ignored
@@ -604,7 +611,7 @@ def _packet(
 
     length = cipher.decrypt_length(_read(sock, LENGTH_LEN, deadline, timeout, where))
     if length > _MAX_CONTENTS_LEN:
-        raise FetchError(f"{where}: packet too large: {length} bytes")
+        raise _TransportError(f"{where}: packet too large: {_quoted(length)} bytes")
     rest = _read(sock, EXPANSION - LENGTH_LEN + length, deadline, timeout, where)
     return cipher.decrypt(rest, aad)
 
@@ -617,6 +624,6 @@ def _read(
     while len(buffer) < size:
         sock.settimeout(_time_left(deadline, timeout, where))
         if not (chunk := sock.recv(min(_READ_CHUNK, size - len(buffer)))):
-            raise FetchError(f"{where}: connection closed before a whole message")
+            raise _TransportError(f"{where}: connection closed before a whole message")
         buffer.extend(chunk)
     return bytes(buffer)

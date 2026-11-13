@@ -542,8 +542,10 @@ def test_a_descendant_is_refused_and_an_abandoned_one_is_not(
     # nor is a spend of a coin in no block and no mempool bumped
     del chain.mempool[parent.id]
     ledger.sync()
-    coin = child.vin[0].prev_out
-    with pytest.raises(BTClibValueError, match=f"{parent.id.hex()}:{coin.vout} is"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^an outpoint of the transaction is already spent$",
+    ):
         ledger.bump(child.id)
     ledger.abandon(child.id)
     bumped = ledger.bump(parent.id, _rate(5))
@@ -575,8 +577,7 @@ def test_the_replaced_one_is_refused_and_its_replacement_bumped(
     bumped = ledger.bump(spent.id, _rate(50))
     with pytest.raises(
         BTClibValueError,
-        match=f"{spent.id.hex()}, which was already bumped by transaction"
-        f" {bumped.id.hex()}",
+        match="^cannot bump a transaction that was already bumped$",
     ):
         ledger.bump(spent.id, _rate(100))
     ledger.bump(bumped.id, _rate(100))
@@ -598,11 +599,14 @@ def test_a_confirmed_or_conflicted_transaction_spends_a_coin_spent(
     ledger: Ledger, chain: FakeChain
 ) -> None:
     """Lines 667-674: the coin is spent in a block, whichever spends it."""
-    payment = _funded(ledger, chain)
+    _funded(ledger, chain)
     spent = ledger.spend([_outside()])
     chain.mine([spent])
     ledger.sync()
-    with pytest.raises(BTClibValueError, match=f"{payment.id.hex()}:0 is already"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^an outpoint of the transaction is already spent$",
+    ):
         ledger.bump(spent.id)
     _funded(ledger, chain)
     pending = ledger.spend([_outside()])
@@ -611,8 +615,10 @@ def test_a_confirmed_or_conflicted_transaction_spends_a_coin_spent(
     chain.mine([double])
     ledger.sync()
     assert _wtx(ledger, pending).state is TxState.CONFLICTED
-    coin = pending.vin[0].prev_out
-    with pytest.raises(BTClibValueError, match=f"{coin.tx_id.hex()}:{coin.vout} is"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^an outpoint of the transaction is already spent$",
+    ):
         ledger.bump(pending.id)
 
 

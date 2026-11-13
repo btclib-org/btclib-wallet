@@ -51,6 +51,8 @@ from btclib.alias import Integer
 from btclib.exceptions import BTClibValueError
 from btclib.utils import int_from_integer
 
+from btclib_wallet._refusal import _quoted
+
 __all__ = [
     "FEATURE_DEPENDENCIES",
     "FEATURE_NAMES",
@@ -118,7 +120,7 @@ def _bit_vector(features: Integer) -> int:
     """
     value = int_from_integer(features)
     if value < 0:
-        raise BTClibValueError(f"negative feature vector: {value}")
+        raise BTClibValueError(f"negative feature vector: {_quoted(value)}")
     return value
 
 

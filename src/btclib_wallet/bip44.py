@@ -56,6 +56,7 @@ from btclib.network import (
 from btclib.script.taproot import output_pubkey
 from btclib.utils import bytes_from_octets, is_integer
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -243,8 +244,8 @@ def _script_type_from_purpose(purpose: int) -> BIP44ScriptType:
     """
     script_type = SCRIPT_TYPE_FROM_PURPOSE.get(purpose)
     if script_type is None:
-        known = ", ".join(str(known) for known in sorted(SCRIPT_TYPE_FROM_PURPOSE))
-        err_msg = f"unknown BIP44 purpose: {purpose} not in ({known});"
+        known = ", ".join(_quoted(each) for each in sorted(SCRIPT_TYPE_FROM_PURPOSE))
+        err_msg = f"unknown BIP44 purpose: {_quoted(purpose)} not in ({known});"
         err_msg += " pass script_type to say what it means"
         raise BTClibValueError(err_msg)
     return script_type
@@ -274,13 +275,14 @@ def _assert_valid_coin_type(coin_type: int, xkey: BIP32KeyData) -> None:
     network_type = _NETWORK_TYPE_FROM_COIN_TYPE.get(coin_type)
     if network_type is None:
         registered = ", ".join(str(coin) for coin in _NETWORK_TYPE_FROM_COIN_TYPE)
-        err_msg = f"unregistered BIP44 coin type: {coin_type} not in ({registered})"
+        err_msg = f"unregistered BIP44 coin type: {_quoted(coin_type)}"
+        err_msg += f" not in ({registered})"
         raise BTClibValueError(err_msg)
 
     key_network_type = network_type_from_xkeyversion(xkey.version)
     if network_type != key_network_type:
-        err_msg = f"coin type {coin_type} is {network_type},"
-        err_msg += f" the extended key is {key_network_type}"
+        err_msg = f"coin type {_quoted(coin_type)} is {_quoted(network_type)},"
+        err_msg += f" the extended key is {_quoted(key_network_type)}"
         raise BTClibValueError(err_msg)
 
 
@@ -305,13 +307,15 @@ def _indexes_left_to_derive(xkey: BIP32KeyData, indexes: list[int]) -> list[int]
     handed has walked past its end, whichever of the two paths it is.
     """
     if xkey.depth > len(indexes):
-        err_msg = f"invalid key depth: {xkey.depth} is past the {len(indexes)}"
+        err_msg = f"invalid key depth: {_quoted(xkey.depth)} is past the {len(indexes)}"
         err_msg += " levels of the path"
         raise BTClibValueError(err_msg)
 
     if xkey.depth and xkey.index != indexes[xkey.depth - 1]:
-        err_msg = f"key index {str_from_index_int(xkey.index)} at depth {xkey.depth}"
-        err_msg += f" is not the path's {str_from_index_int(indexes[xkey.depth - 1])}"
+        key_index = _quoted(str_from_index_int(xkey.index))
+        err_msg = f"key index {key_index} at depth {_quoted(xkey.depth)}"
+        path_index = _quoted(str_from_index_int(indexes[xkey.depth - 1]))
+        err_msg += f" is not the path's {path_index}"
         raise BTClibValueError(err_msg)
 
     return indexes[xkey.depth :]
@@ -354,7 +358,7 @@ def address_from_der_path(
     address_funct = _ADDRESS_FROM_SCRIPT_TYPE.get(script_type)
     if address_funct is None:
         known = ", ".join(sorted(_ADDRESS_FROM_SCRIPT_TYPE))
-        err_msg = f"unknown script type: {script_type} not in ({known})"
+        err_msg = f"unknown script type: {_quoted(script_type)} not in ({known})"
         raise BTClibValueError(err_msg)
 
     _assert_valid_coin_type(indexes[1] - HARDENED_OFFSET, xkey)
@@ -447,9 +451,7 @@ def _account_fingerprint(
         return own
     given = bytes_from_octets(master_fingerprint, 4)
     if own is not None and own != given:
-        err_msg = f"master fingerprint {given.hex()} is not the key's own"
-        err_msg += f" {own.hex()}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("master fingerprint is not the key's own")
     return given
 
 
@@ -501,8 +503,9 @@ def account_descriptors(
     # the lookup and not an isinstance, for `address_from_der_path`'s reason
     build = _DESCRIPTOR_FROM_SCRIPT_TYPE.get(script_type)
     if build is None:
-        known = ", ".join(sorted(_DESCRIPTOR_FROM_SCRIPT_TYPE))
-        raise BTClibValueError(f"unknown script type: {script_type} not in ({known})")
+        known = ", ".join(sorted(_ADDRESS_FROM_SCRIPT_TYPE))
+        err_msg = f"unknown script type: {_quoted(script_type)} not in ({known})"
+        raise BTClibValueError(err_msg)
     _assert_valid_coin_type(indexes[1] - HARDENED_OFFSET, xkey)
 
     # the xpub first, and the fingerprint after it: a key that does not fit
@@ -555,7 +558,7 @@ def _assert_limit(value: int, name: str) -> None:
     if not is_integer(value):
         raise BTClibTypeError(f"invalid {name} type: {type(value).__name__}")
     if value < 1:
-        raise BTClibValueError(f"invalid {name}: {value} is below 1")
+        raise BTClibValueError(f"invalid {name}: {_quoted(value)} is below 1")
 
 
 def _assert_gap_limit(gap_limit: int) -> None:
@@ -566,7 +569,7 @@ def _assert_gap_limit(gap_limit: int) -> None:
     """
     _assert_limit(gap_limit, "gap_limit")
     if gap_limit > HARDENED_OFFSET:
-        err_msg = f"invalid gap_limit: {gap_limit} is above the"
+        err_msg = f"invalid gap_limit: {_quoted(gap_limit)} is above the"
         err_msg += f" {HARDENED_OFFSET} indexes of a branch"
         raise BTClibValueError(err_msg)
 
@@ -586,11 +589,11 @@ def _branches(descriptors: object) -> tuple[Descriptor, ...]:
     if not isinstance(descriptors, Sequence):
         err_msg = f"invalid descriptors type: {type(descriptors).__name__}"
         raise BTClibTypeError(err_msg)
-    for descriptor in descriptors:
+    for i, descriptor in enumerate(descriptors):
         if not isinstance(descriptor, Descriptor):
             raise BTClibTypeError(f"not a Descriptor: {type(descriptor).__name__}")
         if not descriptor.is_ranged:
-            raise BTClibValueError(f"not a ranged descriptor: {descriptor}")
+            raise BTClibValueError(f"descriptor {i}: not a ranged descriptor")
     if not descriptors:
         raise BTClibValueError("no descriptor to discover")
     return tuple(descriptors)
@@ -710,7 +713,7 @@ def _account_branches(
     """
     key = key_data_from_bip32_key(xkey)
     if key.is_private:
-        err_msg = f"purpose {purpose}, account {account}:"
+        err_msg = f"purpose {_quoted(purpose)}, account {_quoted(account)}:"
         err_msg += " an extended private key: pass its xpub"
         raise BTClibValueError(err_msg)
     coin_type = _COIN_TYPE_FROM_NETWORK_TYPE[network_type_from_xkeyversion(key.version)]
@@ -733,10 +736,11 @@ def _accounts(
             raise BTClibTypeError(f"invalid purpose type: {type(purpose).__name__}")
         # a str is a Sequence too, of one-character keys
         if not isinstance(xpubs, Sequence) or isinstance(xpubs, (str, bytes)):
-            err_msg = f"purpose {purpose}: invalid xpubs type: {type(xpubs).__name__}"
+            err_msg = f"purpose {_quoted(purpose)}: invalid xpubs type:"
+            err_msg += f" {type(xpubs).__name__}"
             raise BTClibTypeError(err_msg)
         if not xpubs:
-            raise BTClibValueError(f"purpose {purpose}: no account xpub")
+            raise BTClibValueError(f"purpose {_quoted(purpose)}: no account xpub")
         accounts[purpose] = [
             _account_branches(xpub, purpose, account, master_fingerprint)
             for account, xpub in enumerate(xpubs)
@@ -785,8 +789,9 @@ def discover_accounts(
         account = 0
         while unused < account_gap:
             if account == len(branches):
-                err_msg = f"purpose {purpose}: no xpub for account {account},"
-                err_msg += f" and {unused} of {account_gap} unused accounts in a row"
+                err_msg = f"purpose {_quoted(purpose)}: no xpub for account"
+                err_msg += f" {_quoted(account)}, and {_quoted(unused)} of"
+                err_msg += f" {_quoted(account_gap)} unused accounts in a row"
                 raise BTClibValueError(err_msg)
             use = _discover_account(branches[account], reader, gap_limit)
             if use is None:

@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
+
+from btclib_wallet._refusal import _label
 
 __all__ = ["Balance", "BalanceReader", "script_pub_key_for_network"]
 
@@ -49,7 +52,9 @@ def script_pub_key_for_network(address: str, network: str) -> ScriptPubKey:
     decoded = ScriptPubKey.from_address(address)
     script_pub_key = ScriptPubKey(decoded.script, network)
     if script_pub_key.address != decoded.address:
-        raise BTClibValueError(f"not an address of {script_pub_key.network}")
+        raise BTClibValueError(
+            f"not an address of {_label(script_pub_key.network, NETWORKS)}"
+        )
     return script_pub_key
 
 

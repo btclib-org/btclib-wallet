@@ -87,6 +87,7 @@ from btclib.tx import Tx, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
 from btclib.utils import assert_no_trailing, bytes_from_octets, is_octets, read_exactly
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32 import (
     HdKeyPaths,
     assert_valid_hd_key_paths,
@@ -195,7 +196,8 @@ def _assert_index(i: int, count: int, what: str) -> None:
     is the global one, which is not an input.
     """
     if not 0 <= i < count:
-        raise BTClibValueError(f"invalid {what} index: {i}, the psbt has {count}")
+        err_msg = f"invalid {what} index: {_quoted(i)}, the psbt has {_quoted(count)}"
+        raise BTClibValueError(err_msg)
 
 
 class PsbtView:

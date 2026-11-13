@@ -158,11 +158,11 @@ def test_the_amount_field_is_handed_on_as_a_decimal() -> None:
 
 def test_a_repeated_key_is_an_error() -> None:
     """Two amounts are two requests, and choosing is choosing for the payer."""
-    with pytest.raises(BTClibValueError, match="repeated parameter: amount"):
+    with pytest.raises(BTClibValueError, match="repeated parameter: 'amount'"):
         Bip21.parse(f"bitcoin:{ADDR}?amount=1&amount=2")
-    with pytest.raises(BTClibValueError, match="repeated parameter: label"):
+    with pytest.raises(BTClibValueError, match="repeated parameter: 'label'"):
         Bip21.parse(f"bitcoin:{ADDR}?label=a&label=b")
-    with pytest.raises(BTClibValueError, match="repeated parameter: foo"):
+    with pytest.raises(BTClibValueError, match="repeated parameter: 'foo'"):
         Bip21.parse(f"bitcoin:{ADDR}?foo=1&foo=2")
 
 

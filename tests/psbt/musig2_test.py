@@ -380,7 +380,7 @@ def test_a_signer_that_is_not_a_participant_is_refused() -> None:
     )
     psbt = Psbt.b64decode(encoded)
     aggregate_pub_key = bytes.fromhex(AGGREGATE_PUB_KEY)
-    err_msg = "is not a participant of aggregate key"
+    err_msg = "the private key is not a participant of the aggregate key"
     with pytest.raises(BTClibValueError, match=err_msg):
         musig2.nonce_gen(psbt, 0, 0xDEAD, aggregate_pub_key)
 
@@ -410,7 +410,10 @@ def test_a_session_the_psbt_does_not_describe() -> None:
     # no participants for the key the caller names
     psbt = _bip373_psbt("output key is a MuSig2 Aggregate Pubkey, with participant")
     psbt.inputs[0].musig2_participant_pub_keys = {}
-    with pytest.raises(BTClibValueError, match="no musig2 participants for aggregate"):
+    with pytest.raises(
+        BTClibValueError,
+        match="no musig2 participants for the aggregate key",
+    ):
         musig2.session_context(psbt, 0, aggregate_pub_key)
 
     # an aggregate key that is neither the output key nor the internal one
@@ -425,7 +428,10 @@ def test_a_session_the_psbt_does_not_describe() -> None:
     # an internal key the aggregate key does not derive to
     psbt = _bip373_psbt("internal key is derived from a MuSig2")
     psbt.inputs[0].taproot_hd_key_paths = {}
-    with pytest.raises(BTClibValueError, match="no BIP328 derivation from musig2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="no BIP328 derivation from the musig2 aggregate key to the taproot internal key",
+    ):
         musig2.session_context(psbt, 0, aggregate_pub_key)
 
     # the merkle root of another script tree: the tweak is then not the
@@ -472,7 +478,10 @@ def test_a_leaf_the_spent_output_does_not_commit_to() -> None:
     cases = (
         (wrapped, "the input spends no taproot output"),
         (p2wpkh, "the input spends no taproot output"),
-        (unproven, "the control block does not prove leaf script"),
+        (
+            unproven,
+            "a control block does not prove its leaf script against the output key",
+        ),
     )
     for refused, err_msg in cases:
         with pytest.raises(BTClibValueError, match=err_msg):
@@ -495,7 +504,10 @@ def test_a_round_that_the_other_round_has_not_reached() -> None:
 
     # no nonce at all: there is no session to build a context of
     psbt = _bip373_psbt("output key is a MuSig2 Aggregate Pubkey, with participant")
-    with pytest.raises(BTClibValueError, match="no musig2 public nonce for aggregate"):
+    with pytest.raises(
+        BTClibValueError,
+        match="no musig2 public nonce for the aggregate key",
+    ):
         musig2.session_context(psbt, 0, aggregate_pub_key)
 
     # round 2 without this signer's own nonce, the others' being there
@@ -522,8 +534,10 @@ def test_a_round_that_the_other_round_has_not_reached() -> None:
         if k[:33] == bytes.fromhex(PARTICIPANT_PUB_KEYS[0])
     )
     del psbt.inputs[0].musig2_partial_sigs[key_data]
-    err_msg = f"missing musig2 partial signature of {PARTICIPANT_PUB_KEYS[0]}"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(
+        BTClibValueError,
+        match="^missing musig2 partial signature of participant 0$",
+    ):
         musig2.partial_sigs_agg(psbt, 0, aggregate_pub_key)
 
 
@@ -588,7 +602,10 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
         musig2.nonce_gen(psbt, 0, prv_key, aggregate_pub_key)
         for prv_key in PARTICIPANT_PRV_KEYS
     ]
-    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+    ):
         musig2.partial_sign(
             psbt, 0, sec_nonces[0], PARTICIPANT_PRV_KEYS[0], aggregate_pub_key
         )

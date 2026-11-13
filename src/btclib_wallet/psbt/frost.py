@@ -156,6 +156,7 @@ from ecc import frost, ssa
 from ecc.frost import ID_SIZE, MAX_PARTICIPANTS, PK_SIZE
 from ecc.hashes import tagged_hash
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,
@@ -314,14 +315,14 @@ def _parse_threshold_info(value: bytes) -> tuple[int, int, dict[int, bytes]]:
     t = int.from_bytes(value[:ID_SIZE], "big")
     n = int.from_bytes(value[ID_SIZE:_COUNTS_SIZE], "big")
     if n > MAX_PARTICIPANTS:
-        err_msg = f"invalid frost participant count: {n}"
+        err_msg = f"invalid frost participant count: {_quoted(n)}"
         raise BTClibValueError(err_msg)
     pub_shares: dict[int, bytes] = {}
     for start in range(_COUNTS_SIZE, len(value), _PAIR_SIZE):
         pair = value[start : start + _PAIR_SIZE]
         i = int.from_bytes(pair[:ID_SIZE], "big")
         if i >= n or i in pub_shares:
-            err_msg = f"invalid frost participant identifier: {i}"
+            err_msg = f"invalid frost participant identifier: {_quoted(i)}"
             raise BTClibValueError(err_msg)
         pub_shares[i] = pair[ID_SIZE:]
     return t, n, pub_shares
@@ -351,8 +352,8 @@ def add_threshold_info(
     """
     frost.validate_threshold_info(info)
     if not 0 <= my_id < len(info.pub_shares):
-        err_msg = f"frost participant {my_id} is not one of the "
-        err_msg += f"threshold public key {info.thresh_pk.hex()}"
+        err_msg = f"frost participant {_quoted(my_id)} is not one of the "
+        err_msg += "threshold public key"
         raise BTClibValueError(err_msg)
     key = _record_key(FROST_THRESHOLD_INFO, my_id, info.thresh_pk)
     psbt_map.unknown[key] = _serialize_threshold_info(info)
@@ -385,7 +386,7 @@ def threshold_info(
     thresh_pk = bytes_from_octets(thresh_pk, PK_SIZE)
     records = _by_participant(psbt_map, FROST_THRESHOLD_INFO, thresh_pk)
     if not records:
-        err_msg = f"no frost threshold info for threshold public key {thresh_pk.hex()}"
+        err_msg = "no frost threshold info for the threshold public key"
         raise BTClibValueError(err_msg)
 
     # in identifier order, so that which record a conflict is reported
@@ -397,17 +398,19 @@ def threshold_info(
     pub_shares: dict[int, bytes] = {}
     for writer, record_t, record_n, record_shares in parsed:
         if writer >= record_n:
-            err_msg = f"frost threshold info of participant {writer}, "
-            err_msg += f"who is not one of the {record_n} the record declares"
+            err_msg = f"frost threshold info of participant {_quoted(writer)}, "
+            err_msg += f"who is not one of the {_quoted(record_n)} the record declares"
             raise BTClibValueError(err_msg)
         if (record_t, record_n) != (t, n):
-            err_msg = f"mismatched frost threshold info of participant {writer} "
-            err_msg += f"for threshold public key {thresh_pk.hex()}"
+            err_msg = (
+                f"mismatched frost threshold info of participant {_quoted(writer)} "
+            )
+            err_msg += "for the threshold public key"
             raise BTClibValueError(err_msg)
         for i, pub_share in record_shares.items():
             if pub_shares.setdefault(i, pub_share) != pub_share:
-                err_msg = f"mismatched frost public share of participant {i} "
-                err_msg += f"for threshold public key {thresh_pk.hex()}"
+                err_msg = f"mismatched frost public share of participant {_quoted(i)} "
+                err_msg += "for the threshold public key"
                 raise BTClibValueError(err_msg)
 
     info = frost.ThresholdInfo(t, thresh_pk, [pub_shares.get(i) for i in range(n)])
@@ -425,13 +428,13 @@ def _pub_share(info: frost.ThresholdInfo, my_id: int) -> bytes:
     other signer can hold that one to.
     """
     if not 0 <= my_id < len(info.pub_shares):
-        err_msg = f"frost participant {my_id} is not one of the "
-        err_msg += f"threshold public key {info.thresh_pk.hex()}"
+        err_msg = f"frost participant {_quoted(my_id)} is not one of the "
+        err_msg += "threshold public key"
         raise BTClibValueError(err_msg)
     pub_share = info.pub_shares[my_id]
     if pub_share is None:
-        err_msg = f"no frost public share of participant {my_id} for "
-        err_msg += f"threshold public key {info.thresh_pk.hex()}"
+        err_msg = f"no frost public share of participant {_quoted(my_id)} for "
+        err_msg += "the threshold public key"
         raise BTClibValueError(err_msg)
     return pub_share
 
@@ -465,7 +468,7 @@ def _tweaks(
     if not psbt_in.taproot_internal_key and output_key == x_only:
         return [], []
 
-    err_msg = f"frost threshold public key {thresh_pk.hex()} is neither the "
+    err_msg = "the frost threshold public key is neither the "
     err_msg += "taproot output key nor the internal key of the input"
     raise BTClibValueError(err_msg)
 
@@ -513,8 +516,7 @@ def _session_parts(
         single_leaf_key(leaf_script(psbt_in, leaf_hash)[0]) if leaf_hash else output_key
     )
     if tweak_ctx.x_only_pub_key != expected:
-        err_msg = f"the tweaked frost key {tweak_ctx.x_only_pub_key.hex()} is not "
-        err_msg += f"the key being spent, {expected.hex()}"
+        err_msg = "the tweaked frost key is not the key being spent"
         raise BTClibValueError(err_msg)
 
     _assert_taproot_session_input(psbt_in)
@@ -546,8 +548,7 @@ def session_context(
         psbt.inputs[vin_i], FROST_PUB_NONCE, thresh_pk + leaf_hash
     )
     if not pub_nonces:
-        err_msg = "no frost public nonce for threshold public key "
-        err_msg += thresh_pk.hex()
+        err_msg = "no frost public nonce for the threshold public key"
         raise BTClibValueError(err_msg)
     ids = sorted(pub_nonces)
     return frost.SessionContext(
@@ -647,8 +648,8 @@ def partial_sign(
         _assert_amounts_vouched(psbt.inputs)
     pub_nonces = _by_participant(psbt_in, FROST_PUB_NONCE, thresh_pk + leaf_hash)
     if my_id not in pub_nonces:
-        err_msg = f"no frost public nonce of participant {my_id} for "
-        err_msg += f"threshold public key {thresh_pk.hex()}"
+        err_msg = f"no frost public nonce of participant {_quoted(my_id)} for "
+        err_msg += "the threshold public key"
         raise BTClibValueError(err_msg)
 
     session = session_context(psbt, vin_i, thresh_pk, leaf_hash=leaf_hash)
@@ -691,8 +692,8 @@ def partial_sig_verify(
     psig = _by_participant(psbt_in, FROST_PARTIAL_SIG, tail).get(my_id)
     pub_nonce = _by_participant(psbt_in, FROST_PUB_NONCE, tail).get(my_id)
     if psig is None or pub_nonce is None:
-        err_msg = f"no frost partial signature of participant {my_id} for "
-        err_msg += f"threshold public key {thresh_pk.hex()}"
+        err_msg = f"no frost partial signature of participant {_quoted(my_id)} for "
+        err_msg += "the threshold public key"
         raise BTClibValueError(err_msg)
     session = session_context(psbt, vin_i, thresh_pk, leaf_hash=leaf_hash)
     pub_share = _pub_share(threshold_info(psbt_in, thresh_pk), my_id)
@@ -736,7 +737,7 @@ def partial_sigs_agg(
     partial_sigs = _by_participant(psbt_in, FROST_PARTIAL_SIG, thresh_pk + leaf_hash)
     if missing := [my_id for my_id in session.ids if my_id not in partial_sigs]:
         err_msg = "missing frost partial signature of participant " + ", ".join(
-            str(my_id) for my_id in missing
+            _quoted(my_id) for my_id in missing
         )
         raise BTClibValueError(err_msg)
 
@@ -749,7 +750,7 @@ def partial_sigs_agg(
         # up is what a peer sending one of another session produces, so
         # this is the Finalizer's check and not a belt-and-braces one
         err_msg = "the frost partial signatures do not add up to a signature "
-        err_msg += f"of {x_only_pub_key.hex()}"
+        err_msg += "of the tweaked key"
         raise BTClibValueError(err_msg)
 
     signature = sig.serialize()

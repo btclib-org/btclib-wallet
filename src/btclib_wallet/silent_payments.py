@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import string
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 from base58_bech32.bech32 import BECH32_M_CONST, bech32_decode, bech32_encode
@@ -76,7 +77,7 @@ from btclib.alias import Integer, NetworkType, Octets, Point, String
 from btclib.b32 import power_of_2_base_conversion
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
-from btclib.network import network_type_from_network, validated_network_name
+from btclib.network import NETWORKS, network_type_from_network, validated_network_name
 from btclib.script.script_pub_key import is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
 from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
@@ -100,7 +101,7 @@ from ecc.curves import (
 from ecc.hashes import tagged_hash
 from ecc.ssa import point_from_bip340pub_key_var
 
-from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _quoted
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -226,7 +227,7 @@ def _scalar(data: bytes, what: str) -> int:
     """
     scalar = int.from_bytes(data, "big")
     if not 0 < scalar < secp256k1.n:
-        raise BTClibValueError(f"invalid {what}: not in 1..n-1")
+        raise BTClibValueError(f"invalid {_quoted(what)}: not in 1..n-1")
     return scalar
 
 
@@ -330,7 +331,7 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
     try:
         hrp, data, _ = bech32_decode(addr, m=BECH32_M_CONST)
     except Base58Bech32ValueError as e:
-        raise BTClibValueError(str(e)) from e
+        raise BTClibValueError("invalid silent payment address encoding") from e
     if hrp not in {_MAINNET_HRP, _TESTNET_HRP, _REGTEST_HRP}:
         raise BTClibValueError(f"invalid hrp: {_quoted(hrp)}")
 
@@ -340,7 +341,7 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
         raise BTClibValueError("empty data in silent payment address")
     version = data[0]
     if version == _RESERVED_VERSION:
-        raise BTClibValueError(f"reserved silent payment version: {version}")
+        raise BTClibValueError(f"reserved silent payment version: {_quoted(version)}")
 
     payload = bytes(power_of_2_base_conversion(data[1:], 5, 8, False))
     if version == _VERSION:
@@ -349,7 +350,7 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
             err_msg += f" instead of {_PAYLOAD_SIZE} bytes"
             raise BTClibValueError(err_msg)
     elif len(payload) < _PAYLOAD_SIZE:
-        err_msg = f"invalid v{version} payload length: {len(payload)}"
+        err_msg = f"invalid v{_quoted(version)} payload length: {len(payload)}"
         err_msg += f" is less than the {_PAYLOAD_SIZE} bytes v0 reads"
         raise BTClibValueError(err_msg)
 
@@ -717,19 +718,18 @@ def _delegated_output_keys(
             taproot_prvkeys if is_p2tr(bytes_from_octets(script_pub_key)) else prvkeys
         )
         bucket.append(scalar_from_prv_key(prv_key))
-    try:
+    with suppress(ValueError):
         return libsecp256k1_silentpayments.create_outputs(
             recipients_bytes, outpoint_smallest36, taproot_prvkeys, prvkeys
         )
-    except ValueError as e:
-        # `prv_key_sum` and `input_hash` already ran, above, and are what
-        # give a caller the specific "sum to zero" or "no outpoint"
-        # wording for the two common refusals -- what reaches here is the
-        # bindings' own, coarser message for whatever else their
-        # validation catches, kept a BTClibValueError rather than left a
-        # bare one so a caller catching this library's exceptions still
-        # does
-        raise BTClibValueError(str(e)) from e
+    # `prv_key_sum` and `input_hash` already ran, above, and are what give
+    # a caller the specific "sum to zero" or "no outpoint" wording for the
+    # two common refusals -- what reaches here is whatever else the
+    # bindings' validation catches, kept a BTClibValueError rather than
+    # left a bare one so a caller catching this library's exceptions still
+    # does. Their message is another library's text, which a refusal does
+    # not relay, and it is not chained
+    raise BTClibValueError("the bindings refuse the inputs or the recipients")
 
 
 def output_keys(
@@ -799,7 +799,8 @@ def output_keys(
     for position, address in enumerate(addresses):
         B_scan, B_m, address_hrp = _decode_address(address)
         if address_hrp != hrp:
-            err_msg = f"invalid hrp for {network}: {address_hrp} instead of {hrp}"
+            err_msg = f"invalid hrp for {_label(network, NETWORKS)}: {_quoted(address_hrp)} instead of "
+            err_msg += _quoted(hrp)
             raise BTClibValueError(err_msg)
         groups.setdefault(B_scan, []).append(B_m)
         positions.setdefault(B_scan, []).append(position)
@@ -988,7 +989,7 @@ def _assert_labels(labels: object) -> None:
         if isinstance(tweak, memoryview) and tweak.itemsize != 1:
             raise BTClibTypeError(
                 "the label tweak must be a memoryview of bytes, "
-                f"not of {tweak.itemsize}-byte items"
+                f"not of {_quoted(tweak.itemsize)}-byte items"
             )
         # `int.from_bytes` refuses a memoryview that is not contiguous,
         # which the bindings accept: `bytes` copies it
@@ -1183,7 +1184,8 @@ def _delegated_scan_outputs(
         else:
             pubkeys_bytes.append(bytes_from_point(point, secp256k1))
 
-    try:
+    found = None
+    with suppress(ValueError):
         summary = libsecp256k1_silentpayments.prevouts_summary(
             outpoint_smallest36, taproot_pubkeys_bytes, pubkeys_bytes
         )
@@ -1197,11 +1199,11 @@ def _delegated_scan_outputs(
             bytes_from_point(point_from_pub_key(B_spend), secp256k1),
             labels,
         )
-    except ValueError as e:
-        # mirrors `_delegated_output_keys`'s own wrapping: the specific
-        # refusals already ran above, so what reaches here is the
-        # bindings' coarser message for whatever else they refuse
-        raise BTClibValueError(str(e)) from e
+    # mirrors `_delegated_output_keys`'s own refusal: the specific refusals
+    # already ran above, so what reaches here is whatever else the
+    # bindings refuse, whose message is another library's text
+    if found is None:
+        raise BTClibValueError("the bindings refuse the scan")
 
     return [
         SilentPaymentOutput(pub_key, int.from_bytes(tweak, "big"))

@@ -55,12 +55,21 @@ OTHER_ID = "b1fea52486ce0c62bb442b530a3f0132b826c74e473d1f2c220bfa78111c5082"
     ],
 )
 def test_fetch_errors_names_the_source(error: Exception) -> None:
-    """Wrap parse-time exceptions in a FetchError naming the call."""
+    """Wrap parse-time exceptions in a FetchError naming the call.
+
+    A builtin's text can hold the answer it refused, so it is not relayed
+    and not chained: its type is named. btclib's refusal is chained.
+    """
     with (
-        pytest.raises(FetchError, match=f"getblockcount: {error}"),
+        pytest.raises(FetchError, match="^'getblockcount': a malformed answer") as e,
         fetch_errors("getblockcount"),
     ):
         raise error
+    if isinstance(error, BTClibRuntimeError):
+        assert e.value.__cause__ is error
+    else:
+        assert str(e.value).endswith(f", as {type(error).__name__}")
+        assert e.value.__cause__ is None
 
 
 def test_fetch_errors_lets_a_fetch_error_through() -> None:
@@ -252,7 +261,7 @@ def test_block_header_from_raw_checks_the_work_against_the_network_given() -> No
     """Regtest's genesis is within regtest's limit and beyond mainnet's."""
     header = block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="regtest")
     assert header.hash == NETWORKS["regtest"].genesis_block
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="mainnet")
 
 
@@ -260,13 +269,13 @@ def test_block_header_from_raw_holds_signet_to_signets_limit() -> None:
     """Signet's genesis is within signet's limit and beyond mainnet's."""
     header = block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, network="signet")
     assert header.hash == NETWORKS["signet"].genesis_block
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, network="mainnet")
 
 
 def test_block_header_from_raw_refuses_a_regtest_header_for_signet() -> None:
     """Signet's limit is not regtest's."""
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="signet")
 
 
@@ -277,7 +286,7 @@ def test_block_header_from_raw_holds_the_hash_to_the_target_its_bits_claim() -> 
     below regtest's limit, and above the target those bits name.
     """
     claimed = f"{REGTEST_GENESIS_HEADER_RAW[:-16]}ffff001d01000000"
-    with pytest.raises(FetchError, match="^block header: invalid proof-of-work"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(claimed, network="regtest")
 
 
@@ -297,7 +306,7 @@ def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
     this exists to enforce.
     """
     forged = f"{TIP_HEADER_RAW[:-8]}00000000"
-    with pytest.raises(FetchError, match="^block header: invalid proof"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(forged, network="mainnet")
 
 

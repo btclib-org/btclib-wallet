@@ -436,7 +436,7 @@ def test_plain_addresses(wallet: str, branch: int) -> None:
 def test_plain_script_is_not_a_miniscript(wallet: str) -> None:
     """`<n> OP_CSV OP_DROP` closes no fragment, and that is the message."""
     witness_script = _plain_witness_script(wallet, 0, 0)
-    err_msg = "not a miniscript: op code 0x75 closes no fragment"
+    err_msg = "not a miniscript: op code 117 closes no fragment"
     with pytest.raises(BTClibValueError, match=err_msg):
         miniscript.from_script(witness_script, miniscript.P2WSH)
 

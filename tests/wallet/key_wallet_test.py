@@ -223,11 +223,20 @@ def test_an_unknown_purpose_is_refused_and_script_type_is_the_override() -> None
 
 def test_an_unknown_script_type_is_refused() -> None:
     """Refuse p2wsh at every entry point that takes a script type."""
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         BIP32KeyWallet(_ROOT, "m/84h/0h/0h", "p2wsh")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         KeyWallet(script_type="p2wsh")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         KeyWallet().add(_PUB_KEY, "p2wsh")  # type: ignore[arg-type]
 
 

@@ -78,7 +78,7 @@ from typing import Any
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
-from btclib_wallet._refusal import _RPC_CODES, _message_text
+from btclib_wallet._refusal import _code, _message_text, _quoted
 from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 
 __all__ = [
@@ -170,11 +170,11 @@ def _assert_key_range(start: int, end: int) -> None:
     [0, 2**31), so nothing here can reach it.
     """
     if not 0 <= start <= end:
-        raise BTClibValueError(f"invalid range: [{start}, {end}]")
+        raise BTClibValueError(f"invalid range: [{_quoted(start)}, {_quoted(end)}]")
     if end >> 31:
-        raise BTClibValueError(f"end of range is too high: {end}")
+        raise BTClibValueError(f"end of range is too high: {_quoted(end)}")
     if end - start >= _MAX_RANGE_SPAN:
-        err_msg = f"range is too large: {end - start + 1} indexes, "
+        err_msg = f"range is too large: {_quoted(end - start + 1)} indexes, "
         err_msg += f"max is {_MAX_RANGE_SPAN}"
         raise BTClibValueError(err_msg)
 
@@ -199,7 +199,8 @@ def _range_fields(
     fields: dict[str, Any] = {"range": [start, end]}
     if next_index is not None:
         if not start <= next_index <= end:
-            err_msg = f"next_index {next_index} is not in [{start}, {end}]"
+            err_msg = f"next_index {_quoted(next_index)} is not in"
+            err_msg += f" [{_quoted(start)}, {_quoted(end)}]"
             raise BTClibValueError(err_msg)
         fields["next_index"] = next_index
     return fields
@@ -439,11 +440,9 @@ def assert_imported(
             # position and code only: Core's message can quote a key of the
             # descriptor, as in "key '<xprv>' is not valid"
             error = answer.get("error")
-            raw: Any = error.get("code") if isinstance(error, Mapping) else None
-            # an int's own value, so that a subclass's comparison cannot
-            # pass the bound: JSON bounds no integer, so a code outside
-            # `_RPC_CODES` can hold the scalar of a key and is not quoted
-            code = int.__int__(raw) if is_integer(raw) else None
-            code = code if code in _RPC_CODES else None
-            err_msg = f"import refused for request {position}: error code {code}"
+            # None where Core's code is no int `_code` may carry, which it
+            # answers as 0: no error code of Core's protocol.h is 0
+            code = _code(error.get("code") if isinstance(error, Mapping) else None)
+            shown = code or None
+            err_msg = f"import refused for request {position}: error code {shown}"
             raise BTClibRuntimeError(err_msg)

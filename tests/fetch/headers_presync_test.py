@@ -34,6 +34,7 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
+from tests import raises_from
 from tests.fetch.peer_chain_test import (
     OTHER,
     REGTEST_BITS,
@@ -165,7 +166,10 @@ def test_a_chain_that_ends_before_it_has_the_work_is_refused(
     """A last batch that is not full ends the first pass, and the sync."""
     chain = Chain().extend(30)
     fetcher, peer = presync_fetcher(monkeypatch, chain, work_of(chain) + 1, batch=7)
-    with pytest.raises(FetchError, match=r"a chain of work \d+, below the \d+"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum: an int of 6 bits against an int of 6 bits",
+    ):
         fetcher.get_block_count()
     assert fetcher._headers == [GENESIS]
     assert len(peer.getheaders) == 5
@@ -288,7 +292,10 @@ def test_a_clock_hours_behind_the_chain_start_starts_no_sync(
     chain = Chain().extend(30)
     fetcher, peer = presync_fetcher(monkeypatch, chain, work_of(chain), batch=7)
     clock(monkeypatch, -3 * 3600)
-    with pytest.raises(FetchError, match="headers sync: the clock is more than"):
+    with pytest.raises(
+        FetchError,
+        match="headers sync: a clock behind the median time past of the start",
+    ):
         fetcher.get_block_count()
     assert fetcher._headers == [GENESIS]
     assert len(peer.getheaders) == 1
@@ -375,7 +382,10 @@ def test_the_chain_held_is_left_by_a_fork_of_low_work(
         fetcher, "_consensus", replace(CONSENSUS, minimum_chain_work=minimum)
     )
     peer.chain = Chain().extend(5, salt=b"low")
-    with pytest.raises(FetchError, match=r"a chain of work \d+, below the \d+"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum: an int of 4 bits against an int of 4 bits",
+    ):
         fetcher.get_block_count()
     assert len(fetcher._hashes) == 151
     assert fetcher._displaced is None
@@ -424,7 +434,10 @@ def test_a_fork_below_the_minimum_work_is_refused_before_any_of_it_is_held(
         fetcher, "_consensus", replace(CONSENSUS, minimum_chain_work=fetcher._work[-1])
     )
     peer.chain = chain.fork(9).extend(3, salt=b"cheap")
-    with pytest.raises(FetchError, match=r"a chain of work \d+, below the \d+"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum: an int of 5 bits against an int of 5 bits",
+    ):
         fetcher.get_block_count()
     assert len(fetcher._hashes) == 15
     assert fetcher._displaced is None
@@ -450,7 +463,9 @@ def interrupted(
         return honest(payload) if len(peer.getheaders) <= 8 else []
 
     monkeypatch.setattr(peer, "reply_getheaders", silent)
-    with pytest.raises(FetchError, match="did not answer|timeout"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher.get_block_count()
     assert 1 < len(fetcher._hashes) < 31
     return fetcher, peer, chain
@@ -464,7 +479,10 @@ def test_what_an_interrupted_download_held_is_dropped_when_nothing_follows(
     monkeypatch.setattr(
         peer, "reply_getheaders", lambda _p: [peer.message("headers", b"\x00")]
     )
-    with pytest.raises(FetchError, match=r"a chain of work \d+, below the \d+ of"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum of regtest: an int of 6 bits against an int of 6 bits",
+    ):
         fetcher.get_block_count()
     assert fetcher._headers == [GENESIS]
 
@@ -524,10 +542,7 @@ def test_a_header_not_after_the_median_time_past_is_refused() -> None:
     fetcher = CompactFilterFetcher(
         "regtest", transport=ScriptedPeer(late), verify_network=False
     )
-    past = GENESIS_TIME + 7
-    with pytest.raises(
-        FetchError, match=f"header 13: time {past} is not after .* {past}"
-    ):
+    with pytest.raises(FetchError, match="^header 13: a malformed answer$"):
         fetcher.get_block_count()
 
 
@@ -545,7 +560,7 @@ def test_a_header_more_than_two_hours_ahead_of_the_clock_is_refused(
     fetcher = CompactFilterFetcher(
         "regtest", transport=ScriptedPeer(early), verify_network=False
     )
-    with pytest.raises(FetchError, match="header 3: invalid timestamp"):
+    with pytest.raises(FetchError, match="header 3: a malformed answer"):
         fetcher.get_block_count()
 
 
@@ -564,7 +579,11 @@ def test_the_first_header_of_a_period_is_not_far_behind_its_parent_where_bip94_i
         )
         monkeypatch.setattr(fetcher, "_consensus", consensus)
         if expected is None:
-            with pytest.raises(FetchError, match="timewarp"):
+            with raises_from(
+                FetchError,
+                match="header 4: a malformed answer",
+                cause="timewarp",
+            ):
                 fetcher.get_block_count()
         else:
             assert fetcher.get_block_count() == expected

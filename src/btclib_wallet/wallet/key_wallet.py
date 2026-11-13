@@ -47,11 +47,12 @@ from btclib import b58, bms
 from btclib.alias import Octets, String
 from btclib.exceptions import BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
-from btclib.network import network_from_xkeyversion
+from btclib.network import NETWORKS, network_from_xkeyversion
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.utils import assert_type
 from typing_extensions import override
 
+from btclib_wallet._refusal import _label, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -100,7 +101,7 @@ def _checked_script_type(script_type: str) -> BIP44ScriptType:
     """
     if script_type not in _ADDRESS_FROM_SCRIPT_TYPE:
         known = ", ".join(sorted(_ADDRESS_FROM_SCRIPT_TYPE))
-        err_msg = f"unknown script type: {script_type} not in ({known})"
+        err_msg = f"unknown script type: {_quoted(script_type)} not in ({known})"
         raise BTClibValueError(err_msg)
     # no cast: the table is keyed by BIP44ScriptType, so the membership
     # test above narrows the str to it and mypy calls a cast redundant
@@ -180,7 +181,7 @@ class KeyWallet(Wallet):
         # would be on the key's network and the wallet's records say
         # otherwise
         if key.network != self.network:
-            err_msg = f"not a {self.network} key: {key.network}"
+            err_msg = f"not a {_label(self.network, NETWORKS)} key: {_label(key.network, NETWORKS)}"
             raise BTClibValueError(err_msg)
         # `key.pub` derives at most once and memoizes, so the address
         # builder below is handed those octets rather than a key it would
@@ -191,7 +192,7 @@ class KeyWallet(Wallet):
         # its compressed twin -- an address bms cannot then sign for,
         # because the recovery flag it would need says compressed
         if checked != "p2pkh" and not pub.is_compressed:
-            err_msg = f"uncompressed key cannot be {checked}:"
+            err_msg = f"uncompressed key cannot be {_quoted(checked)}:"
             err_msg += " segwit has no uncompressed form"
             raise BTClibValueError(err_msg)
 
@@ -205,7 +206,7 @@ class KeyWallet(Wallet):
         """Return the WIF of the private key signing for an address."""
         addr = self.address_info(address).address
         if addr not in self._prv_keys:
-            raise BTClibValueError(f"watch-only address, no private key: {addr}")
+            raise BTClibValueError("watch-only address, no private key")
         return self._prv_keys[addr]
 
     def sign(self, address: String, msg: Octets) -> bms.Sig:
@@ -233,7 +234,7 @@ class KeyWallet(Wallet):
         # key and address" -- true of every wrong key and misleading
         # here, where the key is right and the scheme is the problem
         if info.script_type == "p2tr":
-            err_msg = f"BMS cannot sign for a p2tr address: {info.address};"
+            err_msg = "BMS cannot sign for a p2tr address;"
             err_msg += " message signing for taproot is btclib_wallet.bip322"
             raise BTClibValueError(err_msg)
         prv_key = b58.prv_key_data_from_wif(self.prv_key(info.address))
@@ -307,12 +308,12 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
         came from, so the caller's word is taken for the levels above.
         """
         if xkey.depth > _ACCOUNT_LEVELS:
-            err_msg = f"invalid key depth: {xkey.depth} is past the"
+            err_msg = f"invalid key depth: {_quoted(xkey.depth)} is past the"
             err_msg += f" {_ACCOUNT_LEVELS} levels of an account path"
             raise BTClibValueError(err_msg)
         if xkey.depth and xkey.index != indexes[xkey.depth - 1]:
-            err_msg = f"key index {xkey.index} at depth {xkey.depth}"
-            err_msg += f" is not the account path's {indexes[xkey.depth - 1]}"
+            err_msg = f"key index {_quoted(xkey.index)} at depth {_quoted(xkey.depth)}"
+            err_msg += f" is not the account path's {_quoted(indexes[xkey.depth - 1])}"
             raise BTClibValueError(err_msg)
 
         # `derive_` rather than bip32's private `_derive`: the public
@@ -428,8 +429,7 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
             return self._prv_keys[info.address]
 
         if not self._xkey.is_private:
-            err_msg = "watch-only wallet, no private key for"
-            err_msg += f" {info.address} at {info.der_path}"
+            err_msg = "watch-only wallet, no private key for the address"
             raise BTClibValueError(err_msg)
 
         # re-derived rather than cached: the path is the record, and one

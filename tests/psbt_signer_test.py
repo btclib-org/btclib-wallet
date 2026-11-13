@@ -305,7 +305,7 @@ def test_an_answer_of_another_sig_hash_type_is_refused() -> None:
     answer = sign(asking_none, _KeyManager(signer.xprv), allowed_sig_hash_types={2})[0]
     answer.inputs[0].sig_hash_type = None
     signer.answer = answer
-    with pytest.raises(BTClibValueError, match="mismatched sig_hash type: 0x2 vs 0x1"):
+    with pytest.raises(BTClibValueError, match="mismatched sig_hash type: 2 vs 1"):
         request_signatures(signer, psbt)
 
 
@@ -342,7 +342,7 @@ def test_another_sig_hash_type_is_sent_only_if_allowed(
     psbt, _ = account_psbt(signer)
     psbt.inputs[0].sig_hash_type = hash_type
 
-    with pytest.raises(BTClibValueError, match=f"sig_hash type {hex(hash_type)}"):
+    with pytest.raises(BTClibValueError, match=f"sig_hash type {hash_type},"):
         request_signatures(signer, psbt)
     assert signer.asked == 0
 
@@ -530,7 +530,10 @@ def test_an_xpub_that_is_not_the_account_is_refused() -> None:
             """Answer with the next account, whatever was asked."""
             return xpub_from_xprv(derive(self.xprv, "m/84h/0h/1h"))
 
-    with pytest.raises(BTClibValueError, match="is not the path's 0h"):
+    with pytest.raises(
+        BTClibValueError,
+        match="key index '1h' at depth 3 is not the path's '0h'",
+    ):
         export_account(_WrongAccount(), ACCOUNT)
 
 
@@ -701,7 +704,7 @@ def test_a_device_is_selected_by_fingerprint() -> None:
     assert select_device([other, wanted], b"\x01" * 4) is wanted
     assert select_device([other, wanted], "01010101") is wanted
 
-    with pytest.raises(SignerError, match="no device with fingerprint 03030303"):
+    with pytest.raises(SignerError, match="no device with that fingerprint"):
         select_device([other, wanted], b"\x03" * 4)
 
 
@@ -714,7 +717,10 @@ def test_a_device_that_said_why_it_cannot_be_asked_is_not_selected() -> None:
         fingerprint=b"\x01" * 4,
         error="device is locked",
     )
-    with pytest.raises(SignerError, match="cannot be used: device is locked"):
+    with pytest.raises(
+        SignerError,
+        match="the device with that fingerprint cannot be used",
+    ):
         select_device([locked], b"\x01" * 4)
 
 

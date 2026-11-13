@@ -204,9 +204,9 @@ _OFF_CURVE_X = b"\xff" * 4 + _secret(28)
     "prefix, shape",
     [
         # `00 || k` is the shape of an xprv's key field
-        (b"\x00", "33 bytes, entry 3$"),
-        (b"\x05", "33 bytes, entry 3$"),
-        (b"\x02", "33 bytes, prefix 0x02, entry 3$"),
+        (b"\x00", "33 bytes, 'entry 3'$"),
+        (b"\x05", "33 bytes, 'entry 3'$"),
+        (b"\x02", "33 bytes, prefix 0x02, 'entry 3'$"),
     ],
 )
 def test_a_musig2_key_that_is_not_a_point_is_refused_without_its_bytes(
@@ -230,7 +230,7 @@ def test_a_duplicated_psbt_key_is_refused_without_its_key_data() -> None:
     record = bytes([len(key)]) + key + b"\x01A"
     with pytest.raises(BTClibValueError, match="duplicated key in psbt map") as e:
         deserialize_map(record + record + b"\x00", "global")
-    assert "global, type byte 0x01, 79 bytes" in str(e.value)
+    assert "global, type byte 1, 79 bytes" in str(e.value)
     assert_secret_free(e.value, [_SECRET_78, key])
 
     with pytest.raises(
@@ -245,7 +245,8 @@ def test_a_refused_musig2_participant_key_is_named_by_its_position() -> None:
     good = sec_point.bytes_from_point(secp256k1.G)
     bad = b"\x00" + _SECRET_32
     with pytest.raises(
-        BTClibValueError, match="participant pub key: .*, entry 0.1$"
+        BTClibValueError,
+        match=r"invalid musig2 participant pub key: not a point, 33 bytes, 'entry 0\.1'$",
     ) as e:
         assert_valid_musig2_participant_pub_keys({good: [good, bad]})
     assert_secret_free(e.value, [_SECRET_32])

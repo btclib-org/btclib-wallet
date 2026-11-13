@@ -295,7 +295,7 @@ def test_unknown_xpub_version() -> None:
         reversioned = replace_unchecked(
             xpub_data, version=getattr(NETWORKS["mainnet"], version)
         )
-        with pytest.raises(BTClibValueError, match="unknown xpub version: "):
+        with pytest.raises(BTClibValueError, match="unknown xpub version"):
             slip132.address_from_xpub(reversioned)
 
 

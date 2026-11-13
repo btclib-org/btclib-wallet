@@ -26,6 +26,7 @@ from btclib.tx import OutPoint
 from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT
+from tests import raises_from
 from tests.fetch import (
     REGTEST_GENESIS_HEADER_RAW,
     TIP_HEADER_RAW,
@@ -305,7 +306,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     assert fetcher(tip, network="regtest").get_best_block_id() == (
         NETWORKS["regtest"].genesis_block
     )
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         fetcher(REGTEST_GENESIS_HEADER_RAW).get_block_header(0)
 
 
@@ -366,7 +367,11 @@ def test_verify_tx_refuses_a_wrong_position() -> None:
 def test_a_response_whose_id_does_not_match_is_refused() -> None:
     """A line answering a different request is refused, not returned."""
     wrong_id = json.dumps({"id": 999999, "result": MERKLE_TX_RAW}).encode()
-    with pytest.raises(FetchError, match="does not answer request"):
+    with raises_from(
+        FetchError,
+        match="transaction: a malformed answer",
+        cause="does not answer request",
+    ):
         fetcher(wrong_id).get_tx(MERKLE_TX_ID)
 
 
@@ -388,7 +393,11 @@ def test_two_questions_carry_two_request_ids() -> None:
 
 def test_a_line_that_is_not_json_is_refused() -> None:
     """A line a server never sends, refused rather than misread."""
-    with pytest.raises(FetchError, match="not a JSON-RPC line"):
+    with raises_from(
+        FetchError,
+        match="transaction: a malformed answer",
+        cause="not a JSON-RPC line",
+    ):
         fetcher(b"this is not json\n").get_tx(MERKLE_TX_ID)
 
 
@@ -419,7 +428,9 @@ def test_the_timeout_is_passed_to_the_transport() -> None:
 
 def test_a_transport_failure_is_translated() -> None:
     """`LineTransport`'s exception contract, translated by `client_errors`."""
-    with pytest.raises(FetchError, match="connection refused"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher(RpcFetchError("connection refused")).get_tx(MERKLE_TX_ID)
 
 
@@ -451,9 +462,13 @@ def test_assert_network_accepts_the_genesis_of_the_network_given() -> None:
 def test_assert_network_refuses_a_different_genesis() -> None:
     """The silent failure this exists for: a testnet server, a mainnet label.
 
-    Both hashes are in the message, so the caller can see which is which.
+    Both chains are named in the message, so the caller can see which is
+    which.
     """
-    with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the testnet chain, and this fetcher was built for mainnet$",
+    ):
         fetcher(TESTNET_GENESIS_HEADER).assert_network()
 
 
@@ -465,8 +480,10 @@ def test_assert_network_refuses_a_server_on_a_chain_with_an_easier_target() -> N
     `FallbackFetcher` falls through. This is a `BTClibValueError`, which
     it stops on.
     """
-    regtest = NETWORKS["regtest"].genesis_block.hex()
-    with pytest.raises(BTClibValueError, match=f"{regtest}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the regtest chain, and this fetcher was built for mainnet$",
+    ):
         fetcher(REGTEST_GENESIS_HEADER_RAW).assert_network()
 
 
@@ -483,7 +500,10 @@ def test_a_header_that_is_not_the_genesis_of_any_chain_is_refused() -> None:
     `assert_network` checks only that it is eighty bytes, so what refuses
     it is the comparison.
     """
-    with pytest.raises(BTClibValueError, match=f"{TIP_ID}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves a chain whose genesis is no network's, and this fetcher",
+    ):
         fetcher(TIP_HEADER_RAW).assert_network()
 
 
@@ -532,7 +552,7 @@ def test_a_server_on_another_chain_answers_no_fetch_at_all() -> None:
     transport = LineRecorded(TESTNET_GENESIS_HEADER)
     endpoint = ElectrumFetcher("mainnet", transport=transport, verify_network=True)
     for _ in range(2):
-        with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+        with pytest.raises(BTClibValueError, match="serves the testnet chain"):
             endpoint.get_block_count()
     assert len(transport.requests) == 1
 
@@ -545,9 +565,9 @@ def test_get_tx_merkle_and_verify_tx_are_refused_on_another_chain_too() -> None:
     """
     transport = LineRecorded(TESTNET_GENESIS_HEADER)
     endpoint = ElectrumFetcher("mainnet", transport=transport, verify_network=True)
-    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+    with pytest.raises(BTClibValueError, match="serves the testnet chain"):
         endpoint.get_tx_merkle(MERKLE_TX_ID, TIP_HEIGHT)
-    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+    with pytest.raises(BTClibValueError, match="serves the testnet chain"):
         endpoint.verify_tx(MERKLE_TX_ID, TIP_HEIGHT)
 
 
@@ -563,7 +583,9 @@ def test_a_server_that_could_not_be_asked_is_asked_again() -> None:
         RpcFetchError("connection refused"), MAINNET_GENESIS_HEADER, tip
     )
     endpoint = ElectrumFetcher("mainnet", transport=transport, verify_network=True)
-    with pytest.raises(FetchError, match="connection refused"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         endpoint.get_block_count()
     assert endpoint.get_block_count() == TIP_HEIGHT
     assert len(transport.requests) == 3
@@ -619,7 +641,7 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     endpoint = ElectrumFetcher(
         "mainnet", transport=LineRecorded(TESTNET_GENESIS_HEADER), verify_network=True
     )
-    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+    with pytest.raises(BTClibValueError, match="serves the testnet chain"):
         endpoint.estimate_fee(6)
     assert transport_of(endpoint).methods == ["blockchain.block.header"]
 
@@ -676,7 +698,11 @@ def test_get_block_headers_may_answer_fewer_than_asked() -> None:
 def test_get_block_headers_asks_at_most_a_retarget_period() -> None:
     """A larger count is asked as 2016, and an answer of more is refused."""
     endpoint = fetcher(chunk_answer(count=2017), network="regtest")
-    with pytest.raises(FetchError, match="invalid count: an int of 11 bits"):
+    with raises_from(
+        FetchError,
+        match="block headers: a malformed answer",
+        cause="invalid count: an int of 11 bits",
+    ):
         endpoint.get_block_headers(0, 10**9)
     request = json.loads(transport_of(endpoint).requests[0])
     assert request["params"] == [0, 2016]
@@ -693,9 +719,15 @@ def test_get_block_headers_asks_at_most_a_retarget_period() -> None:
             chunk_answer(*REGTEST_CHUNK, count=3), "invalid count", id="more-than-asked"
         ),
         pytest.param({"count": 1}, "not a hex string", id="no-hex"),
-        pytest.param({"count": 1, "hex": "zz" * 80}, "non-hexadecimal", id="not-hex"),
         pytest.param(
-            {"count": 1, "hex": "0" * 159}, "invalid hex string", id="odd-length"
+            {"count": 1, "hex": "zz" * 80},
+            "block headers: a malformed answer",
+            id="not-hex",
+        ),
+        pytest.param(
+            {"count": 1, "hex": "0" * 159},
+            "block headers: a malformed answer",
+            id="odd-length",
         ),
         pytest.param({"count": 1, "hex": 5}, "not a hex string", id="hex-not-a-string"),
         pytest.param(
@@ -715,7 +747,9 @@ def test_get_block_headers_refuses_a_chunk_that_is_not_one(
 ) -> None:
     """Every field of the answer is the server's word, and checked."""
     endpoint = fetcher(result, network="regtest")
-    with pytest.raises(FetchError, match=match):
+    with raises_from(
+        FetchError, match="^block headers: a malformed answer$", cause=match
+    ):
         endpoint.get_block_headers(0, 2)
 
 
@@ -733,7 +767,11 @@ def test_get_block_headers_refuses_a_header_that_does_not_follow() -> None:
 def test_get_block_headers_holds_each_header_to_the_networks_limit() -> None:
     """Regtest's headers are above mainnet's proof-of-work limit."""
     endpoint = fetcher(chunk_answer(*REGTEST_CHUNK[1:]), network="mainnet")
-    with pytest.raises(FetchError, match="above the limit"):
+    with raises_from(
+        FetchError,
+        match="block header: a malformed answer",
+        cause="above the limit",
+    ):
         endpoint.get_block_headers(1, 2)
 
 
@@ -772,6 +810,6 @@ def test_get_block_headers_verifies_the_network_first() -> None:
     endpoint = ElectrumFetcher(
         "mainnet", transport=LineRecorded(TESTNET_GENESIS_HEADER), verify_network=True
     )
-    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+    with pytest.raises(BTClibValueError, match="serves the testnet chain"):
         endpoint.get_block_headers(0, 1)
     assert transport_of(endpoint).methods == ["blockchain.block.header"]

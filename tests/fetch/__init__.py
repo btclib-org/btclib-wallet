@@ -90,13 +90,14 @@ LATER_TX_ID = "dfcec48bb8491856c353306ab5febeb7e99e4d783eedf3de98f3ee0812b92bad"
 def chain_mismatch(reported: str, expected: str) -> str:
     """Return a pattern for a backend's refusal of a node on the wrong chain.
 
-    `bitcoin-core-rpc` quotes the expected chain before v2026.10.8 and not
-    from it, and the floor is older, so both forms are matched. The pattern
-    ends at "this" so that it also matches the REST fetcher's own message,
-    which keeps the quotes.
+    The REST fetcher names both chains, quoted. The RPC fetcher names
+    neither: `bitcoin-core-rpc` writes the node's answer into its refusal
+    unbounded, so its text is not relayed, and its exception carries no
+    attribute the chains could be read from instead.
     """
     r, e = re.escape(reported), re.escape(expected)
-    return rf"reports chain '{r}', not the (?:'{e}'|{e}) this"
+    rest = rf"the node reports chain '{r}', not the '{e}' this fetcher was built for"
+    return rf"^(?:{rest}|the node is on another chain than this fetcher,)"
 
 
 def recorded_body(name: str) -> bytes:

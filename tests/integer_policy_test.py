@@ -149,17 +149,17 @@ _WORDINGS = [
     (
         "bip32 account branch",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, v, 0),
-        "non-integer branch: True",
+        "non-integer branch: a bool",
     ),
     (
         "bip32 account address index",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, v),
-        "non-integer address index: True",
+        "non-integer address index: a bool",
     ),
     (
         "bip32 account max_index",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, 0, max_index=v),
-        "non-integer max_index: True",
+        "non-integer max_index: a bool",
     ),
 ]
 

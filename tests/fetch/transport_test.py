@@ -20,6 +20,7 @@ servers, in `tests/fetch/persistent_transport_test.py`.
 from __future__ import annotations
 
 import json
+import re
 import socket
 import ssl
 import threading
@@ -379,11 +380,18 @@ def test_a_connection_closed_before_the_newline_is_a_fetch_error(
 def test_what_goes_wrong_below_the_answer_is_a_fetch_error(
     kind: str, failure: Exception, tcp: Calls
 ) -> None:
-    """The contract `LineTransport` states, the cause kept."""
+    """The contract `LineTransport` states, the failure named by its type.
+
+    Its text is neither relayed nor chained: an ssl refusal can quote the
+    names on the certificate the server sent.
+    """
     transport, _ = line_transport(kind, tcp, failure=failure)
-    with pytest.raises(RpcFetchError, match=f"no answer from {HOST}:{PORT}") as e:
+    where = f"{re.escape(repr(HOST))}:{PORT}"
+    with pytest.raises(
+        RpcFetchError, match=f"^no answer from {where}: {type(failure).__name__}$"
+    ) as e:
         transport(REQUEST, 1.0)
-    assert e.value.__cause__ is failure
+    assert e.value.__cause__ is None
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -391,9 +399,12 @@ def test_a_failed_read_is_a_fetch_error(kind: str, tcp: Calls) -> None:
     """A reset after the connection is the same answer as a refused connect."""
     reset = ConnectionResetError("reset")
     transport, connection = line_transport(kind, tcp, b"{", reset)
-    with pytest.raises(RpcFetchError, match="reset") as e:
+    with pytest.raises(
+        RpcFetchError,
+        match=r"no answer from 'electrum\.example':50002: ConnectionResetError",
+    ) as e:
         transport(REQUEST, 1.0)
-    assert e.value.__cause__ is reset
+    assert e.value.__cause__ is None
     assert connection.closed
 
 

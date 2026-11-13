@@ -23,6 +23,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
+from tests import raises_from
 from tests.fetch import bitcoin_core_rest_test as rest
 from tests.fetch import bitcoin_core_test as rpc
 from tests.fetch import chain_mismatch
@@ -116,8 +117,11 @@ def test_a_rate_finer_than_a_satoshi_is_rounded_up(build: _Build) -> None:
 def test_a_missing_rate_is_refused(build: _Build, source: str, missing: str) -> None:
     """All three are answered, or none is."""
     info = {name: rate for name, rate in MEMPOOL_INFO.items() if name != missing}
-    message = f"{source}: no {missing!r} member"
-    with pytest.raises(FetchError, match=f"^{re.escape(message)}$"):
+    with raises_from(
+        FetchError,
+        match=f"^{source}: a malformed answer$",
+        cause=f"no {missing!r} member",
+    ):
         build(info).get_relay_fees()
 
 
@@ -141,10 +145,14 @@ def test_a_reply_that_is_no_object_is_refused(build: _Build, source: str) -> Non
 
 def test_the_reply_is_bounded_by_what_it_is() -> None:
     """A reply past 1024 octets is refused before it is parsed."""
-    with pytest.raises(FetchError, match="more than the max_body_size of 1024"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         rest.fetcher((200, b"x" * 1025)).get_relay_fees()
     oversized = b'{"result":' + b"9" * 1100 + b',"error":null,"id":"x"}'
-    with pytest.raises(FetchError, match="more than the max_body_size of 1024"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         rpc.fetcher((200, oversized)).get_relay_fees()
 
 

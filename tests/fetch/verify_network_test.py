@@ -95,9 +95,12 @@ def _compact_filters() -> tuple[Fetcher, Sequence[object]]:
 _BACKENDS = {
     "BitcoinCoreFetcher": _Backend(_core, chain_mismatch("test", "main")),
     "BitcoinCoreRestFetcher": _Backend(_rest, chain_mismatch("test", "main")),
-    "CompactFilterFetcher": _Backend(_compact_filters, "not the genesis"),
-    "ElectrumFetcher": _Backend(_electrum, TESTNET_GENESIS),
-    "EsploraFetcher": _Backend(_esplora, TESTNET_GENESIS),
+    "CompactFilterFetcher": _Backend(
+        _compact_filters,
+        "the peer serves a chain whose first block does not follow the genesis this mainnet fetcher was built for",
+    ),
+    "ElectrumFetcher": _Backend(_electrum, "serves the testnet chain"),
+    "EsploraFetcher": _Backend(_esplora, "serves the testnet chain"),
 }
 
 # the questions `Fetcher` declares, which every backend answers, except

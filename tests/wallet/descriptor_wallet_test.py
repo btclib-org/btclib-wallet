@@ -162,7 +162,7 @@ def test_the_chains_must_be_of_one_network() -> None:
     """A wallet is on a chain, and a network is what a chain is."""
     mainnet = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
     testnet = parse(_descriptor(f"wpkh({_TPUB}/1/*)"), "testnet")
-    err_msg = r"descriptors of different networks: \['mainnet', 'testnet'\]"
+    err_msg = "descriptors of different networks: mainnet, testnet"
     with pytest.raises(BTClibValueError, match=err_msg):
         DescriptorWallet([mainnet, testnet])
 
@@ -448,7 +448,10 @@ def test_the_updaters_take_a_position_where_a_descriptor_takes_an_index() -> Non
     assert paid.outputs[0].redeem_script == wallet.redeem_script(1, 2)
     # the output half refuses unless the output being paid is the very
     # script the position derives, which is `position_of` as a claim
-    with pytest.raises(BTClibValueError, match="which is not the script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="output 0 pays to another script than the one this descriptor describes at index 3",
+    ):
         wallet.update_psbt_output(psbt, 0, 1, 3)
     for method in (wallet.update_psbt_input, wallet.update_psbt_output):
         with pytest.raises(BTClibValueError, match="invalid branch: 2"):

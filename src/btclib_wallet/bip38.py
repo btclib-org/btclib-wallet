@@ -99,6 +99,8 @@ from btclib.utils import assert_type, bytes_from_octets, is_integer
 from ecc.curves import bytes_from_point, mult, point_from_octets_var, secp256k1
 from ecc.curves import scalar_from_prv_key as _scalar
 
+from btclib_wallet._refusal import _quoted
+
 __all__ = [
     "BlockCipherF",
     "decrypt",
@@ -184,14 +186,15 @@ def _payload_from_base58(text: String, size: int) -> bytes:
 
     The codec refuses with `Base58Bech32TypeError` and
     `Base58Bech32ValueError`, which leave here as the `BTClibTypeError` and
-    the `BTClibValueError` this package refuses with, the message kept.
+    the `BTClibValueError` this package refuses with, chaining the codec's,
+    whose text prints no character of the string.
     """
     try:
         return b58decode_check(text, out_size=size)
     except Base58Bech32TypeError as e:
-        raise BTClibTypeError(str(e)) from e
+        raise BTClibTypeError("invalid Base58Check type") from e
     except Base58Bech32ValueError as e:
-        raise BTClibValueError(str(e)) from e
+        raise BTClibValueError("invalid Base58Check string") from e
 
 
 def _xor(a: bytes, b: bytes) -> bytes:
@@ -279,7 +282,7 @@ def _decrypt_no_ec(
 ) -> PrvKeyData:
     flagbyte = payload[2]
     if flagbyte not in (_FLAG_UNCOMPRESSED_NO_EC, _FLAG_COMPRESSED_NO_EC):
-        raise InvalidPrvKeyError(f"invalid flagbyte: 0x{flagbyte:02x}")
+        raise InvalidPrvKeyError("invalid flagbyte")
     compressed = flagbyte == _FLAG_COMPRESSED_NO_EC
     address_hash = payload[3:7]
     encrypted_half_1, encrypted_half_2 = payload[7:23], payload[23:39]
@@ -331,9 +334,9 @@ def intermediate_code(
         if not is_integer(sequence):
             raise BTClibTypeError("sequence number must be an int")
         if not 0 <= lot <= _LOT_MAX:
-            raise BTClibValueError(f"lot number out of range: {lot}")
+            raise BTClibValueError(f"lot number out of range: {_quoted(lot)}")
         if not 0 <= sequence <= _SEQ_MAX:
-            raise BTClibValueError(f"sequence number out of range: {sequence}")
+            raise BTClibValueError(f"sequence number out of range: {_quoted(sequence)}")
         salt_size = _OWNER_SALT_LOT_SEQ_SIZE
     else:
         salt_size = _OWNER_SALT_NO_LOT_SEQ_SIZE
@@ -385,7 +388,7 @@ def new_key_pair(
     payload = _payload_from_base58(int_code, _INT_CODE_SIZE)
     magic, owner_entropy, passpoint_sec = payload[:8], payload[8:16], payload[16:49]
     if magic not in (_MAGIC_NO_LOT_SEQ, _MAGIC_LOT_SEQ):
-        raise BTClibValueError(f"invalid intermediate code magic: 0x{magic.hex()}")
+        raise BTClibValueError("invalid intermediate code magic")
     has_lot_seq = magic == _MAGIC_LOT_SEQ
     passpoint = point_from_octets_var(passpoint_sec, secp256k1)
 
@@ -443,7 +446,7 @@ def _decrypt_ec(
 ) -> PrvKeyData:
     flagbyte = payload[2]
     if flagbyte & _FLAG_EC_RESERVED_MASK:
-        raise InvalidPrvKeyError(f"invalid flagbyte: 0x{flagbyte:02x}")
+        raise InvalidPrvKeyError("invalid flagbyte")
     compressed = bool(flagbyte & _FLAG_BIT_COMPRESSED)
     has_lot_seq = bool(flagbyte & _FLAG_BIT_LOT_SEQ)
 
@@ -521,4 +524,4 @@ def decrypt(
         return _decrypt_no_ec(payload, password, decrypt_block)
     if prefix == _EC_PREFIX:
         return _decrypt_ec(payload, password, decrypt_block)
-    raise NotAPrvKeyError(f"not a BIP38 record (invalid prefix 0x{prefix.hex()})")
+    raise NotAPrvKeyError("not a BIP38 record: invalid prefix")

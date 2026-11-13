@@ -34,7 +34,8 @@ from btclib_wallet.fetch import electrum as fetch_electrum
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger import Ledger, TxState
-from tests.fetch.electrum_test import TESTNET_GENESIS, TESTNET_GENESIS_HEADER
+from tests import raises_from
+from tests.fetch.electrum_test import TESTNET_GENESIS_HEADER
 from tests.fetch.history_test import OTHER, OURS, _tx
 from tests.fetch.peer_chain_test import REGTEST_BITS, REGTEST_HALVING, mined
 from tests.ledger.conftest import source
@@ -678,7 +679,11 @@ def test_an_answer_of_more_headers_than_asked_is_refused(
         "blockchain.block.headers",
         lambda result: {**result, "count": 4, "hex": result["hex"] * 2},
     )
-    with pytest.raises(FetchError, match="invalid count"):
+    with raises_from(
+        FetchError,
+        match="block headers: a malformed answer",
+        cause="invalid count",
+    ):
         _fetcher(server).get_history([OURS], 1)
 
 
@@ -781,9 +786,7 @@ def test_a_header_already_chained_answered_otherwise_is_refused() -> None:
 def test_a_history_that_is_not_one_is_refused() -> None:
     """The codec's refusal leaves as a FetchError naming the request."""
     server = _edited(_chain(), "blockchain.scripthash.get_history", lambda _r: {})
-    with pytest.raises(
-        FetchError, match="^script history: scripthash.get_history: not a list"
-    ):
+    with pytest.raises(FetchError, match="^script history: a malformed answer"):
         _fetcher(server).get_history([OURS])
 
 
@@ -803,7 +806,7 @@ def test_get_history_verifies_the_network_first() -> None:
         _chain(), "blockchain.block.header", lambda _r: TESTNET_GENESIS_HEADER
     )
     endpoint = ElectrumFetcher("regtest", transport=server)
-    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+    with pytest.raises(BTClibValueError, match="serves the testnet chain"):
         endpoint.get_history([OURS])
     assert server.methods == ["blockchain.block.header"]
 
@@ -811,7 +814,7 @@ def test_get_history_verifies_the_network_first() -> None:
 def test_a_history_label_carries_no_hash_of_the_script() -> None:
     """A script hash confirms a guess at the script (issue #805)."""
     server = _edited(_chain(), "blockchain.scripthash.get_history", lambda _r: {})
-    err_msg = "^script history: scripthash.get_history: not a list$"
+    err_msg = "^script history: a malformed answer$"
     with pytest.raises(FetchError, match=err_msg) as e:
         _fetcher(server).get_history([KEY])
     assert_secret_free(

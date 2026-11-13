@@ -46,7 +46,7 @@ def test_a_label_is_set_changed_and_listed_by_purpose(ledger: Ledger) -> None:
     ledger.set_label(own, "b")
     assert ledger.labels() == ("b", "f")
     assert (ledger.label_of(own), ledger.label_of(FOREIGN)) == ("b", "f")
-    with pytest.raises(BTClibValueError, match="no address has the label a"):
+    with pytest.raises(BTClibValueError, match="no address has the label 'a'"):
         ledger.addresses_by_label("a")
 
 
@@ -127,7 +127,7 @@ def test_the_name_star_and_what_is_no_label_are_refused(ledger: Ledger) -> None:
             call()
     with pytest.raises(BTClibTypeError, match="invalid label type"):
         ledger.set_label(FOREIGN, 1)  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="invalid purpose: unknown"):
+    with pytest.raises(BTClibValueError, match="invalid purpose: 'unknown'"):
         ledger.labels("unknown")
     with pytest.raises(BTClibTypeError, match="invalid purpose type"):
         ledger.labels(1)  # type: ignore[arg-type]
@@ -224,7 +224,7 @@ def test_received_by_label_sums_the_ledgers_addresses(
     ledger.set_label(FOREIGN, "f")
     with pytest.raises(BTClibValueError, match="no address of the ledger has the"):
         ledger.received_by_label("f")
-    with pytest.raises(BTClibValueError, match="no address has the label g"):
+    with pytest.raises(BTClibValueError, match="no address has the label 'g'"):
         ledger.received_by_label("g")
 
 

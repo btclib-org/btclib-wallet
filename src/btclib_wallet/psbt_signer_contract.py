@@ -154,8 +154,8 @@ def _check_xpub(signer: PsbtSigner, der_path: DerPath) -> None:
     xpub = signer.xpub(der_path)
     try:
         key = BIP32KeyData.b58decode(xpub)
-    except ValueError as e:
-        _fail(f"xpub is not an extended key: {e}")
+    except ValueError:
+        _fail("xpub is not an extended key")
     if key.is_private:
         # the one answer that is not merely wrong: a signer that hands
         # out a key that signs has published the thing it exists to keep

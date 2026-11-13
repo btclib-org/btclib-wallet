@@ -37,9 +37,11 @@ from typing import TypeVar
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
 from btclib.exceptions import BTClibValueError
+from btclib.network import NETWORKS
 from btclib.tx import Tx
 from typing_extensions import override
 
+from btclib_wallet._refusal import _label
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import Fetcher, tx_id_hex
 
@@ -215,7 +217,10 @@ class FallbackFetcher(Fetcher):
             raise BTClibValueError("no backends given")
         networks = {fetcher.network for fetcher in fetchers}
         if len(networks) > 1:
-            err_msg = f"mismatched networks: {sorted(networks)}"
+            err_msg = "mismatched networks: "
+            err_msg += ", ".join(
+                _label(network, NETWORKS) for network in sorted(networks)
+            )
             raise BTClibValueError(err_msg)
         super().__init__(fetchers[0].network)
         self.fetchers = tuple(fetchers)
@@ -228,7 +233,7 @@ class FallbackFetcher(Fetcher):
             try:
                 return call(fetcher)
             except FetchError as e:
-                failures.append(f"{type(fetcher).__name__}: {e}")
+                failures.append(f"{type(fetcher).__name__}: {type(e).__name__}")
                 exceptions.append(e)
         err_msg = f"{description}: every backend failed -- " + "; ".join(failures)
         # `self.fetchers` is non-empty by construction, so the loop above

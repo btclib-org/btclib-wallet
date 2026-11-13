@@ -84,6 +84,8 @@ from ecc import dlc_oracle, ssa
 from ecc.curves import mult, scalar_from_prv_key
 from ecc.hashes import tagged_hash
 
+from btclib_wallet._refusal import _quoted
+
 __all__ = [
     "PLAIN_SHA256",
     "TAGGED",
@@ -179,7 +181,7 @@ class _Reader:
         """Return the type and the reader of the value of the next TLV."""
         tlv_type = self.bigsize()
         if tlv_type not in types:
-            raise BTClibValueError(f"unexpected TLV type {tlv_type}")
+            raise BTClibValueError(f"unexpected TLV type {_quoted(tlv_type)}")
         return tlv_type, _Reader(BytesIO(self.take(self.bigsize())))
 
     def end(self) -> None:

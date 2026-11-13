@@ -75,17 +75,17 @@ from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _code, _label, _message_text, _quoted
 from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.balance import Balance, script_pub_key_for_network
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _fetch_errors,
     _touching_ids,
     block_header_from_raw,
     block_header_height,
     client_errors,
-    fetch_errors,
     tx_from_raw,
     tx_id_hex,
 )
@@ -200,7 +200,7 @@ def _checked_base_url(base_url: str) -> str:
         )
         raise BTClibValueError(err_msg)
     if split.scheme not in ("http", "https"):
-        err_msg = f"invalid base_url scheme: '{split.scheme}' instead of http(s)"
+        err_msg = f"invalid base_url scheme: {_quoted(split.scheme)} instead of http(s)"
         raise BTClibValueError(err_msg)
     if not split.hostname:
         raise BTClibValueError("no host in base_url")
@@ -297,10 +297,16 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             )
         return status, payload.decode("utf-8", errors="replace").strip()
 
-    def _http_error(self, path: str, status: int, text: str) -> HttpError:
-        """Return the `HttpError` a non-200 status on `path` reports."""
-        url = f"{self.base_url}{path}"
-        return HttpError(f"HTTP {status} from {url}: {text}", status)
+    def _http_error(self, endpoint: str, status: int) -> HttpError:
+        """Return the `HttpError` a non-200 status on `endpoint` reports.
+
+        Section 7 of the btclib-org standard, *A refusal carries no secret*:
+        `endpoint` names the request without a caller's value, and the
+        explorer's text is not relayed, since it can quote the request. A
+        status outside `_RPC_CODES` is 0.
+        """
+        code = _code(status)
+        return HttpError(f"HTTP {code} from {endpoint}", code)
 
     def text(self, path: str, max_body_size: int = DEFAULT_MAX_BODY_SIZE) -> str:
         """Return the body of a GET on `path`, as stripped text.
@@ -318,7 +324,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         """
         status, text = self._request(path, data=None, max_body_size=max_body_size)
         if status != 200:
-            raise self._http_error(path, status, text)
+            raise self._http_error("the path asked", status)
         return text
 
     def _text_at(self, path: str, endpoint: str, max_body_size: int) -> str:
@@ -326,13 +332,12 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
         Section 7 of the btclib-org standard, *A refusal carries no secret*:
         a height or a tx id in the wrong place may be a key. A status that
-        is not 200 is an `HttpError` naming `endpoint`, the path with that
-        value replaced by its name, and not the explorer's text, which can
-        quote the request.
+        is not 200 is the `HttpError` of `_http_error`, naming `endpoint`,
+        the path with that value replaced by its name.
         """
         status, text = self._request(path, data=None, max_body_size=max_body_size)
         if status != 200:
-            raise HttpError(f"HTTP {status} from {self.base_url}{endpoint}", status)
+            raise self._http_error(endpoint, status)
         return text
 
     @override
@@ -347,7 +352,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
     def get_block_count(self) -> int:
         """Return the height of the server's best chain tip."""
         self._verify_once()
-        with fetch_errors("blocks/tip/height"):
+        with _fetch_errors("blocks/tip/height"):
             return int(self.text("/blocks/tip/height", _MAX_HEIGHT_BODY))
 
     @override
@@ -358,12 +363,12 @@ class EsploraFetcher(NetworkVerifyingFetcher):
 
     def _tip_hash(self) -> bytes:
         """Return the hash of the server's chain tip, and ask nothing else."""
-        with fetch_errors("blocks/tip/hash"):
+        with _fetch_errors("blocks/tip/hash"):
             return bytes_from_octets(self.text("/blocks/tip/hash", _MAX_HASH_BODY), 32)
 
     def _block_id_at(self, height: int) -> bytes:
         """Return the hash of the block at `height`, asking nothing else."""
-        with fetch_errors("block-height"):
+        with _fetch_errors("block-height"):
             path = f"/block-height/{height}"
             reply = self._text_at(path, "/block-height/<height>", _MAX_HASH_BODY)
             return bytes_from_octets(reply, 32)
@@ -407,14 +412,20 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         takes no `signet_challenge` of its own: nothing Esplora's api
         publishes is a signet's challenge to compare it against.
         """
-        with fetch_errors("block-height"):
+        with _fetch_errors("block-height"):
             reply = self.text("/block-height/0", _MAX_HASH_BODY)
             reported = bytes_from_octets(reply, 32)
         expected = NETWORKS[self.network].genesis_block
         if reported != expected:
-            err_msg = f"{self.base_url} serves a chain whose genesis is"
-            err_msg += f" {reported.hex()}, not the {expected.hex()}"
-            err_msg += f" {self.network} was built for"
+            # the chain named where its genesis is a network's: the hash
+            # itself is the explorer's, and is not written
+            served = "a chain whose genesis is no network's"
+            for name, params in NETWORKS.items():
+                if params.genesis_block == reported:
+                    served = f"the {name} chain"
+                    break
+            err_msg = f"the explorer serves {served}, and this fetcher was built"
+            err_msg += f" for {_label(self.network, NETWORKS)}"
             raise BTClibValueError(err_msg)
 
     def broadcast(self, tx: Tx) -> bytes:
@@ -445,9 +456,11 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         acknowledgement was merely lost on the way back, and that is the
         caller's decision to make, not this one's.
 
-        A non-200 status is an `HttpError` carrying the body, the way
-        `text` reports one for a GET: an Esplora deployment answers a
-        rejected transaction with a 400 and the reason in plain text.
+        A non-200 status is an `HttpError`, the way `text` reports one for
+        a GET. An Esplora deployment answers a rejected transaction with a
+        400 and the reason in plain text, which is not relayed: section 7
+        of the btclib-org standard, *A refusal carries no secret*, does not
+        relay another program's text.
         """
         self._verify_once()
         txid = tx.id
@@ -456,11 +469,11 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             "/tx", data=hex_.encode("ascii"), max_body_size=_MAX_HASH_BODY
         )
         if status != 200:
-            raise self._http_error("/tx", status, answer)
-        with fetch_errors("POST /tx"):
+            raise self._http_error("/tx", status)
+        with _fetch_errors("POST /tx"):
             answered = bytes_from_octets(answer, 32)
         if answered != txid:
-            err_msg = f"broadcast {txid.hex()}: the server confirmed {answered.hex()}"
+            err_msg = "broadcast: the server confirmed another transaction"
             raise FetchError(err_msg)
         return answered
 
@@ -480,7 +493,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             err_msg = f"confirmation target {_message_text(target)} above the highest"
             err_msg += f" quoted, {_MAX_FEE_TARGET}"
             raise BTClibValueError(err_msg)
-        with fetch_errors("fee-estimates"):
+        with _fetch_errors("fee-estimates"):
             payload = json.loads(self.text("/fee-estimates", _MAX_FEE_ESTIMATES_BODY))
             if not isinstance(payload, dict):
                 raise BTClibTypeError(f"not an object: {_message_text(payload)}")
@@ -507,8 +520,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         """
         canonical = script_pub_key_for_network(address, self.network).address
         self._verify_once()
-        source = f"address {canonical}"
-        with fetch_errors(source):
+        source = "address"
+        with _fetch_errors(source):
             payload = json.loads(self.text(f"/address/{canonical}", _MAX_ADDRESS_BODY))
             if not isinstance(payload, dict):
                 raise BTClibTypeError(f"not an object: {_message_text(payload)}")
@@ -520,7 +533,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
             confirmed = _txo_balance(payload, "chain_stats")
             unconfirmed = _txo_balance(payload, "mempool_stats")
             if confirmed < 0:
-                raise BTClibValueError(f"negative confirmed balance: {confirmed}")
+                raise BTClibValueError(
+                    f"negative confirmed balance: {_quoted(confirmed)}"
+                )
             return Balance(confirmed=confirmed, unconfirmed=unconfirmed)
 
     def get_history(
@@ -578,7 +593,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         first = block_header_height(start_height)
         self._verify_once()
         tip_id = self._tip_hash()
-        with fetch_errors("blocks/tip/height"):
+        with _fetch_errors("blocks/tip/height"):
             height = block_header_height(
                 int(self.text("/blocks/tip/height", _MAX_HEIGHT_BODY))
             )
@@ -596,7 +611,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 if ref.height > tip.height:
                     raise FetchError("the tip moved while the history was read")
                 if blocks.setdefault(tx_id, ref) != ref:
-                    raise FetchError(f"transaction {tx_id}: listed in two blocks")
+                    raise FetchError("a transaction listed in two blocks")
         positions = self._positions(blocks)
         mempool = {
             tx_id: None
@@ -634,7 +649,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         path = f"/scripthash/{scripthash}/txs/chain"
         source = "script history"
         for _ in range(max_pages):
-            with fetch_errors(source):
+            with _fetch_errors(source):
                 page = self._json(path, _MAX_TXS_BODY)
                 if not isinstance(page, list):
                     raise BTClibTypeError(f"not an array: {type(page).__name__}")
@@ -649,7 +664,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 if ref.height < first:
                     return found
                 if tx_id in seen:
-                    raise FetchError(f"{source}: transaction {tx_id} listed twice")
+                    raise FetchError(f"{source}: a transaction listed twice")
                 seen.add(tx_id)
                 found.append((tx_id, ref))
             if not entries:
@@ -675,10 +690,10 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         positions: dict[str, int] = {}
         for ref in sorted(set(blocks.values()), key=lambda ref: ref.height):
             if self._block_id_at(ref.height) != ref.block_id:
-                err_msg = f"block {ref.block_id.hex()} is not at height {ref.height}"
+                err_msg = f"a block that is not at height {_quoted(ref.height)}"
                 raise FetchError(err_msg)
-            source = f"block {ref.block_id.hex()} txids"
-            with fetch_errors(source):
+            source = f"txids of block {_quoted(ref.height)}"
+            with _fetch_errors(source):
                 reply = self._json(
                     f"/block/{ref.block_id.hex()}/txids", _MAX_TXIDS_BODY
                 )
@@ -687,14 +702,14 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 index = {tx_id_hex(tx_id): i for i, tx_id in enumerate(reply)}
             for tx_id in (tx_id for tx_id, at in blocks.items() if at == ref):
                 if tx_id not in index:
-                    raise FetchError(f"{source}: no transaction {tx_id}")
+                    raise FetchError(f"{source}: a transaction missing")
                 positions[tx_id] = index[tx_id]
         return positions
 
     def _mempool_history(self, scripthash: str) -> list[str]:
         """Return the ids of a script's mempool transactions, all of them."""
         source = "script mempool"
-        with fetch_errors(source):
+        with _fetch_errors(source):
             stats = self._json(f"/scripthash/{scripthash}", _MAX_ADDRESS_BODY)
             if not isinstance(stats, dict):
                 raise BTClibTypeError(f"not an object: {type(stats).__name__}")
@@ -711,7 +726,8 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 raise BTClibTypeError(f"not an array: {type(page).__name__}")
             tx_ids = [tx_id_hex(_member(entry, "txid")) for entry in page]
         if len(tx_ids) < cast(int, count):
-            err_msg = f"{source}: {len(tx_ids)} of {count} mempool transactions listed"
+            err_msg = f"{source}: {len(tx_ids)} of {_quoted(count)}"
+            err_msg += " mempool transactions listed"
             raise FetchError(err_msg)
         return tx_ids
 
@@ -728,7 +744,7 @@ def _valid_max_pages(max_pages: int) -> int:
 def _member(entry: Any, name: str) -> Any:
     """Return one member of a json object, refusing what is not one."""
     if not isinstance(entry, dict) or name not in entry:
-        raise TypeError(f"no {name!r} member")
+        raise BTClibTypeError(f"no {name!r} member")
     return entry[name]
 
 

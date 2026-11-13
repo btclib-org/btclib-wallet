@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -47,7 +48,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.network import network_type_from_network
 from btclib.utils import assert_type
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.bolt11 import Bolt11Invoice
 
 __all__ = [
@@ -112,11 +113,12 @@ def _decode(value: str, what: str) -> str:
         if _MALFORMED_ESCAPE.search(value):
             raise BTClibValueError(f"malformed percent escape in {what}")
         # errors="strict", because a mangled percent escape in a payment
-        # request is not a label with a replacement character in it
-        try:
+        # request is not a label with a replacement character in it. The
+        # refusal is raised after `suppress`, so that it chains nothing:
+        # the codec's error holds the whole value
+        with suppress(UnicodeDecodeError):
             return unquote(value, errors="strict")
-        except UnicodeDecodeError as e:
-            raise BTClibValueError(f"invalid percent-encoding in {what}") from e
+        raise BTClibValueError(f"invalid percent-encoding in {what}")
     return value
 
 
@@ -203,9 +205,9 @@ class Bip21:
             if not key:
                 raise BTClibValueError("empty parameter name in the bip21 URI")
             if key in _TYPED_PARAMS:
-                raise BTClibValueError(f"parameter cannot be in others: {key}")
+                raise BTClibValueError(f"parameter cannot be in others: {_quoted(key)}")
             if key.lower().startswith("req-"):
-                raise BTClibValueError(f"unknown required parameter: {key}")
+                raise BTClibValueError(f"unknown required parameter: {_quoted(key)}")
 
         self._assert_valid_lightning()
 
@@ -289,7 +291,7 @@ class Bip21:
             if key in seen:
                 # not last-one-wins: two amounts are two requests, and
                 # picking one of them is picking for the payer
-                raise BTClibValueError(f"repeated parameter: {key}")
+                raise BTClibValueError(f"repeated parameter: {_quoted(key)}")
             seen.add(key)
 
             if key == "amount":
@@ -304,7 +306,7 @@ class Bip21:
                 # `others`
                 lightning = _decode(raw_value, "the lightning parameter")
             else:
-                others[key] = _decode(raw_value, f"the {key} parameter")
+                others[key] = _decode(raw_value, f"the {_quoted(key)} parameter")
 
         return cls(
             # not percent-decoded: BIP21 spells the address as bare

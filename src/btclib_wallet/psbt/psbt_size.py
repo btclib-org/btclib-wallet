@@ -55,6 +55,7 @@ from btclib.script import serialize, type_and_payload
 from btclib.tx import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_octets
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt.psbt_in import PsbtIn
 
@@ -228,7 +229,7 @@ def _p2wsh_witness_sizes(
     inner_type, inner_payload = type_and_payload(witness_script)
     sizes = _solution_sizes(inner_type, inner_payload, psbt_in)
     if sizes is None:
-        err_msg = f"no estimate for a script of type '{inner_type}'"
+        err_msg = f"no estimate for a script of type {_quoted(inner_type)}"
         return _asked(sizer, psbt_in, tx_in, err_msg)
     return [*sizes, len(witness_script)]
 
@@ -336,12 +337,12 @@ def estimated_input_sizes(
         # no rule says what its witness holds, so only a sizer answers;
         # what it answers is the witness stack, and the script_sig is
         # the wrapper alone, as for every other witness program
-        err_msg = f"no estimate for a script of type '{script_type}'"
+        err_msg = f"no estimate for a script of type {_quoted(script_type)}"
         return len(serialize(wrapper)), _asked(sizer, psbt_in, tx_in, err_msg)
 
     sizes = _solution_sizes(script_type, payload, psbt_in)
     if sizes is None:
-        err_msg = f"no estimate for a script of type '{script_type}'"
+        err_msg = f"no estimate for a script of type {_quoted(script_type)}"
         sizes = _asked(sizer, psbt_in, tx_in, err_msg)
 
     if script_type == "p2wpkh":

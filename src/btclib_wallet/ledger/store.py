@@ -87,9 +87,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 from btclib.exceptions import BTClibValueError
+from btclib.network import NETWORKS
 from btclib.tx import Tx
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _label, _message_text, _quoted
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger.crypto import _assert_cost, _MasterKey
@@ -203,7 +204,9 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     try:
         db = sqlite3.connect(uri, uri=True, timeout=0)
     except sqlite3.OperationalError as e:
-        raise BTClibValueError(f"cannot open the ledger file {path}: {e}") from None
+        raise BTClibValueError(
+            f"cannot open the ledger file: {type(e).__name__}"
+        ) from None
     # each pragma's row is read: SQLite refuses a commit while a statement
     # that writes is unfinished, and PyPy finishes an unread one only when
     # it collects its cursor
@@ -220,9 +223,9 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
             db.close()
             _assert_not_held(e, path)
             if isinstance(e, sqlite3.OperationalError):
-                err_msg = f"cannot open the ledger file {path}: {e}"
+                err_msg = f"cannot open the ledger file: {type(e).__name__}"
                 raise BTClibValueError(err_msg) from None
-            raise BTClibValueError(f"not a ledger file: {e}") from None
+            raise BTClibValueError(f"not a ledger file: {type(e).__name__}") from None
     return db
 
 
@@ -233,7 +236,7 @@ def _assert_not_held(e: sqlite3.DatabaseError, path: str | PathLike[str]) -> Non
     `sqlite3.DatabaseError` carries one.
     """
     if getattr(e, "sqlite_errorname", None) == "SQLITE_BUSY":
-        err_msg = f"the ledger file {path} is open in another ledger or program"
+        err_msg = "the ledger file is open in another ledger or program"
         raise BTClibValueError(err_msg) from None
 
 
@@ -255,7 +258,7 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     application_id = _pragma(db, "application_id")
     version = _pragma(db, "user_version")
     if application_id != APPLICATION_ID:
-        err_msg = f"not a ledger file: application id {application_id:#x}"
+        err_msg = f"not a ledger file: application id {_quoted(application_id)}"
         raise BTClibValueError(err_msg)
     _assert_not_newer(version)
     # every format has `meta`: a file of another network is refused before
@@ -264,14 +267,18 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     if row is None:
         raise BTClibValueError("not a ledger file: it names no network")
     if row[0] != network:
-        raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
+        raise BTClibValueError(
+            f"a {_label(row[0], NETWORKS)} ledger file, not a {_label(network, NETWORKS)} one"
+        )
     while version < FORMAT_VERSION:
         # an explicit BEGIN: the sqlite3 module opens a transaction before
         # a DML statement alone, so a step's DDL would commit as it runs
         with db:
             db.execute("BEGIN")
             if version not in _MIGRATIONS:
-                raise BTClibValueError(f"no migration from ledger format {version}")
+                raise BTClibValueError(
+                    f"no migration from ledger format {_quoted(version)}"
+                )
             _MIGRATIONS[version](db)
             version += 1
             db.execute(f"PRAGMA user_version = {version}")
@@ -280,7 +287,7 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
 def _assert_not_newer(version: int) -> None:
     """Refuse a file of a format a later release writes."""
     if version > FORMAT_VERSION:
-        err_msg = f"ledger format {version} is newer than this release's"
+        err_msg = f"ledger format {_quoted(version)} is newer than this release's"
         err_msg += f" {FORMAT_VERSION}"
         raise BTClibValueError(err_msg)
 
@@ -297,7 +304,7 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
     except ValueError:
         decoded = None
     if not isinstance(decoded, dict):
-        err_msg = f"not a ledger file: source {source_id}'s {column}"
+        err_msg = f"not a ledger file: source {_quoted(source_id)}'s {column}"
         err_msg += " is not a JSON object"
         raise BTClibValueError(err_msg)
     return decoded
@@ -306,7 +313,7 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
 def _encrypted(value: object, source_id: int) -> bytes | None:
     """Return a source's ciphertext, None where it has none."""
     if value is not None and not isinstance(value, bytes):
-        err_msg = f"not a ledger file: source {source_id}'s encrypted keys"
+        err_msg = f"not a ledger file: source {_quoted(source_id)}'s encrypted keys"
         err_msg += " are no blob"
         raise BTClibValueError(err_msg)
     return value
@@ -330,7 +337,7 @@ def _new_file(path: str | PathLike[str]) -> None:
         # PermissionError, not a FileExistsError
         if not (isinstance(e, FileExistsError) or Path(path).exists()):
             raise
-        raise BTClibValueError(f"the ledger file exists: {path}") from None
+        raise BTClibValueError("the ledger file exists") from None
 
 
 def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
@@ -350,7 +357,9 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
             _release(target)
         Path(path).unlink(missing_ok=True)
         if isinstance(e, sqlite3.DatabaseError):
-            raise BTClibValueError(f"cannot copy into {path}: {e}") from None
+            raise BTClibValueError(
+                f"cannot copy the ledger file: {type(e).__name__}"
+            ) from None
         raise
     _release(target)
 
@@ -368,7 +377,7 @@ def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None
             source.execute("SELECT count(*) FROM sqlite_master").fetchone()
         except sqlite3.DatabaseError as e:
             _assert_not_held(e, backup)
-            raise BTClibValueError(f"not a ledger file: {e}") from None
+            raise BTClibValueError(f"not a ledger file: {type(e).__name__}") from None
         _copy(source, path)
     finally:
         source.close()
@@ -420,7 +429,7 @@ class _Store:
             _check_and_migrate(db, network)
         except sqlite3.DatabaseError as e:
             _release(db)
-            raise BTClibValueError(f"not a ledger file: {e}") from None
+            raise BTClibValueError(f"not a ledger file: {type(e).__name__}") from None
         except BaseException:
             # a refusal, or a migration step that failed: the file is
             # closed either way
@@ -576,7 +585,9 @@ class _Store:
                     ),
                 )
             except sqlite3.IntegrityError as e:
-                raise BTClibValueError(f"not a ledger file: {e}") from None
+                raise BTClibValueError(
+                    f"not a ledger file: {type(e).__name__}"
+                ) from None
 
     def encrypt(
         self,
@@ -596,7 +607,9 @@ class _Store:
                     _master_key_row(master_key),
                 )
             except sqlite3.IntegrityError as e:
-                raise BTClibValueError(f"not a ledger file: {e}") from None
+                raise BTClibValueError(
+                    f"not a ledger file: {type(e).__name__}"
+                ) from None
             self._db.executemany(
                 "UPDATE sources SET descriptors = ?, prv_keys = '{}', encrypted = ?"
                 " WHERE id = ?",

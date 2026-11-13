@@ -93,7 +93,7 @@ from btclib.b32 import (
 from btclib.b58 import address_from_h160, h160_from_address
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
-from btclib.network import normalized_network_name
+from btclib.network import NETWORKS, normalized_network_name
 from btclib.utils import assert_type, bytes_from_octets, int_from_integer, is_integer
 from ecc.curves import bytes_from_point, secp256k1
 from ecc.dsa import (
@@ -104,7 +104,7 @@ from ecc.dsa import (
     verify_,
 )
 
-from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _quoted
 from btclib_wallet.bolt9 import FEATURE_NAMES, unknown_even_bits, unmet_dependencies
 
 __all__ = [
@@ -192,7 +192,7 @@ _HOP_SIZE = 33 + 8 + 4 + 4 + 2  # pubkey, short_channel_id, two fees, cltv delta
 def _int_to_words(value: int, n_words: int) -> tuple[int, ...]:
     """Return `value` as `n_words` 5-bit groups, most significant first."""
     if not 0 <= value < (1 << (5 * n_words)):
-        raise BTClibValueError(f"{value} does not fit {n_words} 5-bit words")
+        raise BTClibValueError(f"{_quoted(value)} does not fit {n_words} 5-bit words")
     return tuple((value >> (5 * (n_words - 1 - i))) & 0x1F for i in range(n_words))
 
 
@@ -246,7 +246,7 @@ def _parse_hrp(hrp: str) -> tuple[str, int | None]:
     if multiplier == "p":
         if value % 10:
             err_msg = "a pico-bitcoin amount must end in a 0 digit: "
-            raise BTClibValueError(err_msg + amount_part)
+            raise BTClibValueError(err_msg + _quoted(amount_part))
         amount_msat = value // 10
     elif multiplier:
         amount_msat = value * _MSAT_PER_DIGIT[multiplier]
@@ -285,7 +285,7 @@ def _hrp(network: str, amount_msat: int | None) -> str:
     """
     currency = _CURRENCY_FROM_NETWORK.get(network)
     if currency is None:
-        raise BTClibValueError(f"not a lightning network: {_quoted(network)}")
+        raise BTClibValueError(f"not a lightning network: {_label(network, NETWORKS)}")
     if amount_msat is None:
         return f"ln{currency}"
     return f"ln{currency}{_amount_digits(amount_msat)}"
@@ -306,7 +306,9 @@ def _parse_tagged_fields(
         start = i + 3
         end = start + data_length
         if end > n:
-            raise BTClibValueError(f"tagged field {tag} overruns the data part")
+            raise BTClibValueError(
+                f"tagged field {_quoted(tag)} overruns the data part"
+            )
         fields.append((tag, tuple(data[start:end])))
         i = end
     return tuple(fields)
@@ -386,15 +388,17 @@ class RouteHintHop:
     def assert_valid(self) -> None:
         """Refuse a field that does not fit its wire width."""
         if not 0 <= self.short_channel_id < 2**64:
-            raise BTClibValueError(f"invalid short_channel_id: {self.short_channel_id}")
+            err_msg = f"invalid short_channel_id: {_quoted(self.short_channel_id)}"
+            raise BTClibValueError(err_msg)
         if not 0 <= self.fee_base_msat < 2**32:
-            raise BTClibValueError(f"invalid fee_base_msat: {self.fee_base_msat}")
+            err_msg = f"invalid fee_base_msat: {_quoted(self.fee_base_msat)}"
+            raise BTClibValueError(err_msg)
         if not 0 <= self.fee_proportional_millionths < 2**32:
             err_msg = "invalid fee_proportional_millionths: "
-            raise BTClibValueError(err_msg + str(self.fee_proportional_millionths))
+            raise BTClibValueError(err_msg + _quoted(self.fee_proportional_millionths))
         if not 0 <= self.cltv_expiry_delta < 2**16:
             raise BTClibValueError(
-                f"invalid cltv_expiry_delta: {self.cltv_expiry_delta}"
+                f"invalid cltv_expiry_delta: {_quoted(self.cltv_expiry_delta)}"
             )
 
     def _serialize(self) -> bytes:
@@ -488,15 +492,18 @@ class Bolt11Invoice:
         carries the table that answers both.
         """
         if self.network not in _CURRENCY_FROM_NETWORK:
-            raise BTClibValueError(f"not a lightning network: {_quoted(self.network)}")
+            raise BTClibValueError(
+                f"not a lightning network: {_label(self.network, NETWORKS)}"
+            )
         if not 0 <= self.timestamp < (1 << 35):
-            raise BTClibValueError(f"timestamp does not fit 35 bits: {self.timestamp}")
+            err_msg = f"timestamp does not fit 35 bits: {_quoted(self.timestamp)}"
+            raise BTClibValueError(err_msg)
         if self.amount_msat is not None and (
             not is_integer(self.amount_msat) or self.amount_msat <= 0
         ):
-            raise BTClibValueError(f"invalid amount: {self.amount_msat} msat")
+            raise BTClibValueError(f"invalid amount: {_quoted(self.amount_msat)} msat")
         if not 0 <= self.recovery_id <= 3:
-            raise BTClibValueError(f"invalid recovery id: {self.recovery_id}")
+            raise BTClibValueError(f"invalid recovery id: {_quoted(self.recovery_id)}")
         self.signature.assert_valid()
 
         # required tagged fields: raises if either is missing or malformed
@@ -527,7 +534,7 @@ class Bolt11Invoice:
         # not assign is a requirement no reader has been told how to meet
         features = self.features
         if unknown := unknown_even_bits(features):
-            bits = ", ".join(str(bit) for bit in unknown)
+            bits = ", ".join(_quoted(bit) for bit in unknown)
             raise BTClibValueError(f"unknown even feature bits: {bits}")
 
         # the other half of a well-formed vector, and BOLT9's own word
@@ -737,9 +744,9 @@ class Bolt11Invoice:
         try:
             text = bech32_encode(hrp, data_words, m=BECH32_1_CONST, limit=None)
         except Base58Bech32TypeError as e:
-            raise BTClibTypeError(str(e)) from e
+            raise BTClibTypeError("invalid bech32 data type") from e
         except Base58Bech32ValueError as e:
-            raise BTClibValueError(str(e)) from e
+            raise BTClibValueError("invalid bech32 data") from e
         return text.decode("ascii")
 
     @classmethod
@@ -755,7 +762,7 @@ class Bolt11Invoice:
         try:
             hrp, data, _ = bech32_decode(invoice, m=BECH32_1_CONST, limit=None)
         except Base58Bech32ValueError as e:
-            raise BTClibValueError(str(e)) from e
+            raise BTClibValueError("invalid bech32 string") from e
         network, amount_msat = _parse_hrp(hrp)
 
         if len(data) < 7 + _SIGNATURE_WORDS:
@@ -824,7 +831,9 @@ class Bolt11Invoice:
         assert_type(network, str, "network")
         network = normalized_network_name(network)
         if network not in _CURRENCY_FROM_NETWORK:
-            raise BTClibValueError(f"not a lightning network: {_quoted(network)}")
+            raise BTClibValueError(
+                f"not a lightning network: {_label(network, NETWORKS)}"
+            )
 
         _, payee_point = gen_keys(prv_key, secp256k1)
         payee = bytes_from_point(payee_point, secp256k1, compressed=True)

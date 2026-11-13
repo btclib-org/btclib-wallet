@@ -20,7 +20,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
+from typing import NoReturn
 
 import bitcoin_core_rpc as rpc
 from btclib.alias import Octets
@@ -35,7 +36,7 @@ from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxOut
 from btclib.utils import bytes_from_octets, is_integer, is_octets
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _code, _message_text, _quoted
 from btclib_wallet.exceptions import FetchError, HttpError, RpcError
 
 __all__ = [
@@ -51,8 +52,7 @@ __all__ = [
 ]
 
 
-@contextmanager
-def client_errors() -> Iterator[None]:
+def client_errors() -> AbstractContextManager[None]:
     """Re-raise what the rpc client raises as this package's own exception.
 
     `bitcoin_core_rpc` declares a `FetchError`, an `HttpError` and an
@@ -83,29 +83,81 @@ def client_errors() -> Iterator[None]:
     exist, and losing them would leave a caller matching on the text of a
     message again.
 
-    `args[0]` and not `str(e)`: both sides compose their message in
-    `__str__`, so handing the composed one back in would report
-    "not found (rpc error code -5) (rpc error code -5)" -- once more per
-    translation.
+    The client's text is not relayed, and its exception is not chained:
+    the refusal is raised after the `except` block. That text names the
+    request, whose path can hold a tx id, and relays the node's own
+    message and `data`, which can quote a key passed in the wrong place.
+    This package's own `FetchError` passes as it is, which is what a
+    transport this package ships raises.
+    Section 7 of the btclib-org standard, *A refusal carries no secret*,
+    relays another program's code and not its text: a code outside
+    `_RPC_CODES`, or a status outside it, is 0.
     """
-    try:
-        yield
-    except rpc.RpcError as e:
-        raise RpcError(e.args[0], e.code, e.data) from e
-    except rpc.HttpError as e:
-        raise HttpError(e.args[0], e.status) from e
-    except rpc.FetchError as e:
-        raise FetchError(str(e)) from e
-    except rpc.BtcRpcValueError as e:
-        # what `assert_chain` raises for a node serving another chain: a
-        # refusal on valid inputs, so `BTClibValueError` and not a
-        # `FetchError`. Its message names the node's chain and the client's,
-        # which is the whole of what a caller has to act on
-        raise BTClibValueError(str(e)) from e
+    return _client_errors("")
 
 
 @contextmanager
-def fetch_errors(source: str) -> Iterator[None]:
+def _client_errors(request: str) -> Iterator[None]:
+    """Do what `client_errors` does, the refusal naming the request's kind.
+
+    `request` is the rpc method, which this package's own code names: the
+    path the client writes in its text can hold a tx id. Empty, the
+    refusal names none.
+    """
+    head = f"{request}: " if request else ""
+    refusal: Exception
+    try:
+        yield
+    except FetchError:
+        # this package's own, a transport it ships included: its text is
+        # composed where the census reads it
+        raise
+    except rpc.RpcError as e:
+        refusal = RpcError(f"{head}the server answered an rpc error", _code(e.code))
+    except rpc.HttpError as e:
+        status = _code(e.status)
+        refusal = HttpError(f"{head}the server answered HTTP {status}", status)
+    except rpc.FetchError as e:
+        failure = type(e).__name__
+        refusal = FetchError(f"{head}no usable answer from the server: {failure}")
+    except rpc.BtcRpcValueError:
+        # what `assert_chain` raises for a node serving another chain, and
+        # what deriving a magic raises for a signet challenge that is no
+        # script: a refusal on valid inputs, so `BTClibValueError` and not
+        # a `FetchError`
+        err_msg = "the node is on another chain than this fetcher,"
+        err_msg += " or the signet challenge is no script"
+        refusal = BTClibValueError(err_msg)
+    else:
+        return
+    _raise_alone(refusal)
+
+
+def _raise_alone(refusal: Exception) -> NoReturn:
+    """Raise `refusal` with no exception chained to it.
+
+    A refusal raised after the `except` block of a `contextmanager` is
+    still raised inside the `with` statement's handling of what its block
+    raised, which Python sets as the refusal's `__context__`: section 7
+    reads the chain whole, and `from None` keeps `__context__`.
+    """
+    try:
+        raise refusal
+    finally:
+        refusal.__context__ = None
+
+
+def fetch_errors(source: str) -> AbstractContextManager[None]:
+    """Report what a conversion refuses as a failure of `source`.
+
+    What `_fetch_errors` does, with `source` quoted as `_quoted` quotes a
+    name: it is the caller's, and may be anything.
+    """
+    return _fetch_errors(_quoted(source))
+
+
+@contextmanager
+def _fetch_errors(source: str) -> Iterator[None]:
     """Report what a conversion refuses as a failure of `source`.
 
     Every answer a backend gives is a string it chose, so every parse of
@@ -117,16 +169,27 @@ def fetch_errors(source: str) -> Iterator[None]:
     transaction truncated in transit looks like from inside `var_bytes`.
     All of them name the converter and not the host, and the host is what
     has to be fixed.
+
+    Their text is not relayed. A refusal of btclib's or of this package's
+    is chained, since it prints no value it refuses. Any other is not, and
+    the refusal is raised after the `except` block: a builtin's text can
+    hold the answer it refused, as `int` quotes the literal it could not
+    read.
     """
     try:
         yield
     except FetchError:
         # already the answer this would produce, and a BTClibRuntimeError
-        # too, so it has to be let through before the clause below wraps
-        # its message inside a second copy of itself
+        # too, so it has to be let through before the clauses below wrap
+        # it in a second refusal
         raise
-    except (TypeError, ValueError, BTClibRuntimeError) as e:
-        raise FetchError(f"{source}: {e}") from e
+    except (BTClibTypeError, BTClibValueError, BTClibRuntimeError) as e:
+        raise FetchError(f"{source}: a malformed answer") from e
+    except (TypeError, ValueError) as e:
+        refusal = FetchError(f"{source}: a malformed answer, as {type(e).__name__}")
+    else:
+        return
+    _raise_alone(refusal)
 
 
 def tx_for_network(tx: Tx, network: str) -> Tx:
@@ -289,7 +352,7 @@ class NetworkVerifyingFetcher(Fetcher):
         super().__init__(network)
         self.verify_network = verify_network
         self._agreed = False
-        self._disagreement = ""
+        self._disagreement: BTClibValueError | None = None
 
     @abstractmethod
     def assert_network(self) -> None:
@@ -326,12 +389,12 @@ class NetworkVerifyingFetcher(Fetcher):
         """
         if not self.verify_network or self._agreed:
             return
-        if self._disagreement:
-            raise BTClibValueError(self._disagreement)
+        if self._disagreement is not None:
+            raise self._disagreement
         try:
             self.assert_network()
         except BTClibValueError as e:
-            self._disagreement = str(e)
+            self._disagreement = e
             raise
         self._agreed = True
 
@@ -370,10 +433,10 @@ def tx_from_raw(raw: Octets, tx_id: str, network: str) -> Tx:
         err_msg = "transaction: not a serialization,"  # type: ignore[unreachable]
         err_msg += f" but a {type(raw).__name__}"
         raise FetchError(err_msg)
-    with fetch_errors("transaction"):
+    with _fetch_errors("transaction"):
         tx = tx_for_network(Tx.parse(raw), network)
     if tx.id.hex() != tx_id:
-        err_msg = f"transaction: the answer is {tx.id.hex()}, not the one asked"
+        err_msg = "transaction: the answer is another transaction than the one asked"
         raise FetchError(err_msg)
     return tx
 
@@ -450,7 +513,7 @@ def block_header_from_raw(raw: Octets, *, network: str) -> BlockHeader:
     has is a `BTClibValueError`.
     """
     pow_limit_bits = network_from_name(network).consensus.pow_limit_bits
-    with fetch_errors("block header"):
+    with _fetch_errors("block header"):
         header = BlockHeader.parse(raw, check_validity=False)
         header.assert_valid()
         header.assert_valid_pow(pow_limit_bits)

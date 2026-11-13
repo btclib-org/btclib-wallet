@@ -81,13 +81,13 @@ def test_load_refuses_what_is_no_ledger_of_this_network(
         Ledger.load(text, "regtest", chain)
     other = tmp_path / "other.sqlite"
     sqlite3.connect(other).close()
-    with pytest.raises(BTClibValueError, match="application id 0x0"):
+    with pytest.raises(BTClibValueError, match="not a ledger file: application id 0"):
         Ledger.load(other, "regtest", chain)
     # this package's header over no table
     headed = tmp_path / "headed.sqlite"
     _set_pragma(headed, "application_id", APPLICATION_ID)
     _set_pragma(headed, "user_version", FORMAT_VERSION)
-    with pytest.raises(BTClibValueError, match="not a ledger file: no such table"):
+    with pytest.raises(BTClibValueError, match="not a ledger file: OperationalError"):
         Ledger.load(headed, "regtest", chain)
     Ledger.create(path, "regtest", chain).close()
     with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
@@ -374,7 +374,7 @@ def test_another_constraint_on_a_new_source_is_no_ledgers(
     with contextlib.closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE UNIQUE INDEX one_lookahead ON sources(lookahead)")
     with Ledger.load(path, "regtest", chain) as ledger:
-        err_msg = "not a ledger file: UNIQUE constraint failed: sources.lookahead"
+        err_msg = "not a ledger file: IntegrityError"
         with pytest.raises(BTClibValueError, match=err_msg):
             ledger.add_source(source("wpkh({}/84h/1h/1h/{}/*)"))
 

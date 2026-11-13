@@ -30,6 +30,7 @@ from btclib.utils import (
 from ecc import dsa
 from ecc.curves import sec_point
 
+from btclib_wallet._refusal import _label, _quoted
 from btclib_wallet.bip32.key_origin import (
     BIP32KeyOrigin,
     HdKeyPaths,
@@ -38,6 +39,7 @@ from btclib_wallet.bip32.key_origin import (
     encode_to_bip32_derivs,
 )
 from btclib_wallet.psbt.psbt_utils import (
+    _LABELS,
     MUSIG2_PARTIAL_SIG_SIZE,
     MUSIG2_PUB_NONCE_SIZE,
     PSBT_SEPARATOR,
@@ -317,7 +319,9 @@ def _deserialize_previous_tx_id(k: bytes, v: bytes, type_: str) -> bytes:
     """Return the dataclass element from its binary representation."""
     tx_id = deserialize_bytes(k, v, type_)
     if len(tx_id) != 32:
-        err_msg = f"invalid {type_} length: {len(tx_id)} bytes instead of 32"
+        err_msg = (
+            f"invalid {_label(type_, _LABELS)} length: {len(tx_id)} bytes instead of 32"
+        )
         raise BTClibValueError(err_msg)
     return tx_id[::-1]
 
@@ -727,10 +731,12 @@ class PsbtIn:
             raise BTClibValueError(err_msg)
 
         if self.output_index is not None and not 0 <= self.output_index <= 0xFFFFFFFF:
-            raise BTClibValueError(f"invalid output index: {self.output_index}")
+            raise BTClibValueError(
+                f"invalid output index: {_quoted(self.output_index)}"
+            )
 
         if self.sequence is not None and not 0 <= self.sequence <= 0xFFFFFFFF:
-            raise BTClibValueError(f"invalid sequence: {self.sequence}")
+            raise BTClibValueError(f"invalid sequence: {_quoted(self.sequence)}")
 
         # the two bounds are BIP370's own, and they are what makes each
         # field one kind of lock time: a time locktime below the BIP65
@@ -741,15 +747,13 @@ class PsbtIn:
         if self.required_time_lock_time is not None and not (
             LOCK_TIME_THRESHOLD <= self.required_time_lock_time <= 0xFFFFFFFF
         ):
-            err_msg = f"invalid required time locktime: {self.required_time_lock_time}"
+            err_msg = f"invalid required time locktime: {_quoted(self.required_time_lock_time)}"
             raise BTClibValueError(err_msg)
 
         if self.required_height_lock_time is not None and not (
             0 < self.required_height_lock_time < LOCK_TIME_THRESHOLD
         ):
-            err_msg = (
-                f"invalid required height locktime: {self.required_height_lock_time}"
-            )
+            err_msg = f"invalid required height locktime: {_quoted(self.required_height_lock_time)}"
             raise BTClibValueError(err_msg)
 
         if self.non_witness_utxo:

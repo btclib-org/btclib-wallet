@@ -36,20 +36,22 @@ from btclib.block.block_header import BlockHeader
 from btclib.consensus import MAX_BLOCK_WEIGHT
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
+from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
-from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _quoted
 from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _client_errors,
+    _fetch_errors,
     block_header_from_raw,
     block_header_height,
     client_errors,
-    fetch_errors,
     tx_from_raw,
     tx_id_hex,
 )
@@ -196,7 +198,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
             raise BTClibValueError(f"invalid estimate_mode: {_quoted(estimate_mode)}")
         if signet_challenge is not None:
             if chain_from_network(self.network) != "signet":
-                err_msg = f"a signet_challenge for {self.network},"
+                err_msg = f"a signet_challenge for {_label(self.network, NETWORKS)},"
                 err_msg += " which is no signet"
                 raise BTClibValueError(err_msg)
             if not verify_network:
@@ -234,7 +236,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         caller does not set it, so the client's own default applies.
         """
         bound = {} if max_body_size is None else {"max_body_size": max_body_size}
-        with client_errors():
+        with _client_errors(method):
             return self.client.call(method, params, **bound)
 
     @override
@@ -256,7 +258,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
     def get_block_count(self) -> int:
         """Return the height of the node's best chain tip."""
         self._verify_once()
-        with fetch_errors("getblockcount"):
+        with _fetch_errors("getblockcount"):
             reply = self._call("getblockcount", None, max_body_size=_MAX_SMALL_REPLY)
             return int(reply)
 
@@ -264,7 +266,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
     def get_best_block_id(self) -> bytes:
         """Return the hash of the node's best chain tip, display order."""
         self._verify_once()
-        with fetch_errors("getbestblockhash"):
+        with _fetch_errors("getbestblockhash"):
             reply = self._call("getbestblockhash", None, max_body_size=_MAX_SMALL_REPLY)
             return bytes_from_octets(reply, 32)
 
@@ -280,7 +282,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         """
         self._verify_once()
         height = block_header_height(height)
-        with fetch_errors("getblockhash"):
+        with _fetch_errors("getblockhash"):
             reply = self._call("getblockhash", [height], max_body_size=_MAX_SMALL_REPLY)
             block_hash = bytes_from_octets(reply, 32).hex()
         raw = self._call(
@@ -359,10 +361,10 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         hex_ = tx.serialize(include_witness=True).hex()
         params: list[Any] = [hex_] if maxfeerate is None else [hex_, maxfeerate]
         reply = self._call("sendrawtransaction", params, max_body_size=_MAX_SMALL_REPLY)
-        with fetch_errors("sendrawtransaction"):
+        with _fetch_errors("sendrawtransaction"):
             answered = bytes_from_octets(reply, 32)
         if answered != txid:
-            err_msg = f"broadcast {txid.hex()}: the node confirmed {answered.hex()}"
+            err_msg = "broadcast: the node confirmed another transaction"
             raise FetchError(err_msg)
         return answered
 
@@ -372,7 +374,9 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         `estimatesmartfee`, with `self.estimate_mode` as its second
         parameter. A reply naming no `feerate` -- "only present if no
         errors were encountered" -- is a decline and not a rate, raised
-        as a `FetchError` carrying the node's own `errors`, unreshaped.
+        as a `FetchError` that does not relay the node's own `errors`:
+        another program's text can quote a key (section 7 of the
+        btclib-org standard, *A refusal carries no secret*).
         `blocks` is the target the node actually estimated for, clamped
         to at least 2 and at most its own maximum usable target, and is
         what the returned `FeeQuote.target` reports -- not necessarily
@@ -380,7 +384,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         """
         self._verify_once()
         target = valid_confirmation_target(target)
-        with fetch_errors("estimatesmartfee"):
+        with _fetch_errors("estimatesmartfee"):
             reply = self._call(
                 "estimatesmartfee",
                 [target, self.estimate_mode],
@@ -390,9 +394,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
                 raise BTClibTypeError(f"not an object: {_message_text(reply)}")
             feerate = reply.get("feerate")
             if feerate is None:
-                errors = reply.get("errors") or ["no estimate for this target"]
-                err_msg = f"estimatesmartfee: {'; '.join(str(e) for e in errors)}"
-                raise FetchError(err_msg)
+                raise FetchError("estimatesmartfee: no estimate for this target")
             blocks = reply.get("blocks")
             if not is_integer(blocks):
                 raise BTClibTypeError(f"invalid blocks: {_message_text(blocks)}")
@@ -462,7 +464,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
 
     def _best_block_hex(self) -> str:
         """Return the hash of the node's best chain tip, as hex."""
-        with fetch_errors("getbestblockhash"):
+        with _fetch_errors("getbestblockhash"):
             reply = self._call("getbestblockhash", None, max_body_size=_MAX_SMALL_REPLY)
             return bytes_from_octets(reply, 32).hex()
 
@@ -475,13 +477,13 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         parent is `""` for the genesis block.
         """
         reply = self._call("getblock", [block_hex, 3], max_body_size=_MAX_LARGE_REPLY)
-        source = f"getblock {block_hex}"
+        source = "getblock"
         return _block_history(reply, block_hex, height, elements, self.network, source)
 
     def _history_mempool(self, elements: frozenset[bytes], tip_id: str) -> list[Tx]:
         """Return the mempool's transactions touching `elements`."""
         reply = self._call("getrawmempool", None, max_body_size=_MAX_MEMPOOL_REPLY)
-        with fetch_errors("getrawmempool"):
+        with _fetch_errors("getrawmempool"):
             if not isinstance(reply, list):
                 raise BTClibTypeError(f"not an array: {type(reply).__name__}")
             tx_ids = list(dict.fromkeys(tx_id_hex(tx_id) for tx_id in reply))
@@ -506,12 +508,12 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         reply = self._call(
             "scantxoutset", ["start", descriptors], max_body_size=_MAX_LARGE_REPLY
         )
-        with fetch_errors("scantxoutset"):
+        with _fetch_errors("scantxoutset"):
             if _member(reply, "success") is not True:
                 raise BTClibValueError("the scan did not complete")
             answered = _member(reply, "bestblock")
             if answered != tip_id:
-                raise BTClibValueError(f"read at {answered}, not at {tip_id}")
+                raise BTClibValueError("read at another block than the tip")
             return {
                 OutPoint(_member(utxo, "txid"), _member(utxo, "vout"))
                 for utxo in _member(reply, "unspents")
@@ -575,13 +577,13 @@ def _block_history(
     `height` is the one the walk expects, or `None` for the tip. The
     parent is `""` for the genesis block.
     """
-    with fetch_errors(source):
+    with _fetch_errors(source):
         answered = _member(reply, "hash")
         if answered != block_hex:
-            raise BTClibValueError(f"the answer is block {answered}")
+            raise BTClibValueError("the answer is another block")
         answered = _member(reply, "height")
         if not is_integer(answered) or (height is not None and answered != height):
-            raise BTClibValueError(f"the answer is at height {answered}")
+            raise BTClibValueError(f"the answer is at height {_message_text(answered)}")
         txs = [
             tx_from_raw(_member(entry, "hex"), _member(entry, "txid"), network)
             for entry in _member(reply, "tx")
@@ -630,7 +632,7 @@ def _relay_fees(reply: Any, source: str) -> RelayFees:
     as `RelayFeeReader`'s contract says. A missing member, or one that is
     no rate, is a `FetchError` naming `source`.
     """
-    with fetch_errors(source):
+    with _fetch_errors(source):
         return RelayFees(
             min_relay=_fee_rate(_member(reply, "minrelaytxfee")),
             mempool_min=_fee_rate(_member(reply, "mempoolminfee")),
@@ -646,12 +648,12 @@ def _fee_rate(btc_per_kvbyte: Any) -> FeeRate:
 def _member(reply: Any, name: str) -> Any:
     """Return one member of a json object, refusing what is not one.
 
-    `TypeError` for a missing member as for a reply that is no object,
-    which `fetch_errors` reads as the node's own failure, as
-    `bitcoin_core_rest._field` does.
+    `BTClibTypeError` for a missing member as for a reply that is no
+    object, which `_fetch_errors` reads as the node's own failure and
+    chains, as `bitcoin_core_rest._field` does.
     """
     if not isinstance(reply, dict) or name not in reply:
-        raise TypeError(f"no {name!r} member")
+        raise BTClibTypeError(f"no {name!r} member")
     return reply[name]
 
 

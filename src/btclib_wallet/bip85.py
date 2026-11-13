@@ -177,7 +177,9 @@ def _assert_valid_der_path(indexes: list[int]) -> None:
         # the level as a path step and not as the index it is: an
         # unhardened 83696968 and a hardened one are 2**31 apart as
         # numbers and one apostrophe apart in what the caller wrote
-        err_msg = f"not a bip85 derivation path: {str_from_index_int(indexes[0])}"
+        err_msg = (
+            f"not a bip85 derivation path: {_quoted(str_from_index_int(indexes[0]))}"
+        )
         raise BTClibValueError(err_msg)
     if any(index < HARDENED_OFFSET for index in indexes):
         raise BTClibValueError("unhardened bip85 derivation path")
@@ -243,7 +245,7 @@ class BIP85DRNG:
     def read(self, num_bytes: int) -> bytes:
         """Return the next num_bytes of the stream, and advance it."""
         if num_bytes < 0:
-            raise BTClibValueError(f"invalid number of bytes: {num_bytes}")
+            raise BTClibValueError(f"invalid number of bytes: {_quoted(num_bytes)}")
         start, self._cursor = self._cursor, self._cursor + num_bytes
         return shake_256(self._entropy).digest(self._cursor)[start:]
 
@@ -363,9 +365,9 @@ def nsec_from_root_key(root_key: BIP32Key, identity: int, account_index: int) ->
     caller to move to the next index.
     """
     if identity < _MIN_NOSTR_INDEX:
-        raise BTClibValueError(f"invalid nostr identity: {identity}")
+        raise BTClibValueError(f"invalid nostr identity: {_quoted(identity)}")
     if account_index < _MIN_NOSTR_INDEX:
-        raise BTClibValueError(f"invalid nostr account index: {account_index}")
+        raise BTClibValueError(f"invalid nostr account index: {_quoted(account_index)}")
 
     xkey = key_data_from_bip32_key(root_key)
     der_path = f"m/{_PURPOSE}h/128002h/{identity}h/{account_index}h"
@@ -389,7 +391,7 @@ def bytes_entropy_from_root_key(
     spelling.
     """
     if not _MIN_BYTES <= num_bytes <= _MAX_BYTES:
-        err_msg = f"invalid number of bytes: {num_bytes}; "
+        err_msg = f"invalid number of bytes: {_quoted(num_bytes)}; "
         err_msg += f"expected: {_MIN_BYTES}..{_MAX_BYTES}"
         raise BTClibValueError(err_msg)
 
@@ -410,7 +412,7 @@ def base64_password_from_root_key(
     "=" padding those 64 bytes encode to.
     """
     if not _MIN_B64_LEN <= pwd_len <= _MAX_B64_LEN:
-        err_msg = f"invalid password length: {pwd_len}; "
+        err_msg = f"invalid password length: {_quoted(pwd_len)}; "
         err_msg += f"expected: {_MIN_B64_LEN}..{_MAX_B64_LEN}"
         raise BTClibValueError(err_msg)
 
@@ -433,7 +435,7 @@ def base85_password_from_root_key(
     RFC1924's; the BIP names no alphabet and its vector is in this one.
     """
     if not _MIN_B85_LEN <= pwd_len <= _MAX_B85_LEN:
-        err_msg = f"invalid password length: {pwd_len}; "
+        err_msg = f"invalid password length: {_quoted(pwd_len)}; "
         err_msg += f"expected: {_MIN_B85_LEN}..{_MAX_B85_LEN}"
         raise BTClibValueError(err_msg)
 
@@ -467,9 +469,9 @@ def rolls_from_root_key(
     docstring says how the two number a die's faces.
     """
     if rolls < _MIN_ROLLS:
-        raise BTClibValueError(f"invalid number of rolls: {rolls}")
+        raise BTClibValueError(f"invalid number of rolls: {_quoted(rolls)}")
     if sides < _MIN_SIDES:
-        raise BTClibValueError(f"invalid number of sides: {sides}")
+        raise BTClibValueError(f"invalid number of sides: {_quoted(sides)}")
 
     der_path = f"m/{_PURPOSE}h/89101h/{sides}h/{rolls}h/{index}h"
     drng = drng_from_der_path(root_key, der_path)
