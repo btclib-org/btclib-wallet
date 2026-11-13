@@ -296,8 +296,9 @@ package = ["src/btclib_wallet"]
 # tracked files the sdist is meant not to carry, beyond what
 # [tool.uv.build-backend] source-exclude takes out, which check-sdist
 # reads for the uv backend: the workspaces of an editor and of an agent,
-# the file git reads, the bestpractices.dev answers, and COPYRIGHT, which
-# `project.license-files` does not name.
+# the file prettier reads its ignores from, the file git reads, the
+# bestpractices.dev answers, and COPYRIGHT, which `project.license-files`
+# does not name.
 #
 # .clusterfuzzlite/ and fuzz/ join that reasoning rather than being read
 # as the .github check-sdist's own default ignore list already covers:
@@ -309,6 +310,7 @@ git-only = [
     ".claude/",
     ".clusterfuzzlite/",
     ".gitattributes",
+    ".prettierignore",
     ".vscode/",
     "COPYRIGHT",
     "fuzz/",
