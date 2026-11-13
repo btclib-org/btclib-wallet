@@ -522,8 +522,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         for low in sorted(heights):
             if low not in chained:
                 end = min(h for h in chained if h > low)
-                walked = self._walk(low, BlockRef(end, chained[end].hash), heights)
-                chained.update(walked)
+                chained |= self._walk(low, BlockRef(end, chained[end].hash), heights)
         self._chained = (tip, chained)
         return {height: chained[height] for height in heights}
 
