@@ -1228,8 +1228,13 @@ class Miniscript:
         does not predict. The keys compared are the ones the KEY
         expressions derive at index 0, as Bitcoin Core's `KeyCompare`
         does, so the origin, the spelling of a hardened step and the
-        wildcard do not make two spellings of a key two keys. An x-only
-        key counts as its even-y form, parity included in the comparison.
+        wildcard do not make two spellings of a key two keys.
+
+        In a tapscript the keys are compared by their x coordinate, the 32
+        bytes the script holds, so two keys of one x are one key. Bitcoin
+        Core compares them with their parity, and accepts a leaf naming
+        both. In P2WSH the keys are compared whole, parity included, as
+        Core does.
 
         A hardened step is derived with `prv_keys`, as in
         `KeyExpression.sec`. A key it cannot derive is compared by its
@@ -1239,6 +1244,9 @@ class Miniscript:
         """
         _assert_prv_keys(prv_keys)
         keys = [_key_identity(key, prv_keys) for key in self.key_expressions]
+        if self.context == TAPSCRIPT:
+            # the key as the script writes it: its x coordinate
+            keys = [key[1:] if isinstance(key, bytes) else key for key in keys]
         return len(set(keys)) != len(keys)
 
     @property
