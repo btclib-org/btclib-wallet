@@ -26,9 +26,9 @@ from typing import Any
 
 import pytest
 
+from btclib_wallet.fetch.transport import TcpLineTransport
 from tests.integration import conftest as stack_module
 from tests.integration.conftest import (
-    PlainLineTransport,
     PortTaken,
     Stack,
     _start,
@@ -193,7 +193,7 @@ def test_a_server_that_exits_for_another_reason_fails_the_run(
     stack = Stack(
         _node(),
         "addr",
-        PlainLineTransport("127.0.0.1", 1),
+        TcpLineTransport("127.0.0.1", 1),
         "http://127.0.0.1:1",
         server,
         log,

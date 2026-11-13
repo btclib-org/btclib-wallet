@@ -6,7 +6,7 @@
 
 No socket anywhere here, `LineRecorded` below being the whole of what
 answers: `tests/fetch/transport_test.py` is where `TlsLineTransport`
-is tested, over a fake connection of its own.
+and `TcpLineTransport` are tested, over a fake connection of their own.
 `tests/electrum_test.py` tests the codec these calls are built on, with
 the same literals.
 """

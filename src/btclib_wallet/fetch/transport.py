@@ -6,8 +6,8 @@
 
 Two seams here, one per wire shape; a p2p peer's is
 `btclib_wallet.fetch.peer_transport`. `HttpTransport` is re-exported under
-btclib's name with its implementations; `LineTransport` is declared here
-and `TlsLineTransport` implements it here.
+btclib's name with its implementations; `LineTransport` is declared here,
+and `TlsLineTransport` and `TcpLineTransport` implement it here.
 
 The HTTP half's implementation is `bitcoin_core_rpc`'s: a bounded read, no
 redirect followed and no proxy taken from the environment, in a package
@@ -52,11 +52,11 @@ the vocabulary `HttpTransport` already raises through this same package;
 `btclib_wallet.fetch.fetcher.client_errors` is what translates it, at every
 `ElectrumFetcher` call the way it is at every other backend's.
 
-**`LineTransport` carries no host, so its implementation is an object
-that does.** `TlsLineTransport(host, port)` is the callable
-`ElectrumFetcher` takes, and that fetcher has no default for it: a
-default transport would have to be a default server, which
-`ElectrumFetcher`'s own docstring refuses.
+**`LineTransport` carries no host, so each implementation is an object
+that does.** `TlsLineTransport(host, port)` or
+`TcpLineTransport(host, port)` is the callable `ElectrumFetcher` takes,
+and that fetcher has no default for it: a default transport would have
+to be a default server, which `ElectrumFetcher`'s own docstring refuses.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ from __future__ import annotations
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
-from socket import create_connection
+from socket import create_connection, socket
 from time import monotonic
 
 from bitcoin_core_rpc import (
@@ -92,6 +92,7 @@ __all__ = [
     "HttpTransport",
     "LineTransport",
     "SessionTransport",
+    "TcpLineTransport",
     "TlsLineTransport",
     "http_request",
     "urlopen_transport",
@@ -119,9 +120,7 @@ MAX_TIMEOUT = 2_147_483
 def valid_timeout(timeout: float) -> float:
     """Return `timeout`, refusing what no socket will wait for.
 
-    The check `TlsLineTransport`, `TcpPeerTransport`, `EsploraFetcher`,
-    `ElectrumFetcher` and `CompactFilterFetcher` make of the timeout they
-    take. A bool is not a duration, `timeout=True` being one second.
+    A bool is not a duration, `timeout=True` being one second.
 
     The bound is `MAX_TIMEOUT`, a timeout a socket takes on every
     platform: past it, a socket raises an `OverflowError`, which is no
@@ -156,7 +155,7 @@ def _time_left(deadline: float, timeout: float, where: str) -> float:
 
 
 def _read_line(
-    connection: ssl.SSLSocket,
+    connection: socket,
     max_line_size: int,
     where: str,
     deadline: float,
@@ -185,6 +184,76 @@ def _read_line(
         if len(buffer) > max_line_size:
             err_msg = f"{where}: line longer than the max_line_size of {max_line_size}"
             raise FetchError(err_msg)
+
+
+def _valid_endpoint(host: str, port: int, max_line_size: int) -> None:
+    """Refuse a host, a port or a line limit no line transport can use.
+
+    The checks `TlsLineTransport` and `TcpLineTransport` make where they
+    are constructed.
+    """
+    if not isinstance(host, str):
+        raise BTClibTypeError(f"non-string host: {_message_text(host)}")
+    if not host:
+        raise BTClibValueError("empty host")
+    encoded = False
+    # what `create_connection`, and the TLS handshake where there is one,
+    # encode the host with, and a `UnicodeError` rather than an `OSError`
+    # there. The refusal is raised after `suppress`, so that it chains no
+    # codec error: one holds the host
+    with suppress(UnicodeError):
+        encoded = bool(host.encode("idna"))
+    if not encoded:
+        raise BTClibValueError(f"invalid host: {_quoted(host)}")
+    if not is_integer(port):
+        raise BTClibTypeError(f"non-integer port: {_message_text(port)}")
+    if not 0 < port <= _MAX_PORT:
+        raise BTClibValueError(f"invalid port: {_message_text(port)}")
+    if not is_integer(max_line_size):
+        raise BTClibTypeError(
+            f"non-integer max_line_size: {_message_text(max_line_size)}"
+        )
+    if max_line_size < 1:
+        raise BTClibValueError(f"invalid max_line_size: {_message_text(max_line_size)}")
+
+
+def _exchange(
+    host: str,
+    port: int,
+    context: ssl.SSLContext | None,
+    max_line_size: int,
+    request: bytes,
+    timeout: float,
+) -> bytes:
+    """Send one request line and return the line answering it.
+
+    The call of both line transports: over TLS where `context` is given,
+    over plain TCP where it is `None`.
+    """
+    if not isinstance(request, bytes):
+        raise BTClibTypeError(f"non-bytes request: {_message_text(request)}")
+    if request.count(b"\n") != 1 or not request.endswith(b"\n"):
+        raise BTClibValueError(
+            f"not one newline-terminated line: {_message_text(request)}"
+        )
+    valid_timeout(timeout)
+
+    where = f"{host}:{port}"
+    deadline = monotonic() + timeout
+    try:
+        with create_connection((host, port), timeout=timeout) as sock:
+            connection = sock
+            if context is not None:
+                sock.settimeout(_time_left(deadline, timeout, where))
+                connection = context.wrap_socket(sock, server_hostname=host)
+            with connection:
+                connection.settimeout(_time_left(deadline, timeout, where))
+                connection.sendall(request)
+                return _read_line(connection, max_line_size, where, deadline, timeout)
+    except OSError as e:
+        # `ssl.SSLError`, `socket.gaierror` and `TimeoutError` all derive
+        # from it, which makes it every way the exchange did not happen
+        raise FetchError(f"no answer from {where}: {e}") from e
 
 
 class TlsLineTransport:
@@ -230,8 +299,7 @@ class TlsLineTransport:
     being used as given.
     No flag here turns verification off; what a context a caller supplies
     accepts is that caller's decision, as a transport of their own would
-    be. Plain TCP is not offered: a caller who wants it writes that
-    `LineTransport`.
+    be. Plain TCP is `TcpLineTransport`.
 
     Everything that goes wrong below the answer -- an unresolvable host, a
     refused connection, a handshake the certificate fails, a timeout, a
@@ -248,33 +316,9 @@ class TlsLineTransport:
         context: ssl.SSLContext | None = None,
         max_line_size: int = DEFAULT_MAX_BODY_SIZE,
     ) -> None:
-        if not isinstance(host, str):
-            raise BTClibTypeError(f"non-string host: {_message_text(host)}")
-        if not host:
-            raise BTClibValueError("empty host")
-        encoded = False
-        # what `create_connection` and the handshake both encode the host
-        # with, and a `UnicodeError` rather than an `OSError` there. The
-        # refusal is raised after `suppress`, so that it chains no codec
-        # error: one holds the host
-        with suppress(UnicodeError):
-            encoded = bool(host.encode("idna"))
-        if not encoded:
-            raise BTClibValueError(f"invalid host: {_quoted(host)}")
-        if not is_integer(port):
-            raise BTClibTypeError(f"non-integer port: {_message_text(port)}")
-        if not 0 < port <= _MAX_PORT:
-            raise BTClibValueError(f"invalid port: {_message_text(port)}")
+        _valid_endpoint(host, port, max_line_size)
         if context is not None and not isinstance(context, ssl.SSLContext):
             raise BTClibTypeError(f"not an ssl.SSLContext: {_message_text(context)}")
-        if not is_integer(max_line_size):
-            raise BTClibTypeError(
-                f"non-integer max_line_size: {_message_text(max_line_size)}"
-            )
-        if max_line_size < 1:
-            raise BTClibValueError(
-                f"invalid max_line_size: {_message_text(max_line_size)}"
-            )
         if context is None:
             context = ssl.create_default_context()
             # CPython's default context sets this floor itself and PyPy's
@@ -312,28 +356,61 @@ class TlsLineTransport:
         one: a second would be a second request, whose answer this call
         would never read.
         """
-        if not isinstance(request, bytes):
-            raise BTClibTypeError(f"non-bytes request: {_message_text(request)}")
-        if request.count(b"\n") != 1 or not request.endswith(b"\n"):
-            raise BTClibValueError(
-                f"not one newline-terminated line: {_message_text(request)}"
-            )
-        valid_timeout(timeout)
+        return _exchange(
+            self._host,
+            self._port,
+            self._context,
+            self._max_line_size,
+            request,
+            timeout,
+        )
 
-        where = f"{self._host}:{self._port}"
-        deadline = monotonic() + timeout
-        try:
-            with create_connection((self._host, self._port), timeout=timeout) as sock:
-                sock.settimeout(_time_left(deadline, timeout, where))
-                with self._context.wrap_socket(
-                    sock, server_hostname=self._host
-                ) as connection:
-                    connection.settimeout(_time_left(deadline, timeout, where))
-                    connection.sendall(request)
-                    return _read_line(
-                        connection, self._max_line_size, where, deadline, timeout
-                    )
-        except OSError as e:
-            # `ssl.SSLError`, `socket.gaierror` and `TimeoutError` all derive
-            # from it, which makes it every way the exchange did not happen
-            raise FetchError(f"no answer from {where}: {e}") from e
+
+class TcpLineTransport:
+    """A `LineTransport` over plain TCP to one server.
+
+    **The connection is neither encrypted nor authenticated.** Anyone on
+    the path between the caller and the server reads every request, and
+    so every address and transaction asked about, and can answer in the
+    server's place. It is for a server on the caller's own machine or
+    network; any other is reached with `TlsLineTransport`.
+
+    The rest is `TlsLineTransport`'s, with no TLS: construction, one
+    connection per call, the network policy and what a failure raises.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        max_line_size: int = DEFAULT_MAX_BODY_SIZE,
+    ) -> None:
+        _valid_endpoint(host, port, max_line_size)
+        self._host = host
+        self._port = port
+        self._max_line_size = max_line_size
+
+    @property
+    def host(self) -> str:
+        """Return the host this transport connects to."""
+        return self._host
+
+    @property
+    def port(self) -> int:
+        """Return the port this transport connects to."""
+        return self._port
+
+    @property
+    def max_line_size(self) -> int:
+        """Return the octets an answering line may hold before it is refused."""
+        return self._max_line_size
+
+    def __call__(self, request: bytes, timeout: float) -> bytes:
+        """Send one request line and return the line answering it.
+
+        `request` is what `TlsLineTransport.__call__` takes.
+        """
+        return _exchange(
+            self._host, self._port, None, self._max_line_size, request, timeout
+        )

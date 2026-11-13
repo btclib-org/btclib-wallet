@@ -247,6 +247,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "transport",
     ],
     "btclib_wallet.fetch:EsploraFetcher.get_history": ["max_pages"],
+    "btclib_wallet.fetch:TcpLineTransport.__init__": ["max_line_size"],
     "btclib_wallet.fetch:TlsLineTransport.__init__": ["context", "max_line_size"],
     "btclib_wallet.hwi:HwiSigner.__init__": [
         "executable",
