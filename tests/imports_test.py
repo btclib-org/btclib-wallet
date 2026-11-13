@@ -225,10 +225,10 @@ def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
 # `silent_payments` is the top-level module; `psbt.silent_payments` belongs
 # to `psbt`.
 _ALLOWED_UNITS = {
-    "_fee": frozenset(),
+    "_fee": frozenset({"_refusal"}),
     "_refusal": frozenset(),
-    "bip32": frozenset(),
-    "descriptors": frozenset({"bip32"}),
+    "bip32": frozenset({"_refusal"}),
+    "descriptors": frozenset({"_refusal", "bip32"}),
     "psbt": frozenset({"_fee", "_refusal", "bip32", "descriptors", "silent_payments"}),
     "silent_payments": frozenset({"_refusal"}),
 }

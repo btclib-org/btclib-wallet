@@ -94,8 +94,9 @@ from btclib.utils import assert_type, bytes_from_octets, decode_num, encode_num
 from btclib.var_int import serialize as var_int_serialize
 from typing_extensions import override
 
+from btclib_wallet._refusal import _label, _quoted
 from btclib_wallet.bip32.bip32 import BIP32KeyData
-from btclib_wallet.bip32.der_path import _int_from_digits
+from btclib_wallet.bip32.der_path import _MAX_DIGITS, _int_from_digits
 from btclib_wallet.descriptors.key_expression import (
     KeyExpression,
     PrvKeys,
@@ -206,6 +207,19 @@ _ARITY = {
     **dict.fromkeys(_BINARY, 2),
     "andor": 3,
 }
+# the names a refusal prints as they are, by `_label`: every fragment, the
+# sugar and the wrappers that are not one, the sorted multisigs, and the
+# two spend contexts
+_NAMES = frozenset(
+    (*_ARITY, "thresh", "pk", "pkh", "l:", "u:", "t:", "sortedmulti", "sortedmulti_a")
+)
+_CONTEXTS = (P2WSH, TAPSCRIPT)
+# what `_read_number` refuses a lock time with
+_NUMBER_FAULTS = frozenset(
+    f"invalid {name}() number: {fault}"
+    for name in ("older", "after")
+    for fault in ("digits expected", f"more than {_MAX_DIGITS} digits")
+)
 
 # a number, as the fragments that take one accept it: digits, leading
 # zeros included, and nothing else
@@ -229,7 +243,7 @@ def _assert_valid_context(context: str) -> None:
     """
     assert_type(context, str, "context")
     if context not in {P2WSH, TAPSCRIPT}:
-        err_msg = f"unknown spend context: '{context}'"
+        err_msg = f"unknown spend context: {_quoted(context)}"
         err_msg += f"; it must be one of {sorted((P2WSH, TAPSCRIPT))}"
         raise BTClibValueError(err_msg)
 
@@ -1115,10 +1129,10 @@ class Miniscript:
             if not self.subs:
                 raise BTClibValueError("thresh() takes at least one subexpression")
         elif fragment not in _ARITY:
-            raise BTClibValueError(f"unknown miniscript fragment: {fragment}")
+            raise BTClibValueError(f"unknown miniscript fragment: {_quoted(fragment)}")
         elif len(self.subs) != _ARITY[fragment]:
             err_msg = (
-                f"{fragment} takes {_ARITY[fragment]} subexpressions, "
+                f"{_label(fragment, _NAMES)} takes {_ARITY[fragment]} subexpressions, "
                 f"{len(self.subs)} given"
             )
             raise BTClibValueError(err_msg)
@@ -1126,7 +1140,8 @@ class Miniscript:
         if len(self.data) != _DATA_SIZE.get(fragment, 0):
             expected = _DATA_SIZE.get(fragment, 0)
             err_msg = (
-                f"{fragment} takes {expected} bytes of data, {len(self.data)} given"
+                f"{_label(fragment, _NAMES)} takes {_quoted(expected)} bytes of data, "
+                f"{len(self.data)} given"
             )
             raise BTClibValueError(err_msg)
         self._assert_number()
@@ -1148,7 +1163,10 @@ class Miniscript:
         else:
             allowed = keys == 0
         if not allowed:
-            raise BTClibValueError(f"invalid number of keys in {fragment}: {keys}")
+            err_msg = (
+                f"invalid number of keys in {_label(fragment, _NAMES)}: {_quoted(keys)}"
+            )
+            raise BTClibValueError(err_msg)
 
     def _assert_number(self) -> None:
         """Refuse a lock time or a threshold outside its bounds."""
@@ -1156,17 +1174,23 @@ class Miniscript:
         threshold = self.threshold
         if fragment in {"older", "after"}:
             if not 1 <= threshold < _MAX_TIMELOCK:
-                raise BTClibValueError(f"invalid {fragment}() value: {threshold}")
+                err_msg = (
+                    f"invalid {_label(fragment, _NAMES)}() value: {_quoted(threshold)}"
+                )
+                raise BTClibValueError(err_msg)
         elif fragment in {"multi", "multi_a"}:
             if not 1 <= threshold <= len(self.keys):
-                err_msg = f"invalid k in k-of-n {fragment}: {threshold}"
+                err_msg = f"invalid k in k-of-n {_label(fragment, _NAMES)}: {_quoted(threshold)}"
                 raise BTClibValueError(err_msg)
         elif fragment == "thresh":
             if not 1 <= threshold <= len(self.subs):
-                err_msg = f"invalid thresh() threshold: {threshold} of {len(self.subs)}"
+                err_msg = f"invalid thresh() threshold: {_quoted(threshold)} of {len(self.subs)}"
                 raise BTClibValueError(err_msg)
         elif threshold:
-            raise BTClibValueError(f"{fragment} takes no number: {threshold}")
+            err_msg = (
+                f"{_label(fragment, _NAMES)} takes no number: {_quoted(threshold)}"
+            )
+            raise BTClibValueError(err_msg)
 
     @property
     def is_valid(self) -> bool:
@@ -1412,7 +1436,7 @@ class Miniscript:
         """
         _assert_prv_keys(prv_keys)
         if not self.is_valid:
-            raise BTClibValueError(f"invalid miniscript: {self}")
+            raise BTClibValueError("invalid miniscript")
 
         def up(verify: bool, node: Miniscript, subs: list[bytes]) -> bytes:
             return _fragment_script(
@@ -1479,13 +1503,12 @@ class Miniscript:
         satisfaction = _tree_eval(self, None, lambda *_: None, up).sat
         if satisfaction.stack is None:
             err_msg = (
-                f"no satisfaction of {self} with the signatures, preimages "
-                "and lock times given"
+                "no satisfaction with the signatures, preimages and lock times given"
             )
             raise BTClibValueError(err_msg)
         if satisfaction.malleable or not satisfaction.has_sig:
             err_msg = (
-                f"no non-malleable satisfaction of {self}: every witness that "
+                "no non-malleable satisfaction: every witness that "
                 "would satisfy it is one a third party could rewrite"
             )
             raise BTClibValueError(err_msg)
@@ -1933,8 +1956,8 @@ class _Built(list[Miniscript]):
         self._total += node.script_size
         if self._total > self._limit:
             err_msg = (
-                f"miniscript too large for {self._context}: "
-                f"at least {self._total} bytes of script"
+                f"miniscript too large for {_label(self._context, _CONTEXTS)}: "
+                f"at least {_quoted(self._total)} bytes of script"
             )
             raise BTClibValueError(err_msg)
         super().append(node)
@@ -1963,13 +1986,17 @@ def _assert_typed(node: Miniscript) -> Miniscript:
     only where that is noticed.
     """
     if not node.properties:
-        arguments = ", ".join("".join(sorted(sub.properties)) for sub in node.subs)
-        err_msg = f"ill-typed miniscript: {node.fragment} over {arguments}"
+        arguments = ", ".join(
+            _quoted("".join(sorted(sub.properties))) for sub in node.subs
+        )
+        err_msg = (
+            f"ill-typed miniscript: {_label(node.fragment, _NAMES)} over {arguments}"
+        )
         raise BTClibValueError(err_msg)
     if node.script_size > _max_script_size(node.context):
         err_msg = (
-            f"miniscript too large for {node.context}: "
-            f"{node.script_size} bytes of script"
+            f"miniscript too large for {_label(node.context, _CONTEXTS)}: "
+            f"{_quoted(node.script_size)} bytes of script"
         )
         raise BTClibValueError(err_msg)
     return node
@@ -2034,7 +2061,7 @@ def _read_wrappers(
         elif f"{letter}:" in _WRAPPERS:
             to_parse.append((f"{letter}:", 0, 0))
         else:
-            raise BTClibValueError(f"unknown miniscript wrapper: {letter}:")
+            raise BTClibValueError(f"unknown miniscript wrapper: {_quoted(letter)}")
     to_parse.append((_EXPR, 0, 0))
     return colon + 1 if colon else pos
 
@@ -2094,17 +2121,19 @@ def _read_multi(
         _read_keys_as_core(threshold, keys, context, prv_keys)
         raise
     if len(arguments) < 2:
-        err_msg = f"{name}() takes a threshold and at least one key"
+        err_msg = f"{_label(name, _NAMES)}() takes a threshold and at least one key"
         raise BTClibValueError(err_msg)
     threshold, *keys = arguments
     if not _NUMBER.fullmatch(threshold):
-        raise BTClibValueError(f"invalid {name}() threshold: digits expected")
+        raise BTClibValueError(
+            f"invalid {_label(name, _NAMES)}() threshold: digits expected"
+        )
     tapscript = context == TAPSCRIPT
     read = []
     for key in keys:
         # Core refuses an empty key as structure, reading no key after it.
         if not key:
-            raise BTClibValueError(f"empty key in {name}()")
+            raise BTClibValueError(f"empty key in {_label(name, _NAMES)}()")
         read.append(
             _parse_key(
                 key,
@@ -2118,7 +2147,7 @@ def _read_multi(
         name,
         context,
         keys=tuple(read),
-        threshold=_int_from_digits(threshold, f"{name}() threshold"),
+        threshold=_int_from_digits(threshold, f"{_label(name, _NAMES)}() threshold"),
     )
 
 
@@ -2182,8 +2211,10 @@ def _read_number(name: str, argument: str) -> int:
     to give a number below 1, which every fragment that takes one refuses.
     """
     if not _NUMBER.fullmatch(argument):
-        raise BTClibValueError(f"invalid {name}() number: digits expected")
-    return _int_from_digits(argument, f"{name}() number")
+        raise BTClibValueError(
+            f"invalid {_label(name, _NAMES)}() number: digits expected"
+        )
+    return _int_from_digits(argument, f"{_label(name, _NAMES)}() number")
 
 
 def _read_leaf(
@@ -2197,14 +2228,24 @@ def _read_leaf(
         return _read_key_fragment(name, argument, context, prv_keys)
     if name in _HASH_OP_CODES:
         if not _HEX.fullmatch(argument):
-            raise BTClibValueError(f"invalid {name}() hash: hex expected")
+            raise BTClibValueError(
+                f"invalid {_label(name, _NAMES)}() hash: hex expected"
+            )
         digest = bytes_from_octets(argument, _DATA_SIZE[name])
         return Miniscript(name, context, data=digest)
     if name in {"older", "after"}:
+        # `_read_number`'s own text, written out where it is one of
+        # `_NUMBER_FAULTS`, and the threshold quoted where `_assert_number`
+        # refuses it
         try:
-            return Miniscript(name, context, threshold=_read_number(name, argument))
+            threshold = _read_number(name, argument)
         except BTClibValueError as error:
-            raise _CoreFallbackError(str(error)) from error
+            raise _CoreFallbackError(_label(str(error), _NUMBER_FAULTS)) from error
+        try:
+            return Miniscript(name, context, threshold=threshold)
+        except BTClibValueError as error:
+            err_msg = f"invalid {_label(name, _NAMES)}() value: {_quoted(threshold)}"
+            raise _CoreFallbackError(err_msg) from error
     return _read_multi(name, argument, context, prv_keys)
 
 
@@ -2266,7 +2307,7 @@ def _read_leaf_fragment(
             _read_unclosed_multisig_keys(
                 expression[pos - len(name) :], context, prv_keys
             )
-        raise BTClibValueError(f"unbalanced brackets in {name}()")
+        raise BTClibValueError(f"unbalanced brackets in {_label(name, _NAMES)}()")
     built.append(
         _assert_typed(
             _read_leaf(name, expression[pos + 1 : end - 1], context, prv_keys)
@@ -2357,7 +2398,7 @@ def parse(
     node = built[0]
     if not _has(node.properties, "B"):
         basic = "".join(sorted(node.properties & _t("BVKW")))
-        err_msg = f"not a miniscript script: {node} is a {basic}, not a B"
+        err_msg = f"not a miniscript script: a {_quoted(basic)}, not a B"
         raise BTClibValueError(err_msg)
     return node
 
@@ -2437,10 +2478,10 @@ def _assert_minimal_push(op_code: int, data: bytes, encoded: bytes) -> None:
     scripts it executes rather than on the ones it reads.
     """
     if len(data) == 1 and (data[0] == 0x81 or 1 <= data[0] <= 16):
-        err_msg = f"non-minimal push: an op code pushes {data.hex()}"
+        err_msg = "non-minimal push: an op code pushes the same number"
         raise BTClibValueError(err_msg)
     if serialize([data]) != encoded:
-        err_msg = f"non-minimal push of {len(data)} bytes: op code {hex(op_code)}"
+        err_msg = f"non-minimal push of {len(data)} bytes: op code {_quoted(op_code)}"
         raise BTClibValueError(err_msg)
 
 
@@ -2462,7 +2503,7 @@ def _decomposed(script: bytes) -> list[tuple[int, bytes]]:
     entries: list[tuple[int, bytes]] = []
     spans = list(op_code_spans(script))
     if not (spans and spans[-1][2] == len(script)) and script:
-        raise BTClibValueError(f"not a script: {script.hex()}")
+        raise BTClibValueError("not a script: a push runs past its end")
     for position, (op_code, start, stop) in enumerate(spans):
         if _OP_1 <= op_code <= _OP_16:
             entries.append((op_code, bytes([op_code - _OP_1 + 1])))
@@ -2481,7 +2522,7 @@ def _decomposed(script: bytes) -> list[tuple[int, bytes]]:
             and position + 1 < len(spans)
             and spans[position + 1][0] == _OP_VERIFY
         ):
-            err_msg = f"non-minimal VERIFY after op code {hex(op_code)}"
+            err_msg = f"non-minimal VERIFY after op code {_quoted(op_code)}"
             raise BTClibValueError(err_msg)
         entries.append((op_code, b""))
     entries.reverse()
@@ -2563,7 +2604,7 @@ class _Decoder:
         if len(data) in {32, 33}:
             expected = 32 if self.context == TAPSCRIPT else 33
             if len(data) != expected:
-                err_msg = f"not a {self.context} public key: {len(data)} bytes"
+                err_msg = f"not a {_label(self.context, _CONTEXTS)} public key: {len(data)} bytes"
                 raise BTClibValueError(err_msg)
             self.pos += 1
             return Miniscript(
@@ -2579,7 +2620,7 @@ class _Decoder:
         ):
             key_hash = self._data(2)
             if key_hash not in self.key_hashes:
-                err_msg = f"no public key for the hash160 {key_hash.hex()}"
+                err_msg = "no public key for a hash160 the script holds"
                 raise BTClibValueError(err_msg)
             sec = self.key_hashes[key_hash]
             # the answer is checked against the question, which is the one
@@ -2588,8 +2629,7 @@ class _Decoder:
             # expression writing a different script back, and the inverse
             # this module documents would hold for every input but that one
             if hash160(sec) != key_hash:
-                err_msg = f"the key answered for the hash160 {key_hash.hex()}"
-                err_msg += f" hashes to {hash160(sec).hex()}"
+                err_msg = "the key answered for a hash160 hashes to another"
                 raise BTClibValueError(err_msg)
             self.pos += 5
             key = _key_from_sec(sec, self.context)
@@ -2730,11 +2770,12 @@ class _Decoder:
         )
         if op_code == _OP_EQUAL and number is not None:
             if number < 1:
-                raise BTClibValueError(f"invalid thresh() threshold: {number}")
+                err_msg = f"invalid thresh() threshold: {_quoted(number)}"
+                raise BTClibValueError(err_msg)
             self.pos += 2
             self.to_parse.append((_THRESH_BRANCH, 0, number))
             return
-        err_msg = f"not a miniscript: op code {hex(op_code)} closes no fragment"
+        err_msg = f"not a miniscript: op code {_quoted(op_code)} closes no fragment"
         raise BTClibValueError(err_msg)
 
     def _wrapped(self) -> None:
@@ -2795,7 +2836,7 @@ class _Decoder:
             self.to_parse.append((_ENDIF_NOTIF, 0, 0))
             return
         if op_code != _OP_IF:
-            err_msg = f"not a miniscript: op code {hex(op_code)} before an OP_ENDIF"
+            err_msg = f"not a miniscript: op code {_quoted(op_code)} before an OP_ENDIF"
             raise BTClibValueError(err_msg)
         if self._remaining() >= 2 and self._op_code(1) == _OP_DUP:
             self.pos += 2
@@ -2833,7 +2874,7 @@ class _Decoder:
             return
         if self._op_code(0) != _OP_NOTIF:
             err_msg = (
-                f"not a miniscript: op code {hex(self._op_code(0))} before OP_ELSE"
+                f"not a miniscript: op code {_quoted(self._op_code(0))} before OP_ELSE"
             )
             raise BTClibValueError(err_msg)
         self.pos += 1
@@ -2924,7 +2965,9 @@ def from_script(
     """
     script = bytes_from_octets(script)
     if len(script) > _max_script_size(context):
-        err_msg = f"script too large for {context}: {len(script)} bytes"
+        err_msg = (
+            f"script too large for {_label(context, _CONTEXTS)}: {len(script)} bytes"
+        )
         raise BTClibValueError(err_msg)
     decoder = _Decoder(
         _decomposed(script),
@@ -2941,7 +2984,7 @@ def from_script(
     _assert_typed(node)
     if not _has(node.properties, "B"):
         basic = "".join(sorted(node.properties & _t("BVKW")))
-        err_msg = f"not a miniscript script: {node} is a {basic}, not a B"
+        err_msg = f"not a miniscript script: a {_quoted(basic)}, not a B"
         raise BTClibValueError(err_msg)
     return node
 
@@ -3001,21 +3044,25 @@ def _assert_sane(node: Miniscript, prv_keys: PrvKeys) -> None:
         return
     insane = node.insane_sub(prv_keys) or node
     if not node.is_satisfiable:
-        raise BTClibValueError(f"{node} is not satisfiable")
+        raise BTClibValueError("the miniscript is not satisfiable")
     if not insane.is_non_malleable:
-        raise BTClibValueError(f"{insane} is not sane: malleable witnesses exist")
+        raise BTClibValueError(
+            "a sub-expression is not sane: malleable witnesses exist"
+        )
     if insane is node and not insane.is_signature_required:
-        err_msg = f"{insane} is not sane: witnesses without signature exist"
+        err_msg = "a sub-expression is not sane: witnesses without signature exist"
         raise BTClibValueError(err_msg)
     if insane.mixes_timelocks:
         err_msg = (
-            f"{insane} is not sane: it mixes timelocks "
+            "a sub-expression is not sane: it mixes timelocks "
             "expressed in blocks and in seconds"
         )
         raise BTClibValueError(err_msg)
     if insane.has_duplicate_keys(prv_keys):
-        raise BTClibValueError(f"{insane} is not sane: it repeats a public key")
-    err_msg = f"{insane} is not sane: satisfying it may exceed the resource limits"
+        raise BTClibValueError("a sub-expression is not sane: it repeats a public key")
+    err_msg = (
+        "a sub-expression is not sane: satisfying it may exceed the resource limits"
+    )
     raise BTClibValueError(err_msg)
 
 

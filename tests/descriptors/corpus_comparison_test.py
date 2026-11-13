@@ -133,32 +133,32 @@ def test_a_multipath_xprv_with_a_hardened_step_on_one_path_is_read() -> None:
     [
         pytest.param(
             "wsh(after(100))",
-            "after(100) is not sane: witnesses without signature exist",
+            "a sub-expression is not sane: witnesses without signature exist",
             id="wsh-no-signature",
         ),
         pytest.param(
             "wsh(or_i(1,1))",
-            "or_i(1,1) is not sane: malleable witnesses exist",
+            "a sub-expression is not sane: malleable witnesses exist",
             id="wsh-malleable",
         ),
         pytest.param(
             "wsh(or_b(0,a:0))",
-            "or_b(0,a:0) is not satisfiable",
+            "the miniscript is not satisfiable",
             id="wsh-unsatisfiable",
         ),
         pytest.param(
             f"tr({XA},after(100))",
-            "after(100) is not sane: witnesses without signature exist",
+            "a sub-expression is not sane: witnesses without signature exist",
             id="tr-no-signature",
         ),
         pytest.param(
             f"tr({XA},or_i(1,1))",
-            "or_i(1,1) is not sane: malleable witnesses exist",
+            "a sub-expression is not sane: malleable witnesses exist",
             id="tr-malleable",
         ),
         pytest.param(
             f"tr({XA},or_b(0,a:0))",
-            "or_b(0,a:0) is not satisfiable",
+            "the miniscript is not satisfiable",
             id="tr-unsatisfiable",
         ),
     ],

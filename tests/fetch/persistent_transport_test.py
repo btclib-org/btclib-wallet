@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import select
 import socket
 import ssl
@@ -588,7 +589,10 @@ def test_a_late_answer_is_never_read(
 
     server = serve(late)
     with client(server, authority) as transport:
-        with pytest.raises(RpcFetchError, match="timed out|timeout expired"):
+        with pytest.raises(
+            RpcFetchError,
+            match=r"^no answer from '127\.0\.0\.1':\d+: TimeoutError$",
+        ):
             transport(request(1), 0.5)
         assert asked.is_set()
         assert not transport.is_open
@@ -708,7 +712,9 @@ def test_a_close_that_fails_is_a_fetch_error(
     transport = client(server, authority)
     transport.context.sslsocket_class = FailingClose
     assert transport(request(1), TIMEOUT) == answer(1, 1)
-    with pytest.raises(RpcFetchError, match=f"closing {HOST}:{server.port}"):
+    with pytest.raises(
+        RpcFetchError, match=rf"^closing {re.escape(repr(HOST))}:{server.port}$"
+    ):
         transport.close()
     assert not transport.is_open
     with pytest.raises(RpcFetchError, match="answering another request"):
@@ -722,7 +728,10 @@ def test_the_default_context_refuses_an_untrusted_server(
     """TLS is verified by default: a test authority is no trusted one."""
     server = serve(numbered)
     with PersistentTlsLineTransport(HOST, server.port) as transport:
-        with pytest.raises(RpcFetchError, match="CERTIFICATE_VERIFY_FAILED"):
+        with pytest.raises(
+            RpcFetchError,
+            match=r"^no answer from '127\.0\.0\.1':\d+: SSLCertVerificationError$",
+        ):
             transport(request(1), TIMEOUT)
         assert not transport.is_open
 

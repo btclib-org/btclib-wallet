@@ -1106,7 +1106,7 @@ def test_another_constraint_on_the_master_key_is_no_ledgers(
             " BEGIN SELECT RAISE(ABORT, 'refused'); END"
         )
     with _loaded(path, chain) as ledger:
-        with pytest.raises(BTClibValueError, match="not a ledger file: refused"):
+        with pytest.raises(BTClibValueError, match="not a ledger file: IntegrityError"):
             ledger.encrypt(PASSPHRASE)
         assert ledger.unlocked_until is None
 

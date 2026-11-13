@@ -50,12 +50,13 @@ from bitcoin_core_rpc import (
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx
 from btclib.utils import bytes_from_octets
 from typing_extensions import override
 
-from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet._refusal import _code, _label, _message_text, _quoted
 from btclib_wallet.exceptions import HttpError
 from btclib_wallet.fetch.bitcoin_core import (
     _MAX_LARGE_REPLY,
@@ -69,10 +70,10 @@ from btclib_wallet.fetch.bitcoin_core import (
 )
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _fetch_errors,
     block_header_from_raw,
     block_header_height,
     client_errors,
-    fetch_errors,
     tx_from_raw,
     tx_id_hex,
 )
@@ -118,12 +119,12 @@ def _field(reply: Any, name: str) -> Any:
     array, or a bare scalar, nothing about the shape asked at that layer
     -- so indexing straight into `reply` would raise `KeyError` or
     `TypeError` depending on what came back, neither of which
-    `fetch_errors` reads as a source's own failure. Raising `TypeError`
-    for both is what keeps the diagnosis inside `fetch_errors`, the same
-    class `int` and `bytes_from_octets` already raise it as.
+    `_fetch_errors` reads as a source's own failure. Raising
+    `BTClibTypeError` for both is what keeps the diagnosis inside
+    `_fetch_errors`, which chains it, its text being this package's.
     """
     if not isinstance(reply, dict) or name not in reply:
-        raise TypeError(
+        raise BTClibTypeError(
             f"no {name!r} member in the chaininfo reply: {_message_text(reply)}"
         )
     return reply[name]
@@ -173,7 +174,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
             raise BTClibTypeError(err_msg)
         if signet_challenge is not None:
             if chain_from_network(self.network) != "signet":
-                err_msg = f"a signet_challenge for {self.network},"
+                err_msg = f"a signet_challenge for {_label(self.network, NETWORKS)},"
                 err_msg += " which is no signet"
                 raise BTClibValueError(err_msg)
             if not verify_network:
@@ -214,30 +215,30 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         elif expected == "signet":
             expected_magic = magic_from_chain(expected)
 
-        with fetch_errors("chaininfo"):
+        with _fetch_errors("chaininfo"):
             reply = self._get_json("/chaininfo.json", max_body_size=_MAX_CHAININFO_BODY)
             reported = _field(reply, "chain")
             if not isinstance(reported, str):
-                raise TypeError(f"no string 'chain' member: {_message_text(reported)}")
+                raise BTClibTypeError(
+                    f"no string 'chain' member: {_message_text(reported)}"
+                )
         if reported != expected:
-            err_msg = f"node at {self.client.url} reports chain {_quoted(reported)},"
-            err_msg += f" not the {expected!r} this fetcher was built for"
+            err_msg = f"the node reports chain {_quoted(reported)},"
+            err_msg += f" not the {_quoted(expected)} this fetcher was built for"
             raise BTClibValueError(err_msg)
         if expected_magic is None:
             return
 
-        with fetch_errors("chaininfo"):
+        with _fetch_errors("chaininfo"):
             challenge = _field(reply, "signet_challenge")
             if not isinstance(challenge, str):
-                raise TypeError(
+                raise BTClibTypeError(
                     f"no string 'signet_challenge' member: {_message_text(challenge)}"
                 )
             node_magic = magic_from_signet_challenge(challenge)
         if node_magic != expected_magic:
-            err_msg = f"node at {self.client.url} is on a signet this fetcher"
-            err_msg += " is not: its challenge derives magic"
-            err_msg += f" {node_magic.hex()}, where {expected_magic.hex()}"
-            err_msg += " was expected"
+            err_msg = "the node is on a signet this fetcher is not: its"
+            err_msg += " challenge derives another magic than the one expected"
             raise BTClibValueError(err_msg)
 
     def _get_bin(self, path: str, *, max_body_size: int | None) -> bytes:
@@ -266,8 +267,8 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         try:
             return self._get_bin(path, max_body_size=max_body_size)
         except HttpError as e:
-            status = e.status
-        err_msg = f"GET {endpoint} at {self.client.url}: HTTP {status}"
+            status = _code(e.status)
+        err_msg = f"GET {endpoint}: HTTP {status}"
         raise HttpError(err_msg, status)
 
     def _get_json(self, path: str, *, max_body_size: int) -> Any:
@@ -301,7 +302,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
     def get_block_count(self) -> int:
         """Return the height of the node's best chain tip."""
         self._verify_once()
-        with fetch_errors("chaininfo"):
+        with _fetch_errors("chaininfo"):
             reply = self._get_json("/chaininfo.json", max_body_size=_MAX_CHAININFO_BODY)
             return int(_field(reply, "blocks"))
 
@@ -309,7 +310,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
     def get_best_block_id(self) -> bytes:
         """Return the hash of the node's best chain tip, display order."""
         self._verify_once()
-        with fetch_errors("chaininfo"):
+        with _fetch_errors("chaininfo"):
             reply = self._get_json("/chaininfo.json", max_body_size=_MAX_CHAININFO_BODY)
             return bytes_from_octets(_field(reply, "bestblockhash"), 32)
 
@@ -334,7 +335,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         """
         self._verify_once()
         height = block_header_height(height)
-        with fetch_errors("blockhashbyheight"):
+        with _fetch_errors("blockhashbyheight"):
             raw_hash = self._get_bin_at(
                 f"/blockhashbyheight/{height}.bin",
                 "/blockhashbyheight/<height>.bin",
@@ -392,7 +393,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
 
     def _best_block_hex(self) -> str:
         """Return the hash of the node's best chain tip, as hex."""
-        with fetch_errors("chaininfo"):
+        with _fetch_errors("chaininfo"):
             reply = self._get_json("/chaininfo.json", max_body_size=_MAX_CHAININFO_BODY)
             return bytes_from_octets(_field(reply, "bestblockhash"), 32).hex()
 
@@ -403,14 +404,14 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         reply = self._get_json(
             f"/block/{block_hex}.json", max_body_size=_MAX_LARGE_REPLY
         )
-        source = f"block {block_hex}"
+        source = "block"
         return _block_history(reply, block_hex, height, elements, self.network, source)
 
     def _history_mempool(self, elements: frozenset[bytes], tip_hex: str) -> list[Tx]:
         """Return the mempool's transactions touching `elements`."""
         path = "/mempool/contents.json?verbose=false"
         reply = self._get_json(path, max_body_size=_MAX_MEMPOOL_REPLY)
-        with fetch_errors("mempool"):
+        with _fetch_errors("mempool"):
             if not isinstance(reply, list):
                 raise BTClibTypeError(f"not an array: {type(reply).__name__}")
             tx_ids = list(dict.fromkeys(tx_id_hex(tx_id) for tx_id in reply))
@@ -448,10 +449,10 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
             reply = self._get_json(
                 f"/getutxos/{path}.json", max_body_size=_MAX_LARGE_REPLY
             )
-            with fetch_errors("getutxos"):
+            with _fetch_errors("getutxos"):
                 answered = _member(reply, "chaintipHash")
                 if answered != tip_hex:
-                    raise BTClibValueError(f"read at {answered}, not at {tip_hex}")
+                    raise BTClibValueError("read at another block than the tip")
                 bitmap = _member(reply, "bitmap")
                 if not isinstance(bitmap, str) or len(bitmap) != len(batch):
                     raise BTClibValueError(f"invalid bitmap: {_message_text(bitmap)}")

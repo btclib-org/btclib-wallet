@@ -231,17 +231,20 @@ def test_unknown_script_type() -> None:
     # determines, so it is not in the table. mypy rejects the call, the
     # Literal being the static half of this check; the runtime half is for
     # the caller who does not run mypy
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh not in "):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         address_from_der_path(_XPRV_ROOT, "m/84h/0h/0h/0/0", "p2wsh")  # type: ignore[arg-type]
 
 
 def test_coin_type() -> None:
     """Refuse a coin type off the key's network, and Litecoin's."""
     # a mainnet key with the testnet coin type, and the other way round
-    err_msg = "coin type 1 is test, the extended key is main"
+    err_msg = "coin type 1 is 'test', the extended key is 'main'"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(_XPRV_ROOT, "m/44h/1h/0h/0/0")
-    err_msg = "coin type 0 is main, the extended key is test"
+    err_msg = "coin type 0 is 'main', the extended key is 'test'"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(_UPRV_ROOT, "m/49h/0h/0h/0/0")
 
@@ -277,7 +280,7 @@ def test_key_depth() -> None:
     # the account xpub of another account: the depth says which index of
     # the path the key must be, and it is not that one
     xpub = bip32.xpub_from_xprv(bip32.derive(_ZPRV_ROOT, "m/84h/0h/1h"))
-    err_msg = "key index 1h at depth 3 is not the path's 0h"
+    err_msg = "key index '1h' at depth 3 is not the path's '0h'"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xpub, der_path)
 
@@ -405,7 +408,10 @@ def test_the_account_descriptors_of_each_purpose() -> None:
         account_descriptors(_XPRV_ROOT, "m/48h/0h/0h")
     overridden = account_descriptors(_XPRV_ROOT, "m/48h/0h/0h", None, "p2wpkh")[0]
     assert str(overridden).startswith("wpkh(")
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         account_descriptors(_XPRV_ROOT, "m/48h/0h/0h", None, "p2wsh")  # type: ignore[arg-type]
 
 
@@ -489,7 +495,10 @@ def test_an_account_path_is_three_hardened_levels() -> None:
             account_descriptors(_XPRV_ROOT, der_path)
 
     # the coin type is a claim about the chain and the key is the chain
-    with pytest.raises(BTClibValueError, match="coin type 1 is test"):
+    with pytest.raises(
+        BTClibValueError,
+        match="coin type 1 is 'test', the extended key is 'main'",
+    ):
         account_descriptors(_XPRV_ROOT, "m/84h/1h/0h")
     with pytest.raises(BTClibValueError, match="unregistered BIP44 coin type: 2"):
         account_descriptors(_XPRV_ROOT, "m/84h/2h/0h")
@@ -500,7 +509,10 @@ def test_an_account_path_is_three_hardened_levels() -> None:
         account_descriptors(deeper, "m/84h/0h/0h")
     # and one at the account level has to be *that* account
     other = bip32.xpub_from_xprv(bip32.derive(_XPRV_ROOT, "m/84h/0h/1h"))
-    with pytest.raises(BTClibValueError, match="is not the path's 0h"):
+    with pytest.raises(
+        BTClibValueError,
+        match="key index '1h' at depth 3 is not the path's '0h'",
+    ):
         account_descriptors(other, "m/84h/0h/0h", "deadbeef")
 
 
@@ -821,7 +833,7 @@ def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
         (
             {84: [_account_xpub("m/84h/0h/1h")]},
             BTClibValueError,
-            "is not the path's 0h",
+            "key index '1h' at depth 3 is not the path's '0h'",
         ),
         (
             {84: [bip32.xpub_from_xprv(_XPRV_ROOT)]},

@@ -69,6 +69,8 @@ from btclib.network import validated_network_name
 from btclib.script.script_pub_key import ScriptPubKey, script_from_script_pub_key
 from btclib.utils import is_integer, str_from_string
 
+from btclib_wallet._refusal import _quoted
+
 __all__ = [
     "AddressInfo",
     "RangedWallet",
@@ -208,7 +210,7 @@ class Wallet(ABC):
         """
         addr = _address_str(address)
         if addr not in self._handed_out:
-            err_msg = f"address not in the wallet: {addr}"
+            err_msg = "address not in the wallet"
             raise BTClibValueError(err_msg)
         return self._handed_out[addr]
 
@@ -286,11 +288,11 @@ class RangedWallet(Wallet, ABC):
         BIP32's own limit where a descriptor derives it.
         """
         if branch not in self.branches:
-            branches = ", ".join(str(b) for b in self.branches)
-            err_msg = f"invalid branch: {branch} not in ({branches})"
+            branches = ", ".join(_quoted(b) for b in self.branches)
+            err_msg = f"invalid branch: {_quoted(branch)} not in ({branches})"
             raise BTClibValueError(err_msg)
         if index < 0:
-            raise BTClibValueError(f"invalid index: {index}")
+            raise BTClibValueError(f"invalid index: {_quoted(index)}")
 
     def script_pub_key(self, branch: int = 0, index: int = 0) -> ScriptPubKey:
         """Return the output this wallet pays to at a position."""
@@ -328,7 +330,9 @@ class RangedWallet(Wallet, ABC):
         self._assert_position(branch, index)
         address = self._address(branch, index)
         if not address:
-            err_msg = f"no address for the script at {branch}/{index}:"
+            err_msg = (
+                f"no address for the script at {_quoted(branch)}/{_quoted(index)}:"
+            )
             err_msg += " script_pub_key is what this output has"
             raise BTClibValueError(err_msg)
         self._next_index[branch] = max(self._next_index.get(branch, 0), index + 1)
@@ -384,7 +388,7 @@ class RangedWallet(Wallet, ABC):
                 f"invalid last_index type: {type(last_index).__name__}"
             )
         if last_index < 0:
-            raise BTClibValueError(f"negative last_index: {last_index}")
+            raise BTClibValueError(f"negative last_index: {_quoted(last_index)}")
         for branch in self.branches:
             for index in range(last_index + 1):
                 if self._script_pub_key(branch, index).script == script:
@@ -426,7 +430,7 @@ class RangedWallet(Wallet, ABC):
         what was handed out is not handing it out again.
         """
         if not addresses:
-            err_msg = f"no addresses to check against branch {branch}"
+            err_msg = f"no addresses to check against branch {_quoted(branch)}"
             raise BTClibValueError(err_msg)
         scripts = [
             self.script_pub_key(branch, first_index + offset).script
@@ -434,13 +438,13 @@ class RangedWallet(Wallet, ABC):
         ]
         if len(set(scripts)) != len(scripts):
             last_index = first_index + len(scripts) - 1
-            err_msg = f"branch {branch} derives one output twice"
-            err_msg += f" between {first_index} and {last_index}"
+            err_msg = f"branch {_quoted(branch)} derives one output twice"
+            err_msg += f" between {_quoted(first_index)} and {_quoted(last_index)}"
             raise BTClibValueError(err_msg)
         for offset, address in enumerate(addresses):
             script = script_from_script_pub_key(address)
             if script != scripts[offset]:
                 index = first_index + offset
-                err_msg = f"not what {branch}/{index} derives: {script.hex()}"
-                err_msg += f" is written where {scripts[offset].hex()} is derived"
+                err_msg = f"not what {_quoted(branch)}/{_quoted(index)} derives:"
+                err_msg += " another script is written where it is derived"
                 raise BTClibValueError(err_msg)

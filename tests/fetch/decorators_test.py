@@ -256,7 +256,11 @@ def test_fallback_does_not_move_on_past_a_value_error() -> None:
 
 
 def test_fallback_names_every_backend_when_all_fail() -> None:
-    """The message and the chain both name every backend that was tried."""
+    """The message names every backend tried, by type, and chains the last.
+
+    A backend's text is not relayed: a `Fetcher` of the caller's own may
+    raise a `FetchError` holding anything (issue #821).
+    """
     tx = Tx.parse(RAW)
     first, second, third = (
         CountingFetcher(tx=tx),
@@ -274,10 +278,8 @@ def test_fallback_names_every_backend_when_all_fail() -> None:
     with pytest.raises(FetchError) as exc_info:
         fallback.get_tx(TX_ID)
 
-    message = str(exc_info.value)
-    assert "first is down" in message
-    assert "second is down" in message
-    assert "third is down" in message
+    failures = "; ".join(["CountingFetcher: FetchError"] * 3)
+    assert str(exc_info.value) == f"get_tx: every backend failed -- {failures}"
     assert exc_info.value.__cause__ is errors[-1]
 
 

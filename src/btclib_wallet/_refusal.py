@@ -10,6 +10,8 @@ value with `_message_text`, and quotes a value refused where a name
 belongs only up to `_QUOTED_MAX` characters, too short for a key.
 """
 
+from collections.abc import Collection
+
 __all__: list[str] = []
 
 _QUOTED_MAX = 16
@@ -31,7 +33,22 @@ def _exact_int(value: int) -> int:
     return int.__or__(value, 0)
 
 
-def _quoted(value: int | str) -> str:
+def _code(value: object) -> int:
+    """Return an error code a refusal may carry, 0 where it cannot carry it.
+
+    The value of an int that lies in `_RPC_CODES`, a bool excepted, and 0
+    for anything else: a code another program answers is bounded by no
+    format, so it can hold the scalar of a key.
+    """
+    kind = type(value)
+    if issubclass(kind, int) and kind is not bool and isinstance(value, int):
+        number = _exact_int(value)
+        if number in _RPC_CODES:
+            return number
+    return 0
+
+
+def _quoted(value: object) -> str:
     """Return a refused parameter as a refusal may print it.
 
     An int or a str is quoted up to `_QUOTED_MAX` characters, and
@@ -64,6 +81,24 @@ def _quoted(value: int | str) -> str:
     else:
         return _message_text(value)
     return f"a value of {length} characters" if length > _QUOTED_MAX else quoted
+
+
+def _label(value: object, known: Collection[str]) -> str:
+    """Return a label a refusal names an item by, as a refusal may print it.
+
+    Section 7 says which item failed by where it is: the map, the field,
+    the key type. A helper taking that label as a parameter prints it
+    where it is one of `known`, the package's own labels, which hold no
+    byte of a caller's value; anything else is shown as `_quoted` shows
+    it. The label printed is the element of `known`, not the value.
+    """
+    kind = type(value)
+    if issubclass(kind, str) and isinstance(value, str):
+        text = str.__add__(value, "")
+        for label in known:
+            if label == text:
+                return label
+    return _quoted(value)
 
 
 def _message_text(value: object) -> str:

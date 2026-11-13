@@ -31,7 +31,8 @@ import re
 import string
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,23 @@ def chained_text(e: BaseException | None) -> str:
         text += f"{e!s} {e!r} "
         e = e.__cause__ or e.__context__
     return text
+
+
+@contextmanager
+def raises_from(
+    kind: type[BaseException], match: str, cause: str
+) -> Iterator[pytest.ExceptionInfo[BaseException]]:
+    """Expect `kind` matching `match`, and `cause` matching in its chain.
+
+    A refusal prints no value it refuses, so the detail a test once read
+    from its message is read from the exception it is raised from, which
+    says what was wrong in the words of the code that found it. The
+    refusal's own text is in the chain too, for a case whose refusal
+    chains nothing.
+    """
+    with pytest.raises(kind, match=match) as caught:
+        yield caught
+    assert re.search(cause, chained_text(caught.value)), repr(caught.value)
 
 
 # what `str.strip()` takes and `string.whitespace` does not: U+001C is
@@ -83,8 +101,8 @@ def padding_bits_set(text: str) -> str:
 
 # the refusal of an `=` after a whole group: "not canonical" where
 # `validate=True` reads it, on CPython and PyPy 3.11, and base64's own
-# message from CPython 3.12 on (issue #114)
-EXCESS_PADDING = "^invalid base64 encoding: (not canonical|Excess padding not allowed)$"
+# refusal from CPython 3.12 on, whose text is not relayed (issue #114)
+EXCESS_PADDING = "^invalid base64 encoding(: not canonical)?$"
 
 
 def psbt_of_size(psbt_b64: str, size: int) -> bytes:

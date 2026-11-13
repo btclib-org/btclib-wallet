@@ -81,6 +81,7 @@ from btclib.tx.tx import SEGWIT_MARKER
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.psbt.psbt import Psbt, prevouts
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
@@ -222,7 +223,7 @@ def _assert_arguments(
     if not is_integer(max_fee):
         raise BTClibTypeError(f"invalid max_fee type: {type(max_fee).__name__}")
     if max_fee < 0:
-        raise BTClibValueError(f"negative max_fee: {max_fee}")
+        raise BTClibValueError(f"negative max_fee: {_quoted(max_fee)}")
 
 
 def _assert_fee_within(
@@ -240,7 +241,8 @@ def _assert_fee_within(
     where it signs, and this estimate bounds the signed one from above.
     """
     if fee > max_fee:
-        err_msg = f"a fee of {fee} satoshi exceeds max_fee, {max_fee} satoshi"
+        err_msg = f"a fee of {_quoted(fee)} satoshi exceeds max_fee, "
+        err_msg += f"{_quoted(max_fee)} satoshi"
         raise BTClibValueError(err_msg)
     _assert_max_fee_rate(fee, vsize, max_fee_rate)
 
@@ -354,13 +356,15 @@ def build_psbt(
     for i, tx_out in enumerate(outputs):
         threshold = dust_threshold(tx_out.script_pub_key.script, dust_fee_rate)
         if tx_out.value < threshold:
-            err_msg = f"output {i} of {tx_out.value} satoshi is dust: "
-            err_msg += f"its script's threshold is {threshold} satoshi"
+            err_msg = (
+                f"output {_quoted(i)} of {_quoted(tx_out.value)} satoshi is dust: "
+            )
+            err_msg += f"its script's threshold is {_quoted(threshold)} satoshi"
             raise BTClibValueError(err_msg)
     if lock_time != 0 and all(
         tx_in.sequence == SEQUENCE_FINAL for tx_in in psbt.tx.vin
     ):
-        err_msg = f"lock_time {lock_time} is void: every input's sequence is "
+        err_msg = f"lock_time {_quoted(lock_time)} is void: every input's sequence is "
         err_msg += "final, and one input needs a non-final PsbtIn.sequence"
         raise BTClibValueError(err_msg)
 
@@ -389,8 +393,8 @@ def build_psbt(
     vsize = psbt.vsize_estimate(sizer)
     owed = fee_from_vsize(vsize, fee_rate)
     if remainder < owed:
-        err_msg = f"the inputs are worth {total_in} satoshi, "
-        err_msg += f"where the outputs and the fee need {total_out + owed}"
+        err_msg = f"the inputs are worth {_quoted(total_in)} satoshi, "
+        err_msg += f"where the outputs and the fee need {_quoted(total_out + owed)}"
         raise _ShortfallError(err_msg)
     _assert_fee_within(remainder, vsize, max_fee, max_fee_rate)
     return FundedPsbt(psbt, remainder, change_index)

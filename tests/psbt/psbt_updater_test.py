@@ -465,7 +465,7 @@ def test_a_taproot_script_path_is_finalizable_only_after_the_updater() -> None:
     # leaf it names is one that input says nothing about
     not_updated = psbt_spending(descriptor)
     not_updated.inputs[0].taproot_script_spend_signatures = {key_data: signature}
-    with pytest.raises(BTClibValueError, match="no leaf script for tapleaf hash"):
+    with pytest.raises(BTClibValueError, match="no leaf script for the tapleaf hash"):
         finalize(not_updated)
 
 
@@ -542,15 +542,24 @@ def test_the_output_updater_refuses_an_output_it_does_not_describe() -> None:
     assert update_psbt_output(descriptor, psbt, 1, 3).outputs[1].hd_key_paths
     # output 0 pays elsewhere, and index 4 is another script of this very
     # descriptor: both are the same refusal
-    with pytest.raises(BTClibValueError, match="which is not the script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="output 0 pays to another script than the one this descriptor describes at index 3",
+    ):
         update_psbt_output(descriptor, psbt, 0, 3)
-    with pytest.raises(BTClibValueError, match="which is not the script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="output 1 pays to another script than the one this descriptor describes at index 4",
+    ):
         update_psbt_output(descriptor, psbt, 1, 4)
 
     # the same origin, another key: everything a fingerprint check would
     # look at agrees, and the scripts do not
     other = parse(f"wpkh([d34db33f/84h/0h/0h]{XPUB_OTHER}/1/*)")
-    with pytest.raises(BTClibValueError, match="which is not the script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="output 1 pays to another script than the one this descriptor describes at index 3",
+    ):
         update_psbt_output(other, psbt, 1, 3)
 
 

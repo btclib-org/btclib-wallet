@@ -48,7 +48,7 @@ from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.wallet import DescriptorWallet, KeyGroup, ScriptWallet
 from btclib_wallet.wallet import script_wallet as script_wallet_module
-from tests import replace_unchecked
+from tests import raises_from, replace_unchecked
 
 # the "abandon abandon ... about" seed, and three account keys of it in an
 # order that none of the sorts below answers: the account keys sort one
@@ -290,9 +290,15 @@ def test_the_three_ways_a_script_becomes_an_output(
 def test_an_unknown_script_type_or_order_is_refused() -> None:
     """The two vocabularies, checked for the caller who runs no mypy."""
     group = KeyGroup(1, _XPUBS[:1])
-    with pytest.raises(BTClibValueError, match="unknown script type: p2pkh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2pkh' not in \(p2sh, p2sh-p2wsh, p2wsh\)",
+    ):
         ScriptWallet([group], "p2pkh")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="unknown key order: sorted"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown key order: 'sorted' not in \(none, account, derived\)",
+    ):
         ScriptWallet([group], "p2wsh", "sorted")  # type: ignore[arg-type]
 
 
@@ -385,7 +391,7 @@ def test_a_script_too_long_for_the_output_it_would_pay() -> None:
 
 def test_a_key_of_another_network_cannot_be_in_the_quorum() -> None:
     """The template is built at construction, which is where this shows."""
-    with pytest.raises(BTClibValueError, match="not a testnet key: version "):
+    with pytest.raises(BTClibValueError, match="not a testnet key"):
         ScriptWallet([KeyGroup(1, _XPUBS[:1])], "p2wsh", network="testnet")
 
 
@@ -487,7 +493,10 @@ def test_an_output_is_marked_only_where_the_whole_script_says_so() -> None:
     assert psbt_out.hd_key_paths == psbt_in.hd_key_paths
     assert not psbt.outputs[0].hd_key_paths
 
-    with pytest.raises(BTClibValueError, match="which is not the script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="output 0 pays to another script than the one this wallet derives at 1/3",
+    ):
         wallet.update_psbt_output(psbt, 0, 1, 3)
 
 
@@ -628,7 +637,10 @@ def test_a_key_origin_is_checked_against_the_key_it_belongs_to() -> None:
     """
     with pytest.raises(BTClibValueError, match="2 levels for a key at depth 3"):
         KeyGroup(1, _XPUBS[:1], origins=[BIP32KeyOrigin(_FINGERPRINT, "m/48h/0h")])
-    with pytest.raises(BTClibValueError, match="it ends at 0h, and the key's own"):
+    with pytest.raises(
+        BTClibValueError,
+        match="invalid key origin: it ends at 2147483648, and the key's own index is 2147483649",
+    ):
         KeyGroup(1, _XPUBS[:1], origins=[BIP32KeyOrigin(_FINGERPRINT, "m/48h/0h/0h")])
     with pytest.raises(BTClibValueError, match="own fingerprint is"):
         KeyGroup(1, [_ROOT], origins=[BIP32KeyOrigin("deadbeef", "m")])
@@ -835,7 +847,7 @@ def test_a_script_no_miniscript_reads_has_no_descriptor() -> None:
         KeyGroup(2, _RECOVERY),
         "OP_ENDIF",
     ]
-    err_msg = "not a miniscript: op code 0x75 closes no fragment"
+    err_msg = "the script is no miniscript a descriptor can hold"
     with pytest.raises(NoDescriptorError, match=err_msg):
         ScriptWallet(template, "p2wsh").descriptor()
 
@@ -861,7 +873,11 @@ def test_a_required_quorum_on_its_own_is_no_script_at_all() -> None:
     `from_script`, where the type of the expression is the answer.
     """
     wallet = ScriptWallet([KeyGroup(2, _XPUBS, verify=True)], "p2wsh")
-    with pytest.raises(NoDescriptorError, match="not a miniscript script"):
+    with raises_from(
+        NoDescriptorError,
+        match="the script is no miniscript a descriptor can hold",
+        cause="not a miniscript script",
+    ):
         wallet.descriptor()
 
 
@@ -896,7 +912,11 @@ def test_an_expression_no_descriptor_may_hold_has_no_descriptor() -> None:
         *_MINISCRIPT_TIMELOCK,
         "OP_ENDIF",
     ]
-    with pytest.raises(NoDescriptorError, match="it repeats a public key"):
+    with raises_from(
+        NoDescriptorError,
+        match="no descriptor Bitcoin Core accepts for this wallet",
+        cause="it repeats a public key",
+    ):
         ScriptWallet(template, "p2wsh").descriptor()
 
 
@@ -947,7 +967,10 @@ def test_a_lift_that_derives_something_else_is_not_handed_back(
 
     monkeypatch.setattr(ScriptWallet, "_key_expression", other_branch)
     wallet = ScriptWallet([KeyGroup(2, _XPUBS)], "p2wsh")
-    with pytest.raises(BTClibRuntimeError, match="where this wallet pays to"):
+    with pytest.raises(
+        BTClibRuntimeError,
+        match="the lifted descriptor pays to another script at 0/0 than this wallet",
+    ):
         wallet.descriptor()
 
 

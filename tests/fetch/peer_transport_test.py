@@ -31,6 +31,7 @@ from typing_extensions import override
 from btclib_wallet.fetch import peer_transport
 from btclib_wallet.fetch import transport as fetch_transport
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport, V2PeerTransport
+from tests import raises_from
 
 MAGIC = b"\xfa\xbf\xb5\xda"
 MESSAGE = Ping(7).to_message(MAGIC)
@@ -195,7 +196,7 @@ def test_a_connection_that_cannot_be_made_is_a_fetch_error(
     """The reason is the OS's, and nothing is left open."""
     connect_to(monkeypatch, fake)
     transport = peer()
-    with pytest.raises(FetchError, match="no connection to peer.example:18444"):
+    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
         transport.send(MESSAGE, 5)
     assert not transport.is_open
 
@@ -211,7 +212,9 @@ def test_a_write_that_fails_closes_the_connection(
         peer_transport, "_open_connection", lambda *_a, **_k: next(sockets)
     )
     transport = peer()
-    with pytest.raises(FetchError, match="gone"):
+    with raises_from(
+        FetchError, match=r"no connection to 'peer\.example':18444", cause="gone"
+    ):
         transport.send(MESSAGE, 5)
     assert broken.closed == 1
     transport.send(MESSAGE, 5)
@@ -286,7 +289,7 @@ def test_a_peer_that_goes_quiet_is_a_fetch_error(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="no message from peer.example:18444"):
+    with pytest.raises(FetchError, match=r"no message from 'peer\.example':18444"):
         transport.receive(5)
     assert not transport.is_open
     assert fake.closed == 1
@@ -328,8 +331,10 @@ def test_a_message_announcing_too_much_is_refused_before_it_is_read(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(
-        FetchError, match="invalid payload length: at most 4000000 bytes expected"
+    with raises_from(
+        FetchError,
+        match=r"'peer\.example':18444: a message that does not parse",
+        cause="invalid payload length: at most 4000000 bytes expected",
     ):
         transport.receive(5)
     assert not transport.is_open
@@ -343,7 +348,11 @@ def test_a_message_with_a_wrong_checksum_is_refused(
     connect_to(monkeypatch, FakeSocket([WIRE[:-1] + b"\x01"]))
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="invalid checksum"):
+    with raises_from(
+        FetchError,
+        match=r"'peer\.example':18444: a message that does not parse",
+        cause="invalid checksum",
+    ):
         transport.receive(5)
     assert not transport.is_open
 
@@ -384,7 +393,7 @@ def test_a_socket_that_fails_to_close_is_a_fetch_error(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="closing peer.example:18444: bad descriptor"):
+    with pytest.raises(FetchError, match=r"closing 'peer\.example':18444"):
         transport.close()
     assert not transport.is_open
     transport.close()
@@ -400,7 +409,7 @@ def test_a_failure_to_close_after_a_failed_write_reports_the_write(
     )
     connect_to(monkeypatch, fake)
     transport = peer()
-    with pytest.raises(FetchError, match="no connection to peer.example:18444: gone"):
+    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
         transport.send(MESSAGE, 5)
     assert fake.closed == 1
     assert not transport.is_open
@@ -648,7 +657,7 @@ def test_a_failed_v2_handshake_is_a_fetch_error(
     peer_socket = fake()
     connect_to(monkeypatch, peer_socket)
     transport = v2_peer()
-    with pytest.raises(FetchError, match=why):
+    with raises_from(FetchError, match=r"^'peer\.example':18444: ", cause=why):
         transport.send(MESSAGE, 5)
     assert not transport.is_open
     assert transport.session_id is None
@@ -1026,7 +1035,7 @@ def test_a_v1_fallback_that_fails_to_close_is_a_fetch_error(
     )
     transport = v2_peer(v1_fallback=True)
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="closing peer.example:18444: bad descriptor"):
+    with pytest.raises(FetchError, match=r"closing 'peer\.example':18444"):
         transport.close()
     assert not transport.is_open
     transport.close()
@@ -1099,7 +1108,7 @@ def test_a_hang_up_before_a_v1_header_is_written_is_a_failure(
     fake = HangingUp(23, ConnectionResetError("reset"))
     calls = connect_to(monkeypatch, fake)
     transport = v2_peer(v1_fallback=True)
-    with pytest.raises(FetchError, match="no connection to peer.example:18444: reset"):
+    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
         transport.send(MESSAGE, 5)
     assert (len(calls), fake.closed) == (1, 1)
 
@@ -1111,7 +1120,7 @@ def test_a_v2_connection_that_cannot_be_made_is_a_fetch_error(
     pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
     connect_to(monkeypatch, OSError("unreachable"))
     transport = v2_peer()
-    with pytest.raises(FetchError, match="no connection to peer.example:18444"):
+    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
         transport.send(MESSAGE, 5)
     assert not transport.is_open
 
@@ -1123,7 +1132,7 @@ def test_a_v2_write_that_fails_closes_the_connection(
     fake = V2Peer(send_error=BrokenPipeError("gone"))
     connect_to(monkeypatch, fake)
     transport = v2_peer()
-    with pytest.raises(FetchError, match="no connection to peer.example:18444: gone"):
+    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
         transport.send(MESSAGE, 5)
     assert fake.closed == 1
     assert not transport.is_open
@@ -1157,7 +1166,7 @@ def test_a_v2_peer_that_goes_quiet_is_a_fetch_error(
     connect_to(monkeypatch, fake)
     transport = v2_peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="no message from peer.example:18444"):
+    with pytest.raises(FetchError, match=r"no message from 'peer\.example':18444"):
         transport.receive(5)
     assert not transport.is_open
 
@@ -1198,7 +1207,9 @@ def test_a_v2_packet_refused_closes_the_connection(
     # a payload bound below a ping's, so that the codec refuses it
     if why != "authentication":
         monkeypatch.setattr(message_module, "MAX_PROTOCOL_MESSAGE_LENGTH", 4)
-    with pytest.raises(FetchError, match=why):
+    with raises_from(
+        FetchError, match=r"^'peer\.example':18444: BTClibValueError$", cause=why
+    ):
         transport.receive(5)
     assert not transport.is_open
 
@@ -1219,6 +1230,6 @@ def test_v2_close_is_idempotent_and_the_context_closes(
     failing.close_error = OSError("bad descriptor")
     connect_to(monkeypatch, failing)
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="closing peer.example:18444: bad descriptor"):
+    with pytest.raises(FetchError, match=r"closing 'peer\.example':18444"):
         transport.close()
     assert not transport.is_open

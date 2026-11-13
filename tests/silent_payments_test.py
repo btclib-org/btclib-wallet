@@ -39,7 +39,7 @@ from ecc import curves, ssa
 from ecc.curves import bytes_from_point, mult, secp256k1
 
 from btclib_wallet import silent_payments
-from tests import NOT_STRIPPED, load, needs_bindings, vector_id
+from tests import NOT_STRIPPED, load, needs_bindings, raises_from, vector_id
 
 # the bindings, None where they are not installed: every test reading
 # them is marked `bindings`, skipped in that configuration
@@ -328,7 +328,11 @@ def test_an_address_bech32_refuses_is_refused_here_too() -> None:
     """
     address = _address()
     assert "k" in address  # otherwise the replacement below replaces nothing
-    with pytest.raises(BTClibValueError, match="mixed case"):
+    with raises_from(
+        BTClibValueError,
+        match="invalid silent payment address encoding",
+        cause="mixed case",
+    ):
         silent_payments.keys_from_address(address[:10] + address[10:].upper())
     kelvin = address.upper().replace("K", "\N{KELVIN SIGN}")
     with pytest.raises(BTClibValueError, match="non-ASCII character"):
@@ -705,8 +709,8 @@ def test_the_bindings_refuse_a_label_keyed_in_another_form_alike() -> None:
     Twenty labels beside it over one output: the dispatch sends the scan
     to the bindings, and it is refused there too, an output that is no
     point included, which the bindings' retry would otherwise drop. The
-    bindings themselves refuse it with that message, a hex string with
-    their own TypeError.
+    bindings themselves refuse a hex string with their own TypeError, and
+    anything else with a ValueError whose text is not relayed.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
     pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
@@ -724,9 +728,14 @@ def test_the_bindings_refuse_a_label_keyed_in_another_form_alike() -> None:
                     outputs,
                     labels,
                 )
-        # `_delegated_scan_outputs` wraps the bindings' ValueError only
-        raw = TypeError if error is BTClibTypeError else error
-        with pytest.raises(raw, match=f"^{message}$"):
+        # `_delegated_scan_outputs` refuses for the bindings' ValueError,
+        # whose text is not relayed, and lets their TypeError through
+        raw, raw_message = (
+            (TypeError, message)
+            if error is BTClibTypeError
+            else (error, "the bindings refuse the scan")
+        )
+        with pytest.raises(raw, match=f"^{raw_message}$"):
             silent_payments._delegated_scan_outputs(
                 _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), keys, labels
             )
@@ -794,8 +803,8 @@ def test_an_unmatched_label_with_a_bad_tweak_is_refused(
 def test_the_dispatch_refuses_an_unmatched_label_with_a_bad_tweak() -> None:
     """`_assert_labels` refuses it before the dispatch, with 2 labels or 22.
 
-    The bindings, called directly, refuse it with the same message, their
-    TypeError unwrapped.
+    The bindings, called directly, refuse it with their TypeError
+    unwrapped, and for their ValueError with a refusal of this package's.
     """
     a = 0xEADC78165FF1F8EA94AD7CFDC54990738A4C53F6E0507B42154201B8E5DFF3B1
     pub_keys = [(mult(a), f"0014{hash160(bytes_from_point(mult(a))).hex()}")]
@@ -808,9 +817,14 @@ def test_the_dispatch_refuses_an_unmatched_label_with_a_bad_tweak() -> None:
                 silent_payments.scan_transaction_outputs(
                     _B_SCAN_PRV, mult(_B_SPEND_PRV), outpoints, pub_keys, keys, labels
                 )
-            # `_delegated_scan_outputs` wraps the bindings' ValueError only
-            raw = TypeError if error is BTClibTypeError else error
-            with pytest.raises(raw, match=f"^{re.escape(message)}$"):
+            # `_delegated_scan_outputs` refuses for the bindings' ValueError,
+            # whose text is not relayed, and lets their TypeError through
+            raw, raw_message = (
+                (TypeError, message)
+                if error is BTClibTypeError
+                else (error, "the bindings refuse the scan")
+            )
+            with pytest.raises(raw, match=f"^{re.escape(raw_message)}$"):
                 silent_payments._delegated_scan_outputs(
                     _B_SCAN_PRV, outpoints, pub_keys, mult(_B_SPEND_PRV), keys, labels
                 )
@@ -1287,7 +1301,10 @@ def test_output_keys_wraps_a_delegated_refusal(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(libsecp256k1_silentpayments, "create_outputs", _refuse)
     script_pub_key = f"0014{hash160(bytes_from_point(mult(_B_SCAN_PRV))).hex()}"
     outpoints = [OutPoint("00" * 31 + "01", 0)]
-    with pytest.raises(BTClibValueError, match="silent payment output creation failed"):
+    with pytest.raises(
+        BTClibValueError,
+        match="the bindings refuse the inputs or the recipients",
+    ):
         silent_payments.output_keys(
             [(_B_SCAN_PRV, script_pub_key)], outpoints, [_address()]
         )
@@ -1544,7 +1561,7 @@ def test_scan_transaction_outputs_wraps_a_delegated_refusal(
     pub_keys = [(mult(_B_SCAN_PRV), script_pub_key)]
     outpoints = [OutPoint("00" * 31 + "01", 0)]
     labels = silent_payments.label_lookup(_B_SCAN_PRV, range(4))
-    with pytest.raises(BTClibValueError, match="silent payment scan failed"):
+    with pytest.raises(BTClibValueError, match="the bindings refuse the scan"):
         silent_payments.scan_transaction_outputs(
             _B_SCAN_PRV,
             mult(_B_SPEND_PRV),

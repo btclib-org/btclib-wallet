@@ -1014,9 +1014,7 @@ def test_multipath_reads_the_keys_in_the_network_it_is_given() -> None:
     for network in (None, "testnet"):
         expanded = multipath_descriptors(descriptor, network)
         assert [strip_checksum(d) for d in expanded] == expansions
-    with pytest.raises(
-        BTClibValueError, match="^not a mainnet key: version 0x043587cf$"
-    ):
+    with pytest.raises(BTClibValueError, match="^not a mainnet key: version$"):
         multipath_descriptors(descriptor, "mainnet")
 
 
@@ -1833,7 +1831,8 @@ def test_wallet_policy_pair_refuses_what_cannot_pair() -> None:
         wallet_policy(parse(f"wpkh({xpub}/0/*)"), parse(f"wpkh({other}/1/*)"))
     # a musig() participant that differs between the two sides
     with pytest.raises(
-        BTClibValueError, match="disagree on a musig[(][)] participant:"
+        BTClibValueError,
+        match=r"receive and change disagree on a musig\(\) participant",
     ):
         wallet_policy(
             parse(f"tr(musig({xpub},{other})/0/*)"),
@@ -2000,7 +1999,7 @@ def test_network() -> None:
     assert script_pub_key.network == "testnet"
     assert script_pub_key.address.startswith("tb1")
     assert ScriptPubKey.from_address(script_pub_key.address) == script_pub_key
-    with pytest.raises(BTClibValueError, match="not a mainnet key: version "):
+    with pytest.raises(BTClibValueError, match="not a mainnet key: version"):
         parse(descriptor)
 
 
@@ -2563,10 +2562,11 @@ CORE_UNPARSABLE = [
         "tr(musig(00)",
         "unbalanced brackets",
     ),
-    # Core: an invalid musig() participant key
+    # Core: an invalid musig() participant key, whose length is not
+    # written after the prefix
     (
         "tr(musig(00))",
-        "invalid public key length",
+        "^musig\\(\\): invalid participant$",
     ),
     # Core: garbage after a musig() participant key
     (
@@ -3202,7 +3202,10 @@ BIP390_INVALID = [
     (f"tr({XONLY},musig({MUSIG_A},{MUSIG_B}))", "pk\\(musig\\(...\\)\\) is the leaf"),
     # a participant is aggregated as a point, so an x-only one is short of
     # the byte that says which point it is
-    (f"tr(musig({XONLY},{MUSIG_B}))", "musig\\(\\): x-only"),
+    (
+        f"tr(musig({XONLY},{MUSIG_B}))",
+        r"musig\(\): x-only public keys are allowed in a taproot key expression only",
+    ),
     # and one that is no point, whose refusal is the curve library's
     (f"tr(musig({OFF_CURVE},{MUSIG_B}))", "musig\\(\\): not a public key"),
     # and characters after the closing bracket that are no path at all
@@ -3798,7 +3801,10 @@ def test_unsatisfiable(
 
 def test_the_missing_keys_are_named() -> None:
     """Which key has not signed is the whole content of the refusal."""
-    with pytest.raises(BTClibValueError, match=f"missing {KEY_B}, {KEY_C}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^1 signatures of 2, missing for keys 1, 2$",
+    ):
         parse(f"wsh({MULTI})").satisfy({KEY_A: SIGNATURES[KEY_A]})
 
 
@@ -4851,8 +4857,8 @@ NETWORK_KEYS = [
         "WIF prefix",
         id="testnet-wif-on-mainnet",
     ),
-    pytest.param(XPUB, "regtest", "version 0x0488b21e", id="xpub-on-regtest"),
-    pytest.param(TESTNET_XPUB, "mainnet", "version 0x043587cf", id="tpub-on-mainnet"),
+    pytest.param(XPUB, "regtest", "version", id="xpub-on-regtest"),
+    pytest.param(TESTNET_XPUB, "mainnet", "version", id="tpub-on-mainnet"),
     pytest.param(xpub_from_xprv(XPRV_ROOT), "signet", "version", id="xpub-on-signet"),
 ]
 
@@ -4877,7 +4883,7 @@ def test_parse_refuses_a_key_of_another_network(
     participant are keys of the same kind.
     """
     descriptor = template.format(key=key, xonly=XONLY, sec=SEC_KEYS[1])
-    with pytest.raises(BTClibValueError, match=f"^not a {network} key: .*{message}"):
+    with pytest.raises(BTClibValueError, match=f"^not a {network} key: {message}$"):
         parse(descriptor, network)
 
 

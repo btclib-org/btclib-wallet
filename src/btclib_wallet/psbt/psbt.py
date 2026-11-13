@@ -81,7 +81,7 @@ from ecc import dsa, ssa
 from ecc.curves import sec_point
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _label, _message_text, _quoted
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
     HdKeyPaths,
@@ -276,8 +276,8 @@ def _b64decode(text: str) -> bytes:
         raise BTClibValueError(f"invalid base64 encoding: {refused}")
     try:
         decoded = base64.b64decode(text, validate=True)
-    except ValueError as e:  # binascii.Error
-        raise BTClibValueError(f"invalid base64 encoding: {e}") from e
+    except ValueError as e:  # binascii.Error, whose text holds a count at most
+        raise BTClibValueError("invalid base64 encoding") from e
     if base64.b64encode(decoded).decode("ascii") != text:
         raise BTClibValueError("invalid base64 encoding: not canonical")
     return decoded
@@ -303,7 +303,7 @@ def _b64_size(size: int) -> int:
 def _assert_text_size(size: int, max_size: int, what: str) -> None:
     """Refuse a text of more than `max_size` characters, given its `size`."""
     if size > max_size:
-        err_msg = f"{what} too long: {size} characters, over {max_size}"
+        err_msg = f"{what} too long: {_quoted(size)} characters, over {max_size}"
         raise BTClibValueError(err_msg)
 
 
@@ -325,7 +325,7 @@ def _assert_map_count(count: int, maximum: int, what: str) -> None:
     believed is that amplification paid before the first map is read.
     """
     if count > maximum:
-        err_msg = f"too many {what} maps: {count}, max is {maximum}"
+        err_msg = f"too many {what} maps: {_quoted(count)}, max is {maximum}"
         raise BTClibValueError(err_msg)
 
 
@@ -567,10 +567,10 @@ def _assert_valid_global_xpubs(hd_key_paths: Mapping[bytes, BIP32KeyOrigin]) -> 
     input's or an output's is a public key. As in Bitcoin Core, the public
     key at the end of the xpub must be a point of the curve.
     """
-    for xpub, origin in hd_key_paths.items():
+    for position, xpub in enumerate(hd_key_paths):
         # a key that is not a point may be an xprv, so the message names
-        # the entry by its origin and prints no byte of the key
-        name = f"global xpub of {origin.description}"
+        # the entry by its position and prints no byte of the key
+        name = f"global xpub {position}"
         if len(xpub) != _XPUB_SIZE:
             err_msg = f"invalid {name}: length {len(xpub)}"
             raise BTClibValueError(err_msg)
@@ -807,9 +807,9 @@ def _assert_valid_input_fields(psbt_in: PsbtIn, version: int, i: int) -> None:
     a version 0 psbt carrying the field itself.
     """
     if not psbt_in.previous_tx_id:
-        raise BTClibValueError(f"input {i}: missing PSBT_IN_PREVIOUS_TXID")
+        raise BTClibValueError(f"input {_quoted(i)}: missing PSBT_IN_PREVIOUS_TXID")
     if psbt_in.output_index is None:
-        raise BTClibValueError(f"input {i}: missing PSBT_IN_OUTPUT_INDEX")
+        raise BTClibValueError(f"input {_quoted(i)}: missing PSBT_IN_OUTPUT_INDEX")
 
     if version != PSBT_V0:
         return
@@ -824,7 +824,7 @@ def _assert_valid_input_fields(psbt_in: PsbtIn, version: int, i: int) -> None:
         (psbt_in.sp_dleq_proofs or None, "PSBT_IN_SP_DLEQ"),
     ):
         if value is not None:
-            err_msg = f"input {i}: {name} is not allowed in a v0 psbt"
+            err_msg = f"input {_quoted(i)}: {name} is not allowed in a v0 psbt"
             raise BTClibValueError(err_msg)
 
 
@@ -888,11 +888,11 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
             (psbt_out.sp_v0_label, "PSBT_OUT_SP_V0_LABEL"),
         ):
             if value is not None:
-                err_msg = f"output {i}: {name} is not allowed in a v0 psbt"
+                err_msg = f"output {_quoted(i)}: {name} is not allowed in a v0 psbt"
                 raise BTClibValueError(err_msg)
         return
     if psbt_out.amount is None:
-        raise BTClibValueError(f"output {i}: missing PSBT_OUT_AMOUNT")
+        raise BTClibValueError(f"output {_quoted(i)}: missing PSBT_OUT_AMOUNT")
     # BIP375 makes the script optional, and only for the outputs that
     # cannot have one yet: "If this field is not included in the output,
     # then the field PSBT_OUT_SP_V0_INFO must be included". A silent
@@ -901,7 +901,7 @@ def _assert_valid_output_fields(psbt_out: PsbtOut, version: int, i: int) -> None
     # field is the same missing script BIP370 refuses, and one of BIP375's
     # own invalid vectors
     if psbt_out.script_pub_key is None and not psbt_out.sp_v0_info:
-        raise BTClibValueError(f"output {i}: missing PSBT_OUT_SCRIPT")
+        raise BTClibValueError(f"output {_quoted(i)}: missing PSBT_OUT_SCRIPT")
 
 
 def _signable_payload(psbt_in: PsbtIn) -> bytes:
@@ -998,20 +998,19 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
             psbt_in.taproot_internal_key, psbt_in.taproot_merkle_root
         )[0]
         if tweaked != output_key:
-            err_msg = f"the tweaked internal key {tweaked.hex()} is not "
-            err_msg += f"the output key being spent, {output_key.hex()}"
+            err_msg = "the tweaked internal key is not the output key being spent"
             raise BTClibValueError(err_msg)
 
     for control_block, (script, leaf_version) in psbt_in.taproot_leaf_scripts.items():
         if not _is_valid_leaf_version(leaf_version):
             continue
         if control_block[0] & 0xFE != leaf_version:
-            err_msg = f"leaf version {hex(leaf_version)} is not the control "
-            err_msg += f"block's {hex(control_block[0] & 0xFE)}"
+            err_msg = f"leaf version {_quoted(leaf_version)} is not the control "
+            err_msg += f"block's {_quoted(control_block[0] & 0xFE)}"
             raise BTClibValueError(err_msg)
         if not taproot.check_output_pubkey(output_key, script, control_block):
-            err_msg = "the control block does not prove leaf script "
-            err_msg += f"{script.hex()} against output key {output_key.hex()}"
+            err_msg = "a control block does not prove its leaf script "
+            err_msg += "against the output key"
             raise BTClibValueError(err_msg)
 
 
@@ -1240,7 +1239,8 @@ class Psbt:
                     psbt_in, tx_in, sizer=sizer
                 )
             except BTClibValueError as e:
-                raise BTClibValueError(f"input {i}: {e}") from e
+                err_msg = f"input {_quoted(i)}: no size estimate"
+                raise BTClibValueError(err_msg) from e
             vin.append(
                 TxIn(
                     tx_in.prev_out,
@@ -1908,7 +1908,7 @@ def _combine_musig2_participants(
     for key, participants in psbt_map.musig2_participant_pub_keys.items():
         other = out.musig2_participant_pub_keys.get(key)
         if other is not None and other != participants:
-            err_msg = f"mismatched musig2 participants for aggregate key {key.hex()}"
+            err_msg = "mismatched musig2 participants for an aggregate key"
             raise BTClibValueError(err_msg)
         out.musig2_participant_pub_keys[key] = participants
 
@@ -1932,8 +1932,7 @@ def _combine_sp_script(psbt_out: PsbtOut, out: PsbtOut) -> None:
     if out.script_pub_key is None:
         out.script_pub_key = psbt_out.script_pub_key
     elif out.script_pub_key != psbt_out.script_pub_key:
-        err_msg = "mismatched silent payment output script: "
-        err_msg += f"{psbt_out.script_pub_key.hex()} vs {out.script_pub_key.hex()}"
+        err_msg = "mismatched silent payment output script"
         raise BTClibValueError(err_msg)
 
 
@@ -2009,14 +2008,14 @@ def combine(psbts: Sequence[Psbt]) -> Psbt:
     version = final_psbt.version
     for psbt in psbts[1:]:
         if psbt.version != version:
-            err_msg = f"mismatched psbt version: {psbt.version} vs {version}"
+            err_msg = f"mismatched psbt version: {_quoted(psbt.version)} vs {_quoted(version)}"
             raise BTClibValueError(err_msg)
 
     tx_id = final_psbt.unique_id if version == PSBT_V2 else final_psbt.tx.id
     for psbt in psbts[1:]:
         other_id = psbt.unique_id if version == PSBT_V2 else psbt.tx.id
         if other_id != tx_id:
-            raise BTClibValueError(f"mismatched psbt.tx.id: {other_id.hex()}")
+            raise BTClibValueError("mismatched psbt.tx.id")
 
     # after the version and identifier checks and not before them: those
     # two are what makes these psbts one transaction's, and a caller
@@ -2318,7 +2317,9 @@ def _pushed_sigs(psbt_in: PsbtIn) -> list[bytes]:
         if pub_key in psbt_in.partial_sigs
     ]
     if len(sigs) < m:
-        err_msg = f"{len(sigs)} signatures for a {m}-of-{len(pub_keys)} multisig"
+        err_msg = (
+            f"{len(sigs)} signatures for a {_quoted(m)}-of-{len(pub_keys)} multisig"
+        )
         raise BTClibValueError(err_msg)
     return sigs[:m]
 
@@ -2512,7 +2513,7 @@ def leaf_script(psbt_in: PsbtIn, leaf_hash: Octets) -> tuple[bytes, bytes]:
             continue
         if taproot.leaf_hash(leaf_version, script) == leaf_hash:
             return script, control_block
-    raise BTClibValueError(f"no leaf script for tapleaf hash {leaf_hash.hex()}")
+    raise BTClibValueError("no leaf script for the tapleaf hash")
 
 
 def single_leaf_key(script: bytes) -> bytes:
@@ -2531,9 +2532,7 @@ def single_leaf_key(script: bytes) -> bytes:
         or script[-1] != _OP_CHECKSIG
     ):
         err_msg = "cannot finalize a taproot script path whose leaf script "
-        err_msg += (
-            f"is neither a single key and OP_CHECKSIG nor a multi_a: {script.hex()}"
-        )
+        err_msg += "is neither a single key and OP_CHECKSIG nor a multi_a"
         raise BTClibValueError(err_msg)
     return script[1:-1]
 
@@ -2573,15 +2572,15 @@ def _taproot_script_stack(
     for key_data, signature in psbt_in.taproot_script_spend_signatures.items():
         pub_key = key_data[:LEAF_HASH_SIZE]
         if pub_key not in allowed_keys:
-            err_msg = f"taproot script path signature of {pub_key.hex()}, which is "
-            err_msg += f"not the key of leaf script {script.hex()}"
+            err_msg = "taproot script path signature of a key that is not the "
+            err_msg += "key of the leaf script"
             raise BTClibValueError(err_msg)
         hash_type = _assert_taproot_sig_hash_type(
             signature, psbt_in, "taproot script path signature"
         )
         msg = taproot_sig_hash(psbt, vin_i, leaf_hash=leaf_hash, hash_type=hash_type)
         if not ssa.verify_(msg, pub_key, signature[:64]):
-            err_msg = f"invalid taproot script path signature for key {pub_key.hex()}"
+            err_msg = "invalid taproot script path signature"
             raise BTClibValueError(err_msg)
         signatures[pub_key] = signature
 
@@ -2593,7 +2592,7 @@ def _taproot_script_stack(
         needed -= bool(signature)
     if needed:
         err_msg = "not enough taproot script path signatures: "
-        err_msg += f"{threshold - needed} < {threshold}"
+        err_msg += f"{_quoted(threshold - needed)} < {_quoted(threshold)}"
         raise BTClibValueError(err_msg)
     # CHECKSIG consumes the top stack element for the first key; each
     # CHECKSIGADD then consumes the next. Extra signatures would make
@@ -2624,8 +2623,9 @@ def _assert_taproot_sig_hash_type(signature: bytes, psbt_in: PsbtIn, what: str) 
     else:
         accepted = (psbt_in.sig_hash_type,)
     if hash_type not in accepted:
-        err_msg = f"invalid {what} sig_hash type: {hash_type}, "
-        err_msg += f"the input asks for {psbt_in.sig_hash_type}"
+        err_msg = f"invalid {what} sig_hash type: {_quoted(hash_type)}, "
+        asked = psbt_in.sig_hash_type
+        err_msg += f"the input asks for {'None' if asked is None else _quoted(asked)}"
         raise BTClibValueError(err_msg)
     return hash_type
 
@@ -2659,8 +2659,7 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
         msg = taproot_sig_hash(psbt, vin_i, hash_type=hash_type)
         output_key = type_and_payload(prevouts(psbt)[vin_i].script_pub_key.script)[1]
         if not ssa.verify_(msg, output_key, signature[:64]):
-            err_msg = "invalid taproot key path signature for output key "
-            err_msg += output_key.hex()
+            err_msg = "invalid taproot key path signature"
             raise BTClibValueError(err_msg)
         return b"", Witness([signature])
 
@@ -2767,10 +2766,11 @@ def _sig_hash_from_psbt_in(
     if _spends_unknown_witness_program(psbt_in):
         # OP_1..OP_16 are 0x51..0x60
         version = script[0] - 0x50
-        err_msg = f"input {vin_i}: no sig_hash rule for witness version {version}"
+        err_msg = f"input {_quoted(vin_i)}: no sig_hash rule for witness version "
+        err_msg += _quoted(version)
         raise BTClibValueError(err_msg)
     if psbt_in.non_witness_utxo is None:
-        err_msg = f"input {vin_i}: a witness utxo alone does not say what a "
+        err_msg = f"input {_quoted(vin_i)}: a witness utxo alone does not say what a "
         err_msg += "non-witness spend signs"
         raise BTClibValueError(err_msg)
     return sig_hash.legacy(script, tx, vin_i, hash_type)
@@ -2793,12 +2793,14 @@ def _ecdsa_sig_hash(
         raise BTClibValueError("SIGHASH_DEFAULT is not an ECDSA sig_hash type")
 
     if _is_taproot(psbt_in):
-        err_msg = f"input {vin_i} is taproot: its message is taproot_sig_hash's"
+        err_msg = (
+            f"input {_quoted(vin_i)} is taproot: its message is taproot_sig_hash's"
+        )
         raise BTClibValueError(err_msg)
 
     msg_hash = _sig_hash_from_psbt_in(psbt_in, tx, vin_i, hash_type)
     if msg_hash is None:
-        err_msg = f"input {vin_i} does not say what is being signed: "
+        err_msg = f"input {_quoted(vin_i)} does not say what is being signed: "
         err_msg += "no utxo, no redeem script, or no witness script"
         raise BTClibValueError(err_msg)
     # the legacy SIGHASH_SINGLE bug: with no output at the input's index
@@ -2813,7 +2815,9 @@ def _ecdsa_sig_hash(
         and not is_p2wpkh(spent)
         and not is_p2wsh(spent)
     ):
-        err_msg = f"input {vin_i}: legacy SIGHASH_SINGLE with no output at its "
+        err_msg = (
+            f"input {_quoted(vin_i)}: legacy SIGHASH_SINGLE with no output at its "
+        )
         err_msg += "index signs the constant 1"
         raise BTClibValueError(err_msg)
     return msg_hash
@@ -2959,10 +2963,12 @@ def _assert_accepted_sig_hash_type(
     """
     hash_type = psbt_in.sig_hash_type
     if hash_type == DEFAULT and not _is_taproot(psbt_in):
-        err_msg = f"input {vin_i}: SIGHASH_DEFAULT needs an input known to be taproot"
+        err_msg = f"input {_quoted(vin_i)}: SIGHASH_DEFAULT needs an input known to be taproot"
         raise BTClibValueError(err_msg)
     if hash_type is not None and hash_type not in accepted:
-        err_msg = f"input {vin_i} asks for sig_hash type {hex(hash_type)}, "
+        err_msg = (
+            f"input {_quoted(vin_i)} asks for sig_hash type {_quoted(hash_type)}, "
+        )
         err_msg += "which allowed_sig_hash_types does not name"
         raise BTClibValueError(err_msg)
 
@@ -2983,7 +2989,7 @@ def _assert_output_at_index_for_single(
         and hash_type & ~ANYONECANPAY == SINGLE
         and vin_i >= output_count
     ):
-        err_msg = f"input {vin_i}: SIGHASH_SINGLE with no output at its index "
+        err_msg = f"input {_quoted(vin_i)}: SIGHASH_SINGLE with no output at its index "
         err_msg += "commits to no output"
         raise BTClibValueError(err_msg)
 
@@ -3290,6 +3296,10 @@ _SIGNATURE_FIELDS = frozenset(
         "musig2_partial_sigs",
     }
 )
+# the names a refusal of a changed field writes as they stand
+_FIELD_NAMES = frozenset(
+    field.name for kind in (PsbtIn, PsbtOut) for field in fields(kind)
+)
 
 
 def _assert_unchanged(
@@ -3315,7 +3325,8 @@ def _assert_unchanged(
         if field.name in _SIGNATURE_FIELDS:
             continue
         if getattr(returned_map, field.name) != getattr(request_map, field.name):
-            raise BTClibValueError(f"{what}: {field.name} was changed")
+            name = _label(field.name, _FIELD_NAMES)
+            raise BTClibValueError(f"{what}: {name} was changed")
 
 
 def _assert_signatures_added_only(
@@ -3333,13 +3344,13 @@ def _assert_signatures_added_only(
         if isinstance(was, dict):
             for key, value in was.items():
                 if key not in now:
-                    err_msg = f"input {vin_i}: {name} of {key.hex()} was dropped"
+                    err_msg = f"input {_quoted(vin_i)}: {name} entry was dropped"
                     raise BTClibValueError(err_msg)
                 if now[key] != value:
-                    err_msg = f"input {vin_i}: {name} of {key.hex()} was changed"
+                    err_msg = f"input {_quoted(vin_i)}: {name} entry was changed"
                     raise BTClibValueError(err_msg)
         elif was and now != was:
-            raise BTClibValueError(f"input {vin_i}: {name} was changed")
+            raise BTClibValueError(f"input {_quoted(vin_i)}: {name} was changed")
 
 
 def _assert_ecdsa_sigs_verify(
@@ -3370,11 +3381,11 @@ def _assert_ecdsa_sigs_verify(
             continue
         msg_hash = _sig_hash_from_psbt_in(psbt_in, tx, vin_i, sig[-1])
         if msg_hash is None:
-            err_msg = f"input {vin_i}: cannot verify the signature of "
-            err_msg += f"{pub_key.hex()}, the psbt does not say what was signed"
+            err_msg = f"input {_quoted(vin_i)}: cannot verify a signature, "
+            err_msg += "the psbt does not say what was signed"
             raise BTClibValueError(err_msg)
         if not dsa.verify_(msg_hash, pub_key, sig[:-1]):
-            err_msg = f"input {vin_i}: invalid signature for pub_key {pub_key.hex()}"
+            err_msg = f"input {_quoted(vin_i)}: invalid partial signature"
             raise BTClibValueError(err_msg)
 
 
@@ -3417,7 +3428,7 @@ def _assert_taproot_sigs_verify(
         return
 
     if not _is_taproot(psbt_in):
-        err_msg = f"input {vin_i}: a taproot signature for an input spending "
+        err_msg = f"input {_quoted(vin_i)}: a taproot signature for an input spending "
         err_msg += "no taproot output"
         raise BTClibValueError(err_msg)
 
@@ -3428,8 +3439,7 @@ def _assert_taproot_sigs_verify(
         msg = taproot_sig_hash(psbt, vin_i, hash_type=hash_type)
         output_key = type_and_payload(_spent_script(psbt_in))[1]
         if not ssa.verify_(msg, output_key, key_sig[:64]):
-            err_msg = f"input {vin_i}: invalid taproot key path signature for "
-            err_msg += f"output key {output_key.hex()}"
+            err_msg = f"input {_quoted(vin_i)}: invalid taproot key path signature"
             raise BTClibValueError(err_msg)
 
     for key_data, sig in script_sigs.items():
@@ -3439,8 +3449,7 @@ def _assert_taproot_sigs_verify(
         )
         msg = taproot_sig_hash(psbt, vin_i, leaf_hash=leaf_hash, hash_type=hash_type)
         if not ssa.verify_(msg, pub_key, sig[:64]):
-            err_msg = f"input {vin_i}: invalid taproot script path signature for "
-            err_msg += f"key {pub_key.hex()}"
+            err_msg = f"input {_quoted(vin_i)}: invalid taproot script path signature"
             raise BTClibValueError(err_msg)
 
 
@@ -3499,7 +3508,8 @@ def assert_signatures_only(request: Psbt, returned: Psbt) -> None:
     returned.assert_valid()
 
     if returned.version != request.version:
-        err_msg = f"mismatched psbt version: {returned.version} vs {request.version}"
+        err_msg = "mismatched psbt version: "
+        err_msg += f"{_quoted(returned.version)} vs {_quoted(request.version)}"
         raise BTClibValueError(err_msg)
     if returned.tx != request.tx:
         raise BTClibValueError("the transaction being signed was changed")
@@ -3590,7 +3600,7 @@ def assert_signed(psbt: Psbt, *, allow_partial: bool = False) -> None:
     tx = psbt.tx
     for vin_i, psbt_in in enumerate(psbt.inputs):
         if psbt_in.final_script_sig or psbt_in.final_script_witness:
-            err_msg = f"input {vin_i} is finalized: its signatures are in the "
+            err_msg = f"input {_quoted(vin_i)} is finalized: its signatures are in the "
             err_msg += "final script, for the script engine to verify"
             raise BTClibValueError(err_msg)
         _assert_sig_hash_type(psbt_in)
@@ -3602,7 +3612,7 @@ def assert_signed(psbt: Psbt, *, allow_partial: bool = False) -> None:
             or psbt_in.taproot_script_spend_signatures
         )
         if not signed and not allow_partial:
-            raise BTClibValueError(f"input {vin_i}: not signed")
+            raise BTClibValueError(f"input {_quoted(vin_i)}: not signed")
 
 
 def _master_fingerprint(origin: BIP32KeyOrigin | None, what: str, vin_i: int) -> bytes:
@@ -3615,7 +3625,7 @@ def _master_fingerprint(origin: BIP32KeyOrigin | None, what: str, vin_i: int) ->
     key origin that is not there.
     """
     if origin is None:
-        raise BTClibValueError(f"input {vin_i}: no key origin for the {what}")
+        raise BTClibValueError(f"input {_quoted(vin_i)}: no key origin for the {what}")
     return origin.master_fingerprint
 
 
@@ -3634,7 +3644,7 @@ def _plain_key_signers(
         if pub_key in request_in.partial_sigs:
             continue
         origin = returned_in.hd_key_paths.get(pub_key)
-        what = f"signature of {pub_key.hex()}"
+        what = "signature of a key"
         signers.add(_master_fingerprint(origin, what, vin_i))
 
     for name in ("musig2_pub_nonces", "musig2_partial_sigs"):
@@ -3644,7 +3654,7 @@ def _plain_key_signers(
                 continue
             pub_key = key_data[:MUSIG2_PUB_KEY_SIZE]
             origin = returned_in.hd_key_paths.get(pub_key)
-            what = f"{name} entry of participant {pub_key.hex()}"
+            what = f"{name} entry of a participant"
             signers.add(_master_fingerprint(origin, what, vin_i))
 
     return signers
@@ -3665,7 +3675,7 @@ def _taproot_signers(request_in: PsbtIn, returned_in: PsbtIn, vin_i: int) -> set
     ):
         internal_key = returned_in.taproot_internal_key
         derivation = returned_in.taproot_hd_key_paths.get(internal_key)
-        what = f"taproot key path signature of internal key {internal_key.hex()}"
+        what = "taproot key path signature of the internal key"
         signers.add(
             _master_fingerprint(derivation[1] if derivation else None, what, vin_i)
         )
@@ -3675,7 +3685,7 @@ def _taproot_signers(request_in: PsbtIn, returned_in: PsbtIn, vin_i: int) -> set
             continue
         pub_key = key_data[:LEAF_HASH_SIZE]
         derivation = returned_in.taproot_hd_key_paths.get(pub_key)
-        what = f"taproot script path signature of {pub_key.hex()}"
+        what = "taproot script path signature"
         signers.add(
             _master_fingerprint(derivation[1] if derivation else None, what, vin_i)
         )
@@ -3779,7 +3789,9 @@ def _assert_sig_hash_type(psbt_in: PsbtIn) -> None:
     expected = ALL if psbt_in.sig_hash_type is None else psbt_in.sig_hash_type
     for sig in psbt_in.partial_sigs.values():
         if sig[-1] != expected:
-            err_msg = f"mismatched sig_hash type: {hex(sig[-1])} vs {hex(expected)}"
+            err_msg = (
+                f"mismatched sig_hash type: {_quoted(sig[-1])} vs {_quoted(expected)}"
+            )
             raise BTClibValueError(err_msg)
 
 
@@ -3823,7 +3835,7 @@ def _assert_partial_sigs_verify(psbt_in: PsbtIn, tx: Tx, vin_i: int) -> None:
         if msg_hash is None:
             continue
         if not dsa.verify_(msg_hash, pub_key, sig[:-1]):
-            err_msg = f"invalid partial signature for pub_key {pub_key.hex()}"
+            err_msg = "invalid partial signature"
             raise BTClibValueError(err_msg)
 
 
@@ -3968,7 +3980,7 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     # negative index would quietly solve the input at the other end --
     # with a witness this one's script does not satisfy
     if not 0 <= vin_i < len(psbt.inputs):
-        raise BTClibValueError(f"invalid input index: {vin_i}")
+        raise BTClibValueError(f"invalid input index: {_quoted(vin_i)}")
     psbt_in = psbt.inputs[vin_i]
     if not psbt_in.witness_script:
         return None
@@ -4187,11 +4199,11 @@ def _assert_signatures_kept(psbts: Sequence[Psbt], joined: Psbt) -> None:
             continue
         if psbt.lock_time != joined.lock_time:
             err_msg = "the join changes the lock time of a signed psbt: "
-            err_msg += f"{psbt.lock_time} to {joined.lock_time}"
+            err_msg += f"{_quoted(psbt.lock_time)} to {_quoted(joined.lock_time)}"
             raise BTClibValueError(err_msg)
         if psbt.tx_version != joined.tx_version:
             err_msg = "the join changes the tx version of a signed psbt: "
-            err_msg += f"{psbt.tx_version} to {joined.tx_version}"
+            err_msg += f"{_quoted(psbt.tx_version)} to {_quoted(joined.tx_version)}"
             raise BTClibValueError(err_msg)
 
 
@@ -4268,7 +4280,7 @@ def join(
     version = psbts[0].version
     for psbt in psbts[1:]:
         if psbt.version != version:
-            err_msg = f"mismatched psbt version: {psbt.version} vs {version}"
+            err_msg = f"mismatched psbt version: {_quoted(psbt.version)} vs {_quoted(version)}"
             raise BTClibValueError(err_msg)
     for psbt in psbts:
         _assert_modifiable(psbt, inputs=True)

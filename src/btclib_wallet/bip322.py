@@ -139,6 +139,7 @@ from ecc.curves import bytes_from_prv_key_int
 from ecc.exceptions import EccRuntimeError
 from ecc.hashes import tagged_hash
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx
 from btclib_wallet.psbt.psbt import _MAX_PSBT_SIZE, _ascii_text, _b64_size, _b64decode
@@ -437,10 +438,10 @@ class Sig:
         #
         # ASCII whitespace alone (issue #102)
         text = _ascii_text(data, "base64 signature").strip(string.whitespace)
-        prefix = text[:_PREFIX_SIZE]
-        if prefix not in _PREFIXES:
-            prefix = SIMPLE
-        else:
+        # the prefix as `_PREFIXES` spells it, which is what a refusal names
+        known = [prefix for prefix in _PREFIXES if prefix == text[:_PREFIX_SIZE]]
+        prefix = known[0] if known else SIMPLE
+        if known:
             text = text[_PREFIX_SIZE:]
         max_size = _MAX_PAYLOAD_SIZES[prefix]
         if len(text) > _b64_size(max_size):
@@ -558,9 +559,7 @@ def _assert_shape(tx: Tx, spend: Tx, prevouts: list[TxOut]) -> None:
     if not tx.vin:
         raise BTClibValueError("no input in to_sign")
     if tx.vin[0].prev_out != OutPoint(spend.id, 0):
-        err_msg = "the first input does not spend to_spend: "
-        err_msg += f"{tx.vin[0].prev_out.tx_id.hex()} instead of {spend.id.hex()}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("the first input does not spend to_spend")
     if len(prevouts) != len(tx.vin):
         err_msg = f"{len(prevouts)} utxos for {len(tx.vin)} inputs"
         raise BTClibValueError(err_msg)
@@ -575,7 +574,7 @@ def _assert_upgradeable(tx: Tx, prevouts: list[TxOut]) -> None:
     Required rules have already been checked for every input.
     """
     if tx.version not in _VERSIONS:
-        err_msg = f"to_sign version {tx.version}: BIP322 allows 0 and 2"
+        err_msg = f"to_sign version {_quoted(tx.version)}: BIP322 allows 0 and 2"
         raise InconclusiveError(err_msg)
     for prevout, tx_in in zip(prevouts, tx.vin, strict=True):
         if type_and_payload(prevout.script_pub_key.script)[0] == "p2tr":
@@ -622,7 +621,7 @@ def _assert_weight(tx: Tx) -> None:
     """
     weight = tx.weight
     if weight > MAX_BLOCK_WEIGHT:
-        err_msg = f"to_sign weight {weight}: over the block limit of {MAX_BLOCK_WEIGHT}"
+        err_msg = f"to_sign weight {_quoted(weight)}: over the block limit of {MAX_BLOCK_WEIGHT}"
         raise BTClibValueError(err_msg)
 
 
@@ -637,7 +636,8 @@ def _assert_sig_op_cost(spend: Tx, prevouts: list[TxOut], tx: Tx) -> None:
     """
     cost = sig_op_cost([], spend) + sig_op_cost(prevouts, tx)
     if cost > MAX_BLOCK_SIGOPS_COST:
-        err_msg = f"sigop cost {cost}: over the block limit of {MAX_BLOCK_SIGOPS_COST}"
+        err_msg = f"sigop cost {_quoted(cost)}: over the block limit"
+        err_msg += f" of {MAX_BLOCK_SIGOPS_COST}"
         raise BTClibValueError(err_msg)
 
 
@@ -708,7 +708,7 @@ def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
         verify_transaction(prevouts, tx, REQUIRED_RULES, hash_types=required_only)
         _assert_hash_types(required_only)
         _assert_no_code_separator(prevouts, tx)
-        raise InconclusiveError(f"upgradeable rule: {e}") from e
+        raise InconclusiveError("upgradeable rule") from e
     _assert_hash_types(hash_types)
     _assert_no_code_separator(prevouts, tx)
 
@@ -899,9 +899,7 @@ def assert_signed_message(psbt: Psbt) -> bytes:
     tx = psbt.tx
     spend = to_spend(msg, _challenge_script(psbt))
     if tx.vin[0].prev_out != OutPoint(spend.id, 0):
-        err_msg = "the first input does not spend to_spend: "
-        err_msg += f"{tx.vin[0].prev_out.tx_id.hex()} instead of {spend.id.hex()}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("the first input does not spend to_spend")
     _assert_op_return_output(tx)
     return msg
 

@@ -73,6 +73,8 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, is_integer
 from ecc.curves import point_from_pub_key
 
+from btclib_wallet._refusal import _quoted
+
 __all__ = [
     "CET_SEQUENCE",
     "DUST_LIMIT",
@@ -108,7 +110,7 @@ def _assert_int(value: object, what: str, *, low: int, high: int) -> None:
     if not is_integer(value):
         raise BTClibTypeError(f"invalid {what} type: {type(value).__name__}")
     if not low <= value <= high:  # type: ignore[operator]
-        raise BTClibValueError(f"{what} out of range: {value}")
+        raise BTClibValueError(f"{what} out of range: {_quoted(value)}")
 
 
 def _assert_bytes(value: object, what: str) -> None:
@@ -158,7 +160,9 @@ class FundingInput:
         _assert_bytes(self.redeem_script, "redeem script")
         _assert_int(self.sequence, "sequence", low=0, high=_MAX_U32)
         if self.prev_vout >= len(self.prev_tx.vout):
-            raise BTClibValueError(f"no output {self.prev_vout} in the previous tx")
+            raise BTClibValueError(
+                f"no output {_quoted(self.prev_vout)} in the previous tx"
+            )
         spk = self.prev_tx.vout[self.prev_vout].script_pub_key.script
         if self.redeem_script:
             if not is_p2sh(spk) or hash160(self.redeem_script) != spk[2:22]:
@@ -379,7 +383,7 @@ def _change(party: DlcParty, fee_rate: int) -> int:
     change = sum(i.value for i in party.inputs) - party.collateral - fees
     if change < DUST_LIMIT:
         raise BTClibValueError(
-            f"the inputs leave {change} satoshis of change, under {DUST_LIMIT}"
+            f"the inputs leave {_quoted(change)} satoshis of change, under {DUST_LIMIT}"
         )
     return change
 

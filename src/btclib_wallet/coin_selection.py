@@ -107,6 +107,7 @@ from btclib.fee import DUST_RELAY_FEE_RATE, FeeRate, dust_threshold, fee_from_vs
 from btclib.tx import OutPoint, TxOut
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.tx_builder import _target_overhead_vsize
 
 __all__ = [
@@ -189,7 +190,7 @@ class Candidate:
             # zero is refused beside a negative one: a weightless input
             # spends for free, which no scriptSig and no witness do, and
             # every arithmetic below divides by it or through it
-            raise BTClibValueError(f"non-positive weight: {self.weight}")
+            raise BTClibValueError(f"non-positive weight: {_quoted(self.weight)}")
 
     @property
     def vsize(self) -> int:
@@ -399,7 +400,7 @@ def _assert_selection_arguments(
             raise BTClibTypeError(err_msg)
         if change_spend_weight <= 0:
             raise BTClibValueError(
-                f"non-positive change_spend_weight: {change_spend_weight}"
+                f"non-positive change_spend_weight: {_quoted(change_spend_weight)}"
             )
 
 
@@ -492,7 +493,7 @@ def branch_and_bound(
         eligible, target, cost_of_change, fee_rate, long_term_fee_rate
     )
     if selected is None:
-        err_msg = f"branch and bound: no changeless selection reaches {target} satoshi"
+        err_msg = f"branch and bound: no changeless selection reaches {_quoted(target)} satoshi"
         raise BTClibValueError(err_msg)
     return _score(
         selected,
@@ -668,7 +669,7 @@ def knapsack(
     engine = random.Random() if rng is None else rng  # noqa: S311
     selected = _knapsack(eligible, target, change_target, fee_rate, engine)
     if selected is None:
-        err_msg = f"knapsack: no selection of the candidates reaches {target} satoshi"
+        err_msg = f"knapsack: no selection of the candidates reaches {_quoted(target)} satoshi"
         raise BTClibValueError(err_msg)
     return _score(
         selected,
@@ -827,7 +828,9 @@ def single_random_draw(
         srd_target += CHANGE_LOWER + change_cost
     selected = _single_random_draw(eligible, srd_target, fee_rate, engine)
     if selected is None:
-        err_msg = f"single random draw: no shuffle reaches {srd_target} satoshi"
+        err_msg = (
+            f"single random draw: no shuffle reaches {_quoted(srd_target)} satoshi"
+        )
         raise BTClibValueError(err_msg)
     return _score(
         selected,
@@ -902,7 +905,22 @@ def select_coins(
     if not algorithms:
         raise BTClibValueError("no algorithm named")
     if unknown := sorted(set(algorithms) - set(_ALGORITHMS)):
-        raise BTClibValueError(f"unknown algorithm: {', '.join(unknown)}")
+        raise BTClibValueError(
+            "unknown algorithm: " + ", ".join(_quoted(name) for name in unknown)
+        )
+
+    # refused here, before the algorithms, so that an argument wrong for
+    # all three is refused by its own message and not as three refusals
+    # named by algorithm alone
+    _assert_selection_arguments(
+        candidates,
+        outputs,
+        fee_rate,
+        long_term_fee_rate,
+        change_script_pub_key,
+        change_spend_weight,
+        dust_fee_rate,
+    )
 
     results: list[SelectionResult] = []
     errors: list[str] = []
@@ -919,8 +937,8 @@ def select_coins(
                     dust_fee_rate=dust_fee_rate,
                 )
             )
-        except BTClibValueError as e:
-            errors.append(str(e))
+        except BTClibValueError:
+            errors.append("bnb")
     if "knapsack" in algorithms:
         try:
             results.append(
@@ -935,8 +953,8 @@ def select_coins(
                     rng=rng,
                 )
             )
-        except BTClibValueError as e:
-            errors.append(str(e))
+        except BTClibValueError:
+            errors.append("knapsack")
     if "srd" in algorithms:
         try:
             results.append(
@@ -951,15 +969,14 @@ def select_coins(
                     rng=rng,
                 )
             )
-        except BTClibValueError as e:
-            errors.append(str(e))
+        except BTClibValueError:
+            errors.append("srd")
 
     if not results:
-        # each algorithm's own message already names the target it
-        # computed against -- the same figure across all three, `_prepare`
-        # being where every one of them reads it -- so this is not repeated
+        # the algorithms that refused, by name, and not their messages: a
+        # refusal relays no exception's text
         err_msg = "no selection of the candidates covers the outputs at this "
-        err_msg += f"rate: {'; '.join(errors)}"
+        err_msg += f"rate: {', '.join(errors)} refused"
         raise BTClibValueError(err_msg)
 
     return min(results, key=lambda result: result.waste)

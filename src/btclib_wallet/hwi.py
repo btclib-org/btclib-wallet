@@ -140,6 +140,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Collection, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import IO, Any
 
@@ -148,7 +149,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _code, _label, _message_text, _quoted
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.exceptions import SignerError, SignerNotFoundError
@@ -177,7 +178,26 @@ __all__ = [
 # be answers about two different executables
 DEFAULT_EXECUTABLE = "hwi"
 
+# the commands and answer fields a refusal names: `_label` writes a name
+# from here as it stands, and quotes any other as a caller's value
+_COMMANDS = frozenset(
+    (
+        "displayaddress",
+        "getxpub",
+        "registerdescriptor",
+        "signmessage",
+        "signtx",
+        "address",
+        "registration",
+        "signature",
+        "xpub",
+    )
+)
+
 _WINDOWS = sys.platform == "win32"
+
+# what `_run` holds before the answer parses: no json parses to it
+_NOT_JSON = object()
 
 # a button press is what a signing command waits for, so the bound is on
 # a person and not on a computation: two minutes is long enough for a
@@ -320,7 +340,7 @@ def _absolute(argv: list[str]) -> list[str]:
         return argv
     program = _on_path(argv[0])
     if program is None:
-        raise SignerNotFoundError(f"cannot run {argv[0]}: not found on the PATH")
+        raise SignerNotFoundError("cannot run the hwi command: not found on the PATH")
     return [program, *argv[1:]]
 
 
@@ -416,6 +436,27 @@ def _read(stream: IO[bytes], limit: int) -> bytes:
     return stream.read(limit)
 
 
+def _started(
+    argv: list[str], stdin: IO[bytes] | None, out: IO[bytes], err: IO[bytes]
+) -> subprocess.Popen[bytes]:
+    """Start the command line, refusing one that cannot be run.
+
+    The refusal is raised after the block, so it chains no cause: an
+    `OSError` holds the path it could not run.
+    """
+    failure: SignerError
+    try:
+        return subprocess.Popen(argv, stdin=stdin, stdout=out, stderr=err)  # noqa: S603
+    except FileNotFoundError:
+        # the one failure that is not about a device: the command line
+        # is not installed, which a caller offering signers of several
+        # kinds reports differently from one it could not reach
+        failure = SignerNotFoundError("cannot run the hwi command: no such file")
+    except OSError as e:
+        failure = SignerError(f"cannot run the hwi command: {type(e).__name__}")
+    raise failure
+
+
 def _run(
     argv: list[str],
     *,
@@ -454,18 +495,7 @@ def _run(
         if stdin is not None:
             given.write(stdin)
             given.seek(0)
-        try:
-            process = subprocess.Popen(  # noqa: S603
-                argv, stdin=None if stdin is None else given, stdout=out, stderr=err
-            )
-        except FileNotFoundError as e:
-            # the one failure that is not about a device: the command line
-            # is not installed, which a caller offering signers of several
-            # kinds reports differently from one it could not reach
-            raise SignerNotFoundError(f"cannot run {argv[0]}: {e}") from e
-        except OSError as e:
-            raise SignerError(f"cannot run {argv[0]}: {e}") from e
-
+        process = _started(argv, None if stdin is None else given, out, err)
         try:
             timed_out = _watch(
                 process, (out, err), timeout=timeout, max_output=max_output
@@ -474,35 +504,44 @@ def _run(
             _kill(process)
 
         if timed_out:
-            raise SignerError(f"{argv[0]} timed out after {timeout} s")
+            raise SignerError("the hwi command timed out")
         # one byte past the limit is all that has to be read to know the
         # limit was passed, and all that is read of a child that flooded
         stdout = _read(out, max_output + 1)
         stderr = _read(err, max_output + 1)
 
     if len(stdout) > max_output:
-        err_msg = f"{argv[0]} answered more than {max_output} bytes"
+        err_msg = f"the hwi command answered more than {_quoted(max_output)} bytes"
         raise SignerError(err_msg)
     if len(stderr) > max_output:
         # the same limit and a separate one: stderr is diagnostics, so a
         # backend flooding it says nothing about the answer, and a backend
         # flooding it is still one this process will not hold in memory
-        err_msg = f"{argv[0]} wrote more than {max_output} bytes to stderr"
+        err_msg = "the hwi command wrote more than "
+        err_msg += f"{_quoted(max_output)} bytes to stderr"
         raise SignerError(err_msg)
     if not stdout.strip():
         # a command that printed nothing has failed in its own way, and
         # stderr is where it said so: HWI prints a traceback there when it
-        # cannot even build the parser
-        message = stderr.decode("utf-8", "replace").strip()
-        raise SignerError(f"{argv[0]} answered nothing: {message or 'no output'}")
+        # cannot even build the parser. The text is another program's, so
+        # the refusal says how much of it there is and not what it says
+        err_msg = "the hwi command answered nothing, "
+        err_msg += f"{len(stderr.strip())} bytes on stderr"
+        raise SignerError(err_msg)
 
-    try:
+    # raised after the block: a JSONDecodeError holds the whole answer
+    answer: Any = _NOT_JSON
+    with suppress(json.JSONDecodeError):
         answer = json.loads(stdout)
-    except json.JSONDecodeError as e:
-        raise SignerError(f"{argv[0]} did not answer json: {e}") from e
+    if answer is _NOT_JSON:
+        raise SignerError("the hwi command did not answer json")
 
     if isinstance(answer, dict) and "error" in answer:
-        raise SignerError(str(answer["error"]), answer.get("code"))
+        # HWI's code is what a caller acts on, and its message is another
+        # program's text, which a refusal does not relay
+        code = answer.get("code")
+        err_msg = "the hwi command answered an error"
+        raise SignerError(err_msg, None if code is None else _code(code))
     return answer
 
 
@@ -518,14 +557,17 @@ def _fingerprint(entry: Mapping[str, Any]) -> bytes | None:
     fingerprint = entry.get("fingerprint")
     if fingerprint is None:
         return None
-    try:
+    # refused after the block, so that the error, which may hold the
+    # value, is not chained
+    with suppress(TypeError, ValueError):
         return bytes_from_octets(fingerprint, 4)
-    except (TypeError, ValueError) as e:
-        err_msg = f"hwi enumerate answered an invalid fingerprint, {_message_text(fingerprint)}: {e}"
-        raise SignerError(err_msg) from e
+    err_msg = (
+        f"hwi enumerate answered an invalid fingerprint, {_message_text(fingerprint)}"
+    )
+    raise SignerError(err_msg)
 
 
-def _code(entry: Mapping[str, Any]) -> int | None:
+def _entry_code(entry: Mapping[str, Any]) -> int | None:
     """Return an entry's error code, refusing one that is not a number.
 
     `HwiDevice.code` is what a caller branches on -- -14 is the button
@@ -569,7 +611,7 @@ def _device(entry: Any) -> HwiDevice:
         needs_pin_sent=bool(entry.get("needs_pin_sent")),
         needs_passphrase_sent=bool(entry.get("needs_passphrase_sent")),
         error=str(entry.get("error", "")),
-        code=_code(entry),
+        code=_entry_code(entry),
     )
 
 
@@ -680,17 +722,17 @@ class HwiSigner:
             assert usable[0].fingerprint is not None  # noqa: S101
             return usable[0].fingerprint
         if not usable:
+            # the type and the error are HWI's text, so they are quoted
+            # where a name may be and described past it
             unusable = ", ".join(
-                f"{device.type} ({device.error or 'no fingerprint'})"
+                f"{_quoted(device.type)} "
+                f"({'an error' if device.error else 'no fingerprint'})"
                 for device in devices
             )
             err_msg = f"no usable device: {unusable}" if unusable else "no device"
             raise SignerError(err_msg)
-        fingerprints = ", ".join(
-            device.fingerprint.hex() for device in usable if device.fingerprint
-        )
-        err_msg = f"{len(usable)} usable devices ({fingerprints}):"
-        err_msg += " name the one to use by its fingerprint"
+        err_msg = f"{len(usable)} usable devices: name the one to use by its"
+        err_msg += " fingerprint, which enumerate_devices answers"
         raise SignerError(err_msg)
 
     def _hwi(self, *args: str, stdin: bytes | None) -> Any:
@@ -703,7 +745,7 @@ class HwiSigner:
         if self._closed:
             raise SignerError("the signer is closed")
         if any("\x00" in arg for arg in args):
-            err_msg = f"hwi {args[0]} takes no NUL character on a command line"
+            err_msg = f"hwi {_label(args[0], _COMMANDS)} takes no NUL character on a command line"
             raise BTClibValueError(err_msg)
         argv = [
             *self.executable,
@@ -719,7 +761,9 @@ class HwiSigner:
         answer = self._hwi(*command, stdin=None)
         if not isinstance(answer, dict) or field not in answer:
             err_msg = (
-                f"hwi {command[0]} did not answer a {field}: {_message_text(answer)}"
+                f"hwi {_label(command[0], _COMMANDS)} did not answer a"
+                f" {_label(field, _COMMANDS)}: "
+                f"{_message_text(answer)}"
             )
             raise SignerError(err_msg)
         return str(answer[field])

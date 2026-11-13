@@ -171,7 +171,7 @@ def start_height_for_time(fetcher: Fetcher, time: datetime) -> int | None:
     if not isinstance(time, datetime):
         raise BTClibTypeError(f"not a datetime: {type(time).__name__}")
     if time.utcoffset() is None:
-        raise BTClibValueError(f"a time with no time zone: {time}")
+        raise BTClibValueError("a time with no time zone")
     # compared as seconds, since a datetime near `datetime.min` has no
     # datetime two hours earlier
     earliest = time.timestamp() - MAX_FUTURE_BLOCK_TIME

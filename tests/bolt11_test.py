@@ -23,11 +23,12 @@ from base58_bech32.bech32 import bech32_encode
 from btclib.b32 import power_of_2_base_conversion
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import sha256
+from btclib.network import NETWORKS
 from ecc.curves import secp256k1
 from ecc.dsa import Sig, sign_recoverable_
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
-from tests import load, vector_id
+from tests import load, raises_from, vector_id
 from tests.exception_family_test import VALUE_ERRORS
 
 _PRV_KEY = "e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734"
@@ -233,7 +234,7 @@ def test_sign_coerces_the_network_name() -> None:
 
 def test_sign_refuses_an_unknown_network_with_a_value_error() -> None:
     """`sign` refuses a network BOLT11 has no prefix for, name quoted."""
-    with pytest.raises(BTClibValueError, match="not a lightning network: 'testnet4'"):
+    with pytest.raises(BTClibValueError, match="not a lightning network: testnet4"):
         Bolt11Invoice.sign(
             _PRV_KEY,
             "testnet4",
@@ -337,7 +338,7 @@ def test_from_invoice_takes_text_not_octets() -> None:
 
 def test_assert_valid_refuses_an_unknown_network() -> None:
     """A network `bech32` never issues a prefix for is refused, name quoted."""
-    with pytest.raises(BTClibValueError, match="not a lightning network: 'testnet4'"):
+    with pytest.raises(BTClibValueError, match="not a lightning network: testnet4"):
         Bolt11Invoice(
             "testnet4",
             0,
@@ -365,7 +366,9 @@ def test_unchecked_invoice_of_an_unknown_network_is_refused_on_use(
         0,
         check_validity=False,
     )
-    err_msg = f"not a lightning network: '{network}'"
+    # a network name written as it stands, any other quoted
+    name = network if network in NETWORKS else f"'{network}'"
+    err_msg = f"^not a lightning network: {name}$"
     with pytest.raises(BTClibValueError, match=err_msg):
         invoice.to_invoice()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -407,17 +410,31 @@ def test_bolt11_coerces_the_network_name_regardless_of_check_validity() -> None:
 
 
 @pytest.mark.parametrize(
-    "word, error, err_msg",
+    "word, error, err_msg, cause",
     [
         # older base58-bech32 releases print the value, newer ones describe it
-        (32, BTClibValueError, "^invalid 5-bit value: (32|an int of 6 bits)$"),
-        ("0", BTClibTypeError, "^invalid 5-bit value type: str$"),
+        (
+            32,
+            BTClibValueError,
+            "^invalid bech32 data$",
+            "invalid 5-bit value: (32|an int of 6 bits)",
+        ),
+        (
+            "0",
+            BTClibTypeError,
+            "^invalid bech32 data type$",
+            "invalid 5-bit value type: str",
+        ),
     ],
 )
 def test_to_invoice_refuses_an_unchecked_word_as_btclib_does(
-    word: object, error: type[Exception], err_msg: str
+    word: object, error: type[Exception], err_msg: str, cause: str
 ) -> None:
-    """A word of an unchecked invoice reaches the codec, refused as btclib's."""
+    """A word of an unchecked invoice reaches the codec, and its refusal.
+
+    The codec's refusal is chained, and this package's, of the same kind,
+    is what leaves.
+    """
     invoice = Bolt11Invoice(
         "mainnet",
         0,
@@ -426,7 +443,7 @@ def test_to_invoice_refuses_an_unchecked_word_as_btclib_does(
         0,
         check_validity=False,
     )
-    with pytest.raises(error, match=err_msg):
+    with raises_from(error, match=err_msg, cause=cause):
         invoice.to_invoice()
 
 

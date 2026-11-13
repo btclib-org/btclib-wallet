@@ -29,7 +29,10 @@ from typing_extensions import override
 
 import btclib_wallet
 from btclib_wallet import electrum, silent_payments
+from btclib_wallet._refusal import _label
 from btclib_wallet.bip21 import Bip21
+from btclib_wallet.bip32 import BIP32KeyData
+from btclib_wallet.bip85 import nsec_from_root_key
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.bolt11 import Bolt11Invoice
 from btclib_wallet.core_import import assert_imported, import_request
@@ -42,6 +45,7 @@ from btclib_wallet.electrum import (
     transaction_get_request,
 )
 from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.fetch import transport as transport_module
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
@@ -371,11 +375,11 @@ HEX = KEY.hex()
         ),
         (
             lambda: electrum.encode_request(1, "m", [{HEX: object()}]),
-            "^request not JSON: Object of type object is not JSON serializable$",
+            "^request not JSON: TypeError$",
         ),
         (
             lambda: electrum.encode_request(1, "m", [{HEX: float("nan")}]),
-            "^request not JSON: Out of range float values are not JSON compliant",
+            "^request not JSON: ValueError$",
         ),
         (
             lambda: ElectrumFetcher(transport=KEY),  # type: ignore[arg-type]
@@ -532,6 +536,25 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
     with pytest.raises(BTClibRuntimeError, match=err_msg) as e:
         assert_imported([{}], [answer])
     assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        ("mainnet", "mainnet"),
+        (HEX, "a value of 64 characters"),
+        (KEY, "a bytes of length 32"),
+        (SCALAR, "a value of more than 16 digits"),
+    ],
+    ids=["label", "hex", "bytes", "scalar"],
+)
+def test_a_label_is_written_only_where_the_package_holds_it(
+    value: object, shown: str
+) -> None:
+    """Any other value is shown as `_quoted` shows it (issue #821)."""
+    labels = ("mainnet", "testnet")
+    assert _label(value, labels) == shown
+    assert_secret_free(BTClibValueError(_label(value, labels)), SPELLINGS)
 
 
 @pytest.mark.parametrize(
@@ -735,22 +758,19 @@ def test_a_refused_fetch_argument_is_described(
     [
         (
             lambda: electrum_fetcher(5).get_tx(KEY),
-            "^transaction: transaction.get: not a hex string: an int of 3 bits$",
+            "^transaction: a malformed answer$",
         ),
         (
             lambda: electrum_fetcher([]).get_tx_merkle(KEY, 1),
-            (
-                "^transaction merkle: transaction.get_merkle: not an object:"
-                " a list of length 0$"
-            ),
+            ("^transaction merkle: a malformed answer$"),
         ),
         (
             lambda: electrum_fetcher(5).get_block_header(SCALAR),
-            "^block header: block.header: not a hex string: an int of 3 bits$",
+            "^block header: a malformed answer$",
         ),
         (
             lambda: electrum_fetcher(5).get_block_headers(0, SCALAR),
-            "^block headers: block.headers: not an object: an int of 3 bits$",
+            "^block headers: a malformed answer$",
         ),
         (
             lambda: tx_from_raw(5, HEX, "mainnet"),  # type: ignore[arg-type]
@@ -758,7 +778,7 @@ def test_a_refused_fetch_argument_is_described(
         ),
         (
             lambda: tx_from_raw(SEGWIT_TX_RAW, HEX, "mainnet"),
-            "^transaction: the answer is [0-9a-f]{64}, not the one asked$",
+            "^transaction: the answer is another transaction than the one asked$",
         ),
     ],
     ids=[
@@ -838,4 +858,64 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
         BTClibValueError, match="^unknown method: a str of length 64$"
     ) as e:
         decode_response(line, 1, HEX)
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: Bip21.parse(f"bitcoin:{ADDRESS}?label={HEX}%ff"),
+            "^invalid percent-encoding in label$",
+        ),
+        (
+            lambda: BIP32KeyData(
+                b"\x04\x88\xad\xe4", 1, b"\x01" * 4, SCALAR, b"\x00" * 32, b"\x00" + KEY
+            ),
+            "^invalid index: a value of more than 16 digits$",
+        ),
+        (
+            lambda: nsec_from_root_key("", -SCALAR, 1),
+            "^invalid nostr identity: a value of more than 16 digits$",
+        ),
+        (
+            lambda: Bolt11Invoice(
+                "mainnet", SCALAR, [], DsaSig(1, 1, check_validity=False), 0
+            ),
+            "^timestamp does not fit 35 bits: a value of more than 16 digits$",
+        ),
+    ],
+    ids=["bip21 percent-escape", "bip32 index", "bip85 identity", "bolt11 timestamp"],
+)
+def test_a_refusal_of_each_kind_prints_no_key(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A key passed as an int or inside a str is in no refusal (issue #821).
+
+    The percent-escape's `UnicodeDecodeError` holds the whole decoded
+    value, so the refusal chains nothing.
+    """
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
+        call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_host_that_passed_construction_is_described_where_it_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two labels of a key's hex are a hostname, quoted up to 16 characters.
+
+    The connection is refused, and the refusal names the host as
+    `_quoted` does (issue #821).
+    """
+
+    def create_connection(address: tuple[str, int], timeout: float) -> object:
+        raise ConnectionRefusedError(address, timeout)
+
+    monkeypatch.setattr(transport_module, "create_connection", create_connection)
+    host = f"{HEX[:32]}.{HEX[32:]}"
+    err_msg = "^no answer from a value of 65 characters:1: ConnectionRefusedError$"
+    with pytest.raises(FetchError, match=err_msg) as e:
+        TcpLineTransport(host, 1)(b"{}\n", 1.0)
+    assert e.value.__cause__ is None
     assert_secret_free(e.value, SPELLINGS)

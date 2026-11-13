@@ -50,7 +50,6 @@ from btclib.utils import (
     assert_type,
     bytes_from_octets,
     bytesio_from_binarydata,
-    hex_string,
     int_from_json_number,
     is_integer,
 )
@@ -67,6 +66,7 @@ from ecc.curves import (
 )
 from typing_extensions import override
 
+from btclib_wallet._refusal import _label, _message_text, _quoted
 from btclib_wallet.bip32.der_path import (
     HARDENED_OFFSET,
     DerPath,
@@ -153,19 +153,37 @@ def _cached_base58_decode(address: String) -> bytes:
 
     Every refusal is raised outside the `except`, as the
     `BTClibValueError` this package refuses with: the codec raises
-    `Base58Bech32ValueError`. A refusal of a bad checksum or of a
-    non-ASCII character keeps only its text before a colon, so that no
-    checksum, which is a hash of the key, and no character of the key can
-    follow it.
+    `Base58Bech32ValueError`. What it says is one of `_B58_REFUSALS`,
+    the start of the codec's text, which no value of the key follows,
+    and the position of the first character outside ASCII where that is
+    the fault, counted here.
     """
     try:
         return b58decode_check(address)
     except Base58Bech32ValueError as e:
-        # the other messages of `b58decode_check` quote nothing of the key
-        refusal = str(e).split(": ", maxsplit=1)[0]
-        if not refusal.startswith(("invalid checksum", "non-ascii character")):
-            refusal = str(e)
+        text = str(e)
+    refusal = next(
+        (known for known in _B58_REFUSALS if text.startswith(known)),
+        "invalid base58 string",
+    )
+    # the codec refuses a character outside ASCII in a str alone: bytes
+    # outside it are characters base58 has not
+    if refusal == _NON_ASCII and isinstance(address, str):
+        position = next((i for i, c in enumerate(address) if not c.isascii()), None)
+        refusal += "" if position is None else f" at position {_quoted(position)}"
     raise BTClibValueError(refusal)
+
+
+_NON_ASCII = "non-ascii character in base58 string"
+# how `b58decode_check` starts the text of each refusal it raises
+_B58_REFUSALS = (
+    "invalid checksum",
+    _NON_ASCII,
+    "too many base58 characters",
+    "not enough bytes for checksum",
+    "Base58 string contains invalid characters",
+    "valid checksum, invalid decoded size",
+)
 
 
 def _assert_valid_depth_and_index(
@@ -178,18 +196,16 @@ def _assert_valid_depth_and_index(
     and the fingerprint of the parent are allowed to be.
     """
     if not 0 <= index <= 0xFFFFFFFF:
-        raise BTClibValueError(f"invalid index: {index}")
+        raise BTClibValueError(f"invalid index: {_quoted(index)}")
 
     if not 0 <= depth <= 255:
-        raise BTClibValueError(f"invalid depth: {depth}")
+        raise BTClibValueError(f"invalid depth: {_quoted(depth)}")
 
     if depth == 0:
         if parent_fingerprint != b"\x00" * 4:
-            err_msg = "zero depth with non-zero parent fingerprint: "
-            err_msg += f"0x{parent_fingerprint.hex()}"
-            raise BTClibValueError(err_msg)
+            raise BTClibValueError("zero depth with non-zero parent fingerprint")
         if index != 0:
-            raise BTClibValueError(f"zero depth with non-zero index: {index}")
+            raise BTClibValueError(f"zero depth with non-zero index: {_quoted(index)}")
 
 
 def _assert_valid_key(version: bytes, key: bytes) -> None:
@@ -201,16 +217,14 @@ def _assert_valid_key(version: bytes, key: bytes) -> None:
     """
     if version in XPRV_VERSIONS_ALL:
         if key[0] != 0:
-            raise BTClibValueError(f"invalid private key prefix: 0x{key[:1].hex()}")
+            raise BTClibValueError("invalid private key prefix")
         q = int.from_bytes(key[1:], byteorder="big", signed=False)
         if not 0 < q < secp256k1.n:
             # never echo the scalar: it is (attempted) key material
             raise BTClibValueError("invalid private key not in 1..n-1")
     elif version in XPUB_VERSIONS_ALL:
         if key[0] not in {2, 3}:
-            err_msg = "invalid public key prefix not in (0x02, 0x03): "
-            err_msg += f"0x{key[:1].hex()}"
-            raise BTClibValueError(err_msg)
+            raise BTClibValueError("invalid public key prefix not in (0x02, 0x03)")
         # existence and nothing else, the y having been computed and
         # dropped: this is the caller is_x_coordinate_var's docstring
         # describes, and the square root it exists not to pay was paid
@@ -221,11 +235,10 @@ def _assert_valid_key(version: bytes, key: bytes) -> None:
         x = int.from_bytes(key[1:], byteorder="big", signed=False)
         # `Public`: the xpub version says these bytes are a public key
         if not is_x_coordinate_var(Public(x), secp256k1):
-            # the value may be a private scalar: only its prefix is quoted
-            err_msg = f"invalid public key: not a point, prefix 0x{key[:1].hex()}"
-            raise BTClibValueError(err_msg)
+            # the value may be a private scalar: none of it is printed
+            raise BTClibValueError("invalid public key: not a point")
     else:
-        raise BTClibValueError(f"unknown extended key version: 0x{version.hex()}")
+        raise BTClibValueError("unknown extended key version")
 
 
 @dataclass(frozen=True, init=False)
@@ -527,10 +540,7 @@ def _xpub_from_xprv(xprv: BIP32KeyData) -> BIP32KeyData:
     transactions).
     """
     if xprv.key[0] != 0:
-        # the offending key is public here, but never echo a
-        # serialized xkey: the prefix already says what is wrong
-        err_msg = f"not a private key: prefix 0x{xprv.key[:1].hex()}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("not a private key")
 
     q = int.from_bytes(xprv.key[1:], byteorder="big", signed=False)
 
@@ -630,20 +640,15 @@ def prv_keyinfo_from_xprv(
 
     # from here it is an xkey, so what follows is a fault in one
     if xprv_data.key[0] != 0:
-        # the offending key is public here, but never echo a
-        # serialized xkey: the prefix already says what is wrong
-        err_msg = f"not a private key: prefix 0x{xprv_data.key[:1].hex()}"
-        raise InvalidPrvKeyError(err_msg)
+        raise InvalidPrvKeyError("not a private key")
 
     if network is None:
         network = network_from_xkeyversion(xprv_data.version)
 
     allowed_versions = xprvversions_from_network(network)
     if xprv_data.version not in allowed_versions:
-        # never echo the xprv, which is a private key:
-        # the version is the mismatching, non-secret, part
-        err_msg = f"not a {network} key: version 0x{xprv_data.version.hex()}"
-        raise InvalidPrvKeyError(err_msg)
+        # never echo the xprv, which is a private key, nor its version
+        raise InvalidPrvKeyError(f"not a {_label(network, NETWORKS)} key")
 
     q = int.from_bytes(xprv_data.key[1:], byteorder="big")
     return q, network, True
@@ -691,10 +696,8 @@ def _pub_keyinfo_from_xpub(
     calling here.
     """
     if xpub_data.key[0] not in {2, 3}:
-        # this branch is reached with an xprv: never echo it,
-        # the prefix already says what is wrong
-        err_msg = f"not a public key: prefix 0x{xpub_data.key[:1].hex()}"
-        raise BTClibValueError(err_msg)
+        # this branch is reached with an xprv: never echo it
+        raise BTClibValueError("not a public key")
 
     if network is None:
         return xpub_data.key, network_from_xkeyversion(xpub_data.version)
@@ -703,8 +706,7 @@ def _pub_keyinfo_from_xpub(
     if xpub_data.version not in allowed_versions:
         # an xpub is not funds-critical, but it derives all child pub
         # keys: keep it out of exception messages (and logs) too
-        err_msg = f"not a {network} key: version 0x{xpub_data.version.hex()}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError(f"not a {_label(network, NETWORKS)} key")
 
     return xpub_data.key, network
 
@@ -745,13 +747,11 @@ def point_from_xpub(xpub: BIP32Key, ec: Curve = secp256k1) -> Point:
     xpub_data = key_data_from_bip32_key(xpub)
 
     if xpub_data.is_private:
-        # never echo the key, which is private here:
-        # the prefix already says what is wrong
-        raise BTClibValueError(f"not a public key: prefix 0x{xpub_data.key[:1].hex()}")
+        # never echo the key, which is private here
+        raise BTClibValueError("not a public key")
     ec2 = curve_from_xkeyversion(xpub_data.version)
     if ec != ec2:
-        err_msg = f"ec/xpub version ({xpub_data.version.hex()}) mismatch"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("ec/xpub version mismatch")
     return point_from_octets_var(xpub_data.key, ec)
 
 
@@ -819,7 +819,7 @@ def _invalid_child(index: int, reason: str) -> BTClibValueError:
     At odds of about 2^-127 none of the three is reachable, so what this
     buys is a defined answer rather than a key no other wallet derives.
     """
-    err_msg = f"invalid child index {index}: {reason}"
+    err_msg = f"invalid child index {_quoted(index)}: {reason}"
     err_msg += "; BIP32 mandates deriving the next index instead"
     return BTClibValueError(err_msg)
 
@@ -1062,10 +1062,10 @@ def pub_key_derivation_tweaks(
     except ValueError:
         chain = None
     if chain is None:
-        # the key may be a private scalar: only its prefix is quoted, and
-        # raised outside the `except` so that no `__context__` holds it
-        err_msg = f"invalid public key: not a point, prefix 0x{key[:1].hex()}"
-        raise BTClibValueError(err_msg)
+        # the key may be a private scalar: none of it is printed, and the
+        # refusal is raised outside the `except` so that no `__context__`
+        # holds it
+        raise BTClibValueError("invalid public key: not a point")
 
     tweaks: list[bytes] = []
     for index in indexes:
@@ -1152,9 +1152,7 @@ def _force_version(version: bytes, forced_version: Octets) -> bytes:
     )
     fversion = bytes_from_octets(forced_version, 4)
     if fversion not in allowed_versions:
-        err_msg = "invalid version forced on the extended key"
-        err_msg += f"{hex_string(fversion)}"
-        raise BTClibValueError(err_msg)
+        raise BTClibValueError("invalid version forced on the extended key")
     return fversion
 
 
@@ -1165,7 +1163,7 @@ def _derive(
 
     final_depth = xkey.depth + len(indexes)
     if final_depth > 255:
-        err_msg = f"final depth greater than 255: {final_depth}"
+        err_msg = f"final depth greater than 255: {_quoted(final_depth)}"
         raise BTClibValueError(err_msg)
 
     # the mutable working copy the loop below rewrites field by field:
@@ -1264,7 +1262,7 @@ def _assert_valid_branch(
     # instead of arriving through `int_from_integer` (issue
     # btclib-org/btclib#1403, CONTRIBUTING.md's "This repository in particular")
     if not is_integer(branch):
-        raise BTClibTypeError(f"non-integer branch: {branch}")
+        raise BTClibTypeError(f"non-integer branch: {_message_text(branch)}")
     # the bound both `branch` and, at every call site below,
     # `_assert_valid_address_index`'s own `address_index` compare
     # against -- no less a bare int than either: `max_index=True` is a
@@ -1272,14 +1270,17 @@ def _assert_valid_branch(
     # raising (issue btclib-org/btclib#1413). Checked once, here, since this
     # function runs first at every call site and on the same `max_index`
     if not is_integer(max_index):
-        raise BTClibTypeError(f"non-integer max_index: {max_index}")
+        raise BTClibTypeError(f"non-integer max_index: {_message_text(max_index)}")
     if branch >= HARDENED_OFFSET:
         raise BTClibValueError("invalid private derivation at branch level")
     if branch > max_index:
-        err_msg = f"invalid branch number: {branch} is higher than {max_index}."
+        err_msg = f"invalid branch number: {_quoted(branch)} is higher than"
+        err_msg += f" {_quoted(max_index)}."
         raise BTClibValueError(err_msg)
     if branches_0_1_only and branch not in {0, 1}:
-        raise BTClibValueError(f"invalid branch number: {branch} not in (0, 1)")
+        raise BTClibValueError(
+            f"invalid branch number: {_quoted(branch)} not in (0, 1)"
+        )
 
 
 def _assert_valid_address_index(address_index: int, max_index: int) -> None:
@@ -1289,11 +1290,14 @@ def _assert_valid_address_index(address_index: int, max_index: int) -> None:
     # where that check lives (issue btclib-org/btclib#1413) -- a second one here
     # could never be reached and the coverage floor is what catches that
     if not is_integer(address_index):
-        raise BTClibTypeError(f"non-integer address index: {address_index}")
+        raise BTClibTypeError(
+            f"non-integer address index: {_message_text(address_index)}"
+        )
     if address_index >= HARDENED_OFFSET:
         raise BTClibValueError("invalid private derivation at address index level")
     if address_index > max_index:
-        err_msg = f"invalid address index: {address_index} is higher than {max_index}."
+        err_msg = f"invalid address index: {_quoted(address_index)} is higher"
+        err_msg += f" than {_quoted(max_index)}."
         raise BTClibValueError(err_msg)
 
 
@@ -1451,11 +1455,11 @@ def crack_prv_key_var(parent_xpub: BIP32Key, child_xprv: BIP32Key) -> str:
     p = key_data_from_bip32_key(parent_xpub)
 
     if p.key[0] not in {2, 3}:
-        raise BTClibValueError(_err_msg("parent", "not a public", p))
+        raise BTClibValueError(_err_msg("parent", "not a public"))
     c = key_data_from_bip32_key(child_xprv)
 
     if c.key[0] != 0:
-        raise BTClibValueError(_err_msg("child", "not a private", c))
+        raise BTClibValueError(_err_msg("child", "not a private"))
     # check depth
     if c.depth != p.depth + 1:
         raise BTClibValueError("not a parent's child: wrong depths")
@@ -1488,12 +1492,7 @@ def crack_prv_key_var(parent_xpub: BIP32Key, child_xprv: BIP32Key) -> str:
     return parent.b58encode()
 
 
-def _err_msg(
-    child_or_parent: str, not_a_private_or_public: str, key: BIP32KeyData
-) -> str:
+def _err_msg(child_or_parent: str, not_a_private_or_public: str) -> str:
     # the "not a public" branch is reached with an xprv:
-    # never echo a serialized xkey, the prefix says what is wrong
-    return (
-        f"extended {child_or_parent} key is {not_a_private_or_public} key: "
-        f"prefix 0x{key.key[:1].hex()}"
-    )
+    # never echo a serialized xkey, nor any byte of it
+    return f"extended {child_or_parent} key is {not_a_private_or_public} key"

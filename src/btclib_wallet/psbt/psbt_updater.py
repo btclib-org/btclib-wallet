@@ -20,6 +20,7 @@ from copy import deepcopy
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.descriptors.descriptors import Descriptor, Expansion
 from btclib_wallet.descriptors.key_expression import PrvKeys
 from btclib_wallet.psbt.psbt import Psbt
@@ -112,7 +113,7 @@ def update_psbt_input(
     # an IndexError out of a public function is not an answer, and a
     # negative index would quietly update the input at the other end
     if not 0 <= vin_i < len(psbt.inputs):
-        raise BTClibValueError(f"invalid input index: {vin_i}")
+        raise BTClibValueError(f"invalid input index: {_quoted(vin_i)}")
     psbt = deepcopy(psbt)
     psbt_in = psbt.inputs[vin_i]
     _write(psbt_in, expansion)
@@ -161,13 +162,13 @@ def update_psbt_output(
     # an IndexError out of a public function is not an answer, and a
     # negative index would quietly update the output at the other end
     if not 0 <= vout_i < len(psbt.outputs):
-        raise BTClibValueError(f"invalid output index: {vout_i}")
+        raise BTClibValueError(f"invalid output index: {_quoted(vout_i)}")
     paid = psbt.tx.vout[vout_i].script_pub_key.script
     if all(
         script.script != paid for script in descriptor.script_pub_keys(index, prv_keys)
     ):
-        err_msg = f"output {vout_i} pays to {paid.hex()}, which is not the"
-        err_msg += f" script this descriptor describes at index {index}"
+        err_msg = f"output {_quoted(vout_i)} pays to another script than the"
+        err_msg += f" one this descriptor describes at index {_quoted(index)}"
         raise BTClibValueError(err_msg)
     psbt = deepcopy(psbt)
     psbt_out = psbt.outputs[vout_i]

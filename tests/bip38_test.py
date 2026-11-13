@@ -49,6 +49,7 @@ from tests import (
     aes_encrypt_block,
     aes_expand_key,
     chained_text,
+    raises_from,
 )
 from tests.exception_family_test import VALUE_ERRORS
 
@@ -545,11 +546,12 @@ def test_password_must_be_a_str(bad_password: object) -> None:
 
 
 def test_a_record_that_is_no_string_is_a_btclib_type_error() -> None:
-    """The codec's type refusal leaves as this package's, its message kept."""
-    err_msg = "^invalid base58 string type: int$"
-    with pytest.raises(BTClibTypeError, match=err_msg):
+    """The codec's type refusal leaves as this package's, and is chained."""
+    err_msg = "^invalid Base58Check type$"
+    cause = "invalid base58 string type: int"
+    with raises_from(BTClibTypeError, match=err_msg, cause=cause):
         bip38.decrypt(1, "pw", _decrypt_block)  # type: ignore[arg-type]
-    with pytest.raises(BTClibTypeError, match=err_msg):
+    with raises_from(BTClibTypeError, match=err_msg, cause=cause):
         bip38.new_key_pair(1, _encrypt_block)  # type: ignore[arg-type]
 
 

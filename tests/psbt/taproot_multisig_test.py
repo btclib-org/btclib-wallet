@@ -123,7 +123,10 @@ def test_finalize_refuses_a_signature_for_a_key_outside_multi_a() -> None:
     psbt.inputs[0].taproot_script_spend_signatures[
         PrvKeyData(4).pub.sec[1:] + leaf_hash
     ] = next(iter(psbt.inputs[0].taproot_script_spend_signatures.values()))
-    with pytest.raises(BTClibValueError, match="not the key of leaf script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="taproot script path signature of a key that is not the key of the leaf script",
+    ):
         finalize(psbt)
 
 

@@ -124,13 +124,13 @@ from btclib.tx import Tx
 from btclib.utils import is_integer
 from typing_extensions import override
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _label, _message_text, _quoted
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _fetch_errors,
     block_header_height,
     client_errors,
-    fetch_errors,
     tx_for_network,
     tx_id_hex,
 )
@@ -383,8 +383,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         with client_errors():
             message = self._speaker.transport.receive(remaining)
         if message.magic != self._magic:
-            err_msg = f"message start {message.magic.hex()} is not"
-            err_msg += f" {self.network}'s {self._magic.hex()}"
+            err_msg = f"a message start that is not {_label(self.network, NETWORKS)}'s"
             raise FetchError(err_msg)
         return message
 
@@ -400,7 +399,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             if message.command in commands:
                 return message
             if message.command == Ping.command:
-                with fetch_errors("ping"):
+                with _fetch_errors("ping"):
                     nonce = Ping.parse(message.payload).nonce
                 self._send(Pong(nonce), deadline)
 
@@ -428,7 +427,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             if message.command == Verack.command:
                 have_verack = True
                 continue
-            with fetch_errors("version"):
+            with _fetch_errors("version"):
                 services = Version.parse(message.payload).services
             if not services & ServiceFlags.NODE_COMPACT_FILTERS:
                 raise FetchError("the peer does not serve compact block filters")
@@ -512,13 +511,13 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         deadline = self._deadline()
         self._send(GetHeaders(PROTOCOL_VERSION, locator), deadline)
         message = self._receive((Headers.command,), deadline)
-        with fetch_errors("headers"):
+        with _fetch_errors("headers"):
             return list(Headers.parse(message.payload).headers)
 
     def _assert_pow(self, batch: list[BlockHeader], first_height: int) -> None:
         """Refuse a header without the work its bits claim."""
         for height, header in enumerate(batch, first_height):
-            with fetch_errors(f"header {height}"):
+            with _fetch_errors(f"header {_quoted(height)}"):
                 header.assert_valid_pow(self._consensus.pow_limit_bits)
 
     def _check_header(self, header: BlockHeader, parent_height: int) -> None:
@@ -532,17 +531,18 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         `MAX_FUTURE_BLOCK_TIME` ahead of the clock.
         """
         parent = self._headers[parent_height]
-        with fetch_errors(f"header {parent_height + 1}"):
+        with _fetch_errors(f"header {_quoted(parent_height + 1)}"):
             required = next_bits_required(
                 header, parent, parent_height, self._parent_of, self._consensus
             )
             if header.bits != required:
-                err_msg = f"bits {header.bits.hex()} instead of {required.hex()}"
+                err_msg = "bits other than the ones required"
                 raise BTClibValueError(err_msg)
             past = median_time_past(parent, parent_height, self._parent_of)
             timestamp = int(header.time.timestamp())
             if timestamp <= past:
-                err_msg = f"time {timestamp} is not after the median time past {past}"
+                err_msg = f"time {_quoted(timestamp)} is not after"
+                err_msg += f" the median time past {_quoted(past)}"
                 raise BTClibValueError(err_msg)
             assert_not_timewarp(header, parent, parent_height, self._consensus)
             header.assert_valid_time(datetime.fromtimestamp(time(), UTC))
@@ -575,7 +575,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             height = parent_height + 1
             header_hash = header.hash
             if header.previous_block_hash != self._hashes[parent_height]:
-                raise FetchError(f"header {height} does not follow the one before it")
+                raise FetchError(
+                    f"header {_quoted(height)} does not follow the one before it"
+                )
             if height < len(self._hashes) and self._hashes[height] == header_hash:
                 parent_height = height
                 continue
@@ -634,7 +636,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             )
         except BTClibValueError as e:
             # a clock far behind the median time past of the start
-            raise FetchError(f"headers sync: {e}") from e
+            err_msg = "headers sync: a clock behind the median time past"
+            raise FetchError(f"{err_msg} of the start") from e
         return _LowWorkSync(headers_sync, threshold, parent_height, parent_height)
 
     def _released_reach(self, ready: list[BlockHeader], threshold: int) -> bool:
@@ -662,16 +665,19 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         )
         if not result.success and batch:
             if state is State.PRESYNC:
-                err_msg = f"headers {first} to {sync.height} are not a chain"
+                err_msg = f"headers {_quoted(first)} to {_quoted(sync.height)}"
+                err_msg += " are not a chain"
                 err_msg += " the rules allow"
             else:
-                err_msg = f"headers {first} to {sync.height} are not the chain"
+                err_msg = f"headers {_quoted(first)} to {_quoted(sync.height)}"
+                err_msg += " are not the chain"
                 err_msg += " first served"
             raise FetchError(err_msg)
         if state is State.PRESYNC:
             if not result.request_more:
-                err_msg = f"a chain of work {sync.headers_sync.presync_work},"
-                err_msg += f" below the {sync.threshold}"
+                work = _message_text(sync.headers_sync.presync_work)
+                err_msg = f"a chain of work below the minimum: {work}"
+                err_msg += f" against {_message_text(sync.threshold)}"
                 raise FetchError(err_msg)
             if sync.headers_sync.state is State.REDOWNLOAD:
                 sync.height = sync.start_height
@@ -738,8 +744,10 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         minimum = self._consensus.minimum_chain_work
         displaced_work = 0 if self._displaced is None else self._displaced[2]
         if max(self._work[-1], displaced_work) < minimum:
-            err_msg = f"a chain of work {self._work[-1]}, below the {minimum}"
-            err_msg += f" of {self.network}"
+            err_msg = "a chain of work below the minimum of"
+            err_msg += f" {_label(self.network, NETWORKS)}:"
+            err_msg += f" {_message_text(self._work[-1])}"
+            err_msg += f" against {_message_text(minimum)}"
             self._displaced = None
             self._truncate(1)
             raise FetchError(err_msg)
@@ -776,7 +784,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         deadline = self._deadline()
         self._send(GetCFHeaders(_BASIC, start, self._hashes[stop]), deadline)
         message = self._receive((CFHeaders.command,), deadline)
-        with fetch_errors("cfheaders"):
+        with _fetch_errors("cfheaders"):
             reply = CFHeaders.parse(message.payload)
         previous = self._filter_headers[start - 1] if start else _NO_FILTER_HEADER
         if (
@@ -800,7 +808,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         deadline = self._deadline()
         self._send(GetCFCheckpt(_BASIC, self._hashes[tip]), deadline)
         message = self._receive((CFCheckpt.command,), deadline)
-        with fetch_errors("cfcheckpt"):
+        with _fetch_errors("cfcheckpt"):
             reply = CFCheckpt.parse(message.payload)
         if (
             reply.filter_type != _BASIC
@@ -842,7 +850,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         deadline = self._deadline()
         self._send(GetCFilters(_BASIC, height, self._hashes[height]), deadline)
         message = self._receive((CFilter.command,), deadline)
-        with fetch_errors(f"cfilter {height}"):
+        with _fetch_errors(f"cfilter {_quoted(height)}"):
             reply = CFilter.parse(message.payload)
             if reply.filter_type != _BASIC or reply.block_hash != self._hashes[height]:
                 raise BTClibValueError("not the filter asked for")
@@ -869,11 +877,13 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         if not wrong:
             index = self._peers.index(peer) - 1
             err_msg = f"cross_check[{index}] and transport disagree on the filter"
-            err_msg += f" of block {height}, and the block does not say"
+            err_msg += f" of block {_quoted(height)}, and the block does not say"
             err_msg += " which one is wrong"
             raise FetchError(err_msg)
         if len(wrong) == len(self._peers):
-            raise FetchError(f"every peer served a wrong filter of block {height}")
+            raise FetchError(
+                f"every peer served a wrong filter of block {_quoted(height)}"
+            )
         # the chain held forgets the wrong peers before any of them is
         # closed, so that a failure to close one leaves none of them in it
         if serving in wrong:
@@ -952,7 +962,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         heights = []
         for height in range(start, stop + 1):
             message = self._receive((CFilter.command,), deadline)
-            with fetch_errors(f"cfilter {height}"):
+            with _fetch_errors(f"cfilter {_quoted(height)}"):
                 reply = CFilter.parse(message.payload)
                 if (
                     reply.filter_type != _BASIC
@@ -986,7 +996,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             message = self._receive((BlockPayload.command, NotFound.command), deadline)
             if message.command == NotFound.command:
                 raise FetchError("the peer does not hold a block asked for")
-            with fetch_errors("block"):
+            with _fetch_errors("block"):
                 block = BlockPayload.parse(message.payload, check_validity=False).block
                 height = wanted.pop(block.header.hash, -1)
                 if height < 0:
@@ -1078,7 +1088,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             stop = tip if last is None else last
             if stop > tip:
                 raise FetchError(
-                    f"the peer's chain ends at {tip}, below the stop height"
+                    f"the peer's chain ends at {_quoted(tip)}, below the stop height"
                 )
             blocks: dict[int, Block] = {}
             for start in range(first, stop + 1, MAX_GETCFILTERS_SIZE):
@@ -1133,7 +1143,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         with self._session():
             tip = self._sync_headers()
         if height > tip:
-            raise FetchError(f"no block at the height asked: the tip is {tip}")
+            err_msg = f"no block at the height asked: the tip is {_quoted(tip)}"
+            raise FetchError(err_msg)
         return copy(self._headers[height])
 
     @override
@@ -1148,7 +1159,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             batch = self._request_headers([self._hashes[0]])
         expected = NETWORKS[self.network].genesis_block
         if batch and batch[0].previous_block_hash != expected:
-            err_msg = "the peer serves a chain whose first block follows"
-            err_msg += f" {batch[0].previous_block_hash.hex()}, not the genesis"
-            err_msg += f" {expected.hex()} this {self.network} fetcher was built for"
+            err_msg = "the peer serves a chain whose first block does not follow"
+            err_msg += f" the genesis this {_label(self.network, NETWORKS)} fetcher was"
+            err_msg += " built for"
             raise BTClibValueError(err_msg)

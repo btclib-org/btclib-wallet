@@ -114,7 +114,10 @@ def test_a_block_conflicts_with_a_spend_and_its_child(
     # the second coin, spent only by the conflicted spend, is spendable again
     assert ledger.balances() == Balances(50_000, 0, 0, 0)
     assert [utxo.outpoint for utxo in ledger.utxos()] == [y]
-    with pytest.raises(BTClibValueError, match="a conflicted transaction cannot"):
+    with pytest.raises(
+        BTClibValueError,
+        match="a conflicted transaction cannot be abandoned",
+    ):
         ledger.abandon(spend.id)
     # a later sync changes nothing, and a load answers the same
     assert ledger.sync().changed == frozenset()
@@ -222,11 +225,16 @@ def test_a_double_spend_paying_elsewhere_leaves_a_payment_inactive(
 def test_abandon_refuses_what_is_not_inactive(ledger: Ledger, chain: FakeChain) -> None:
     """wallet_abandonconflict.py lines 41-56: Core's -5 cases."""
     payment = _funded(ledger, chain)
-    with pytest.raises(BTClibValueError, match="a confirmed transaction cannot"):
+    with pytest.raises(
+        BTClibValueError,
+        match="a confirmed transaction cannot be abandoned",
+    ):
         ledger.abandon(payment.id)
     pending = chain.pay([TxOut(1_000, script_of(ledger.new_address()))])
     ledger.sync()
-    with pytest.raises(BTClibValueError, match="a mempool transaction cannot"):
+    with pytest.raises(
+        BTClibValueError, match="a mempool transaction cannot be abandoned"
+    ):
         ledger.abandon(pending.id)
     with pytest.raises(BTClibValueError, match="not a ledger transaction"):
         ledger.abandon(b"\xff" * 32)

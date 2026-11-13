@@ -497,7 +497,10 @@ def test_a_signer_derives_the_scripts_and_freezes_the_psbt() -> None:
 
     # no share yet: nothing to derive from, and it says so rather than
     # writing half a transaction
-    with pytest.raises(BTClibValueError, match="no ECDH share for scan key"):
+    with pytest.raises(
+        BTClibValueError,
+        match="input 0: no ECDH share for a scan key, which every counted input owes a script derived for it",
+    ):
         role.set_output_scripts(psbt)
 
     signed = _decoded(
@@ -845,7 +848,10 @@ def test_sign_refuses_a_script_or_a_share_that_does_not_verify() -> None:
     # the flags cleared, as whoever wrote the script had to
     no_share = _sp_psbt(script=_OTHER_SCRIPT)
     no_share.tx_modifiable = 0
-    with pytest.raises(BTClibValueError, match="no ECDH share for scan key"):
+    with pytest.raises(
+        BTClibValueError,
+        match="input 0: no ECDH share for a scan key, which every counted input owes a script derived for it",
+    ):
         sign(no_share, _SIGNER)
     no_share.tx_modifiable = 0b11
     with pytest.raises(BTClibValueError, match="still invites changes"):
@@ -1062,7 +1068,10 @@ def test_the_scripts_wait_for_every_counted_share() -> None:
     """
     psbt = _two_inputs(derivation_1=True)
     role.set_input_share(psbt, 0, _PRV_KEY, aux=bytes(32))
-    with pytest.raises(BTClibValueError, match="input 1: no ECDH share for scan"):
+    with pytest.raises(
+        BTClibValueError,
+        match="input 1: no ECDH share for a scan key, which every counted input owes a script derived for it",
+    ):
         role.set_output_scripts(psbt)
     assert not psbt.outputs[0].script_pub_key
     role.set_input_share(psbt, 1, _PRV_KEY_1, aux=bytes(32))
@@ -1075,7 +1084,10 @@ def test_the_scripts_wait_for_every_counted_share() -> None:
     role.set_input_share(garbled, 0, _PRV_KEY, aux=bytes(32))
     garbled.inputs[1].final_script_witness = Witness([b"\x01"])
     assert sorted(role.eligible_pub_keys(garbled)) == [0, 1]
-    with pytest.raises(BTClibValueError, match="input 1: no ECDH share for scan"):
+    with pytest.raises(
+        BTClibValueError,
+        match="input 1: no ECDH share for a scan key, which every counted input owes a script derived for it",
+    ):
         role.set_output_scripts(garbled)
 
 
