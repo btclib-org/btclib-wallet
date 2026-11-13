@@ -491,7 +491,7 @@ def test_a_chain_that_ends_away_from_the_tip_is_refused() -> None:
     """The last header has to be the one `headers.subscribe` answered."""
     server = _chain()
     _serving(server, 4, _forged(server, 4))
-    with pytest.raises(FetchError, match="the chain does not end at the tip"):
+    with pytest.raises(FetchError, match="the headers from 4 do not reach the tip"):
         _fetcher(server).get_history([MINE])
 
 
@@ -502,8 +502,76 @@ def test_a_chain_that_stops_below_the_tip_is_refused() -> None:
         "blockchain.block.headers",
         lambda result: {**result, "count": 0, "hex": ""},
     )
-    with pytest.raises(FetchError, match="none from 1 up to the tip at 4"):
+    with pytest.raises(FetchError, match="none from 1 up to 4"):
         _fetcher(server).get_history([OURS])
+
+
+def _asked(server: FakeServer) -> list[list[Any]]:
+    """Return the list the parameters of each `block.headers` asked go to."""
+    asked: list[list[Any]] = []
+    edit = server.edit
+
+    def record(method: str, params: list[Any], result: Any) -> Any:
+        if method == "blockchain.block.headers":
+            asked.append(params)
+        return edit(method, params, result)
+
+    server.edit = record
+    return asked
+
+
+def test_only_the_headers_at_the_confirmations_are_kept() -> None:
+    """Read a header at a time, the chain is not held whole."""
+    server = _chain()
+    server.max_headers = 1
+    fetcher = _fetcher(server)
+    fetcher.get_history([OURS, MINE])
+    assert fetcher._chained is not None
+    assert fetcher._chained[0] == server.ref(4)
+    assert sorted(fetcher._chained[1]) == [1, 3, 4]
+
+
+def test_a_later_call_reads_up_to_a_header_already_chained() -> None:
+    """For the same tip, a chained header ends the walk (issue #708)."""
+    server = FakeServer([[FUNDING], [], [SPEND], [FIRST, SECOND], [], []])
+    asked = _asked(server)
+    fetcher = _fetcher(server)
+    fetcher.get_history([MINE])
+    assert asked == [[4, 3]]
+    history = fetcher.get_history([OURS])
+    assert [entry.block for entry in history.txs] == [server.ref(1), server.ref(3)]
+    assert asked == [[4, 3], [1, 4]]
+    fetcher.get_history([OURS, MINE])
+    assert asked == [[4, 3], [1, 4]]
+
+
+def test_a_new_tip_drops_the_headers_chained_to_the_last() -> None:
+    """Headers chained to one tip do not stand for those of another."""
+    server = _chain()
+    asked = _asked(server)
+    fetcher = _fetcher(server)
+    fetcher.get_history([OURS, MINE])
+    record = server.edit
+
+    def lower(method: str, params: list[Any], result: Any) -> Any:
+        if method == "blockchain.headers.subscribe":
+            result = {"height": 3, "hex": server.chain[3].header.serialize().hex()}
+        return record(method, params, result)
+
+    server.edit = lower
+    history = fetcher.get_history([OURS])
+    assert history.tip == server.ref(3)
+    assert asked == [[1, 4], [1, 3]]
+
+
+def test_a_header_already_chained_answered_otherwise_is_refused() -> None:
+    """The walk ends at the header chained before, not at its height."""
+    server = FakeServer([[FUNDING], [], [SPEND], [FIRST, SECOND], [], []])
+    fetcher = _fetcher(server)
+    fetcher.get_history([MINE])
+    _serving(server, 4, _forged(server, 4))
+    with pytest.raises(FetchError, match="the headers from 1 do not reach the tip"):
+        fetcher.get_history([OURS])
 
 
 def test_a_history_that_is_not_one_is_refused() -> None:

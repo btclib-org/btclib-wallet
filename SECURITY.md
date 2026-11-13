@@ -203,12 +203,11 @@ used to teach and to prototype as much as to build.
     script's history, except the ids of the transactions it lists, from
     `EsploraFetcher` and `ElectrumFetcher` that each touches one of the
     scripts, and from `ElectrumFetcher` that each confirmed one is in a
-    header chained to the tip it reports. Those headers, the tip's
-    included, are checked for work only as above, so the chain can be
-    one the server built at the network's minimum work.
-    `ElectrumFetcher.get_history`'s docstring says what the chain costs.
-    The id does not commit to the witness, so the witness of a
-    transaction those two answer rests on their word.
+    header chained to the tip it reports.
+    `ElectrumFetcher.get_history`'s docstring says how far those headers
+    are checked and what the chain costs. The id does not commit to the
+    witness, so the witness of a transaction those two answer rests on
+    their word.
     The work each network's limit stands for, in bits, is:
 
     ```shell
