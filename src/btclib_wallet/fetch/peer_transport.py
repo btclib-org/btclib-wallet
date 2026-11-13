@@ -189,7 +189,8 @@ class TcpPeerTransport:
     @property
     def is_open(self) -> bool:
         """Return whether a connection is open."""
-        return self._socket is not None
+        # a close interrupted once the socket closed still holds it, closed
+        return self._socket is not None and self._socket.fileno() != -1
 
     def __enter__(self) -> Self:
         """Return this transport."""
@@ -321,7 +322,7 @@ class V2PeerTransport:
     @property
     def is_open(self) -> bool:
         """Return whether a connection is open, over v2 or v1."""
-        return self._socket is not None or self._v1 is not None
+        return self._socket is not None or (self._v1 is not None and self._v1.is_open)
 
     @property
     def session_id(self) -> bytes | None:
@@ -439,10 +440,11 @@ class V2PeerTransport:
 
         The connection is kept only once the handshake completes: until
         then the socket is pending, so that anything raised, `KeyboardInterrupt`
-        included, leaves it to `close`. A peer that hangs up before sending a
-        byte of its key, as a v1 peer does, is refused, or answered with a
-        v1 transport, not yet open, pending in its place, where the caller
-        asked for one. A v2 connection is kept on the network of `magic`.
+        included, leaves it to `close`. A peer that hangs up as a v1 peer
+        does, before sending a byte, while we write or while we read, is
+        refused, or answered with a v1 transport, not yet open, pending in
+        its place, where the caller asked for one. A v2 connection is kept
+        on the network of `magic`.
         """
         # what an interrupted call left pending, if anything
         with suppress(FetchError):
@@ -511,7 +513,9 @@ def _handshake(
 ) -> Cipher | None:
     """Return the cipher of a v2 handshake completed as its initiator.
 
-    None where the peer hung up before sending a byte of its key.
+    None where the peer hung up as a v1 peer does: before sending a byte,
+    and after a v1 header's worth of ours, which is the rule of Core's
+    `ShouldReconnectV1`. The hang-up is seen on a write or on a read.
     """
     from btclib.p2p.bip324 import (  # noqa: PLC0415
         GARBAGE_TERMINATOR_LEN,
@@ -521,9 +525,8 @@ def _handshake(
     prv_key = 1 + secrets.randbelow(secp256k1.n - 1)
     ell_ours = ellswift.create(prv_key)
     garbage = secrets.token_bytes(secrets.randbelow(_MAX_GARBAGE_LEN + 1))
-    sock.settimeout(_time_left(deadline, timeout, where))
-    sock.sendall(ell_ours + garbage)
-
+    if not _send_key(sock, ell_ours + garbage, deadline, timeout, where):
+        return None
     sock.settimeout(_time_left(deadline, timeout, where))
     try:
         first = sock.recv(1)
@@ -551,6 +554,26 @@ def _handshake(
         _, ignore = _packet(sock, cipher, aad, deadline, timeout, where)
         aad = b""
     return cipher
+
+
+def _send_key(
+    sock: socket, data: bytes, deadline: float, timeout: float, where: str
+) -> bool:
+    """Write the key and the garbage; return False where the peer hung up.
+
+    A hang-up is refused, as any failure, until a v1 header's worth is
+    written: a v1 peer hangs up on a header it cannot read.
+    """
+    written = 0
+    try:
+        while written < len(data):
+            sock.settimeout(_time_left(deadline, timeout, where))
+            written += sock.send(data[written:])
+    except ConnectionError:
+        if written < _HEADER_SIZE:
+            raise
+        return False
+    return True
 
 
 def _packet(

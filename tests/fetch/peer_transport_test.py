@@ -77,11 +77,20 @@ class FakeSocket:
             raise self.send_error
         self.written += data
 
+    def send(self, data: bytes) -> int:
+        """Write as `sendall` does, all of it at once."""
+        self.sendall(data)
+        return len(data)
+
     def close(self) -> None:
         """Count the closes, or fail after counting."""
         self.closed += 1
         if self.close_error is not None:
             raise self.close_error
+
+    def fileno(self) -> int:
+        """Return -1 once closed, as a socket does."""
+        return -1 if self.closed else 3
 
 
 def set_clock(monkeypatch: pytest.MonkeyPatch, clock: Callable[[], float]) -> None:
@@ -879,11 +888,10 @@ def test_an_interrupt_as_the_v1_fallback_is_kept_closes_it(
     assert not transport.is_open
 
 
-@pytest.mark.parametrize("kind", ["v1", "v2", "v1 fallback"])
-def test_an_interrupted_close_leaves_the_socket_to_the_next_close(
+def opened(
     monkeypatch: pytest.MonkeyPatch, kind: str
-) -> None:
-    """A socket is let go of only once closed."""
+) -> tuple[TcpPeerTransport | V2PeerTransport, FakeSocket]:
+    """Return a transport of `kind` after its first send, and its socket."""
     transport: TcpPeerTransport | V2PeerTransport
     if kind == "v1":
         fake = FakeSocket([])
@@ -901,6 +909,15 @@ def test_an_interrupted_close_leaves_the_socket_to_the_next_close(
         )
         transport = v2_peer(v1_fallback=True)
     transport.send(MESSAGE, 5)
+    return transport, fake
+
+
+@pytest.mark.parametrize("kind", ["v1", "v2", "v1 fallback"])
+def test_an_interrupted_close_leaves_the_socket_to_the_next_close(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """A socket is let go of only once closed."""
+    transport, fake = opened(monkeypatch, kind)
     close = fake.close
     interrupted: list[bool] = []
 
@@ -915,6 +932,25 @@ def test_an_interrupted_close_leaves_the_socket_to_the_next_close(
         transport.close()
     assert fake.closed == 0
     transport.close()
+    assert fake.closed == 1
+    assert not transport.is_open
+
+
+@pytest.mark.parametrize("kind", ["v1", "v2", "v1 fallback"])
+def test_a_close_interrupted_once_the_socket_closed_leaves_it_not_open(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """The socket still held is closed, and `is_open` says so."""
+    transport, fake = opened(monkeypatch, kind)
+    close = fake.close
+
+    def closed_then_interrupted() -> None:
+        close()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(fake, "close", closed_then_interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        transport.close()
     assert fake.closed == 1
     assert not transport.is_open
 
@@ -935,6 +971,80 @@ def test_a_v1_fallback_that_fails_to_close_is_a_fetch_error(
     assert not transport.is_open
     transport.close()
     assert plain.closed == 1
+
+
+class HangingUp(FakeSocket):
+    """A peer that hangs up once `after` octets of ours are written."""
+
+    def __init__(self, after: int, hang_up: ConnectionError) -> None:
+        super().__init__([])
+        self.after = after
+        self.hang_up = hang_up
+
+    @override
+    def send(self, data: bytes) -> int:
+        """Write what fits before the hang-up, or raise it."""
+        room = self.after - len(self.written)
+        if room <= 0:
+            raise self.hang_up
+        self.written += data[:room]
+        return min(room, len(data))
+
+    @override
+    def sendall(self, data: bytes) -> None:
+        """Write what fits before the hang-up, and raise it if any is left."""
+        if self.send(data) < len(data):
+            raise self.hang_up
+
+
+HANG_UPS = pytest.mark.parametrize(
+    "hang_up",
+    [ConnectionResetError("reset"), BrokenPipeError("broken pipe")],
+    ids=["reset", "broken pipe"],
+)
+
+
+@HANG_UPS
+def test_a_hang_up_while_the_key_is_written_falls_back_to_v1(
+    monkeypatch: pytest.MonkeyPatch, hang_up: ConnectionError
+) -> None:
+    """As on a read: Core reconnects over v1 on either side's hang-up."""
+    refusing, plain = HangingUp(24, hang_up), FakeSocket([])
+    sockets = iter([refusing, plain])
+    monkeypatch.setattr(
+        peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
+    )
+    transport = v2_peer(v1_fallback=True)
+    transport.send(MESSAGE, 5)
+    assert (len(refusing.written), refusing.closed) == (24, 1)
+    assert plain.written == WIRE
+    assert (transport.is_open, transport.session_id) == (True, None)
+
+
+@HANG_UPS
+def test_a_hang_up_while_the_key_is_written_names_the_fallback(
+    monkeypatch: pytest.MonkeyPatch, hang_up: ConnectionError
+) -> None:
+    """Without the fallback it is refused as a hang-up on a read is."""
+    fake = HangingUp(24, hang_up)
+    calls = connect_to(monkeypatch, fake)
+    transport = v2_peer()
+    with pytest.raises(FetchError, match="as a v1 peer does, and v1_fallback is off"):
+        transport.send(MESSAGE, 5)
+    assert (len(calls), fake.closed) == (1, 1)
+    assert not transport.is_open
+
+
+def test_a_hang_up_before_a_v1_header_is_written_is_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Core reconnects over v1 only once a header's worth was sent."""
+    fake = HangingUp(23, ConnectionResetError("reset"))
+    calls = connect_to(monkeypatch, fake)
+    transport = v2_peer(v1_fallback=True)
+    with pytest.raises(FetchError, match="no connection to peer.example:18444: reset"):
+        transport.send(MESSAGE, 5)
+    assert (len(calls), fake.closed) == (1, 1)
 
 
 def test_a_v2_connection_that_cannot_be_made_is_a_fetch_error(

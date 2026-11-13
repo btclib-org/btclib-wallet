@@ -203,27 +203,26 @@ verifies it, so a taproot, p2wsh or multisig address can sign.
 `fetch/` is the one package that goes and asks where the chain is, and
 it answers in btclib's own types, `Tx`, `TxOut` and `BlockHeader`.
 `Fetcher` is the interface, implemented once per backend —
-`BitcoinCoreFetcher` over a full node's JSON-RPC, `BitcoinCoreRestFetcher`
-over the same node's unauthenticated `-rest` interface, `EsploraFetcher`
-over a block explorer's HTTP API, `ElectrumFetcher` over an Electrum
-server, `CompactFilterFetcher` over peers' BIP157 filters — so calling
-code takes a `Fetcher` and never branches on which one it got.
-`CompactFilterFetcher`'s docstrings say what it serves of `Fetcher` and what
-its `scan_blocks` does.
+`BitcoinCoreFetcher` over a full node's JSON-RPC,
+`BitcoinCoreRestFetcher` over the same node's unauthenticated `-rest`
+interface, `EsploraFetcher` over a block explorer's HTTP API,
+`ElectrumFetcher` over an Electrum server, `CompactFilterFetcher` over
+peers' BIP157 filters — so calling code takes a `Fetcher` and never
+branches on which one it got. `CompactFilterFetcher`'s docstrings say
+what it serves of `Fetcher` and what its `scan_blocks` does.
 `Broadcaster`, `FeeEstimator`, `BalanceReader`, `HistoryReader` and
 `RelayFeeReader` are further protocols a backend may or may not satisfy:
 `BitcoinCoreRestFetcher` answers only `HistoryReader` and
 `RelayFeeReader`. Core's `-rest` interface is read-only and carries no
 fee estimation and no address index, so the fetcher reads a script's
-history from the blocks and the mempool.
-`fetch.transport` is the client seam — over HTTP and over the Electrum
-line protocol, one connection per call and one kept open across calls —
-and `fetch.peer_transport` is the seam of the p2p peer:
-`TcpPeerTransport` holds one TCP connection to it, plain and without
-authentication, and `V2PeerTransport` one encrypted by BIP324's v2
-transport, which protects against a passive observer only, or plain v1
-to a peer without v2 where its caller asks for that fallback. The codec
-each backend speaks is `btclib.p2p` or
+history from the blocks and the mempool. `fetch.transport` is the client
+seam — over HTTP and over the Electrum line protocol, one connection per
+call and one kept open across calls — and `fetch.peer_transport` is the
+seam of the p2p peer: `TcpPeerTransport` holds one TCP connection to it,
+plain and without authentication, and `V2PeerTransport` one encrypted by
+BIP324's v2 transport, which protects against a passive observer only,
+or plain v1 to a peer without v2 where its caller asks for that
+fallback. The codec each backend speaks is `btclib.p2p` or
 `electrum.py`, outside `fetch/`: importing `fetch` costs `urllib`, `ssl`
 and `socket`, never the reverse.
 
