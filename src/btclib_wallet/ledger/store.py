@@ -227,8 +227,12 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
 
 
 def _assert_not_held(e: sqlite3.DatabaseError, path: str | PathLike[str]) -> None:
-    """Refuse a file whose lock another connection holds."""
-    if e.sqlite_errorname == "SQLITE_BUSY":
+    """Refuse a file whose lock another connection holds.
+
+    An error with no `sqlite_errorname` is not this refusal's: not every
+    `sqlite3.DatabaseError` carries one.
+    """
+    if getattr(e, "sqlite_errorname", None) == "SQLITE_BUSY":
         err_msg = f"the ledger file {path} is open in another ledger or program"
         raise BTClibValueError(err_msg) from None
 

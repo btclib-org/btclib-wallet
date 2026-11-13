@@ -304,6 +304,63 @@ def test_a_file_sqlite_cannot_open_is_not_called_no_ledger(
     Ledger.load(path, "regtest", chain).close()
 
 
+def _failing(statement: str, error: sqlite3.Error) -> type[sqlite3.Connection]:
+    """Return a connection that raises `error` where it runs `statement`."""
+
+    class Failing(sqlite3.Connection):
+        @override
+        def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+            if sql == statement:
+                raise error
+            return super().execute(sql, parameters)
+
+    return Failing
+
+
+@pytest.mark.parametrize(
+    "opened, statement, error, err_msg",
+    [
+        ("load", "BEGIN EXCLUSIVE", sqlite3.OperationalError, "cannot open the"),
+        ("load", "BEGIN EXCLUSIVE", sqlite3.DatabaseError, "not a ledger file"),
+        (
+            "restore",
+            "SELECT count(*) FROM sqlite_master",
+            sqlite3.DatabaseError,
+            "not a ledger file",
+        ),
+    ],
+)
+def test_an_error_with_no_sqlite_errorname_is_refused_as_the_others(
+    chain: FakeChain,
+    path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opened: str,
+    statement: str,
+    error: type[sqlite3.DatabaseError],
+    err_msg: str,
+) -> None:
+    """An error that names no SQLite code is not taken for a held file.
+
+    One built in Python carries no `sqlite_errorname`, so the open
+    refuses it as it refuses any other error of its class.
+    """
+    Ledger.create(path, "regtest", chain).close()
+    failure = error("failed")
+    assert not hasattr(failure, "sqlite_errorname")
+    connect = functools.partial(sqlite3.connect, factory=_failing(statement, failure))
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    opens = {
+        "load": lambda: Ledger.load(path, "regtest", chain),
+        "restore": lambda: Ledger.restore(
+            path, tmp_path / "restored.sqlite", "regtest", chain
+        ),
+    }
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
+        opens[opened]()
+    assert _HELD not in str(e.value)
+
+
 def test_another_constraint_on_a_new_source_is_no_ledgers(
     chain: FakeChain, path: Path
 ) -> None:
