@@ -197,12 +197,12 @@ def test_the_text_is_bounded_before_decoding(monkeypatch: pytest.MonkeyPatch) ->
     max_size = 2 * _MAX_PSBT_SIZE
     too_long = f"^text too long: {max_size + 1} characters, over {max_size}$"
     with pytest.raises(BTClibValueError, match=too_long):
-        tx_or_psbt_from_any(wrapped(hex_text + "0"))
+        tx_or_psbt_from_any(wrapped(f"{hex_text}0"))
 
     decoded: list[str] = []
     monkeypatch.setattr(tx_or_psbt, "_b64decode", decoded.append)
     max_size = _b64_size(_MAX_PSBT_SIZE)
     too_long = f"^base64 text too long: {max_size + 1} characters, over {max_size}$"
     with pytest.raises(BTClibValueError, match=too_long):
-        tx_or_psbt_from_any(wrapped(b64_text + "A"))
+        tx_or_psbt_from_any(wrapped(f"{b64_text}A"))
     assert not decoded

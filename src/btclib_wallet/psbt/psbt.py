@@ -1688,8 +1688,7 @@ class Psbt:
         and `tx_or_psbt.tx_or_psbt_from_any` is the reader that takes a psbt
         wrapped in lines.
 
-        A text longer than the base64 of `_MAX_PSBT_SIZE` octets is refused
-        before it is decoded, and a psbt longer than that after.
+        A psbt over `_MAX_PSBT_SIZE` is refused, as the comment on it says.
         """
         # ASCII whitespace alone (issue #102)
         psbt_str = _ascii_text(psbt_str, "base64 psbt").strip(string.whitespace)

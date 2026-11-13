@@ -56,12 +56,9 @@ def _octets_from_text(text: str) -> bytes:
     every letter, so a base64 string is almost never hex, and BIP174's
     magic makes one of them start with `cHNidP8`.
 
-    A text longer than the hex of `_MAX_PSBT_SIZE` octets is refused
-    before it is decoded. One that is not hex is refused if it is longer
-    than the base64 of `_MAX_PSBT_SIZE` octets before it is decoded, and
-    if it decodes to more octets after, as in `Psbt.b64decode`. No
-    transaction a block can hold is longer: its size is at most its
-    weight, which `MAX_BLOCK_WEIGHT` bounds.
+    Either encoding of a psbt over `_MAX_PSBT_SIZE` is refused, as the
+    comment on it says. No transaction a block can hold is longer: its
+    size is at most its weight, which `MAX_BLOCK_WEIGHT` bounds.
     """
     # before the whitespace is dropped, so that the position is the one in
     # the text as given
