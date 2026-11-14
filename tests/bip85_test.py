@@ -694,7 +694,7 @@ def test_an_object_claiming_int_is_described_by_its_type() -> None:
     asks isinstance, which reads the claimed `__class__`.
     """
     claims = _ClaimsInt()
-    assert _quoted(claims) == "a _ClaimsInt"  # type: ignore[arg-type]
+    assert _quoted(claims) == "a _ClaimsInt"
     assert _btclib_takes_as_int(12)
     assert not _btclib_takes_as_int("12")
     # a mapping, not an `if`, so that the coverage ratchet holds whichever
