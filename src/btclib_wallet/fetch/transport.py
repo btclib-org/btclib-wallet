@@ -713,7 +713,10 @@ class PersistentTlsLineTransport:
                 sock.settimeout(_time_left(deadline, timeout, where))
                 connection = self._context.wrap_socket(sock, server_hostname=self._host)
             except BaseException:
-                sock.close()
+                # a close that fails would put its OSError in the place of
+                # what the handshake raised, which the refusal names
+                with suppress(OSError):
+                    sock.close()
                 raise
             self._connection = connection
         return connection

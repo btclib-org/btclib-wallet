@@ -2,15 +2,26 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""A refusal formats no value it was handed or answered.
+"""A lint: a refusal of the package formats no value the census does not trace.
 
 Section 7 of the btclib-org standard, *A refusal carries no secret*, says
 an argument in the wrong place may be a key. The census reads the sources
-and finds every exception the package builds: each call of a name ending
-in `Error` or `Exception`, and the exception of each `raise` that is not
-what a function of the package returns. Every argument of each has to be
-traced to values a refusal may print, and the census fails closed: what
-it cannot trace is a finding. It traces
+of the package with `ast` and runs none of them. It is a lint over the
+shapes its controls show, the pairs of `_SHAPES` it traces and flags, and
+not a proof: a shape no control holds may pass unseen, as the ones named
+at the end do.
+
+It reads as an exception the package builds each call of a name ending in
+`Error` or `Exception`, or of a name an assignment or an import binds to
+such a class or to a class of the package that may be an exception: one
+deriving, through classes of the package, from a base that is neither one
+of them nor one of `_PLAIN_BASES`. It reads the exception of each `raise`
+too, but not what a function of the package returns, nor the exception
+an `except` around the `raise` binds, nor a name each value of which its
+scope assigns is `None`, such a call, or a call of a function of the
+package each of whose `return`s is one; a bare annotation assigns it
+nothing. Every argument of each has to be traced to values a refusal may
+print, and what the census cannot trace is a finding. It traces
 
 - a literal, a comparison, a name bound by a `def`, a `class` or an
   import but one of `_PROCESS_INPUT`, a builtin of `_PURE_BUILTINS` or
@@ -38,7 +49,10 @@ it cannot trace is a finding. It traces
   put into it anywhere in the scope, by a method such as `append` or by
   an assignment to an item or an attribute;
 - a parameter of a private function, where it traces what every call in
-  the package passes there, and its default;
+  the package passes there, and its default, read in the scope where the
+  `def` stands;
+- an exception the package builds, whose arguments are read where it is
+  built;
 - what a function of the package answers, where it traces every value
   the function returns or yields, or the item at the position a tuple is
   unpacked from.
@@ -53,6 +67,10 @@ binds, or what `_PROCESS_INPUT` names. Each of these holds what a caller,
 a server or another program handed over, and reaches a refusal only
 through `_code`, `_message_text` or `_quoted`, or not at all.
 
+What a refusal still raises that the census does not trace is in `KEPT`,
+an exception one function raises by name, each entry with its reason. An
+entry no refusal uses fails the census.
+
 It takes three things on trust. A callable of `_OUTSIDE_CALLS` or
 `_OUTSIDE_METHODS` answers a part of what it is handed and of what it is
 called on, and nothing else. A builtin of `_PURE_BUILTINS` read by name
@@ -66,21 +84,21 @@ package whose parameter neither has a value put into it nor is handed on
 in turn. A container reached any other way, through an attribute or what
 a call answers, is not followed past the name the census reads.
 
-An exception that is not one of the package's classes may hold the
-input, as a `UnicodeError` holds its bytes, so no refusal chains one or
-has it as context, and no `except` raises one again. A class is the
-package's where the scope that names it defines it, or imports it from a
-module of the package that does: one of another package is not, whatever
-its name. A `raise` inside an `except` of another class, or in a
-`finally`, is a finding, and so is a `raise ... from` anything but `None`
-or an exception of the package's classes. So is a call, inside such an
-`except`, that may reach a `raise` of the package: of a function of the
-package that holds one, or calls one that does, however far down, or of
-a callee the census cannot name, a parameter, a local or what is no
-name, there or in any function it reaches. There a method is every method
-of that name in the package, whatever object it is called on, except
-that a name called on a method's own object that the package assigns as
-an attribute and defines no method of is unknown; a class of the package
+An exception that is not one of the package's classes may hold the input,
+as a `UnicodeError` holds its bytes, so no refusal chains one or has it as
+context, and no `except` raises one again. A class is the package's where
+the scope that names it defines it, or imports it from a module of the
+package that does: one of another package is not, whatever its name. A
+`raise` inside an `except` of another class, or in a `finally`, is a
+finding, and so is a `raise ... from` anything but `None` or an exception
+of the package's classes. So is a call, inside such an `except` or a
+`finally`, that may reach a `raise` of the package: of a function of the
+package that holds one, or calls one that does, however far down, or of a
+callee the census cannot name, a parameter, a local or what is no name,
+there or in any function it reaches. There a method is every method of
+that name in the package, whatever object it is called on, except that a
+name called on a method's own object that the package assigns as an
+attribute and defines no method of is unknown; a class of the package
 called runs the `__init__`, `__new__` and `__post_init__` of it and of
 each class of the package it derives from; a builtin, or a name imported
 from outside the package, runs none of it. A call of `CLEANUPS`, each
@@ -88,11 +106,20 @@ entry with its reason, is not a finding, and an entry no finding uses
 fails the census. A bare `raise`, or a `raise` of the name the `except`
 binds, is a finding unless the `except` catches the package's classes,
 `KeyboardInterrupt` and `SystemExit` alone, or is a cleanup: one that
-catches everything, binds no name and has no way out but the bare
-`raise` it ends in. What a cleanup relays passes on as it would with no
-`try` around it. What a call outside the package raises, and an
-exception another package raises that none of the package's `except`
-catches, are not read by the census.
+catches everything, binds no name and has no way out but the bare `raise`
+it ends in. What a cleanup relays passes on as it would with no `try`
+around it. What a call outside the package raises, and an exception
+another package raises that none of the package's `except` catches, are
+not read by the census.
+
+These shapes pass unseen, measured: an item of a container bound to
+another name, as in `alias = values[0]` and then `alias.append(key)`; an
+item of a shallow copy one of `_READERS` makes, as in
+`alias = list(values)` and then `alias[0].append(key)`; and a value a
+method puts into an item, as in `values[0].append(key)`. A refusal that
+holds `values` holds the key in each. The first two are filed as
+btclib-org/bitcoin-core-rpc#811, the third as
+btclib-org/bitcoin-core-rpc#813.
 """
 
 from __future__ import annotations
@@ -191,6 +218,11 @@ _PURE_BUILTINS = frozenset(
     }
 )
 # what an `except` may raise again whose text is the interpreter's own
+# bases outside the package of which no exception derives
+_PLAIN_BASES = frozenset(
+    {"ABC", "Enum", "Generic", "IntEnum", "NamedTuple", "Protocol", "list", "object"}
+)
+
 _INTERRUPTS = frozenset({"KeyboardInterrupt", "SystemExit"})
 # a call whose answer is a field of at most 4 bytes, in hex
 _FIELDS = frozenset({"_hex_field"})
@@ -332,6 +364,21 @@ def _names(target: ast.AST) -> list[str]:
     return [node.id for node in ast.walk(target) if isinstance(node, ast.Name)]
 
 
+def _values(call: ast.Call) -> list[ast.expr]:
+    return [*call.args, *(keyword.value for keyword in call.keywords)]
+
+
+def _names_exception(name: str) -> bool:
+    return name.rsplit(".", 1)[-1].endswith(("Error", "Exception"))
+
+
+def _base_name(base: ast.expr) -> str:
+    """Return the name a base of a class is read by, its subscript dropped."""
+    while isinstance(base, ast.Subscript):
+        base = base.value
+    return _called_name(base) or ast.unparse(base)
+
+
 def _builds_container(node: ast.AST) -> bool:
     """Return whether a binding assigns a container a value can be put into."""
     value = getattr(node, "value", None)
@@ -420,13 +467,23 @@ class _Module:
                 self.parents[child] = node
 
     def scopes(self, node: ast.AST) -> list[ast.AST]:
-        """Return the enclosing functions, innermost first, then the module."""
+        """Return the enclosing functions, innermost first, then the module.
+
+        A default, an annotation or a decorator of a `def` or a lambda is
+        read where it stands, so that `def` is not one of its scopes.
+        """
         found: list[ast.AST] = []
-        current = self.parents.get(node)
+        child, current = node, self.parents.get(node)
         while current is not None:
-            if isinstance(current, _FUNCTION):
+            if isinstance(current, ast.Lambda):
+                if child is current.body:
+                    found.append(current)
+            elif (
+                isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and child in current.body
+            ):
                 found.append(current)
-            current = self.parents.get(current)
+            child, current = current, self.parents.get(current)
         found.append(self.tree)
         return found
 
@@ -458,8 +515,10 @@ class _Census:
     class_defs: dict[str, list[ast.ClassDef]] = field(default_factory=dict)
     raising: set[int] | None = None
     assigned: set[str] | None = None
-    # the entries of `CLEANUPS` a finding was hidden by
+    exceptions: set[str] | None = None
+    # the entries of `CLEANUPS` and of `KEPT` a finding was hidden by
     used: set[tuple[str, str, str]] = field(default_factory=set)
+    kept_used: set[tuple[str, str, str]] = field(default_factory=set)
 
     def __post_init__(self) -> None:  # noqa: C901
         for module in self.modules:
@@ -527,39 +586,177 @@ class _Census:
             and func.name == source
         ]
 
-    def sites(self) -> list[tuple[_Module, ast.Call]]:
-        """Return each exception the package builds, as the call that builds it.
+    def sites(self) -> list[tuple[_Module, ast.AST, list[ast.expr]]]:
+        """Return each exception the package builds, and the values it holds.
 
-        A `raise` of what a function of the package returns is not one: the
-        exception that function builds is.
+        A call that builds one is the call, and its arguments. A `raise` of
+        what a function of the package returns is not one: the exception
+        that function builds is. A `raise` of an exception already built, a
+        name or anything else that is no call, holds that exception, which
+        is traced as a value; but the exception an enclosing `except`
+        handles, raised again, and a name that holds only exceptions built
+        at a site.
         """
-        found: dict[int, tuple[_Module, ast.Call]] = {}
+        found: dict[int, tuple[_Module, ast.AST, list[ast.expr]]] = {}
         for module in self.modules:
             for node in ast.walk(module.tree):
                 if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
                     if self._resolve(node.exc.func, module) is None:
-                        found[id(node.exc)] = (module, node.exc)
-                elif isinstance(node, ast.Call):
-                    name = _called_name(node.func) or ""
-                    if name.endswith(("Error", "Exception")):
-                        found[id(node)] = (module, node)
-        return sorted(found.values(), key=lambda site: (site[0].name, site[1].lineno))
+                        found[id(node.exc)] = (module, node.exc, _values(node.exc))
+                elif isinstance(node, ast.Raise) and node.exc is not None:
+                    if not (
+                        self._handled(node, module)
+                        or self._built_at_a_site(node.exc, module)
+                    ):
+                        found[id(node)] = (module, node, [node.exc])
+                elif isinstance(node, ast.Call) and self._builds_exception(
+                    node.func, module
+                ):
+                    found[id(node)] = (module, node, _values(node))
+        return sorted(
+            found.values(),
+            key=lambda site: (site[0].name, getattr(site[1], "lineno", 0)),
+        )
+
+    def _built_at_a_site(self, exc: ast.expr, module: _Module) -> bool:
+        """Return whether a name raised holds only exceptions built at a site.
+
+        Each value its scope assigns it is `None`, a call that builds an
+        exception, which is a site of its own, or a call of a function of
+        the package each of whose `return`s is one.
+        """
+        if not isinstance(exc, ast.Name):
+            return False
+        scope = module.scopes(exc)[0]
+        if isinstance(scope, _FUNCTION) and any(
+            arg.arg == exc.id for arg in _arguments(scope)
+        ):
+            return False
+        # a bare annotation declares the name and assigns it nothing
+        bindings = [
+            n
+            for n in self._scope_nodes(scope)
+            if _binds(n, exc.id) and not (isinstance(n, ast.AnnAssign) and not n.value)
+        ]
+        return bool(bindings) and all(
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and self._builds_at_a_site(node.value, module)
+            for node in bindings
+        )
+
+    def _builds_at_a_site(self, value: ast.expr | None, module: _Module) -> bool:
+        """Return whether a value is `None` or an exception a site builds."""
+        if isinstance(value, ast.Constant) and value.value is None:
+            return True
+        if not isinstance(value, ast.Call):
+            return False
+        if self._builds_exception(value.func, module):
+            return True
+        functions = self._resolve(value.func, module) or []
+        returns = [
+            (self.functions[id(function)][0], node)
+            for function in functions
+            for node in self._scope_nodes(function)
+            if isinstance(node, ast.Return)
+        ]
+        return bool(returns) and all(
+            isinstance(node.value, ast.Call)
+            and self._builds_exception(node.value.func, returned_in)
+            for returned_in, node in returns
+        )
+
+    def _handled(self, node: ast.Raise, module: _Module) -> bool:
+        """Return whether a `raise` raises the exception an `except` binds."""
+        exc = node.exc
+        current = module.parents.get(node)
+        while isinstance(exc, ast.Name) and current is not None:
+            if isinstance(current, ast.ExceptHandler) and current.name == exc.id:
+                return True
+            if isinstance(current, (*_FUNCTION, ast.ClassDef)):
+                break
+            current = module.parents.get(current)
+        return False
+
+    def _builds_exception(self, func: ast.expr, module: _Module) -> bool:
+        """Return whether a callee is an exception class or a name bound to one.
+
+        A name ending in `Error` or `Exception`, or a name an assignment or
+        an import binds to such a name or to an exception class of the
+        package, as `_exception_classes` finds them.
+        """
+        name = _called_name(func) or ""
+        if name.endswith(("Error", "Exception")):
+            return True
+        if not isinstance(func, ast.Name):
+            return False
+        for scope in module.scopes(func):
+            for binding in self._scope_nodes(scope):
+                if isinstance(binding, (ast.Import, ast.ImportFrom)):
+                    if any(
+                        (a.asname or a.name) == name
+                        and (
+                            _names_exception(a.name)
+                            or a.name in self._exception_classes()
+                        )
+                        for a in binding.names
+                    ):
+                        return True
+                elif isinstance(binding, (ast.Assign, ast.AnnAssign)) and _binds(
+                    binding, name
+                ):
+                    source = _called_name(binding.value) if binding.value else None
+                    if source and (
+                        _names_exception(source) or source in self._exception_classes()
+                    ):
+                        return True
+        return False
+
+    def _exception_classes(self) -> set[str]:
+        """Return each class of the package that may be an exception, by name.
+
+        A class one of whose bases is no class of the package nor one of
+        `_PLAIN_BASES`, and then, until nothing changes, one deriving from
+        any of them. A class with no base, or only plain ones, is not.
+        """
+        if self.exceptions is None:
+            bases = {
+                name: {
+                    _base_name(base)
+                    for class_def in class_defs
+                    for base in class_def.bases
+                }
+                for name, class_defs in self.class_defs.items()
+            }
+            found = {
+                name
+                for name, named in bases.items()
+                if named - set(self.class_defs) - _PLAIN_BASES
+            }
+            changed = True
+            while changed:
+                changed = False
+                for name, named in bases.items():
+                    if name not in found and named & found:
+                        found.add(name)
+                        changed = True
+            self.exceptions = found
+        return self.exceptions
 
     def findings(
-        self, cleanups: Mapping[tuple[str, str, str], str] | None = None
+        self,
+        cleanups: Mapping[tuple[str, str, str], str] | None = None,
+        kept: Mapping[tuple[str, str, str], str] | None = None,
     ) -> list[str]:
         """Return each exception built from a value the census cannot trace.
 
         And each `raise` that chains, or leaves as context, an exception
-        that can hold the input. A call `cleanups` names is not one.
+        that can hold the input, and each call that may raise from the
+        package while handling one. A call `cleanups` names is not one, nor
+        an exception `kept` names a `raise` of by its module, its function
+        and its source; each entry that hides one is recorded as used.
         """
         cleanups = cleanups or {}
-        found: list[str] = []
-        for module, call in self.sites():
-            values = [*call.args, *(keyword.value for keyword in call.keywords)]
-            untraced = sorted(self.untraced(values, module))
-            if untraced:
-                found.append(f"{module.where(call)}: " + "; ".join(untraced))
+        found = self._untraced_sites(kept or {})
         for module in self.modules:
             for node in ast.walk(module.tree):
                 if isinstance(node, ast.Raise) and node.exc is not None:
@@ -569,16 +766,49 @@ class _Census:
                 elif isinstance(node, ast.ExceptHandler) and not self._own(
                     node.type, module
                 ):
-                    found.extend(self._raising_calls(node, module, cleanups))
+                    caught = (
+                        "everything" if node.type is None else ast.unparse(node.type)
+                    )
+                    found.extend(
+                        self._raising_calls(node.body, module, caught, cleanups)
+                    )
+                elif isinstance(node, (ast.Try, ast.TryStar)) and node.finalbody:
+                    found.extend(
+                        self._raising_calls(
+                            node.finalbody,
+                            module,
+                            "whatever the try raised",
+                            cleanups,
+                        )
+                    )
+        return found
+
+    def _untraced_sites(self, kept: Mapping[tuple[str, str, str], str]) -> list[str]:
+        """Return each site that holds a value the census cannot trace.
+
+        A `raise` `kept` names by its module, its function and the source
+        of what it raises is not one, and is recorded as used.
+        """
+        found: list[str] = []
+        for module, site, values in self.sites():
+            if isinstance(site, ast.Raise) and site.exc is not None:
+                key = (module.name, _function_name(module, site), ast.unparse(site.exc))
+                if key in kept:
+                    self.kept_used.add(key)
+                    continue
+            untraced = sorted(self.untraced(values, module))
+            if untraced:
+                found.append(f"{module.where(site)}: " + "; ".join(untraced))
         return found
 
     def _raising_calls(
         self,
-        handler: ast.ExceptHandler,
+        body: list[ast.stmt],
         module: _Module,
+        caught: str,
         cleanups: Mapping[tuple[str, str, str], str],
     ) -> list[str]:
-        """Return each call in an `except` body that may raise from the package.
+        """Return each call in a block that may raise from the package.
 
         What a function of the package raises, itself or through any
         function of the package it calls, has the exception handled as
@@ -587,8 +817,7 @@ class _Census:
         not, and is recorded as used.
         """
         found: list[str] = []
-        caught = "everything" if handler.type is None else ast.unparse(handler.type)
-        for statement in handler.body:
+        for statement in body:
             for node in [statement, *_own_nodes(statement)]:
                 if not isinstance(node, ast.Call):
                     continue
@@ -1003,6 +1232,9 @@ class _Census:
                     # a method found by its name alone: what it is called
                     # on may be no object of the package, and is traced
                     self._visit(func.value, module, leaves, keys)
+                return
+            if self._builds_exception(func, module):
+                # an exception, a site of its own whose arguments it traces
                 return
             allowed = (
                 _OUTSIDE_METHODS if isinstance(func, ast.Attribute) else _OUTSIDE_CALLS
@@ -1475,11 +1707,12 @@ def _library() -> dict[str, str]:
 
 _PACKAGE = "btclib_wallet"
 
-#: A call in a cleanup that the census finds may raise from the package,
-#: and that raises no refusal of it, keyed by module, function and the
-#: call's source, each with its reason. The census knows a method by its
-#: name alone, so a `close` called on a socket or on an SQLite connection
-#: is every `close` of the package, and some of those raise.
+#: A call in a cleanup, an `except` or a `finally`, that the census finds
+#: may raise from the package, and that raises no refusal of it, keyed by
+#: module, function and the call's source, each with its reason. The
+#: census knows a method by its name alone, so a `close` called on a
+#: socket or on an SQLite connection is every `close` of the package, and
+#: some of those raise.
 CLEANUPS = {
     ("fetch/peer_transport.py", "send", "self._discard"): (
         "`_discard` runs `close` under `suppress(FetchError)`, and `close`"
@@ -1494,7 +1727,19 @@ CLEANUPS = {
         " raises `_TransportError` alone, a `FetchError`"
     ),
     ("fetch/transport.py", "_connected", "sock.close"): (
-        "the socket `create_connection` answered, closed by the standard library"
+        "the socket `create_connection` answered, closed by the standard"
+        " library under `suppress(OSError)`: no `close` of the package runs,"
+        " and a close that fails leaves the handshake's error to be raised"
+    ),
+    ("fetch/compact_filters.py", "_sync_headers", "self._restore"): (
+        "`_restore` reaches a raise only through `_append`'s `append` calls,"
+        " which the census takes for `Miniscript.append`: they are calls of"
+        " `list.append` on `_headers`, `_hashes` and `_work`, lists"
+        " `__init__` builds"
+    ),
+    ("ledger/store.py", "_copy_backup", "source.close"): (
+        "`source` is the `sqlite3.Connection` `_connect` answers, closed by"
+        " the standard library: no `close` of the package runs"
     ),
     ("ledger/ledger.py", "load", "store.close"): (
         "`_Store.close` runs `_release`, which closes an SQLite connection"
@@ -1513,18 +1758,35 @@ CLEANUPS = {
 }
 
 
+#: An exception raised by a name the census does not trace, keyed by
+#: module, function and the source of what is raised, each with its reason.
+KEPT = {
+    ("fetch/fetcher.py", "_verify_once", "self._disagreement"): (
+        "`_disagreement` is assigned `None` in `__init__` and, in"
+        " `_verify_once`, the exception `except _WrongChainError` binds"
+        " alone: a class of the package, built at sites the census reads"
+    ),
+}
+
+
 def _cleanups() -> dict[tuple[str, str, str], str]:
     """Return `CLEANUPS` keyed by the module's name as the census names it."""
     return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in CLEANUPS.items()}
 
 
+def _kept() -> dict[tuple[str, str, str], str]:
+    """Return `KEPT` keyed by the module's name as the census names it."""
+    return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in KEPT.items()}
+
+
 def test_no_refusal_formats_a_value() -> None:
     """Each exception the package builds formats only what the census traces."""
     census = _census(_library())
-    findings = census.findings(_cleanups())
+    findings = census.findings(_cleanups(), _kept())
     assert not findings, "\n".join(findings)
     # an entry no finding uses is one a change made stale
     assert set(_cleanups()) <= census.used, set(_cleanups()) - census.used
+    assert set(_kept()) <= census.kept_used, set(_kept()) - census.kept_used
 
 
 def test_cleanups_hide_their_own_entries_alone() -> None:
@@ -2143,6 +2405,125 @@ _SHAPES = {
             "        raise ValueError('a')\nclass _E(_B):\n    pass\n"
             "def f(key):\n    try:\n        pass\n    except OSError:\n"
             "        _E('a')"
+        ),
+    ),
+    "default read where the def stands": (
+        "def f(key):\n    def _g(key='a'):\n        raise ValueError(key)\n    _g()",
+        "def f(key):\n    def _g(key=key):\n        raise ValueError(key)\n    _g()",
+    ),
+    "keyword default read where the def stands": (
+        "def f(key):\n    def _g(*, key='a'):\n        raise ValueError(key)\n    _g()",
+        "def f(key):\n    def _g(*, key=key):\n        raise ValueError(key)\n    _g()",
+    ),
+    "default of a module name": (
+        "key = 'a'\ndef _g(key=key):\n    raise ValueError(key)\n_g()",
+        (
+            "import os\nkey = os.environ['KEY']\ndef _g(key=key):\n"
+            "    raise ValueError(key)\n_g()"
+        ),
+    ),
+    "default of a lambda": (
+        "def f(key):\n    pick = lambda x=key: 1\n    raise ValueError('a')",
+        "def f(key):\n    pick = lambda x=key: x\n    raise ValueError(pick())",
+    ),
+    "exception class bound to another name": (
+        (
+            "Failure = ValueError\ndef f(key):\n    refusal = Failure('a')\n"
+            "    raise refusal"
+        ),
+        (
+            "Failure = ValueError\ndef f(key):\n    refusal = Failure(key)\n"
+            "    raise refusal"
+        ),
+    ),
+    "exception class imported under another name": (
+        (
+            "from builtins import ValueError as Failure\ndef f(key):\n"
+            "    error = Failure('a')\n    raise error"
+        ),
+        (
+            "from builtins import ValueError as Failure\ndef f(key):\n"
+            "    error = Failure(key)\n    raise error"
+        ),
+    ),
+    "class of the package bound to another name": (
+        (
+            "class _Own(Exception):\n    pass\nAlias = _Own\ndef f(key):\n"
+            "    refusal = Alias('a')\n    raise refusal"
+        ),
+        (
+            "class _Own(Exception):\n    pass\nAlias = _Own\ndef f(key):\n"
+            "    refusal = Alias(key)\n    raise refusal"
+        ),
+    ),
+    "class of the package deriving from no known plain base": (
+        (
+            "from typing import NamedTuple\nclass _Ref(NamedTuple):\n"
+            "    n: int\nAlias = _Ref\ndef f(key):\n    Alias(key)\n"
+            "    raise ValueError('a')"
+        ),
+        (
+            "from x import Mystery\nclass _Ref(Mystery):\n    pass\n"
+            "Alias = _Ref\ndef f(key):\n    Alias(key)\n    raise ValueError('a')"
+        ),
+    ),
+    "exception raised by name": (
+        "def f(key):\n    refusal = None\n    raise ValueError('a')",
+        "def f(key):\n    raise key",
+    ),
+    "exception raised by a name that may hold None": (
+        (
+            "def f(key):\n    refusal = None\n    if key:\n"
+            "        refusal = ValueError('a')\n    if refusal is not None:\n"
+            "        raise refusal"
+        ),
+        (
+            "def f(key):\n    refusal = None\n    if key:\n"
+            "        refusal = key\n    if refusal is not None:\n"
+            "        raise refusal"
+        ),
+    ),
+    "exception declared by a bare annotation": (
+        (
+            "def f(key):\n    refusal: Exception\n    if key:\n"
+            "        refusal = ValueError('a')\n    else:\n"
+            "        refusal = TypeError('a')\n    raise refusal"
+        ),
+        (
+            "def f(key):\n    refusal: Exception\n    if key:\n"
+            "        refusal = key\n    else:\n"
+            "        refusal = TypeError('a')\n    raise refusal"
+        ),
+    ),
+    "exception a function of the package returns, raised by name": (
+        (
+            "def _make():\n    return ValueError('a')\n"
+            "def f(key):\n    refusal = _make()\n    raise refusal"
+        ),
+        (
+            "def _make(key):\n    return key\n"
+            "def f(key):\n    refusal = _make(key)\n    raise refusal"
+        ),
+    ),
+    "exception handed to a function that raises it": (
+        (
+            "def _raise(refusal):\n    raise refusal\n"
+            "def f(key):\n    _raise(ValueError('a'))"
+        ),
+        "def _raise(refusal):\n    raise refusal\ndef f(key):\n    _raise(key)",
+    ),
+    "exception raised out of a container": (
+        "def f(key):\n    errors = [ValueError('a')]\n    raise errors[0]",
+        "def f(key):\n    errors = [key]\n    raise errors[0]",
+    ),
+    "raising call in a finally": (
+        (
+            "def _g():\n    return 1\ndef f(key):\n    try:\n        int(key)\n"
+            "    finally:\n        _g()"
+        ),
+        (
+            "def _g():\n    raise ValueError('a')\ndef f(key):\n    try:\n"
+            "        int(key)\n    finally:\n        _g()"
         ),
     ),
 }
