@@ -50,7 +50,7 @@ git push git@github.com:btclib-org/btclib-wallet.git main
 
 Then the switches section 11 turns off or on at the repository level, in
 one call — the projects board and the wiki off, the tracker on, squash as
-the only merge method with auto-merge, the head branch deleted on merge,
+the only merge method with auto-merge off, the head branch deleted on merge,
 and the squash commit's title and body — together with the `.homepage`,
 section 3's page on btclib.org:
 
@@ -58,7 +58,7 @@ section 3's page on btclib.org:
 gh api -X PATCH repos/btclib-org/btclib-wallet \
   -F has_issues=true -F has_wiki=false -F has_projects=false \
   -F allow_squash_merge=true -F allow_merge_commit=false \
-  -F allow_rebase_merge=false -F allow_auto_merge=true \
+  -F allow_rebase_merge=false -F allow_auto_merge=false \
   -F delete_branch_on_merge=true \
   -f squash_merge_commit_title=COMMIT_OR_PR_TITLE \
   -f squash_merge_commit_message=COMMIT_MESSAGES \
@@ -352,16 +352,16 @@ gh api repos/<owner>/<repo>/git/tags/<sha> --jq .verification
 
 ## Merge methods
 
-**Squash is the only method GitHub can be asked for**, and auto-merge
-presses it once the review and the checks are in; the call is the one
-under *Creating the repository*. Read back:
+**Squash is the only method GitHub can be asked for**, and auto-merge is
+off, so no pull request can be armed: the merge is explicit. The call is
+the one under *Creating the repository*. Read on 2026-11-14:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet \
   --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge,
          allow_auto_merge, squash_merge_commit_title,
          squash_merge_commit_message, delete_branch_on_merge}'
-# {"allow_auto_merge":true,"allow_merge_commit":false,
+# {"allow_auto_merge":false,"allow_merge_commit":false,
 #  "allow_rebase_merge":false,"allow_squash_merge":true,
 #  "delete_branch_on_merge":true,
 #  "squash_merge_commit_message":"COMMIT_MESSAGES",
