@@ -678,8 +678,32 @@ def test_every_statement_of_the_store_is_read_to_its_end(
             HEX,
             "^not a ledger file: a transaction in no state$",
         ),
+        (
+            "UPDATE txs SET height = ?",
+            HEX,
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET block_id = ?",
+            HEX,
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET seq = ?",
+            HEX,
+            "^not a ledger file: a transaction with a malformed seq$",
+        ),
     ],
-    ids=["network", "descriptors map key", "tip height", "tip id", "tx state"],
+    ids=[
+        "network",
+        "descriptors map key",
+        "tip height",
+        "tip id",
+        "tx state",
+        "tx height",
+        "tx block id",
+        "tx seq",
+    ],
 )
 def test_a_key_in_a_damaged_file_is_in_no_refusal(
     chain: FakeChain, path: Path, statement: str, value: str, err_msg: str

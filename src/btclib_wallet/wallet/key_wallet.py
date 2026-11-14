@@ -181,7 +181,10 @@ class KeyWallet(Wallet):
         # would be on the key's network and the wallet's records say
         # otherwise
         if key.network != self.network:
-            err_msg = f"not a {_label(self.network, NETWORKS)} key: {_label(key.network, NETWORKS)}"
+            # each network between commas, where no article stands before
+            # what `_label` writes of one it does not know
+            err_msg = f"the key's network, {_label(key.network, NETWORKS)},"
+            err_msg += f" is not the wallet's, {_label(self.network, NETWORKS)}"
             raise BTClibValueError(err_msg)
         # `key.pub` derives at most once and memoizes, so the address
         # builder below is handed those octets rather than a key it would
