@@ -81,6 +81,7 @@ from btclib.script.witness import Witness
 from btclib.utils import assert_type, is_integer
 from typing_extensions import override
 
+from btclib_wallet._refusal import _exact_int
 from btclib_wallet.bip32.bip32 import BIP32Key
 from btclib_wallet.bip32.der_path import DerPath
 from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
@@ -148,19 +149,20 @@ def _labels(by_branch: Mapping[int, Descriptor]) -> dict[int, Descriptor]:
     """Refuse a label that is no integer, or is outside 0 to 2**63 - 1.
 
     The module docstring says why. No value refusal prints the value: an
-    int past the interpreter's digit limit has no str(). Each label is
-    kept as the exact int it holds, read by `int.__index__`, which no
-    subclass overrides: the str() of an IntEnum can be its name, which a
-    ledger would write and could not read back, and a subclass's
-    `__int__` can answer another number. Two labels holding one int are
-    refused, since one descriptor would replace the other.
+    int past the interpreter's digit limit has no str(). The type decides
+    whether a label is an int, as `_quoted` says, since a `__class__` can
+    claim one. Each label is kept as the exact int `_exact_int` reads: the
+    str() of an IntEnum can be its name, which a ledger would write and
+    could not read back, and a subclass's `__int__` can answer another
+    number. Two labels holding one int are refused, since one descriptor
+    would replace the other.
     """
     labels: dict[int, Descriptor] = {}
     for branch, descriptor in by_branch.items():
-        if not is_integer(branch):
+        if not (issubclass(type(branch), int) and is_integer(branch)):
             err_msg = f"invalid branch type: {type(branch).__name__}"
             raise BTClibTypeError(err_msg)
-        value = int.__index__(branch)
+        value = _exact_int(branch)
         if value < 0:
             raise BTClibValueError("invalid branch: negative")
         if value >= 2**63:

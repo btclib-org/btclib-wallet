@@ -218,6 +218,16 @@ def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
         DescriptorWallet({"0": _DESCRIPTOR})  # type: ignore[dict-item]
 
+    claims_int: Any = property(lambda _self: int)
+
+    class Claims:
+        __class__ = claims_int
+
+    # isinstance believes it, so the type is what decides
+    assert isinstance(Claims(), int)
+    with pytest.raises(BTClibTypeError, match="invalid branch type: Claims"):
+        DescriptorWallet({Claims(): _DESCRIPTOR})  # type: ignore[dict-item]
+
 
 def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
     """`IntEnum` stays a number, which is why the predicate names bool.
@@ -242,7 +252,7 @@ def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
 
 
 def test_a_branch_is_the_int_its_label_holds() -> None:
-    """Read by `int.__index__`, whatever a subclass's `__int__` answers.
+    """Read by `_exact_int`, whatever a subclass's `__int__` answers.
 
     Through `int()` these would label a chain -1 or 2**70, which a ledger
     cannot hold, or put two descriptors on one branch.
