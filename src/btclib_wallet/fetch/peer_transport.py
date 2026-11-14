@@ -54,7 +54,7 @@ from __future__ import annotations
 import secrets
 from contextlib import suppress
 from importlib import import_module
-from socket import create_connection, socket
+from socket import socket
 from time import monotonic
 from typing import TYPE_CHECKING, Protocol, Self
 
@@ -76,6 +76,7 @@ from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.fetch.transport import (
     _MAX_PORT,
     _READ_CHUNK,
+    _open_connection,
     _time_left,
     valid_timeout,
 )
@@ -125,10 +126,9 @@ def _assert_peer(host: str, port: int) -> None:
     if not host:
         raise BTClibValueError("empty host")
     encoded = False
-    # what `create_connection` encodes the host with, and a
-    # `UnicodeError` rather than an `OSError` there. The refusal is
-    # raised after `suppress`, so that it chains no codec error: one
-    # holds the host
+    # what `getaddrinfo` encodes the host with, and a `UnicodeError`
+    # rather than an `OSError` there. The refusal is raised after
+    # `suppress`, so that it chains no codec error: one holds the host
     with suppress(UnicodeError):
         encoded = bool(host.encode("idna"))
     if not encoded:
@@ -229,8 +229,8 @@ class TcpPeerTransport:
             sock = self._socket
             # a close interrupted once the socket closed leaves it held
             if sock is None or sock.fileno() == -1:
-                sock = self._socket = create_connection(
-                    (self._host, self._port), timeout=timeout
+                sock = self._socket = _open_connection(
+                    (self._host, self._port), deadline, timeout, where
                 )
             sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(message.serialize())
@@ -461,8 +461,8 @@ class V2PeerTransport:
         # what an interrupted call left pending, if anything
         with suppress(FetchError):
             self._close_pending()
-        sock = self._pending = create_connection(
-            (self._host, self._port), timeout=timeout
+        sock = self._pending = _open_connection(
+            (self._host, self._port), deadline, timeout, where
         )
         cipher = _handshake(sock, magic, deadline, timeout, where)
         if cipher is None:

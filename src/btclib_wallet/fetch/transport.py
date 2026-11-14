@@ -69,10 +69,10 @@ once. It has a `close()` and works as a context manager.
 from __future__ import annotations
 
 import select
+import socket
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
-from socket import create_connection, socket
 from threading import Lock
 from time import monotonic
 from typing import Self
@@ -171,8 +171,48 @@ def _time_left(deadline: float, timeout: float, where: str) -> float:
     return min(remaining, timeout)
 
 
+def _open_connection(
+    address: tuple[str, int], deadline: float, timeout: float, where: str
+) -> socket.socket:
+    """Return a TCP socket connected to `address` before `deadline`.
+
+    Each address the host resolves to is tried in turn, as
+    `socket.create_connection` tries them, but each attempt is given what
+    is left of the deadline rather than the whole of `timeout`, and none
+    is begun once it has passed. Where no attempt connects, the last
+    one's error is raised, as there. `TlsLineTransport` says what the
+    deadline leaves unbounded.
+    """
+    host, port = address
+    error = OSError("getaddrinfo returns an empty list")
+    for family, kind, proto, _, sockaddr in socket.getaddrinfo(
+        host, port, 0, socket.SOCK_STREAM
+    ):
+        left = _time_left(deadline, timeout, where)
+        try:
+            # a family the host offers and this machine lacks is one more
+            # address that fails
+            sock = socket.socket(family, kind, proto)
+        except OSError as e:
+            error = e
+            continue
+        try:
+            sock.settimeout(left)
+            sock.connect(sockaddr)
+        except OSError as e:
+            sock.close()
+            error = e
+            continue
+        except BaseException:
+            # a `KeyboardInterrupt` leaves no socket open behind it
+            sock.close()
+            raise
+        return sock
+    raise error
+
+
 def _read_line(
-    connection: socket,
+    connection: socket.socket,
     buffer: bytearray,
     max_line_size: int,
     where: str,
@@ -213,7 +253,7 @@ def _valid_endpoint(host: str, port: int, max_line_size: int) -> None:
     if not host:
         raise BTClibValueError("empty host")
     encoded = False
-    # what `create_connection`, and the TLS handshake where there is one,
+    # what `getaddrinfo`, and the TLS handshake where there is one,
     # encode the host with, and a `UnicodeError` rather than an `OSError`
     # there. The refusal is raised after `suppress`, so that it chains no
     # codec error: one holds the host
@@ -281,7 +321,7 @@ def _exchange(
     where = f"{host}:{port}"
     deadline = monotonic() + timeout
     try:
-        with create_connection((host, port), timeout=timeout) as sock:
+        with _open_connection((host, port), deadline, timeout, where) as sock:
             connection = sock
             if context is not None:
                 sock.settimeout(_time_left(deadline, timeout, where))
@@ -319,10 +359,14 @@ class TlsLineTransport:
       `blockchain.transaction.get` fits for any transaction a block holds;
     - a timeout over the whole exchange -- connect, handshake, send and
       read -- rather than per socket operation: each operation is given
-      what is left of one deadline, so a server dripping a line one octet
-      at a time cannot hold the call open past it;
-    - no proxy from the environment: `socket.create_connection` reads no
-      proxy variable, so the connection goes to the host named here;
+      what is left of one deadline, the connect to each address the host
+      resolves to among them, so neither a host resolving to many
+      unreachable addresses nor a server dripping a line one octet at a
+      time can hold the call open past it. The name lookup is outside
+      it: the system resolver takes no timeout, and the deadline is
+      checked once it returns;
+    - no proxy from the environment: the `socket` module reads no proxy
+      variable, so the connection goes to the host named here;
     - TLS verified by default: `context` defaults to
       `ssl.create_default_context()` with its `minimum_version` set to
       TLS 1.2, a context requiring a certificate chaining to the default CA
@@ -446,7 +490,7 @@ class TcpLineTransport:
         )
 
 
-def _readable(connection: socket) -> bool:
+def _readable(connection: socket.socket) -> bool:
     """Return whether `connection` has something to read, without waiting.
 
     `select.poll` where the platform has it, and `select.select` only where
@@ -681,9 +725,7 @@ class PersistentTlsLineTransport:
             self._close()
             connection = None
         if connection is None:
-            sock = create_connection(
-                (self._host, self._port), timeout=_time_left(deadline, timeout, where)
-            )
+            sock = _open_connection((self._host, self._port), deadline, timeout, where)
             try:
                 sock.settimeout(_time_left(deadline, timeout, where))
                 connection = self._context.wrap_socket(sock, server_hostname=self._host)

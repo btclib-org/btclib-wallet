@@ -4,7 +4,7 @@
 
 """Tests for the line transports, over a fake connection.
 
-No socket is opened: `create_connection` is replaced in the module under
+No socket is opened: `_open_connection` is replaced in the module under
 test and returns a scripted socket, and the context handed to
 `TlsLineTransport` is an `ssl.SSLContext` whose `wrap_socket` returns a
 scripted connection rather than performing a handshake. What that leaves
@@ -60,7 +60,7 @@ TLS_CLASSES = [TlsLineTransport, PersistentTlsLineTransport]
 class FakeConnection:
     """A socket answering `recv` from a script, recording everything else.
 
-    Stands in for both the TCP socket `create_connection` returns and the
+    Stands in for both the TCP socket `_open_connection` returns and the
     TLS one `wrap_socket` returns: each chunk is consumed in order, an
     `Exception` among them is raised in its place, and an exhausted
     script reads as the peer closing the connection.
@@ -129,7 +129,7 @@ def fake_context(
 
 
 class Calls(list[tuple[tuple[str, int], float, FakeConnection]]):
-    """The calls `create_connection` took, and what the next one returns.
+    """The calls `_open_connection` took, and what the next one returns.
 
     `socket` is the socket the next call returns, `failure` what it raises
     instead, once the call is recorded.
@@ -143,14 +143,16 @@ class Calls(list[tuple[tuple[str, int], float, FakeConnection]]):
 
 @pytest.fixture
 def tcp(monkeypatch: pytest.MonkeyPatch) -> Calls:
-    """Replace `create_connection`, recording each call and its socket.
+    """Replace `_open_connection`, recording each call and its socket.
 
     Every test that reaches `__call__` takes this, so a test that forgot
     it would be the one test here that opens a real socket.
     """
     calls = Calls()
 
-    def create_connection(address: tuple[str, int], timeout: float) -> FakeConnection:
+    def open_connection(
+        address: tuple[str, int], _deadline: float, timeout: float, _where: str
+    ) -> FakeConnection:
         sock = calls.socket
         calls.socket = FakeConnection()
         calls.append((address, timeout, sock))
@@ -158,7 +160,7 @@ def tcp(monkeypatch: pytest.MonkeyPatch) -> Calls:
             raise calls.failure
         return sock
 
-    monkeypatch.setattr(transport_module, "create_connection", create_connection)
+    monkeypatch.setattr(transport_module, "_open_connection", open_connection)
     return calls
 
 
@@ -173,7 +175,7 @@ def line_transport(
 
     Over TLS that connection is the one the handshake returns, and
     `failure` is what the handshake raises; over TCP it is the socket
-    `create_connection` returns, and `failure` is what the connect raises.
+    `_open_connection` returns, and `failure` is what the connect raises.
     """
     if kind == "tls":
         context = fake_context(*chunks, failure=failure)
