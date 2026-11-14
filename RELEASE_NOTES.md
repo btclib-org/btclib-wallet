@@ -9,6 +9,51 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.14
+
+`fetch` ships a plain-TCP and a kept-TLS transport for an Electrum
+server, and BIP324's encrypted v2 transport for a p2p peer. What changes
+for an existing caller is in the last two bullets. Against
+v2026.11.13, neither griffe nor `api_gaps.py` reports a break in the
+public API.
+
+- **`fetch.TcpLineTransport` reaches an Electrum server over plain TCP**
+  ([ISS 861](https://github.com/btclib-org/btclib-wallet/issues/861)),
+  for a server on the caller's own machine or network. The connection is
+  neither encrypted nor authenticated. The rest is `TlsLineTransport`'s:
+  its construction checks, one connection per call, and its network
+  policy.
+- **`fetch.PersistentTlsLineTransport` keeps one TLS connection across
+  calls**
+  ([ISS 868](https://github.com/btclib-org/btclib-wallet/issues/868)), so
+  many calls to one server pay the handshake once. It matches each answer
+  to its request by the JSON-RPC id, and sets aside a notification read
+  before it. Close it with `close()` or a `with` block.
+- **`fetch.V2PeerTransport` connects `CompactFilterFetcher` to a peer over
+  BIP324's encrypted v2 transport**
+  ([ISS 767](https://github.com/btclib-org/btclib-wallet/issues/767),
+  [ISS 768](https://github.com/btclib-org/btclib-wallet/issues/768)). It
+  protects against a passive observer only: compare its `session_id` with
+  the one the peer reports (`getpeerinfo` on Bitcoin Core) to detect an
+  active one. A peer that hangs up on the handshake, as a v1 peer does, is
+  refused unless `v1_fallback=True`. It needs `cryptography`: README's
+  *Installing* says where it comes from, the `encryption` extra on
+  Windows arm64.
+- **`ElectrumFetcher.get_block_headers` asks at most a retarget period of
+  headers in one request**
+  ([ISS 872](https://github.com/btclib-org/btclib-wallet/issues/872)),
+  where it asked the `count` it was given, so a larger `count` returns at
+  most that many. Across calls, `get_history` keeps the headers asked at
+  the current tip and one per period of the chain read, where it kept one
+  more per new tip
+  ([ISS 877](https://github.com/btclib-org/btclib-wallet/issues/877)).
+  Act on it if you rely on one `get_block_headers` call returning more
+  than a retarget period.
+- **A refusal writes an int or str subclass as int or str writes it**
+  ([ISS 851](https://github.com/btclib-org/btclib-wallet/issues/851)), so
+  an `IntEnum` member reads as its number. Act on it if you match a
+  refusal's text.
+
 ## v2026.11.13
 
 `bip44` discovers a key's used accounts, and several calls answer or

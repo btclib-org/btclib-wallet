@@ -24,6 +24,53 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.14
+
+### `fetch` ships `TcpLineTransport`, a plain-TCP `LineTransport`
+
+For an Electrum server on the caller's own machine or network: the
+connection is neither encrypted nor authenticated (closes #861).
+
+### `fetch` ships `PersistentTlsLineTransport`, one TLS connection across calls
+
+Each answer is matched to its request by the JSON-RPC id, and a
+notification read before it is set aside (closes #868).
+
+### `fetch` ships `V2PeerTransport`, BIP324's encrypted p2p transport
+
+`CompactFilterFetcher` reaches a peer over v2, and over v1 only with
+`v1_fallback=True`, tested against bitcoind (closes #769); `cryptography`
+comes from the dependency or the `encryption` extra (closes #767) (closes #768).
+
+### `TcpPeerTransport.send` reconnects where the socket it holds is closed
+
+A close interrupted once the socket closed leaves it held (#892).
+
+### `ElectrumFetcher` bounds the headers it asks and keeps
+
+`get_block_headers` asks at most a retarget period of headers, and
+`get_history` keeps those asked at the current tip and one per period,
+not one more per new tip (closes #872) (closes #877).
+
+### A refusal writes an int or str subclass as int or str writes it
+
+The bound, the length and the text are int's and str's own, not the
+value's (closes #851).
+
+### bip85's claiming-int test expects btclib's type refusal where it gives one
+
+(closes #903).
+
+### Shared files follow btclib-org/.github
+
+prettier leaves `.pre-commit-config.yaml` to pre-commit.ci; AGENTS.md points
+at REVIEWING.md once; REPOSITORY.md names main-self-merge's bypass (issue
+btclib-org/.github#2038, btclib-org/.github#2009, btclib-org/.github#2212).
+
+### The bestpractices.dev answers are re-measured at v2026.11.13
+
+(#884) (#879).
+
 ## v2026.11.13
 
 ### `bip44` discovers an account's used addresses from public keys
