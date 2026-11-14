@@ -91,7 +91,25 @@ def test_client_errors_raises_this_packages_rpc_error_with_the_code() -> None:
     with pytest.raises(RpcError) as exc, client_errors():
         raise error
     assert exc.value.code == -26
+    assert exc.value.data is None
     assert not isinstance(exc.value, rpc.RpcError)
+
+
+class _RpcErrorWithData(rpc.RpcError):
+    """The client's `RpcError` as the releases that carry `data` build it."""
+
+    def __init__(self, message: str, code: int, data: object) -> None:
+        super().__init__(message, code)
+        self.data = data
+
+
+def test_client_errors_keeps_the_data_a_client_release_carries() -> None:
+    """`data` reaches this package's `RpcError` where the client has one."""
+    error = _RpcErrorWithData("getrawtransaction: not found", -5, {"tx": 1})
+    with pytest.raises(RpcError) as exc, client_errors():
+        raise error
+    assert exc.value.code == -5
+    assert exc.value.data == {"tx": 1}
 
 
 def test_tx_id_hex_takes_whatever_octets_takes() -> None:

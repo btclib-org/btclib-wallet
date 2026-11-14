@@ -91,7 +91,9 @@ def client_errors() -> Iterator[None]:
     try:
         yield
     except rpc.RpcError as e:
-        raise RpcError(e.args[0], e.code) from e
+        # the releases of `bitcoin_core_rpc` that `pyproject.toml` admits
+        # differ on whether their `RpcError` carries `data`
+        raise RpcError(e.args[0], e.code, getattr(e, "data", None)) from e
     except rpc.HttpError as e:
         raise HttpError(e.args[0], e.status) from e
     except rpc.FetchError as e:

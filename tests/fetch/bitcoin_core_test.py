@@ -676,8 +676,8 @@ def test_an_error_the_client_raises_without_a_status_is_a_fetch_error() -> None:
     assert type(exc.value) is FetchError
 
 
-def test_an_rpc_error_keeps_its_code_across_the_translation() -> None:
-    """The code, and the message composed once rather than twice.
+def test_an_rpc_error_keeps_its_code_and_its_data_across_the_translation() -> None:
+    """The other two fields, and the message composed once rather than twice.
 
     Both classes append `(rpc error code N)` in `__str__`, so a
     translation handing the composed message back in would say it again
@@ -689,11 +689,13 @@ def test_an_rpc_error_keeps_its_code_across_the_translation() -> None:
     with pytest.raises(RpcError) as exc:
         fetcher((200, body)).get_tx(TX_ID)
     assert exc.value.code == -5
-    assert exc.value.data is None
+    # what the client carried: the node's `data`, or None from a release
+    # whose `RpcError` has none
+    assert exc.value.data == getattr(exc.value.__cause__, "data", None)
     assert not isinstance(exc.value, rpc.RpcError)
     assert str(exc.value).count("rpc error code") == 1
-    # the message itself, and not the code carried beside it under the
-    # same positional index once `args` holds both
+    # the message itself, and not the code or the data carried beside it
+    # under the same positional index once `args` holds all three
     assert str(exc.value).startswith("getrawtransaction at ")
 
 
