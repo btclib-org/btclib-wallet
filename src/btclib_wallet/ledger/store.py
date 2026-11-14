@@ -323,14 +323,15 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
 # a branch as the file writes it: the decimal `str` writes of an int that
 # is not negative, which `add_source` takes with no upper bound
 _BRANCH = re.compile(r"0|[1-9][0-9]*")
-# a height or a seq: an int an SQLite INTEGER holds, not negative. A sync
-# writes its tip's height into `blocks` too, in the transaction that
-# writes the tip's text into `meta`, so that text is below the bound too
-_MAX_INTEGER = 2**63
-_HEIGHT = re.compile(r"0|[1-9][0-9]{0,18}")
-_BLOCK_ID = re.compile(r"[0-9a-f]{64}")
+# a height: any int an SQLite INTEGER holds, since a sync writes what a
+# backend answers, a negative height included. A sync writes its tip's
+# height into `blocks` too, in the transaction that writes the tip's text
+# into `meta`, so that text is in the range as well
+_INTEGERS = range(-(2**63), 2**63)
+_HEIGHT = re.compile(r"-?(0|[1-9][0-9]{0,18})")
+# a block id: any bytes, as `hex` writes them into the tip's text
+_HEX = re.compile(r"(?:[0-9a-f]{2})*")
 _STATES = {state.value: state for state in TxState}
-_BLOCK_ID_SIZE = 32
 
 
 def _is_branch(key: object) -> bool:
@@ -362,9 +363,18 @@ def _branches(value: object, source_id: int) -> dict[int, str]:
     return {int(b): text for b, text in value.items()}
 
 
+def _height(value: object) -> TypeGuard[int]:
+    """Return whether a column holds a height as the file writes it."""
+    return type(value) is int and value in _INTEGERS
+
+
 def _counted(value: object) -> TypeGuard[int]:
-    """Return whether a column holds a height or a seq as the file writes it."""
-    return type(value) is int and 0 <= value < _MAX_INTEGER
+    """Return whether a column holds a seq as the file writes it.
+
+    Each seq the ledger writes counts on from 0: one past the highest it
+    holds, or 0 where it holds none.
+    """
+    return _height(value) and value >= 0
 
 
 def _tx_block(height: object, block_id: object) -> BlockRef | None:
@@ -372,15 +382,11 @@ def _tx_block(height: object, block_id: object) -> BlockRef | None:
 
     `BlockRef` checks nothing, so a row is read where its height and its
     block id are as `_upsert_txs` writes them: both None, or a height and
-    the bytes of an id.
+    the bytes of an id, of whatever length the backend answered.
     """
     if height is None and block_id is None:
         return None
-    if not (
-        _counted(height)
-        and isinstance(block_id, bytes)
-        and len(block_id) == _BLOCK_ID_SIZE
-    ):
+    if not (_height(height) and isinstance(block_id, bytes)):
         raise BTClibValueError("not a ledger file: a transaction in a malformed block")
     return BlockRef(height, block_id)
 
@@ -661,9 +667,9 @@ class _Store:
         if not (
             isinstance(height, str)
             and _HEIGHT.fullmatch(height)
-            and int(height) < _MAX_INTEGER
+            and int(height) in _INTEGERS
             and isinstance(block_id, str)
-            and _BLOCK_ID.fullmatch(block_id)
+            and _HEX.fullmatch(block_id)
         ):
             raise BTClibValueError("not a ledger file: a malformed tip")
         return BlockRef(int(height), bytes.fromhex(block_id))
