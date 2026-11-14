@@ -163,6 +163,27 @@ def test_a_branch_that_is_not_ranged_has_one_address(
     assert ledger.new_address(source_id) == address
 
 
+def test_the_highest_branch_is_the_highest_the_file_holds(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """2**63 - 1, an SQLite INTEGER's largest, handed out and read back.
+
+    The wallet refuses 2**63 when it is built, before any ledger sees it.
+    """
+    top = 2**63 - 1
+    prv_keys: dict[str, str] = {}
+    descriptor = parse(f"wpkh({XPRV}/84h/1h/6h/0/*)", "regtest", prv_keys)
+    with pytest.raises(BTClibValueError, match=r"invalid branch: not below 2\*\*63"):
+        DescriptorWallet({top + 1: descriptor}, prv_keys)
+    wallet = DescriptorWallet({top: descriptor}, prv_keys)
+    source_id = ledger.add_source(wallet, lookahead=SMALL_LOOKAHEAD)
+    assert ledger.new_address(source_id, top) == wallet.address(top, 0)
+    ledger.close()
+    with Ledger.load(path, "regtest", chain) as loaded:
+        assert loaded.sources[source_id].branches == (top,)
+        assert loaded.new_address(source_id, top) == wallet.address(top, 1)
+
+
 def test_a_source_added_later_owns_what_is_held(
     ledger: Ledger, chain: FakeChain
 ) -> None:

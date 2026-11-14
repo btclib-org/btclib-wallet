@@ -24,6 +24,9 @@ ways in put the labels there:
 - `from_account`, which is `bip44.account_descriptors`: an account xpub
   and its master fingerprint in, the receive and change descriptors out.
 
+A label is an integer from 0 to 2**63 - 1: a `Ledger` writes it into an
+SQLite INTEGER, which is signed and 64 bits wide.
+
 What this adds to a descriptor is the branch, the record of what has been
 handed out, and `position_of`; what it delegates is everything else, and
 `descriptor(branch)` hands back the `Descriptor` for the questions this
@@ -75,7 +78,7 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
-from btclib.utils import assert_type
+from btclib.utils import assert_type, is_integer
 from typing_extensions import override
 
 from btclib_wallet.bip32.bip32 import BIP32Key
@@ -141,6 +144,22 @@ def _assert_distinct(
                 raise BTClibValueError(err_msg)
 
 
+def _labels(by_branch: Mapping[int, Descriptor]) -> dict[int, Descriptor]:
+    """Refuse a label that is no integer, or is 2**63 or more.
+
+    The module docstring says why. Each label is kept as the int it
+    equals: the str() of an IntEnum can be its name, which a ledger would
+    write and could not read back.
+    """
+    for branch in by_branch:
+        if not is_integer(branch):
+            err_msg = f"invalid branch type: {type(branch).__name__}"
+            raise BTClibTypeError(err_msg)
+        if branch >= 2**63:
+            raise BTClibValueError("invalid branch: not below 2**63")
+    return {int(branch): descriptor for branch, descriptor in by_branch.items()}
+
+
 class DescriptorWallet(RangedWallet):
     """One descriptor per chain, and the wallet questions over the pair."""
 
@@ -171,6 +190,7 @@ class DescriptorWallet(RangedWallet):
         if not by_branch:
             err_msg = "no descriptor: a wallet has at least one chain"
             raise BTClibValueError(err_msg)
+        by_branch = _labels(by_branch)
 
         for branch, descriptor in by_branch.items():
             if branch < 0:
