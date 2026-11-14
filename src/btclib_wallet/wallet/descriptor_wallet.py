@@ -109,8 +109,10 @@ def _assert_no_wif(descriptor: Descriptor) -> None:
     while keys:
         key = keys.pop()
         if key.wif_prefix:
-            err_msg = "a WIF key expression is not supported: the wallet would"
-            err_msg += " keep only its public key, and could not sign for it"
+            err_msg = (
+                "a WIF key expression is not supported: the wallet would"
+                " keep only its public key, and could not sign for it"
+            )
             raise BTClibValueError(err_msg)
         keys.extend(key.participants)
 
