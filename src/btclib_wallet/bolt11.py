@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Literal
 
@@ -192,7 +193,8 @@ _HOP_SIZE = 33 + 8 + 4 + 4 + 2  # pubkey, short_channel_id, two fees, cltv delta
 def _int_to_words(value: int, n_words: int) -> tuple[int, ...]:
     """Return `value` as `n_words` 5-bit groups, most significant first."""
     if not 0 <= value < (1 << (5 * n_words)):
-        raise BTClibValueError(f"{_quoted(value)} does not fit {n_words} 5-bit words")
+        err_msg = f"{_quoted(value)} does not fit {_quoted(n_words)} 5-bit words"
+        raise BTClibValueError(err_msg)
     return tuple((value >> (5 * (n_words - 1 - i))) & 0x1F for i in range(n_words))
 
 
@@ -590,10 +592,11 @@ class Bolt11Invoice:
         words = _first(self.tagged_fields, _TAG_DESCRIPTION)
         if words is None:
             return None
-        try:
+        # refused after `suppress`, so that it chains nothing: the codec's
+        # error holds the whole field
+        with suppress(UnicodeDecodeError):
             return _words_to_bytes(words).decode("utf-8")
-        except UnicodeDecodeError as e:
-            raise BTClibValueError("description is not valid UTF-8") from e
+        raise BTClibValueError("description is not valid UTF-8")
 
     @property
     def description_hash(self) -> bytes | None:
@@ -741,13 +744,17 @@ class Bolt11Invoice:
         data_words += _bytes_to_words(sig_bytes)
         # the words of an invoice built with check_validity=False reach
         # the codec unchecked, and its refusal leaves as this package's
+        # raised after the `except` block, so that it chains nothing
+        refusal: Exception
         try:
-            text = bech32_encode(hrp, data_words, m=BECH32_1_CONST, limit=None)
-        except Base58Bech32TypeError as e:
-            raise BTClibTypeError("invalid bech32 data type") from e
-        except Base58Bech32ValueError as e:
-            raise BTClibValueError("invalid bech32 data") from e
-        return text.decode("ascii")
+            return bech32_encode(hrp, data_words, m=BECH32_1_CONST, limit=None).decode(
+                "ascii"
+            )
+        except Base58Bech32TypeError:
+            refusal = BTClibTypeError("invalid bech32 data type")
+        except Base58Bech32ValueError:
+            refusal = BTClibValueError("invalid bech32 data")
+        raise refusal
 
     @classmethod
     def from_invoice(
@@ -759,10 +766,13 @@ class Bolt11Invoice:
         invoice is text, like `Bip21.parse`'s own `uri`.
         """
         assert_type(invoice, str, "invoice")
-        try:
-            hrp, data, _ = bech32_decode(invoice, m=BECH32_1_CONST, limit=None)
-        except Base58Bech32ValueError as e:
-            raise BTClibValueError("invalid bech32 string") from e
+        decoded = None
+        # raised after `suppress`, so that it chains nothing
+        with suppress(Base58Bech32ValueError):
+            decoded = bech32_decode(invoice, m=BECH32_1_CONST, limit=None)
+        if decoded is None:
+            raise BTClibValueError("invalid bech32 string")
+        hrp, data, _ = decoded
         network, amount_msat = _parse_hrp(hrp)
 
         if len(data) < 7 + _SIGNATURE_WORDS:

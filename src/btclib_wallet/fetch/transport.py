@@ -49,8 +49,9 @@ boundary needs no encoding step of its own, the same reason `HttpTransport` is
 bytes in and bytes out. A transport that cannot answer raises
 `bitcoin_core_rpc`'s own `FetchError` or a subclass of it,
 the vocabulary `HttpTransport` already raises through this same package;
-`btclib_wallet.fetch.fetcher.client_errors` is what translates it, at every
-`ElectrumFetcher` call the way it is at every other backend's.
+`btclib_wallet.fetch.fetcher.client_errors` is what refuses it as this
+package's `FetchError`, its text not relayed, at every `ElectrumFetcher`
+call the way it is at every other backend's.
 
 **`LineTransport` carries no host, so each implementation is an object
 that does.** One constructed with a host and a port is the callable
@@ -601,12 +602,13 @@ class PersistentTlsLineTransport:
         self._sent.clear()
         if self._connection is not None:
             connection, self._connection = self._connection, None
-            try:
+            # refused after `suppress`, so that it chains nothing
+            with suppress(OSError):
                 connection.close()
-            except OSError as e:
-                raise _TransportError(
-                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
-                ) from e
+                return
+            raise _TransportError(
+                f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+            )
 
     def _discard(self) -> None:
         """Close the connection after a failure, which stays the one raised."""

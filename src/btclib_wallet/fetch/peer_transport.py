@@ -113,10 +113,13 @@ def _assert_bip324() -> None:
     It imports `cryptography`, which an install can lack (README's
     *Installing*), so it is imported only where a v2 transport is built.
     """
-    try:
+    # refused after `suppress`, as every refusal of this module is raised
+    # after the `except` block that sees its cause, so that it chains
+    # nothing: an OSError holds what the system says of the address
+    with suppress(ImportError):
         import_module("btclib.p2p.bip324")
-    except ImportError:
-        raise BTClibRuntimeError(_NO_CRYPTOGRAPHY) from None
+        return
+    raise BTClibRuntimeError(_NO_CRYPTOGRAPHY)
 
 
 def _assert_peer(host: str, port: int) -> None:
@@ -207,14 +210,15 @@ class TcpPeerTransport:
         if sock is not None:
             # let go of only once closed, or once its close failed: a
             # close interrupted before that leaves it to the next close
-            try:
+            closed = False
+            with suppress(OSError):
                 sock.close()
-            except OSError as e:
-                self._socket = None
+                closed = True
+            self._socket = None
+            if not closed:
                 raise _TransportError(
                     f"closing {_quoted(self._host)}:{_quoted(self._port)}"
-                ) from e
-            self._socket = None
+                )
 
     def _discard(self) -> None:
         """Close the connection after a failure, which stays the one raised."""
@@ -237,12 +241,15 @@ class TcpPeerTransport:
                 )
             sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(message.serialize())
-        except OSError as e:
-            self._discard()
-            raise _TransportError(f"no connection to {where}") from e
+        except OSError:
+            pass
         except FetchError:
             self._discard()
             raise
+        else:
+            return
+        self._discard()
+        raise _TransportError(f"no connection to {where}")
 
     def receive(self, timeout: float) -> Message:
         """Return the next message the peer sends, waiting up to `timeout`."""
@@ -252,23 +259,26 @@ class TcpPeerTransport:
         if sock is None:
             raise _TransportError(f"{where}: not connected")
         deadline = monotonic() + timeout
+        failure: str
         try:
             header = _read(sock, _HEADER_SIZE, deadline, timeout, where)
+            missing = 0
             try:
                 # refuses a length over the bound before any payload is read
                 return Message.parse(header)
             except IncompleteMessageError as e:
-                rest = _read(sock, e.missing, deadline, timeout, where)
+                missing = e.missing
+            rest = _read(sock, missing, deadline, timeout, where)
             return Message.parse(header + rest)
-        except OSError as e:
-            self._discard()
-            raise _TransportError(f"no message from {where}") from e
-        except ValueError as e:
-            self._discard()
-            raise _TransportError(f"{where}: a message that does not parse") from e
+        except OSError:
+            failure = f"no message from {where}"
+        except ValueError:
+            failure = f"{where}: a message that does not parse"
         except FetchError:
             self._discard()
             raise
+        self._discard()
+        raise _TransportError(failure)
 
 
 class V2PeerTransport:
@@ -364,17 +374,20 @@ class V2PeerTransport:
         """Close what is pending, and only then let go of it."""
         pending = self._pending
         if pending is not None:
+            closed = False
             try:
                 pending.close()
-            except OSError as e:
-                self._pending = None
-                raise _TransportError(
-                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
-                ) from e
+                closed = True
+            except OSError:
+                pass
             except FetchError:
                 self._pending = None
                 raise
             self._pending = None
+            if not closed:
+                raise _TransportError(
+                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+                )
 
     def _discard(self) -> None:
         """Close the connection after a failure, which stays the one raised."""
@@ -394,6 +407,7 @@ class V2PeerTransport:
 
         deadline = monotonic() + timeout
         where = f"{_quoted(self._host)}:{_quoted(self._port)}"
+        failure: str
         try:
             if self._v1 is not None:
                 self._v1.send(message, timeout)
@@ -409,12 +423,10 @@ class V2PeerTransport:
             )
             sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(packet)
-        except OSError as e:
-            self._discard()
-            raise _TransportError(f"no connection to {where}") from e
+        except OSError:
+            failure = f"no connection to {where}"
         except ValueError as e:
-            self._discard()
-            raise _TransportError(f"{where}: {type(e).__name__}") from e
+            failure = f"{where}: {type(e).__name__}"
         except FetchError:
             self._discard()
             raise
@@ -422,6 +434,10 @@ class V2PeerTransport:
             # a `KeyboardInterrupt` can leave a packet half written
             self._discard()
             raise
+        else:
+            return
+        self._discard()
+        raise _TransportError(failure)
 
     def _assert_network(self, message: Message) -> None:
         """Refuse a message for another network than the connection's.
@@ -499,6 +515,7 @@ class V2PeerTransport:
 
         where = f"{_quoted(self._host)}:{_quoted(self._port)}"
         deadline = monotonic() + timeout
+        failure: str
         try:
             if self._v1 is not None:
                 return self._v1.receive(timeout)
@@ -512,12 +529,10 @@ class V2PeerTransport:
                 except BTClibValueError:
                     continue
                 return Message(self._magic, command, payload)
-        except OSError as e:
-            self._discard()
-            raise _TransportError(f"no message from {where}") from e
+        except OSError:
+            failure = f"no message from {where}"
         except ValueError as e:
-            self._discard()
-            raise _TransportError(f"{where}: {type(e).__name__}") from e
+            failure = f"{where}: {type(e).__name__}"
         except FetchError:
             self._discard()
             raise
@@ -525,6 +540,8 @@ class V2PeerTransport:
             # a `KeyboardInterrupt` can leave a packet half read
             self._discard()
             raise
+        self._discard()
+        raise _TransportError(failure)
 
 
 def _handshake(

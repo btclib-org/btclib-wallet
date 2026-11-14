@@ -34,7 +34,7 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
-from tests import raises_from
+from tests import raises_alone
 from tests.fetch.peer_chain_test import (
     OTHER,
     REGTEST_BITS,
@@ -579,11 +579,7 @@ def test_the_first_header_of_a_period_is_not_far_behind_its_parent_where_bip94_i
         )
         monkeypatch.setattr(fetcher, "_consensus", consensus)
         if expected is None:
-            with raises_from(
-                FetchError,
-                match="header 4: a malformed answer",
-                cause="timewarp",
-            ):
+            with raises_alone(FetchError, match="header 4: a malformed answer"):
                 fetcher.get_block_count()
         else:
             assert fetcher.get_block_count() == expected

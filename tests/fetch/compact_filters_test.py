@@ -47,7 +47,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
-from tests import raises_from
+from tests import raises_alone
 from tests.fetch.peer_chain_test import (
     OTHER,
     REGTEST_BITS,
@@ -844,40 +844,28 @@ def cfilters_with(peer: ScriptedPeer, make: Callable[[int], CFilter]) -> None:
 
 
 @pytest.mark.parametrize(
-    "make, why",
+    "make",
     [
-        (
-            lambda peer: lambda h: replace(peer.cfilter(h), filter_type=1),
-            "not the filter asked for",
+        lambda peer: lambda h: replace(peer.cfilter(h), filter_type=1),
+        lambda peer: lambda h: replace(peer.cfilter(h), block_hash=bytes(32)),
+        lambda peer: (
+            lambda h: CFilter(
+                BlockFilterType.BASIC,
+                peer.chain.hashes[h],
+                peer.chain.filters[h - 1].serialize(),
+            )
         ),
-        (
-            lambda peer: lambda h: replace(peer.cfilter(h), block_hash=bytes(32)),
-            "not the filter asked for",
-        ),
-        (
-            lambda peer: (
-                lambda h: CFilter(
-                    BlockFilterType.BASIC,
-                    peer.chain.hashes[h],
-                    peer.chain.filters[h - 1].serialize(),
-                )
-            ),
-            "cfilter 0: a malformed answer",
-        ),
-        (
-            lambda peer: lambda h: replace(peer.cfilter(h), filter_bytes=b"\xff\xff"),
-            "cfilter",
-        ),
+        lambda peer: lambda h: replace(peer.cfilter(h), filter_bytes=b"\xff\xff"),
     ],
     ids=["type", "block", "filter header", "bytes"],
 )
 def test_a_filter_that_is_not_the_one_asked_for_is_refused(
-    make: Callable[[ScriptedPeer], Callable[[int], CFilter]], why: str
+    make: Callable[[ScriptedPeer], Callable[[int], CFilter]],
 ) -> None:
     """A filter of another block or not hashing to its header is refused."""
     fetcher, peer = build()
     cfilters_with(peer, make(peer))
-    with raises_from(FetchError, match="^cfilter 0: a malformed answer$", cause=why):
+    with raises_alone(FetchError, match="^cfilter 0: a malformed answer$"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -911,9 +899,7 @@ def test_a_block_that_was_not_asked_for_is_refused() -> None:
         "reply_getdata",
         [peer.message("block", peer.block_payload(CHAIN.blocks[5]))],
     )
-    with raises_from(
-        FetchError, match="block: a malformed answer", cause="not asked for"
-    ):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -923,9 +909,7 @@ def test_a_block_that_is_not_what_its_header_commits_to_is_refused() -> None:
     other = build_coinbase(3, OTHER, halving_interval=REGTEST_HALVING, extra_nonce=b"?")
     forged = Block(CHAIN.blocks[3].header, [other], check_validity=False)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(forged))])
-    with raises_from(
-        FetchError, match="block: a malformed answer", cause="merkle root"
-    ):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1003,11 +987,7 @@ def test_a_block_with_a_witness_changed_or_removed_is_refused(witness: Witness) 
     ]
     fetcher, peer = build(chain)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(altered))])
-    with raises_from(
-        FetchError,
-        match="block: a malformed answer",
-        cause="invalid witness commitment",
-    ):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1027,11 +1007,7 @@ def test_a_block_with_every_witness_stripped_is_refused() -> None:
     # the block sits exactly at the activation height
     fetcher._consensus = replace(fetcher._consensus, segwit_height=3)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(stripped))])
-    with raises_from(
-        FetchError,
-        match="block: a malformed answer",
-        cause="invalid witness nonce",
-    ):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1053,11 +1029,7 @@ def test_a_block_with_a_time_lock_past_the_median_time_past_is_refused() -> None
     block = build_block(previous.hash, [coinbase, locked], time, REGTEST_BITS)
     block.header = mined(block.header)
     fetcher, _ = build(Chain([*base.blocks, block]).extend(TIP - 3))
-    with raises_from(
-        FetchError,
-        match="block: a malformed answer",
-        cause="non-final transaction",
-    ):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1067,9 +1039,7 @@ def test_a_segwit_block_below_the_segwit_height_is_refused() -> None:
     block.assert_valid_structure()
     fetcher, _ = build(chain)
     fetcher._consensus = replace(fetcher._consensus, segwit_height=4)
-    with raises_from(
-        FetchError, match="block: a malformed answer", cause="unexpected witness"
-    ):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 

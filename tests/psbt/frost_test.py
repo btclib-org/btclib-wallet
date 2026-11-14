@@ -870,7 +870,7 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
     my_id = SIGNERS[0]
     with pytest.raises(
         BTClibValueError,
-        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
     ):
         psbt_frost.partial_sign(
             psbt, 0, sec_nonces[my_id], my_id, SEC_SHARES[my_id], THRESH_PK

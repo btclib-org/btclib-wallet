@@ -125,6 +125,7 @@ import operator
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, NoReturn, cast
 
@@ -2486,12 +2487,14 @@ def _parse_raw(
     args: list[str], context: str, network: str, prv_keys: dict[str, str]
 ) -> Descriptor:
     hex_script = _one_argument(args, "raw")
-    try:
-        script = bytes_from_octets(hex_script)
     # bytes.fromhex raises a plain ValueError, and every other way of
-    # writing a descriptor wrong raises a BTClibValueError
-    except ValueError as e:
-        raise BTClibValueError("raw() takes a hex script") from e
+    # writing a descriptor wrong raises a BTClibValueError: refused after
+    # `suppress`, so that it chains nothing
+    script = None
+    with suppress(ValueError):
+        script = bytes_from_octets(hex_script)
+    if script is None:
+        raise BTClibValueError("raw() takes a hex script")
     return RawDescriptor(script, network=network)
 
 
@@ -3925,16 +3928,18 @@ def _resolved_placeholder(
     match: re.Match[str], key_info: Sequence[KeyExpression], multipath_index: int
 ) -> str:
     """Return the text a wallet-policy placeholder and its suffix resolve to."""
-    try:
+    text = None
+    # refused after `suppress`, so that it chains nothing
+    with suppress(IndexError):
         if match["musig"] is not None:
             indexes = [int(token[1:]) for token in match["musig"].split(",")]
             keys = ",".join(str(key_info[i]) for i in indexes)
             text = f"musig({keys})"
         else:
             text = str(key_info[int(match["index"])])
-    except IndexError:
+    if text is None:
         err_msg = f"key placeholder out of range: {_quoted(match[0])}"
-        raise BTClibValueError(err_msg) from None
+        raise BTClibValueError(err_msg)
     suffix = match["suffix"]
     if suffix == "/**":
         return f"{text}/{multipath_index}/*"

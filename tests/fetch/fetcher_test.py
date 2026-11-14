@@ -57,19 +57,19 @@ OTHER_ID = "b1fea52486ce0c62bb442b530a3f0132b826c74e473d1f2c220bfa78111c5082"
 def test_fetch_errors_names_the_source(error: Exception) -> None:
     """Wrap parse-time exceptions in a FetchError naming the call.
 
-    A builtin's text can hold the answer it refused, so it is not relayed
-    and not chained: its type is named. btclib's refusal is chained.
+    A builtin's text can hold the answer it refused, and so can btclib's,
+    so neither is relayed nor chained (issue #821): a builtin's type is
+    named.
     """
     with (
         pytest.raises(FetchError, match="^'getblockcount': a malformed answer") as e,
         fetch_errors("getblockcount"),
     ):
         raise error
-    if isinstance(error, BTClibRuntimeError):
-        assert e.value.__cause__ is error
-    else:
+    if not isinstance(error, BTClibRuntimeError):
         assert str(e.value).endswith(f", as {type(error).__name__}")
-        assert e.value.__cause__ is None
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
 
 
 def test_fetch_errors_lets_a_fetch_error_through() -> None:

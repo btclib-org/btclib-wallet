@@ -748,11 +748,9 @@ class SoftwareSigner:
         which the others are derivations, and answering one of them would
         be answering a key the caller did not ask about.
         """
-        try:
-            return self._keys[()]
-        except KeyError:
-            err_msg = "this signer holds accounts, not one key"
-            raise BTClibValueError(err_msg) from None
+        if () not in self._keys:
+            raise BTClibValueError("this signer holds accounts, not one key")
+        return self._keys[()]
 
     def _at(self, der_path: DerPath) -> str:
         """Return the key at a path from the master, derived from what is held.

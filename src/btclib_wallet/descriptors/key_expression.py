@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 import string
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -228,13 +228,15 @@ class KeyExpression:
             raise BTClibTypeError(err_msg)
         if not self.xkey or _PLACEHOLDER.fullmatch(self.xkey):
             return
-        try:
+        # refused after `suppress`, so that it chains nothing: btclib's
+        # reason is about the characters, which are what this refuses to
+        # repeat
+        is_private = None
+        with suppress(ValueError):
             is_private = BIP32KeyData.b58decode(self.xkey).is_private
-        # from None: btclib's reason is about the characters, which are
-        # what this refuses to repeat
-        except ValueError:
+        if is_private is None:
             err_msg = "invalid xkey: no extended public key and no placeholder"
-            raise BTClibValueError(err_msg) from None
+            raise BTClibValueError(err_msg)
         if is_private:
             err_msg = "an extended private key is no xkey: pass its xpub"
             raise BTClibValueError(err_msg)
@@ -532,14 +534,17 @@ def _der_path(steps: list[str]) -> list[int]:
     """
     if not steps:
         return []
-    try:
-        return indexes_from_der_path("/".join(steps), bip380_enforced=True)
     # a step is caller text that can hold a key: one written after a path
     # without the comma before it is read as the path's last step. So the
     # refusal is the head of der_path's own, which names the fault, written
-    # out where it is one of `_PATH_FAULTS`, and chains it
+    # out where it is one of `_PATH_FAULTS`, and raised after the `except`
+    # block, so that it chains nothing
+    fault: str
+    try:
+        return indexes_from_der_path("/".join(steps), bip380_enforced=True)
     except BTClibValueError as e:
-        raise BTClibValueError(_label(str(e).partition(":")[0], _PATH_FAULTS)) from e
+        fault = _label(str(e).partition(":")[0], _PATH_FAULTS)
+    raise BTClibValueError(fault)
 
 
 def _hardening(path: str) -> str:
@@ -976,11 +981,11 @@ def _fixed_pub_key(key: str, *, x_only: bool) -> tuple[bytes, bool]:
         return _pub_key_from_hex(key, x_only=x_only)
     # what is left is a WIF, which is b58's object (issue
     # btclib-org/btclib#1188): prv_key_data_from_wif answers both for it and for
-    # characters that are no key expression at all
-    try:
+    # characters that are no key expression at all. Refused after
+    # `suppress`, so that it chains nothing: the WIF is a private key
+    with suppress(TypeError, ValueError):
         return b58.prv_key_data_from_wif(key).pub.sec, x_only
-    except (TypeError, ValueError) as e:
-        raise BTClibValueError("invalid key expression") from e
+    raise BTClibValueError("invalid key expression")
 
 
 def _assert_network(key: KeyExpression, network: str) -> None:
@@ -1106,15 +1111,18 @@ def _musig_der_path(suffix: str) -> tuple[tuple[int, ...], int | None, int]:
     steps, wildcard, wildcard_hardening = _split_wildcard(suffix[1:].split("/"))
     if wildcard_hardening:
         raise BTClibValueError("musig() cannot have a hardened wildcard")
+    # raised after the `except` block, so that it chains nothing
+    fault: str
     try:
         length = _assert_key_path(steps)
     except BTClibValueError as e:
         fault = _fault(e, "invalid key path")
-        raise BTClibValueError(f"musig(): {fault}") from e
-    der_path = _path_indexes(steps)
-    if any(index >= HARDENED_OFFSET for index in der_path):
-        raise BTClibValueError(_HARDENED_MUSIG_STEP)
-    return tuple(der_path), wildcard, length
+    else:
+        der_path = _path_indexes(steps)
+        if any(index >= HARDENED_OFFSET for index in der_path):
+            raise BTClibValueError(_HARDENED_MUSIG_STEP)
+        return tuple(der_path), wildcard, length
+    raise BTClibValueError(f"musig(): {fault}")
 
 
 def _assert_musig_multipath(*, participants: list[int], path: int) -> None:
@@ -1146,6 +1154,11 @@ def _musig_participants(
     """
     if arguments == [""]:
         raise BTClibValueError("musig() takes at least one key")
+    # the refusal names the function, as Bitcoin Core prefixes its own
+    # "musig(): ...", and is raised after the `except` block, so that it
+    # chains nothing. ValueError: a participant that is no point is
+    # refused by ecc.exceptions.EccValueError, which is no BTClibValueError
+    fault: str
     try:
         return _read_multipath_keys(
             arguments,
@@ -1153,13 +1166,9 @@ def _musig_participants(
                 key, prv_keys, x_only=False, compressed=True, musig_allowed=False
             ),
         )
-    # the refusal names the function, as Bitcoin Core prefixes its own
-    # "musig(): ...", and chains the participant's own. ValueError: a
-    # participant that is no point is refused by
-    # ecc.exceptions.EccValueError, which is no BTClibValueError
     except ValueError as e:
         fault = _fault(e, "invalid participant")
-        raise BTClibValueError(f"musig(): {fault}") from e
+    raise BTClibValueError(f"musig(): {fault}")
 
 
 def _parse_musig(expression: str, prv_keys: dict[str, str]) -> KeyExpression:

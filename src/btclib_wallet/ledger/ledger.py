@@ -2576,12 +2576,16 @@ def _watched(wallet: DescriptorWallet) -> dict[int, str]:
         branch: normalized(wallet.descriptor(branch), wallet.prv_keys)
         for branch in wallet.branches
     }
+    # refused after the `except` block, so that it chains nothing
+    watchable = True
     try:
         for descriptor in watched.values():
             DescriptorWallet(descriptor)
     except BTClibValueError:
+        watchable = False
+    if not watchable:
         err_msg = "a descriptor needs a private key at every index:"
-        raise BTClibValueError(f"{err_msg} a locked ledger cannot watch it") from None
+        raise BTClibValueError(f"{err_msg} a locked ledger cannot watch it")
     return {branch: str(descriptor) for branch, descriptor in watched.items()}
 
 

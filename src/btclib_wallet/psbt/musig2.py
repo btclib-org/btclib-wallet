@@ -141,6 +141,17 @@ def _participants(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
     return participants
 
 
+def _participant(participants: list[bytes], pub_key: bytes) -> str:
+    """Return how a refusal names a participant: by aggregation order.
+
+    The key is not printed: a key passed in the wrong place may be a
+    private one.
+    """
+    if pub_key in participants:
+        return f"participant {_quoted(participants.index(pub_key))}"
+    return "a key that is no participant"
+
+
 def _derivation_tweaks(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
     """Return the BIP328 tweaks from the aggregate key to the internal one.
 
@@ -451,14 +462,12 @@ def partial_sign(
     # as in `nonce_gen` above, and for its reason
     q = scalar_from_prv_key(prv_key)
     pub_key = musig2.individual_pub_key(q)
-    tweaked_pub_key = _session_parts(
-        psbt, vin_i, aggregate_pub_key, leaf_hash
-    ).tweaked_pub_key
-    key_data = _key_data(pub_key, tweaked_pub_key, leaf_hash)
+    parts = _session_parts(psbt, vin_i, aggregate_pub_key, leaf_hash)
+    key_data = _key_data(pub_key, parts.tweaked_pub_key, leaf_hash)
     pub_nonce = psbt_in.musig2_pub_nonces.get(key_data)
     if pub_nonce is None:
-        err_msg = "no musig2 public nonce of the private key's participant "
-        err_msg += "for the aggregate key"
+        err_msg = f"input {_quoted(vin_i)}: no musig2 public nonce of "
+        err_msg += f"{_participant(parts.participants, pub_key)} for the aggregate key"
         raise BTClibValueError(err_msg)
 
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
@@ -496,15 +505,14 @@ def partial_sig_verify(
     leaf_hash = bytes_from_octets(leaf_hash)
     participant_pub_key = bytes_from_octets(participant_pub_key, MUSIG2_PUB_KEY_SIZE)
     psbt_in = psbt.inputs[vin_i]
-    tweaked_pub_key = _session_parts(
-        psbt, vin_i, aggregate_pub_key, leaf_hash
-    ).tweaked_pub_key
-    key_data = _key_data(participant_pub_key, tweaked_pub_key, leaf_hash)
+    parts = _session_parts(psbt, vin_i, aggregate_pub_key, leaf_hash)
+    key_data = _key_data(participant_pub_key, parts.tweaked_pub_key, leaf_hash)
     psig = psbt_in.musig2_partial_sigs.get(key_data)
     pub_nonce = psbt_in.musig2_pub_nonces.get(key_data)
     if psig is None or pub_nonce is None:
-        err_msg = "no musig2 partial signature of the participant "
-        err_msg += "for the aggregate key"
+        participant = _participant(parts.participants, participant_pub_key)
+        err_msg = f"input {_quoted(vin_i)}: no musig2 partial signature of "
+        err_msg += f"{participant} for the aggregate key"
         raise BTClibValueError(err_msg)
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
     return musig2.partial_sig_verify_(

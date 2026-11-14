@@ -47,6 +47,7 @@ check into an end-to-end one.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
 from btclib.exceptions import BTClibValueError
@@ -152,9 +153,12 @@ def _check_capabilities(signer: PsbtSigner) -> None:
 def _check_xpub(signer: PsbtSigner, der_path: DerPath) -> None:
     """Check the key at a path: public, parseable, and the same twice."""
     xpub = signer.xpub(der_path)
-    try:
+    # refused after `suppress`, so that it chains nothing: the codec's
+    # error is about the characters of the signer's answer
+    key = None
+    with suppress(ValueError):
         key = BIP32KeyData.b58decode(xpub)
-    except ValueError:
+    if key is None:
         _fail("xpub is not an extended key")
     if key.is_private:
         # the one answer that is not merely wrong: a signer that hands

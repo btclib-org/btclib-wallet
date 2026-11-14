@@ -870,14 +870,17 @@ class HwiSigner:
         goes after a `--`, so a message starting with `-` is a message.
         """
         octets = bytes_from_octets(message)
-        try:
+        # refused after `suppress`, so that it chains nothing: the codec's
+        # error holds the whole message
+        text = None
+        with suppress(UnicodeDecodeError):
             text = octets.decode("utf-8")
-        except UnicodeDecodeError as e:
+        if text is None:
             err_msg = (
                 "hwi signmessage takes text on a command line:"
                 " this message is not utf-8"
             )
-            raise BTClibValueError(err_msg) from e
+            raise BTClibValueError(err_msg)
         return self._answer(
             ["signmessage", "--", text, str_from_der_path(der_path)], "signature"
         )

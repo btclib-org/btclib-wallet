@@ -67,7 +67,8 @@ class HttpError(FetchError):
 
     Not every FetchError carries one, and that is the distinction: a
     refused connection and an expired timeout are failures of an exchange
-    that never produced a status, and stay a plain FetchError.
+    that never produced a status, and stay a plain FetchError. A status
+    that is no integer, or does not fit in 16 signed bits, is 0.
 
     A FetchError still, so code catching that keeps catching this.
     """
@@ -86,7 +87,9 @@ class HttpError(FetchError):
 class RpcError(FetchError):
     """A backend answered with a JSON-RPC error object, and this is it.
 
-    `code` is the backend's own. From bitcoind, `src/rpc/protocol.h`
+    `code` is the backend's number where it is an integer that fits in 16
+    signed bits, and 0 otherwise: JSON bounds no integer, so a code can
+    hold the scalar of a key. From bitcoind, `src/rpc/protocol.h`
     (bitcoin/bitcoin@f0de87f040): -5 is RPC_INVALID_ADDRESS_OR_KEY, which
     is what `getrawtransaction` returns for a transaction it cannot find
     -- including every non-wallet transaction on a node running without
@@ -97,15 +100,9 @@ class RpcError(FetchError):
     number, and parsing it back out of the message is what having a field
     avoids.
 
-    `data` is JSON-RPC's optional third member of an error object, kept as
-    it arrived. Core leaves it out today, so it is None for every error a
-    node sends; a method that starts sending one -- or a proxy between the
-    two adding its own -- would otherwise have it dropped here, which is
-    the one place it cannot be recovered from.
-
-    From an Electrum server the message names the method asked, `data` is
-    None, and `code` is 0 where the server's is no integer or does not
-    fit in 16 signed bits. The server's own text and `data` are dropped:
+    The message names the method asked, and `data`, JSON-RPC's optional
+    third member of an error object, is None. The backend's own text and
+    `data` are dropped, since they can quote the request:
     `btclib_wallet.electrum`'s `_raise_rpc_error` says why.
 
     A FetchError still, so code catching that keeps catching this.

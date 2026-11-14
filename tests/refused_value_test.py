@@ -29,7 +29,7 @@ from typing_extensions import override
 
 import btclib_wallet
 from btclib_wallet import electrum, silent_payments
-from btclib_wallet._refusal import _label
+from btclib_wallet._refusal import _hex_field, _label
 from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.bip85 import nsec_from_root_key
@@ -536,6 +536,23 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
     with pytest.raises(BTClibRuntimeError, match=err_msg) as e:
         assert_imported([{}], [answer])
     assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        (0x81, "0x81"),
+        (2**32 - 1, "0xffffffff"),
+        (2**32, "4294967296"),
+        (KEY, "a bytes of length 32"),
+    ],
+    ids=["byte", "4 bytes", "past 4 bytes", "no int"],
+)
+def test_a_field_is_written_in_hex_up_to_4_bytes(value: object, shown: str) -> None:
+    """Section 7 lets a refusal print a field of at most 4 bytes."""
+    assert _hex_field(value) == shown
+    assert _hex_field(SCALAR) == "a value of more than 16 digits"
+    assert_secret_free(BTClibValueError(_hex_field(SCALAR)), SPELLINGS)
 
 
 @pytest.mark.parametrize(

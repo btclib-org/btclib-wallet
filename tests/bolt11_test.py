@@ -28,8 +28,10 @@ from ecc.curves import secp256k1
 from ecc.dsa import Sig, sign_recoverable_
 
 from btclib_wallet.bolt11 import Bolt11Invoice, RouteHintHop
-from tests import load, raises_from, vector_id
+from tests import load, raises_alone, vector_id
 from tests.exception_family_test import VALUE_ERRORS
+from tests.refused_value_test import KEY, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 _PRV_KEY = "e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734"
 
@@ -410,30 +412,19 @@ def test_bolt11_coerces_the_network_name_regardless_of_check_validity() -> None:
 
 
 @pytest.mark.parametrize(
-    "word, error, err_msg, cause",
+    "word, error, err_msg",
     [
-        # older base58-bech32 releases print the value, newer ones describe it
-        (
-            32,
-            BTClibValueError,
-            "^invalid bech32 data$",
-            "invalid 5-bit value: (32|an int of 6 bits)",
-        ),
-        (
-            "0",
-            BTClibTypeError,
-            "^invalid bech32 data type$",
-            "invalid 5-bit value type: str",
-        ),
+        (32, BTClibValueError, "^invalid bech32 data$"),
+        ("0", BTClibTypeError, "^invalid bech32 data type$"),
     ],
 )
 def test_to_invoice_refuses_an_unchecked_word_as_btclib_does(
-    word: object, error: type[Exception], err_msg: str, cause: str
+    word: object, error: type[Exception], err_msg: str
 ) -> None:
     """A word of an unchecked invoice reaches the codec, and its refusal.
 
-    The codec's refusal is chained, and this package's, of the same kind,
-    is what leaves.
+    This package's refusal, of the same kind, is what leaves, and it chains
+    nothing (issue #821).
     """
     invoice = Bolt11Invoice(
         "mainnet",
@@ -443,7 +434,7 @@ def test_to_invoice_refuses_an_unchecked_word_as_btclib_does(
         0,
         check_validity=False,
     )
-    with raises_from(error, match=err_msg, cause=cause):
+    with raises_alone(error, match=err_msg):
         invoice.to_invoice()
 
 
@@ -580,6 +571,22 @@ def test_description_refuses_invalid_utf8() -> None:
     )
     with pytest.raises(BTClibValueError, match="UTF-8"):
         _ = invoice.description
+
+
+def test_a_description_that_is_not_utf8_chains_no_byte_of_it() -> None:
+    """The codec's error holds the whole field: not chained (issue #821)."""
+    words = tuple(_pow_2_words(KEY + b"\x80"))
+    invoice = Bolt11Invoice(
+        "mainnet",
+        0,
+        [(1, (0,) * 52), (16, (0,) * 52), (13, words)],
+        Sig(1, 1, check_validity=False),
+        0,
+        check_validity=False,
+    )
+    with raises_alone(BTClibValueError, match="^description is not valid UTF-8$") as e:
+        _ = invoice.description
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def _pow_2_words(data: bytes) -> tuple[int, ...]:

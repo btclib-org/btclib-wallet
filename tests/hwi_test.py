@@ -84,7 +84,7 @@ from btclib_wallet.psbt_signer import (
     request_signatures,
     sign_message,
 )
-from tests.refused_value_test import HEX, SPELLINGS
+from tests.refused_value_test import HEX, KEY, SPELLINGS
 from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" root of BIP39, which BIP84 publishes
@@ -674,6 +674,14 @@ def test_a_message_signature_is_verified_against_the_address(hwi: list[str]) -> 
     assert sign_message(device, b"hello".hex(), der_path, address) == signature
     with pytest.raises(BTClibValueError, match="not utf-8"):
         device.sign_message(b"\xff\xfe", der_path)
+
+
+def test_a_message_that_is_not_utf8_chains_no_byte_of_it(tmp_path: Path) -> None:
+    """The codec's error holds the message: not chained (issue #821)."""
+    device = signer(stand_in(tmp_path, {}))
+    with pytest.raises(BTClibValueError, match="this message is not utf-8$") as e:
+        device.sign_message(KEY + b"\xff", "m/0")
+    assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize("text", ["-x", "--help", "--", "a\nb"])
@@ -1353,7 +1361,7 @@ def test_another_sig_hash_type_is_sent_only_if_allowed(
     device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
     argv = Path(device[-1]).with_suffix(".argv.json")
 
-    with pytest.raises(BTClibValueError, match=f"sig_hash type {hash_type},"):
+    with pytest.raises(BTClibValueError, match=f"sig_hash type {hex(hash_type)},"):
         signer(device).sign_psbt(psbt)
     with pytest.raises(BTClibValueError, match="invalid sig_hash type"):
         signer(device).sign_psbt(psbt, allowed_sig_hash_types={0x04})

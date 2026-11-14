@@ -124,6 +124,7 @@ https://github.com/bitcoin/bips/blob/master/bip-0067.mediawiki
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any, Literal
@@ -859,11 +860,13 @@ class ScriptWallet(RangedWallet):
             )
             raise NoDescriptorError(err_msg)
         script = self._script(branch, 0)
-        try:
+        # refused after `suppress`, as below, so that it chains nothing
+        node = None
+        with suppress(BTClibValueError):
             node = _miniscript_from_script(script, P2WSH)
-        except BTClibValueError as exception:
+        if node is None:
             err_msg = "the script is no miniscript a descriptor can hold"
-            raise NoDescriptorError(err_msg) from exception
+            raise NoDescriptorError(err_msg)
         expressions = {
             self._derived_sec(key, branch, 0): self._key_expression(
                 key, branch, origins
@@ -955,15 +958,16 @@ class ScriptWallet(RangedWallet):
             branch, origins
         ) or self._lifted_expression(branch, origins)
         text = self._descriptor_form.format(expression)
-        try:
+        # what a descriptor may hold and not what miniscript can read:
+        # Bitcoin Core refuses an insane expression -- one satisfiable
+        # without a signature, or whose witness a third party can rewrite
+        # -- and a wallet of that shape has no descriptor for the same
+        # reason it has no safe spend
+        descriptor = None
+        with suppress(BTClibValueError):
             descriptor = _parse_descriptor(text, self.network)
-        except BTClibValueError as exception:
-            # what a descriptor may hold and not what miniscript can read:
-            # Bitcoin Core refuses an insane expression -- one satisfiable
-            # without a signature, or whose witness a third party can
-            # rewrite -- and a wallet of that shape has no descriptor for
-            # the same reason it has no safe spend
+        if descriptor is None:
             err_msg = "no descriptor Bitcoin Core accepts for this wallet"
-            raise NoDescriptorError(err_msg) from exception
+            raise NoDescriptorError(err_msg)
         self._assert_lift(descriptor, branch, checked_indexes)
         return descriptor

@@ -34,7 +34,7 @@ from btclib_wallet.fetch import electrum as fetch_electrum
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger import Ledger, TxState
-from tests import raises_from
+from tests import raises_alone
 from tests.fetch.electrum_test import TESTNET_GENESIS_HEADER
 from tests.fetch.history_test import OTHER, OURS, _tx
 from tests.fetch.peer_chain_test import REGTEST_BITS, REGTEST_HALVING, mined
@@ -679,11 +679,7 @@ def test_an_answer_of_more_headers_than_asked_is_refused(
         "blockchain.block.headers",
         lambda result: {**result, "count": 4, "hex": result["hex"] * 2},
     )
-    with raises_from(
-        FetchError,
-        match="block headers: a malformed answer",
-        cause="invalid count",
-    ):
+    with raises_alone(FetchError, match="block headers: a malformed answer"):
         _fetcher(server).get_history([OURS], 1)
 
 

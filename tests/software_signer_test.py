@@ -138,17 +138,17 @@ def test_the_signer_signs_another_sig_hash_type_only_if_allowed(purpose: int) ->
 
     with pytest.raises(
         BTClibValueError,
-        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
     ):
         signer.sign_psbt(psbt)
     with pytest.raises(
         BTClibValueError,
-        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
     ):
         request_signatures(signer, psbt)
     with pytest.raises(
         BTClibValueError,
-        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
     ):
         request_signatures(signer, psbt, allowed_sig_hash_types={2})
 

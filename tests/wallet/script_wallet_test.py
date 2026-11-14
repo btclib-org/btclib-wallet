@@ -48,7 +48,7 @@ from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.wallet import DescriptorWallet, KeyGroup, ScriptWallet
 from btclib_wallet.wallet import script_wallet as script_wallet_module
-from tests import raises_from, replace_unchecked
+from tests import raises_alone, replace_unchecked
 
 # the "abandon abandon ... about" seed, and three account keys of it in an
 # order that none of the sorts below answers: the account keys sort one
@@ -873,10 +873,8 @@ def test_a_required_quorum_on_its_own_is_no_script_at_all() -> None:
     `from_script`, where the type of the expression is the answer.
     """
     wallet = ScriptWallet([KeyGroup(2, _XPUBS, verify=True)], "p2wsh")
-    with raises_from(
-        NoDescriptorError,
-        match="the script is no miniscript a descriptor can hold",
-        cause="not a miniscript script",
+    with raises_alone(
+        NoDescriptorError, match="the script is no miniscript a descriptor can hold"
     ):
         wallet.descriptor()
 
@@ -912,10 +910,8 @@ def test_an_expression_no_descriptor_may_hold_has_no_descriptor() -> None:
         *_MINISCRIPT_TIMELOCK,
         "OP_ENDIF",
     ]
-    with raises_from(
-        NoDescriptorError,
-        match="no descriptor Bitcoin Core accepts for this wallet",
-        cause="it repeats a public key",
+    with raises_alone(
+        NoDescriptorError, match="no descriptor Bitcoin Core accepts for this wallet"
     ):
         ScriptWallet(template, "p2wsh").descriptor()
 

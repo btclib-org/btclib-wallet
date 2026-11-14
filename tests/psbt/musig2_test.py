@@ -518,13 +518,20 @@ def test_a_round_that_the_other_round_has_not_reached() -> None:
         if k[:33] == bytes.fromhex(PARTICIPANT_PUB_KEYS[0])
     )
     del psbt.inputs[0].musig2_pub_nonces[key_data]
-    with pytest.raises(BTClibValueError, match="no musig2 public nonce of"):
+    # the participant named by its position in aggregation order
+    err_msg = "^input 0: no musig2 public nonce of participant 0 for the aggregate key$"
+    with pytest.raises(BTClibValueError, match=err_msg):
         musig2.partial_sign(psbt, 0, bytearray(97), prv_key, aggregate_pub_key)
 
-    # a partial signature nobody sent
+    # a partial signature nobody sent, of a participant and of another key
     psbt = _bip373_psbt("output key is a MuSig2 Aggregate Pubkey, with all pubnonces")
-    with pytest.raises(BTClibValueError, match="no musig2 partial signature of"):
+    err_msg = "^input 0: no musig2 partial signature of participant 0 for the"
+    with pytest.raises(BTClibValueError, match=err_msg):
         musig2.partial_sig_verify(psbt, 0, PARTICIPANT_PUB_KEYS[0], aggregate_pub_key)
+    other = PrvKeyData(12345).pub.sec
+    err_msg = "^input 0: no musig2 partial signature of a key that is no participant"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        musig2.partial_sig_verify(psbt, 0, other, aggregate_pub_key)
 
     # aggregation is n-of-n, and one signature short of n it names who
     psbt = _bip373_psbt("output key is a MuSig2 Aggregate Pubkey, with all partial")
@@ -604,7 +611,7 @@ def test_a_session_signs_another_sig_hash_type_only_if_allowed() -> None:
     ]
     with pytest.raises(
         BTClibValueError,
-        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
     ):
         musig2.partial_sign(
             psbt, 0, sec_nonces[0], PARTICIPANT_PRV_KEYS[0], aggregate_pub_key

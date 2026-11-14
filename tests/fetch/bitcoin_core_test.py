@@ -24,7 +24,6 @@ test about the id.
 from __future__ import annotations
 
 import json
-import re
 from urllib.request import Request
 
 import bitcoin_core_rpc as rpc
@@ -49,7 +48,7 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError, HttpError, RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
-from tests import raises_from
+from tests import raises_alone
 from tests.fetch import (
     LATER_TX_ID,
     REGTEST_GENESIS_HEADER_RAW,
@@ -905,52 +904,24 @@ def test_estimate_fee_refuses_a_reply_with_no_feerate_and_no_errors() -> None:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 
 
-@pytest.mark.parametrize(
-    "result, detail",
-    [
-        ("not an object", "a str of length 13"),
-        (["feerate", 0.0001], "a list of length 2"),
-        (None, "a NoneType"),
-        (HEX, "a str of length 64"),
-    ],
-)
-def test_estimate_fee_refuses_a_reply_that_is_not_an_object(
-    result: object,
-    detail: str,
-) -> None:
+@pytest.mark.parametrize("result", ["not an object", ["feerate", 0.0001], None, HEX])
+def test_estimate_fee_refuses_a_reply_that_is_not_an_object(result: object) -> None:
     """A malformed reply is a FetchError, not an AttributeError on `.get`."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
-    with raises_from(
-        FetchError,
-        match="^estimatesmartfee: a malformed answer$",
-        cause=re.escape(f"not an object: {detail}"),
-    ) as e:
+    with raises_alone(FetchError, match="^estimatesmartfee: a malformed answer$") as e:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
     assert_secret_free(e.value, SPELLINGS)
 
 
-@pytest.mark.parametrize(
-    "blocks, detail",
-    [
-        ("not an int", "a str of length 10"),
-        (None, "a NoneType"),
-        (1.5, "a Decimal"),
-        (HEX, "a str of length 64"),
-    ],
-)
+@pytest.mark.parametrize("blocks", ["not an int", None, 1.5, HEX])
 def test_estimate_fee_refuses_a_blocks_field_that_is_not_an_int(
     blocks: object,
-    detail: str,
 ) -> None:
     """`blocks` is what `FeeQuote.target` reports, so it has to be an int."""
     body = json.dumps(
         {"jsonrpc": "2.0", "result": {"feerate": 0.00001, "blocks": blocks}, "id": "x"}
     ).encode()
-    with raises_from(
-        FetchError,
-        match="^estimatesmartfee: a malformed answer$",
-        cause=re.escape(f"invalid blocks: {detail}"),
-    ) as e:
+    with raises_alone(FetchError, match="^estimatesmartfee: a malformed answer$") as e:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
     assert_secret_free(e.value, SPELLINGS)
 

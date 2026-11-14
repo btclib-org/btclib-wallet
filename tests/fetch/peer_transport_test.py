@@ -31,7 +31,7 @@ from typing_extensions import override
 from btclib_wallet.fetch import peer_transport
 from btclib_wallet.fetch import transport as fetch_transport
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport, V2PeerTransport
-from tests import raises_from
+from tests import raises_alone
 
 MAGIC = b"\xfa\xbf\xb5\xda"
 MESSAGE = Ping(7).to_message(MAGIC)
@@ -210,9 +210,7 @@ def test_a_write_that_fails_closes_the_connection(
         peer_transport, "create_connection", lambda *_a, **_k: next(sockets)
     )
     transport = peer()
-    with raises_from(
-        FetchError, match=r"no connection to 'peer\.example':18444", cause="gone"
-    ):
+    with raises_alone(FetchError, match=r"no connection to 'peer\.example':18444"):
         transport.send(MESSAGE, 5)
     assert broken.closed == 1
     transport.send(MESSAGE, 5)
@@ -329,10 +327,8 @@ def test_a_message_announcing_too_much_is_refused_before_it_is_read(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with raises_from(
-        FetchError,
-        match=r"'peer\.example':18444: a message that does not parse",
-        cause="invalid payload length: at most 4000000 bytes expected",
+    with raises_alone(
+        FetchError, match=r"'peer\.example':18444: a message that does not parse"
     ):
         transport.receive(5)
     assert not transport.is_open
@@ -346,10 +342,8 @@ def test_a_message_with_a_wrong_checksum_is_refused(
     connect_to(monkeypatch, FakeSocket([WIRE[:-1] + b"\x01"]))
     transport = peer()
     transport.send(MESSAGE, 5)
-    with raises_from(
-        FetchError,
-        match=r"'peer\.example':18444: a message that does not parse",
-        cause="invalid checksum",
+    with raises_alone(
+        FetchError, match=r"'peer\.example':18444: a message that does not parse"
     ):
         transport.receive(5)
     assert not transport.is_open
@@ -625,26 +619,17 @@ def test_a_v2_message_for_another_network_is_refused(
 
 
 @pytest.mark.parametrize(
-    "fake, why",
+    "fake",
     [
-        (
-            lambda: V2Peer(garbage=b"\x5a" * 4095, terminator=bytes(16)),
-            "no garbage terminator",
-        ),
-        (
-            lambda: V2Peer(garbage=b"\x5a" * 4096),
-            "no garbage terminator",
-        ),
-        (lambda: V2Peer(garbage=b"\x5a", aad=b"\xa5"), "authentication failed"),
-        (
-            lambda: V2Peer(garbage=b"\x5a", aad=b"\xa5", decoys=1),
-            "authentication failed",
-        ),
+        lambda: V2Peer(garbage=b"\x5a" * 4095, terminator=bytes(16)),
+        lambda: V2Peer(garbage=b"\x5a" * 4096),
+        lambda: V2Peer(garbage=b"\x5a", aad=b"\xa5"),
+        lambda: V2Peer(garbage=b"\x5a", aad=b"\xa5", decoys=1),
     ],
     ids=["wrong terminator", "garbage too long", "garbage altered", "decoy altered"],
 )
 def test_a_failed_v2_handshake_is_a_fetch_error(
-    monkeypatch: pytest.MonkeyPatch, fake: Callable[[], V2Peer], why: str
+    monkeypatch: pytest.MonkeyPatch, fake: Callable[[], V2Peer]
 ) -> None:
     """No terminator after the most garbage a peer may send is refused.
 
@@ -655,7 +640,7 @@ def test_a_failed_v2_handshake_is_a_fetch_error(
     peer_socket = fake()
     connect_to(monkeypatch, peer_socket)
     transport = v2_peer()
-    with raises_from(FetchError, match=r"^'peer\.example':18444: ", cause=why):
+    with raises_alone(FetchError, match=r"^'peer\.example':18444: "):
         transport.send(MESSAGE, 5)
     assert not transport.is_open
     assert transport.session_id is None
@@ -1185,17 +1170,17 @@ def test_a_v2_packet_announcing_too_much_is_refused_before_it_is_read(
 
 
 @pytest.mark.parametrize(
-    "tamper, why",
+    "tamper, bounded",
     [
-        (lambda packet: packet[:-1] + bytes([packet[-1] ^ 1]), "authentication"),
-        (lambda packet: packet, "invalid payload length"),
+        (lambda packet: packet[:-1] + bytes([packet[-1] ^ 1]), False),
+        (lambda packet: packet, True),
     ],
     ids=["tag", "payload too long"],
 )
 def test_a_v2_packet_refused_closes_the_connection(
     monkeypatch: pytest.MonkeyPatch,
     tamper: Callable[[bytes], bytes],
-    why: str,
+    bounded: bool,
 ) -> None:
     """A tag that fails, and a message the codec refuses, end the stream."""
     fake = V2Peer(packets=lambda peer: [tamper(peer.packet("ping", bytes(8)))])
@@ -1203,11 +1188,9 @@ def test_a_v2_packet_refused_closes_the_connection(
     transport = v2_peer()
     transport.send(MESSAGE, 5)
     # a payload bound below a ping's, so that the codec refuses it
-    if why != "authentication":
+    if bounded:
         monkeypatch.setattr(message_module, "MAX_PROTOCOL_MESSAGE_LENGTH", 4)
-    with raises_from(
-        FetchError, match=r"^'peer\.example':18444: BTClibValueError$", cause=why
-    ):
+    with raises_alone(FetchError, match=r"^'peer\.example':18444: BTClibValueError$"):
         transport.receive(5)
     assert not transport.is_open
 
