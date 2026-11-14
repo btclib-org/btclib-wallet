@@ -721,6 +721,26 @@ def test_every_statement_of_the_store_is_read_to_its_end(
             str(2**63),
             "^not a ledger file: a transaction with a malformed seq$",
         ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'",
+            str(-(2**63) - 1),
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE txs SET height = ?",
+            str(-(2**63) - 1),
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET seq = ?",
+            "-1",
+            "^not a ledger file: a transaction with a malformed seq$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_id'",
+            HEX[:-1],
+            "^not a ledger file: a malformed tip$",
+        ),
     ],
     ids=[
         "network",
@@ -734,6 +754,10 @@ def test_every_statement_of_the_store_is_read_to_its_end(
         "tip height of 2**63",
         "tx height of 2**63",
         "tx seq of 2**63",
+        "tip height below -2**63",
+        "tx height below -2**63",
+        "negative tx seq",
+        "tip id of odd length",
     ],
 )
 def test_a_key_in_a_damaged_file_is_in_no_refusal(
@@ -757,8 +781,11 @@ def test_a_key_in_a_damaged_file_is_in_no_refusal(
     assert_secret_free(e.value, SPELLINGS)
 
 
-def test_a_height_or_a_seq_below_2_63_loads(chain: FakeChain, path: Path) -> None:
-    """The largest an SQLite INTEGER holds is a height and a seq a file has."""
+@pytest.mark.parametrize("height", [2**63 - 1, -(2**63)], ids=["largest", "least"])
+def test_a_height_an_sqlite_integer_holds_loads(
+    chain: FakeChain, path: Path, height: int
+) -> None:
+    """Any height an SQLite INTEGER holds, and the largest seq, load."""
     with Ledger.create(path, "regtest", chain) as ledger:
         ledger.add_source(source())
         chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
@@ -766,66 +793,74 @@ def test_a_height_or_a_seq_below_2_63_loads(chain: FakeChain, path: Path) -> Non
     largest = 2**63 - 1
     db = sqlite3.connect(path)
     with db:
-        db.execute(
-            "UPDATE meta SET value = ? WHERE key = 'tip_height'", (str(largest),)
-        )
-        db.execute("UPDATE txs SET height = ?, seq = ?", (largest, largest))
+        db.execute("UPDATE meta SET value = ? WHERE key = 'tip_height'", (str(height),))
+        db.execute("UPDATE txs SET height = ?, seq = ?", (height, largest))
     db.close()
     with Ledger.load(path, "regtest", chain) as again:
         assert again.tip is not None
-        assert again.tip.height == largest
+        assert again.tip.height == height
         [info] = again.transactions
         assert info.wallet_tx.seq == largest
         assert info.wallet_tx.block is not None
-        assert info.wallet_tx.block.height == largest
+        assert info.wallet_tx.block.height == height
 
 
-_HIGH = 10**10
+class _JumpChain(FakeChain):
+    """A chain whose tip is `jump` once `held` holds that block's txs."""
 
-
-class _HighChain(FakeChain):
-    """A chain whose tip is at `_HIGH` once `high` holds that block's txs."""
-
-    def __init__(self) -> None:
+    def __init__(self, jump: BlockRef) -> None:
         super().__init__()
-        self.high: list[Tx] | None = None
+        self.jump = jump
+        self.held: list[Tx] | None = None
 
     @override
     def get_history(
         self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
     ) -> ScriptHistory:
-        if self.high is None:
+        if self.held is None:
             return super().get_history(scripts, start_height)
+        # read once after the jump, from the genesis the first sync left
         wanted = set(history_scripts(scripts))
-        tip = BlockRef(_HIGH, b"\x0b" * 32)
-        start = tip if start_height >= _HIGH else BlockRef(0, self.blocks[0][0])
-        txs = tuple(HistoryTx(tx, tip) for tx in self.high if self._touches(tx, wanted))
-        return ScriptHistory(start, tip, txs)
+        txs = tuple(
+            HistoryTx(tx, self.jump) for tx in self.held if self._touches(tx, wanted)
+        )
+        return ScriptHistory(BlockRef(0, self.blocks[0][0]), self.jump, txs)
 
 
 @pytest.mark.parametrize("confirmed", [False, True], ids=["tip", "confirmed tx"])
-def test_a_ledger_synced_past_10_digits_of_height_loads_again(
-    path: Path, *, confirmed: bool
+@pytest.mark.parametrize(
+    "jump",
+    [
+        BlockRef(10**10, b"\x0b" * 32),
+        BlockRef(-1, b"\x0b" * 32),
+        BlockRef(5, b"\x0b" * 31),
+        BlockRef(5, b"\x0b" * 33),
+    ],
+    ids=["height past 10 digits", "negative height", "31-byte id", "33-byte id"],
+)
+def test_what_a_sync_writes_of_a_backends_block_loads_again(
+    path: Path, jump: BlockRef, *, confirmed: bool
 ) -> None:
-    """What a sync writes of a height a backend answers, a load reads back.
+    """What a sync writes of a block a backend answers, a load reads back.
 
-    A backend's height is refused only where it is negative, so the file
-    holds any height an SQLite INTEGER holds.
+    A sync keeps the height and the id a backend answers: ElectrumFetcher
+    and BitcoinCoreFetcher take a negative tip height, and a reader of the
+    caller's own any id.
     """
-    chain = _HighChain()
+    chain = _JumpChain(jump)
     with Ledger.create(path, "regtest", chain) as ledger:
         ledger.add_source(source())
         ledger.sync()
         payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
-        chain.high = [payment] if confirmed else []
+        chain.held = [payment] if confirmed else []
         ledger.sync()
         synced = (ledger.tip, [info.wallet_tx for info in ledger.transactions])
-    assert synced[0] == BlockRef(_HIGH, b"\x0b" * 32)
+    assert synced[0] == jump
     with Ledger.load(path, "regtest", chain) as again:
         assert (again.tip, [info.wallet_tx for info in again.transactions]) == synced
     if confirmed:
         [wtx] = synced[1]
-        assert wtx.block == BlockRef(_HIGH, b"\x0b" * 32)
+        assert wtx.block == jump
 
 
 def test_a_branch_past_10_digits_loads_again(chain: FakeChain, path: Path) -> None:
