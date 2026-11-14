@@ -9,6 +9,17 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.14.1
+
+A patch on v2026.11.14 that changes the package by this fix alone.
+
+- **A node's RPC error raises `btclib_wallet.exceptions.RpcError` with
+  bitcoin-core-rpc 2026.11.14 installed**
+  ([ISS 915](https://github.com/btclib-org/btclib-wallet/issues/915)).
+  v2026.11.14 raised `AttributeError` for it, a refused broadcast
+  included. With 2026.11.14, `RpcError.data` is None; with an older
+  bitcoin-core-rpc it carries the node's `data`, as before.
+
 ## v2026.11.14
 
 `fetch` ships a plain-TCP and a kept-TLS transport for an Electrum

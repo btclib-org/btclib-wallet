@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import bitcoin_core_rpc as rpc
 import pytest
 from btclib.block.block_header import BlockHeader
 from btclib.exceptions import (
@@ -17,12 +18,13 @@ from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxOut
 
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.fetcher import (
     Fetcher,
     NetworkVerifyingFetcher,
     block_header_from_raw,
     block_header_height,
+    client_errors,
     fetch_errors,
     tx_for_network,
     tx_from_raw,
@@ -77,6 +79,37 @@ def test_fetch_errors_is_transparent_when_nothing_is_raised() -> None:
     with fetch_errors("getblockcount"):
         value = 481824
     assert value == 481824
+
+
+def test_client_errors_raises_this_packages_rpc_error_with_the_code() -> None:
+    """The client's `RpcError` leaves as this package's, its code kept.
+
+    Built with the client's own class, so the translation is held to the
+    attributes of the release installed.
+    """
+    error = rpc.RpcError("sendrawtransaction: the node answered an error", -26)
+    with pytest.raises(RpcError) as exc, client_errors():
+        raise error
+    assert exc.value.code == -26
+    assert exc.value.data is None
+    assert not isinstance(exc.value, rpc.RpcError)
+
+
+class _RpcErrorWithData(rpc.RpcError):
+    """The client's `RpcError` as the releases that carry `data` build it."""
+
+    def __init__(self, message: str, code: int, data: object) -> None:
+        super().__init__(message, code)
+        self.data = data
+
+
+def test_client_errors_keeps_the_data_a_client_release_carries() -> None:
+    """`data` reaches this package's `RpcError` where the client has one."""
+    error = _RpcErrorWithData("getrawtransaction: not found", -5, {"tx": 1})
+    with pytest.raises(RpcError) as exc, client_errors():
+        raise error
+    assert exc.value.code == -5
+    assert exc.value.data == {"tx": 1}
 
 
 def test_tx_id_hex_takes_whatever_octets_takes() -> None:

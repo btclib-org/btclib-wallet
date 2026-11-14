@@ -1127,11 +1127,11 @@ changed after that rehearsal. Where a workflow GitHub has not registered
 moves that rehearsal after the merge, it is still the release's one
 rehearsal.
 
-Whether Core accepts what this package builds is asked on every pull
-request: `integration-bitcoind.yml` is a required check, and
-`release.yml` calls it again on the tag. Dispatch it by hand only to
-repeat a run without a push: Actions → integration-bitcoind → Run
-workflow.
+Whether Core accepts what this package builds is asked by
+`integration-bitcoind.yml`, a required check, on every pull request its
+called `regtest` job's `if:` admits, and `release.yml` calls it again on
+the tag. Dispatch it by hand only to repeat a run without a push:
+Actions → integration-bitcoind → Run workflow.
 
 `integration-hwi.yml` is not a required check and has no `pull_request`
 trigger. So a cycle that touched `src/btclib_wallet/hwi.py` reads that

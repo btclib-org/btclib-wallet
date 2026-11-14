@@ -10,9 +10,9 @@ bip39-slip39==2026.11.2 \
     --hash=sha256:17a2f18fb0d03dd947728974bfc372df307a7213b0ceff8b8f2840a7544d2cd6 \
     --hash=sha256:d406ef1a01688cf32400537efb75bcf26c321b5cc927b3046dea6857af546f18
     # via btclib-wallet
-bitcoin-core-rpc==2026.11.3 \
-    --hash=sha256:52d702f1d3e36b7e9b76588c072d47bdbacadad3e65d01d31ce45c1b66fe09ba \
-    --hash=sha256:54f03176adc07b4f54888e2310ef13b1a9b4a2258f3db6e269b4771a5110cd6b
+bitcoin-core-rpc==2026.11.14 \
+    --hash=sha256:241204d79de2280786e1731aab94cdedb78af7c0abd316e8cbaa6eb23b9fd472 \
+    --hash=sha256:cbac5bdd5b65bd5ebf72ce4c9d079e8ac31afdb2f71da8bac8b073b7a9efe552
     # via btclib-wallet
 btclib==2026.11.10 \
     --hash=sha256:a40beb166721bd5a7928272e5b4f442e8035063d38d8136d68ffbe8cf11dae2e \

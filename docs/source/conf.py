@@ -117,6 +117,9 @@ intersphinx_cache_limit = 0
 # - a private class a constructor takes: `Ledger.__init__` takes the
 #   `_Store` that `Ledger.create` and `Ledger.load` open, and the store
 #   is not documented, being no caller's to build
+# - a private type variable of a re-exported client: `call_stream` of
+#   `BitcoinCoreRpcClient` returns bitcoin-core-rpc's `_T`, which its own
+#   documentation leaves out, being private
 nitpick_ignore = [
     ("py:class", "Octets"),
     ("py:class", "Mnemonic"),
@@ -125,6 +128,7 @@ nitpick_ignore = [
     ("py:class", "collections.abc.Mapping[bytes"),
     ("py:class", "tuple[bytes"),
     ("py:class", "btclib_wallet.ledger.store._Store"),
+    ("py:class", "bitcoin_core_rpc.client._T"),
 ]
 
 # bip44 imports these from btclib_wallet.fetch.history under

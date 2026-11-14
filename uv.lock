@@ -357,11 +357,11 @@ wheels = [
 
 [[package]]
 name = "bitcoin-core-rpc"
-version = "2026.11.3"
+version = "2026.11.14"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/27/d1/8fdb7decc499ba00021a89e302e63751e4bc298bf30c5b9adf2b37479ed2/bitcoin_core_rpc-2026.11.3.tar.gz", hash = "sha256:52d702f1d3e36b7e9b76588c072d47bdbacadad3e65d01d31ce45c1b66fe09ba", size = 796101, upload-time = "2026-11-02T10:08:25.075Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/c8/e11561222247a55ae7c1f1d04283d9ce2ec2b463e32956946b89d4487e43/bitcoin_core_rpc-2026.11.14.tar.gz", hash = "sha256:cbac5bdd5b65bd5ebf72ce4c9d079e8ac31afdb2f71da8bac8b073b7a9efe552", size = 876482, upload-time = "2026-11-14T16:59:58.039Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/ee/e08b5b1ae50237b11cfec7740047c4b5b2bba29eae5d926b33ae59151ec7/bitcoin_core_rpc-2026.11.3-py3-none-any.whl", hash = "sha256:54f03176adc07b4f54888e2310ef13b1a9b4a2258f3db6e269b4771a5110cd6b", size = 75583, upload-time = "2026-11-02T10:08:23.762Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/9f/c321e94555d04984c8bc6bf7f3c21039a0880151b9b1c61e33c30188c16a/bitcoin_core_rpc-2026.11.14-py3-none-any.whl", hash = "sha256:241204d79de2280786e1731aab94cdedb78af7c0abd316e8cbaa6eb23b9fd472", size = 87884, upload-time = "2026-11-14T16:59:56.105Z" },
 ]
 
 [[package]]
@@ -465,7 +465,7 @@ wheels = [
 
 [[package]]
 name = "btclib-wallet"
-version = "2026.11.14"
+version = "2026.11.14.1"
 source = { editable = "." }
 dependencies = [
     { name = "base58-bech32" },

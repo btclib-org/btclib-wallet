@@ -47,10 +47,10 @@ class Broadcaster(Protocol):
       whatever else it can ask the backend -- this is
       `bitcoin-core-rpc`'s own one-call contract, carried across;
     - a refusal keeps its reason. Whatever the backend answered --
-      Core's `RpcError` code and message, an explorer's error body -- it
-      reaches the caller through `client_errors`, text intact and not
-      reshaped into a code common to every backend, because the two
-      refuse for different reasons and a caller acts on the one it got.
+      Core's `RpcError` code, an explorer's error body -- it reaches the
+      caller through `client_errors`, text intact and not reshaped into a
+      code common to every backend, because the two refuse for different
+      reasons and a caller acts on the one it got.
     """
 
     def broadcast(self, tx: Tx) -> bytes:

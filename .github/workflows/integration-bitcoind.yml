@@ -42,10 +42,10 @@ name: integration-bitcoind
 # fails it (btclib-org/.github#1419). The prefix also exempts the
 # BTCLIB_INTEGRATION skip, and the check still fails a run where nothing ran.
 #
-# A schedule too: the job is a required check on every pull request and on
-# the commit a merge creates, so what the weekly run asks that nothing
-# else does is whether bitcoincore.org still serves the tarball pinned
-# below
+# A schedule too: the job is a required check on every pull request the
+# called regtest job's `if:` admits and on the commit a merge creates, so
+# what the weekly run asks that nothing else does is whether
+# bitcoincore.org still serves the tarball pinned below
 
 on:
   schedule:

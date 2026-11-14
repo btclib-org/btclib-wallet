@@ -40,6 +40,10 @@ from tests.integration.conftest import _start_node, _stop, start_on_free_ports
 
 pytestmark = pytest.mark.integration
 
+# a reply over its bound, as each release of `bitcoin-core-rpc` that
+# `pyproject.toml` admits words the refusal
+_OVER_THE_BOUND = "than (?:the )?max_body_size"
+
 
 @pytest.fixture
 def own_node(
@@ -176,7 +180,7 @@ def test_a_block_of_large_witnesses_renders_within_the_bound(
     weight = node.call("getblock", [block, 1])["weight"]
 
     assert 3 * weight > DEFAULT_MAX_BODY_SIZE
-    with pytest.raises(FetchError, match="more than the max_body_size"):
+    with pytest.raises(FetchError, match=_OVER_THE_BOUND):
         node.call("getblock", [block, 3], max_body_size=3 * weight)
     node.call("getblock", [block, 3], max_body_size=5 * weight)
     assert bitcoin_core._MAX_LARGE_REPLY == 5 * MAX_BLOCK_WEIGHT
@@ -251,7 +255,7 @@ def test_a_block_of_bare_multisig_spends_renders_within_the_bound(
     block = node.call("generateblock", [address, [raw]])["hash"]
     weight = node.call("getblock", [block, 1])["weight"]
 
-    with pytest.raises(FetchError, match="more than the max_body_size"):
+    with pytest.raises(FetchError, match=_OVER_THE_BOUND):
         node.call("getblock", [block, 3], max_body_size=4 * weight)
     node.call("getblock", [block, 3], max_body_size=5 * weight)
 

@@ -24,6 +24,27 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.14.1
+
+### A node's RPC error raises `RpcError` with bitcoin-core-rpc 2026.11.14
+
+`client_errors` reads the client's `data` only where its `RpcError` carries
+one, which 2026.11.14's does not (issue #915).
+
+### Shared files follow btclib-org/.github
+
+AGENTS.md, not CONTRIBUTING.md, suggests a worktree per task; CONTRIBUTING.md
+and REPOSITORY.md say the merge is explicit and auto-merge is off (issue
+btclib-org/.github#2263, btclib-org/.github#2272).
+
+### RELEASING.md and REPOSITORY.md say which pull requests each gate runs on
+
+(#914).
+
+### The bestpractices.dev answers are re-measured at v2026.11.14
+
+(#912).
+
 ## v2026.11.14
 
 ### `fetch` ships `TcpLineTransport`, a plain-TCP `LineTransport`
