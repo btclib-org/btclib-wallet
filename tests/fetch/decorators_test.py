@@ -26,6 +26,8 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.decorators import CachingFetcher, FallbackFetcher
 from btclib_wallet.fetch.fetcher import Fetcher
 from tests.fetch import TIP_HEADER_RAW, TIP_HEIGHT, TIP_ID, TX_ID, recorded_body
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
 
@@ -256,10 +258,11 @@ def test_fallback_does_not_move_on_past_a_value_error() -> None:
 
 
 def test_fallback_names_every_backend_when_all_fail() -> None:
-    """The message names every backend tried, by type, and chains the last.
+    """The message names every backend tried, by type, and chains none.
 
-    A backend's text is not relayed: a `Fetcher` of the caller's own may
-    raise a `FetchError` holding anything (issue #821).
+    A backend's text is not relayed, nor its exception chained: a
+    `Fetcher` of the caller's own may raise a `FetchError` holding
+    anything (issue #821).
     """
     tx = Tx.parse(RAW)
     first, second, third = (
@@ -280,7 +283,29 @@ def test_fallback_names_every_backend_when_all_fail() -> None:
 
     failures = "; ".join(["CountingFetcher: FetchError"] * 3)
     assert str(exc_info.value) == f"get_tx: every backend failed -- {failures}"
-    assert exc_info.value.__cause__ is errors[-1]
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
+
+
+@pytest.mark.parametrize("call", ["get_tx", "get_block_count", "get_best_block_id"])
+def test_fallback_keeps_a_backends_secret_out_of_the_whole_chain(call: str) -> None:
+    """A backend's `FetchError` holding a key reaches no part of the refusal.
+
+    Neither the text nor the cause nor the context: `assert_secret_free`
+    walks the chain (issue #821).
+    """
+    backends = (CountingFetcher(tx=Tx.parse(RAW)), CountingFetcher(tx=Tx.parse(RAW)))
+    for backend in backends:
+        backend.fail_with = FetchError(HEX)
+    fallback = FallbackFetcher(backends)
+    with pytest.raises(FetchError) as exc_info:
+        if call == "get_tx":
+            fallback.get_tx(TX_ID)
+        else:
+            getattr(fallback, call)()
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
+    assert_secret_free(exc_info.value, SPELLINGS)
 
 
 def test_fallback_refuses_a_network_mismatch() -> None:

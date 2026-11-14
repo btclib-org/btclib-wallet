@@ -89,8 +89,10 @@ def client_errors() -> AbstractContextManager[None]:
     `bitcoin_core_rpc` before 2026.11.14 writes the node's own message
     into it and keeps `data`: either can quote a key passed in the wrong
     place.
-    This package's own `FetchError` passes as it is, which is what a
-    transport this package ships raises.
+    This package's own `FetchError` passes as it is. A transport this
+    package ships raises it with a text the census reads; a transport or a
+    client of the caller's own that raises it is relayed with the text the
+    caller's code gave it.
     Section 7 of the btclib-org standard, *A refusal carries no secret*,
     relays another program's code and not its text: a code outside
     `_RPC_CODES`, or a status outside it, is 0.
@@ -115,8 +117,8 @@ def _client_errors(request: str) -> Iterator[None]:
     try:
         yield
     except FetchError:
-        # this package's own, a transport it ships included: its text is
-        # composed where the census reads it
+        # this package's own class: a transport it ships composes the text
+        # where the census reads it, and a caller's own composes its own
         raise
     except rpc.RpcError as e:
         refused, code = "rpc", _code(e.code)
