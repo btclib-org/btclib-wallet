@@ -143,13 +143,12 @@ jobs:
       - name: Run pytest under coverage
         run: uv run --locked --no-default-groups --group test pytest
 
-  # the packaging metadata is checked on every pull request that is not a
-  # draft and changes more than prose, not only on the tag that ships it:
-  # a release is the one place where finding a problem is too late, a
-  # version being consumed by the upload that carries it. A pull request
-  # builds its own files here; a release checks the ones reusable-build.yml
-  # built, signed and uploaded, which is what release.yml's publish jobs
-  # download
+  # the packaging metadata is checked on every pull request this job's
+  # `if:` admits, not only on the tag that ships it: a release is the one
+  # place where finding a problem is too late, a version being consumed by
+  # the upload that carries it. A pull request builds its own files here;
+  # a release checks the ones reusable-build.yml built, signed and
+  # uploaded, which is what release.yml's publish jobs download
   dist:
     name: Check the distribution files, install one
     if: >-

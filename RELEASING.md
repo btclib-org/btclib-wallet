@@ -1127,9 +1127,9 @@ changed after that rehearsal. Where a workflow GitHub has not registered
 moves that rehearsal after the merge, it is still the release's one
 rehearsal.
 
-Whether Core accepts what this package builds is asked on every pull
-request that is not a draft: `integration-bitcoind.yml` is a required
-check, and `release.yml` calls it again on the tag. Dispatch it by hand
+Whether Core accepts what this package builds is asked by
+`integration-bitcoind.yml`, a required check, on every pull request it
+runs on, and `release.yml` calls it again on the tag. Dispatch it by hand
 only to repeat a run without a push: Actions → integration-bitcoind →
 Run workflow.
 
