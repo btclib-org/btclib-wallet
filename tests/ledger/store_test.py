@@ -864,7 +864,7 @@ def test_what_a_sync_writes_of_a_backends_block_loads_again(
 
 
 def test_a_branch_past_10_digits_loads_again(chain: FakeChain, path: Path) -> None:
-    """`add_source` takes a branch with no upper bound, and a load reads it."""
+    """`add_source` writes a branch past 10 digits, and a load reads it."""
     prv_keys: dict[str, str] = {}
     branch = 10**12
     descriptor = parse(f"wpkh({XPRV}/84h/1h/0h/0/*)", "regtest", prv_keys)

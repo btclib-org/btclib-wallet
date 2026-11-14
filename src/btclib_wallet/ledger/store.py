@@ -322,7 +322,9 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
 
 
 # a branch as the file writes it: the decimal `str` writes of an int that
-# is not negative, which `add_source` takes with no upper bound
+# is not negative. The store reads that shape back wherever `int` can read
+# it (`_is_branch`): an upper bound, where a wallet puts one on its
+# branches, is the wallet's to check
 _BRANCH = re.compile(r"0|[1-9][0-9]*")
 # a height: any int an SQLite INTEGER holds, since a sync writes what a
 # backend answers, a negative height included. A sync writes its tip's
