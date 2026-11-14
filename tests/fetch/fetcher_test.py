@@ -90,6 +90,11 @@ def test_fetch_errors_is_transparent_when_nothing_is_raised() -> None:
     assert value == 481824
 
 
+# what `client_errors` answers for any rpc error, the client's text not
+# relayed
+_AN_RPC_ERROR = r"^the server answered an rpc error \(rpc error code {}\)$"
+
+
 def test_client_errors_raises_this_packages_rpc_error_with_the_code() -> None:
     """The client's `RpcError` leaves as this package's, its code kept.
 
@@ -97,8 +102,13 @@ def test_client_errors_raises_this_packages_rpc_error_with_the_code() -> None:
     attributes of the release installed.
     """
     error = rpc.RpcError("sendrawtransaction: the node answered an error", -26)
-    with pytest.raises(RpcError) as exc, client_errors():
+    with (
+        pytest.raises(RpcError, match=_AN_RPC_ERROR.format(-26)) as exc,
+        client_errors(),
+    ):
         raise error
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
     assert exc.value.code == -26
     assert exc.value.data is None
     assert not isinstance(exc.value, rpc.RpcError)
@@ -112,13 +122,22 @@ class _RpcErrorWithData(rpc.RpcError):
         self.data = data
 
 
-def test_client_errors_keeps_the_data_a_client_release_carries() -> None:
-    """`data` reaches this package's `RpcError` where the client has one."""
-    error = _RpcErrorWithData("getrawtransaction: not found", -5, {"tx": 1})
-    with pytest.raises(RpcError) as exc, client_errors():
+def test_client_errors_drops_the_data_a_client_release_carries() -> None:
+    """`data` does not reach this package's `RpcError`, nor its text.
+
+    Section 7 of the btclib-org standard, *A refusal carries no secret*:
+    `data` is the node's, and can quote the request.
+    """
+    error = _RpcErrorWithData("getrawtransaction: not found", -5, {"tx": "key"})
+    with (
+        pytest.raises(RpcError, match=_AN_RPC_ERROR.format(-5)) as exc,
+        client_errors(),
+    ):
         raise error
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
     assert exc.value.code == -5
-    assert exc.value.data == {"tx": 1}
+    assert exc.value.data is None
 
 
 def test_tx_id_hex_takes_whatever_octets_takes() -> None:

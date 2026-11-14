@@ -85,8 +85,10 @@ def client_errors() -> AbstractContextManager[None]:
 
     The client's text is not relayed, and its exception is not chained:
     the refusal is raised after the `except` block. That text names the
-    request, whose path can hold a tx id, and relays the node's own
-    message and `data`, which can quote a key passed in the wrong place.
+    request, whose path can hold a tx id, and a release of
+    `bitcoin_core_rpc` before 2026.11.14 writes the node's own message
+    into it and keeps `data`: either can quote a key passed in the wrong
+    place.
     This package's own `FetchError` passes as it is, which is what a
     transport this package ships raises.
     Section 7 of the btclib-org standard, *A refusal carries no secret*,
