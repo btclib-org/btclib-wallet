@@ -36,6 +36,7 @@ from bip39_slip39.bip39 import entropy_from_mnemonic
 from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
+from btclib.utils import assert_type
 from ecc.curves import secp256k1 as ec
 from typing_extensions import override
 
@@ -676,11 +677,34 @@ def test_a_value_whose_attributes_raise_is_described_by_its_type() -> None:
     assert _message_text(unreadable) == "an _Unreadable"
 
 
+def _btclib_takes_as_int(value: object) -> bool:
+    """Return whether btclib's `assert_type` takes `value` as an int."""
+    try:
+        assert_type(value, int, "value")
+    except BTClibTypeError:
+        return False
+    return True
+
+
 def test_an_object_claiming_int_is_described_by_its_type() -> None:
-    """Neither int's methods nor str's take it, and nothing builtin leaves."""
-    err_msg = "^invalid number of words: a _ClaimsInt;"
-    with pytest.raises(BTClibValueError, match=err_msg):
-        mnemonic_from_root_key(_ROOT, _ClaimsInt())  # type: ignore[arg-type]
+    """Neither int's methods nor str's take it, and nothing builtin leaves.
+
+    The refusal is btclib's where its `assert_type` tests the type, as
+    btclib-org/btclib#3082 has it, and bip85's own where `assert_type`
+    asks isinstance, which reads the claimed `__class__`.
+    """
+    claims = _ClaimsInt()
+    assert _quoted(claims) == "a _ClaimsInt"  # type: ignore[arg-type]
+    assert _btclib_takes_as_int(12)
+    assert not _btclib_takes_as_int("12")
+    # a mapping, not an `if`, so that the coverage ratchet holds whichever
+    # of the two the installed btclib does
+    err_type, err_msg = {
+        True: (BTClibValueError, "^invalid number of words: a _ClaimsInt;"),
+        False: (BTClibTypeError, "^invalid words type: _ClaimsInt$"),
+    }[_btclib_takes_as_int(claims)]
+    with pytest.raises(err_type, match=err_msg):
+        mnemonic_from_root_key(_ROOT, claims)  # type: ignore[arg-type]
 
 
 def test_a_bool_for_the_number_of_words_is_quoted_as_a_bool() -> None:
