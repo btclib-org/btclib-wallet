@@ -12,16 +12,27 @@ import json
 import os
 import sqlite3
 import stat
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
-from btclib.tx import TxOut
+from btclib.script import ScriptPubKey
+from btclib.tx import Tx, TxOut
 from typing_extensions import override
 
+from btclib_wallet.descriptors import parse
+from btclib_wallet.fetch.history import (
+    BlockRef,
+    HistoryTx,
+    ScriptHistory,
+    history_scripts,
+)
 from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, crypto, store
+from btclib_wallet.wallet import DescriptorWallet
 from tests import raises_alone
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
 from tests.refused_value_test import HEX, SPELLINGS
@@ -693,6 +704,23 @@ def test_every_statement_of_the_store_is_read_to_its_end(
             HEX,
             "^not a ledger file: a transaction with a malformed seq$",
         ),
+        # past what an SQLite INTEGER holds: a column of INTEGER affinity
+        # keeps the text as a REAL
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'",
+            str(2**63),
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE txs SET height = ?",
+            str(2**63),
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET seq = ?",
+            str(2**63),
+            "^not a ledger file: a transaction with a malformed seq$",
+        ),
     ],
     ids=[
         "network",
@@ -703,6 +731,9 @@ def test_every_statement_of_the_store_is_read_to_its_end(
         "tx height",
         "tx block id",
         "tx seq",
+        "tip height of 2**63",
+        "tx height of 2**63",
+        "tx seq of 2**63",
     ],
 )
 def test_a_key_in_a_damaged_file_is_in_no_refusal(
@@ -724,3 +755,86 @@ def test_a_key_in_a_damaged_file_is_in_no_refusal(
     with raises_alone(BTClibValueError, err_msg) as e:
         Ledger.load(path, "regtest", chain)
     assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_height_or_a_seq_below_2_63_loads(chain: FakeChain, path: Path) -> None:
+    """The largest an SQLite INTEGER holds is a height and a seq a file has."""
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
+        ledger.sync()
+    largest = 2**63 - 1
+    db = sqlite3.connect(path)
+    with db:
+        db.execute(
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'", (str(largest),)
+        )
+        db.execute("UPDATE txs SET height = ?, seq = ?", (largest, largest))
+    db.close()
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.tip is not None
+        assert again.tip.height == largest
+        [info] = again.transactions
+        assert info.wallet_tx.seq == largest
+        assert info.wallet_tx.block is not None
+        assert info.wallet_tx.block.height == largest
+
+
+_HIGH = 10**10
+
+
+class _HighChain(FakeChain):
+    """A chain whose tip is at `_HIGH` once `high` holds that block's txs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.high: list[Tx] | None = None
+
+    @override
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        if self.high is None:
+            return super().get_history(scripts, start_height)
+        wanted = set(history_scripts(scripts))
+        tip = BlockRef(_HIGH, b"\x0b" * 32)
+        start = tip if start_height >= _HIGH else BlockRef(0, self.blocks[0][0])
+        txs = tuple(HistoryTx(tx, tip) for tx in self.high if self._touches(tx, wanted))
+        return ScriptHistory(start, tip, txs)
+
+
+@pytest.mark.parametrize("confirmed", [False, True], ids=["tip", "confirmed tx"])
+def test_a_ledger_synced_past_10_digits_of_height_loads_again(
+    path: Path, *, confirmed: bool
+) -> None:
+    """What a sync writes of a height a backend answers, a load reads back.
+
+    A backend's height is refused only where it is negative, so the file
+    holds any height an SQLite INTEGER holds.
+    """
+    chain = _HighChain()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        ledger.sync()
+        payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
+        chain.high = [payment] if confirmed else []
+        ledger.sync()
+        synced = (ledger.tip, [info.wallet_tx for info in ledger.transactions])
+    assert synced[0] == BlockRef(_HIGH, b"\x0b" * 32)
+    with Ledger.load(path, "regtest", chain) as again:
+        assert (again.tip, [info.wallet_tx for info in again.transactions]) == synced
+    if confirmed:
+        [wtx] = synced[1]
+        assert wtx.block == BlockRef(_HIGH, b"\x0b" * 32)
+
+
+def test_a_branch_past_10_digits_loads_again(chain: FakeChain, path: Path) -> None:
+    """`add_source` takes a branch with no upper bound, and a load reads it."""
+    prv_keys: dict[str, str] = {}
+    branch = 10**12
+    descriptor = parse(f"wpkh({XPRV}/84h/1h/0h/0/*)", "regtest", prv_keys)
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(DescriptorWallet({branch: descriptor}, prv_keys))
+    with Ledger.load(path, "regtest", chain) as again:
+        [wallet] = again.sources
+        assert wallet.branches == (branch,)
