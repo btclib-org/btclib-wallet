@@ -947,8 +947,9 @@ def test_get_balance_refuses_an_answer_for_another_address() -> None:
 def test_get_balance_refuses_a_malformed_answer(body: bytes) -> None:
     """Every refusal of the answer is a `FetchError` naming the question.
 
-    The address is the caller's, so it is not written: what was wrong is
-    the refusal the answer met, which the `FetchError` chains.
+    The address is the caller's, so it is not written. The refusal the
+    answer met is neither relayed nor chained: a builtin's is named by
+    its type.
     """
     with raises_alone(FetchError, match="^address: a malformed answer"):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
