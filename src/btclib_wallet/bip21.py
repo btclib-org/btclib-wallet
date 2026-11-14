@@ -306,7 +306,7 @@ class Bip21:
                 # `others`
                 lightning = _decode(raw_value, "the lightning parameter")
             else:
-                others[key] = _decode(raw_value, f"the {_quoted(key)} parameter")
+                others[key] = _decode(raw_value, f"parameter {_quoted(key)}")
 
         return cls(
             # not percent-decoded: BIP21 spells the address as bare

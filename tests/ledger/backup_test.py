@@ -297,7 +297,9 @@ def test_a_restore_is_refused_and_leaves_nothing(
         Ledger.restore(foreign, target, "regtest", chain)
     assert not target.exists()
 
-    with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
+    with pytest.raises(
+        BTClibValueError, match="^not a testnet ledger file: its network is regtest$"
+    ):
         Ledger.restore(backup, target, "testnet", chain)
     assert not target.exists()
 

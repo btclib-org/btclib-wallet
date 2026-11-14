@@ -22,7 +22,9 @@ from btclib.tx import TxOut
 from typing_extensions import override
 
 from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, crypto, store
+from tests import raises_alone
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
+from tests.refused_value_test import HEX, SPELLINGS
 from tests.secret_free import assert_secret_free, windows
 
 
@@ -90,7 +92,9 @@ def test_load_refuses_what_is_no_ledger_of_this_network(
     with pytest.raises(BTClibValueError, match="not a ledger file: OperationalError"):
         Ledger.load(headed, "regtest", chain)
     Ledger.create(path, "regtest", chain).close()
-    with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
+    with pytest.raises(
+        BTClibValueError, match="^not a testnet ledger file: its network is regtest$"
+    ):
         Ledger.load(path, "testnet", chain)
 
 
@@ -544,7 +548,9 @@ def test_a_format_1_file_of_another_network_is_left_at_format_1(
 ) -> None:
     """The network is checked before any step, so v2026.11.11 still opens it."""
     _format_1_file(path)
-    with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
+    with pytest.raises(
+        BTClibValueError, match="^not a testnet ledger file: its network is regtest$"
+    ):
         Ledger.load(path, "testnet", chain)
     assert _pragma(path, "user_version") == 1
     assert "master_key" not in _layout(path)
@@ -642,3 +648,55 @@ def test_every_statement_of_the_store_is_read_to_its_end(
         _keeps_the_format_1_sources(ledger, chain)
         ledger.change_passphrase("passphrase", "new passphrase")
     assert not unread
+
+
+@pytest.mark.parametrize(
+    "statement, value, err_msg",
+    [
+        (
+            "UPDATE meta SET value = ? WHERE key = 'network'",
+            HEX,
+            "^not a regtest ledger file: its network is a value of 64 characters$",
+        ),
+        (
+            "UPDATE sources SET descriptors = ?",
+            json.dumps({HEX: "x"}),
+            "^not a ledger file: source 0's descriptors are not keyed by branch$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'",
+            HEX,
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_id'",
+            HEX.upper(),
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE txs SET state = ?",
+            HEX,
+            "^not a ledger file: a transaction in no state$",
+        ),
+    ],
+    ids=["network", "descriptors map key", "tip height", "tip id", "tx state"],
+)
+def test_a_key_in_a_damaged_file_is_in_no_refusal(
+    chain: FakeChain, path: Path, statement: str, value: str, err_msg: str
+) -> None:
+    """What `int`, `TxState` and the network check read is not quoted.
+
+    `int` and `TxState` quote a value they refuse, so the file's value is
+    checked before they read it, and refused by where it is (issue #900).
+    """
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
+        ledger.sync()
+    db = sqlite3.connect(path)
+    with db:
+        assert db.execute(statement, (value,)).rowcount > 0
+    db.close()
+    with raises_alone(BTClibValueError, err_msg) as e:
+        Ledger.load(path, "regtest", chain)
+    assert_secret_free(e.value, SPELLINGS)

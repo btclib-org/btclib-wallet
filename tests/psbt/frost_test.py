@@ -568,7 +568,10 @@ def test_two_writers_that_disagree_are_refused() -> None:
         (
             record_key_data(7),
             counts + pair[1] + pair[2],
-            "frost threshold info of participant 7, who is not one of the 3",
+            (
+                "frost threshold info of participant 7, who is not one of the"
+                " participants the record declares: 3"
+            ),
         ),
     ):
         broken = _broken(psbt, THRESHOLD_INFO, key_data, value)

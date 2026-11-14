@@ -886,6 +886,10 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
             "^invalid percent-encoding in label$",
         ),
         (
+            lambda: Bip21.parse(f"bitcoin:{ADDRESS}?{HEX}=%ff"),
+            "^invalid percent-encoding in parameter a value of 64 characters$",
+        ),
+        (
             lambda: BIP32KeyData(
                 b"\x04\x88\xad\xe4", 1, b"\x01" * 4, SCALAR, b"\x00" * 32, b"\x00" + KEY
             ),
@@ -902,7 +906,13 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
             "^timestamp does not fit 35 bits: a value of more than 16 digits$",
         ),
     ],
-    ids=["bip21 percent-escape", "bip32 index", "bip85 identity", "bolt11 timestamp"],
+    ids=[
+        "bip21 percent-escape",
+        "bip21 parameter name",
+        "bip32 index",
+        "bip85 identity",
+        "bolt11 timestamp",
+    ],
 )
 def test_a_refusal_of_each_kind_prints_no_key(
     call: Callable[[], object], err_msg: str

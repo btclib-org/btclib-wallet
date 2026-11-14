@@ -290,7 +290,13 @@ from btclib_wallet.ledger.records import (
     Utxo,
     WalletTx,
 )
-from btclib_wallet.ledger.store import _copy_backup, _Source, _Store, _SyncWrite
+from btclib_wallet.ledger.store import (
+    _branches,
+    _copy_backup,
+    _Source,
+    _Store,
+    _SyncWrite,
+)
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import estimated_input_sizes, miniscript_sizer
@@ -1768,7 +1774,7 @@ class Ledger:
             )
             raise BTClibValueError(err_msg)
         return _wallet(
-            {int(b): t for b, t in held["descriptors"].items()},
+            _branches(held.get("descriptors"), source_id),
             self.network,
             held["prv_keys"],
         )
