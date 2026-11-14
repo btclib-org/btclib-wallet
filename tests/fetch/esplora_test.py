@@ -483,11 +483,12 @@ def test_the_status_of_a_failure_is_a_field(status: int) -> None:
     assert exc.value.status == status
 
 
-def test_a_body_that_is_not_utf_8_is_still_reported() -> None:
+def test_a_failure_whose_body_is_not_utf_8_is_still_reported() -> None:
     """What is in the way when it fails is not always something that speaks.
 
     Decoding with `replace` is why: a UnicodeDecodeError here would
-    replace the diagnosis with a second failure, of the client.
+    replace the status with a second failure, of the client. The body
+    itself is not relayed.
     """
     with pytest.raises(FetchError, match="HTTP 502"):
         fetcher((502, b"\xff\xfe not text")).get_tx(TX_ID)
@@ -562,15 +563,18 @@ def test_the_header_answer_is_bounded_too() -> None:
 
 
 def test_the_body_of_a_failure_is_not_held_to_the_answer_limit() -> None:
-    """A 404 page is longer than a height, and is still the diagnosis.
+    """A 404 page longer than a height is still reported as the 404 it is.
 
     The bound on an error body is `MAX_ERROR_BODY_SIZE` and truncation,
-    not the caller's limit for the answer that did not arrive: an explorer
-    saying "Block not found" in a paragraph of html is worth reading.
+    not the caller's limit for the answer that did not arrive. Held to
+    that limit, the page would be refused as an answer too large, and a
+    caller could not tell a missing block from an oversized reply by the
+    status. The page itself is not relayed.
     """
     page = b"<html><body>Block not found, and here is why: " + b"x" * 200 + b"</body>"
-    with pytest.raises(FetchError, match="HTTP 404"):
+    with pytest.raises(HttpError, match="^HTTP 404 from the path asked$") as raised:
         fetcher((404, page)).get_block_count()
+    assert raised.value.status == 404
 
 
 def test_broadcast_posts_the_wire_serialization_and_returns_the_txid() -> None:
@@ -672,11 +676,12 @@ def test_broadcast_verifies_the_network_once_like_the_other_methods() -> None:
     assert [r.get_method() for r in transport.requests] == ["GET", "POST", "POST"]
 
 
-def test_broadcast_reports_a_400_with_the_explorers_own_body() -> None:
-    """A refusal keeps Esplora's reason, the way a 404 on `get_tx` does."""
+def test_broadcast_reports_a_400_by_its_status_and_not_the_explorers_body() -> None:
+    """A refusal keeps the status and not Esplora's reason, as `get_tx` does."""
     tx = broadcast_tx()
-    with pytest.raises(FetchError, match="HTTP 400 from /tx"):
+    with pytest.raises(HttpError, match="^HTTP 400 from /tx$") as raised:
         fetcher((400, b"min relay fee not met")).broadcast(tx)
+    assert raised.value.status == 400
 
 
 def fee_estimates(**targets: float) -> bytes:

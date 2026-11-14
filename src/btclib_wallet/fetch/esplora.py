@@ -132,8 +132,9 @@ BLOCKSTREAM_INFO = {
 #
 # The body of a *failure* is not bounded by these -- see
 # `MAX_ERROR_BODY_SIZE` -- so a 404 whose error page is longer than a
-# height still arrives as the diagnosis it is, where `text` reports it:
-# `_text_at` drops it
+# height is still reported by its status, as the `HttpError` of
+# `_http_error`, and not refused as an answer too large. The page itself
+# is not relayed
 _MAX_HEIGHT_BODY = 64
 _MAX_HASH_BODY = 128
 _MAX_HEADER_BODY = 256
@@ -276,9 +277,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         Stripped because a deployment behind a proxy may add a newline
         and none of the answers this seam carries can contain whitespace.
         Decoded with `replace` rather than strictly: the body of a
-        failure is an error page from whatever is in the way, and it is
-        more use rendered imperfectly than swallowed by a
-        UnicodeDecodeError.
+        failure is an error page from whatever is in the way, and a page
+        that is no UTF-8 is still reported by its status rather than as a
+        UnicodeDecodeError. The page itself is not relayed.
 
         `client_errors` because `http_request` is `bitcoin_core_rpc`'s and
         raises that package's exceptions: a refused connection reaching a

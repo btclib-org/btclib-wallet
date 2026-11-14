@@ -53,11 +53,12 @@ exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]
 #   error, which is the entry btclib-org/btclib#534 was about and the one device
 #   `_select` must not pick. A device carrying both is now asserted
 #   unusable, and the two flags a device does not carry asserted off.
-# - the four refusals name `argv[0]`, and `argv[1]` or `argv[-1]` read
-#   the same to a test matching on the tail of the message: what the
-#   assertions now anchor is the element the message opens with -- for
-#   the not-found one against the colon after it, the OSError carried
-#   behind it naming the same path.
+# - the four refusals named `argv[0]`, and `argv[1]` or `argv[-1]` read
+#   the same to a test matching on the tail of the message: the
+#   assertions then anchored the element the message opened with. Since
+#   btclib-org/btclib-wallet#821 no refusal names `argv[0]`, which is the
+#   caller's, nor carries the OSError: each says "the hwi command", and
+#   the assertions match that text.
 # - `argv.insert(-1, "--emulators")` moved without a word, and where it
 #   goes is not style: a global flag after the subcommand is an
 #   unrecognized argument to that subcommand. The flag is now asserted

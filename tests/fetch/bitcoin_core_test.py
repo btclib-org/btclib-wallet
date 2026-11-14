@@ -880,7 +880,7 @@ def test_estimate_fee_forwards_the_constructors_estimate_mode() -> None:
 
 
 def test_estimate_fee_refuses_a_reply_with_no_feerate() -> None:
-    """No `feerate` is a decline, not a rate -- the node's own errors kept."""
+    """No `feerate` is a decline, not a rate; the node's `errors` stay out."""
     body = json.dumps(
         {
             "jsonrpc": "2.0",
@@ -892,7 +892,7 @@ def test_estimate_fee_refuses_a_reply_with_no_feerate() -> None:
         }
     ).encode()
     with pytest.raises(
-        FetchError, match="estimatesmartfee: no estimate for this target"
+        FetchError, match="^estimatesmartfee: no estimate for this target$"
     ):
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 

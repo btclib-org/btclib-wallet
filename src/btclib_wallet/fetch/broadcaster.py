@@ -47,12 +47,12 @@ class Broadcaster(Protocol):
       whatever else it can ask the backend -- this is
       `bitcoin-core-rpc`'s own one-call contract, carried across;
     - a refusal keeps the backend's number and not its text. An
-      `RpcError` carries the code of Core or of an Electrum server, and
-      an `HttpError` the status an explorer answered. Neither carries the
-      message or the body, which can quote the request. The number is
-      the backend's own and is not mapped to a code common to every
-      backend; a caller that needs the policy behind Core's -26 asks the
-      node, as `testmempoolaccept` answers.
+      `RpcError` carries Core's code, and an `HttpError` the status an
+      explorer answered. Neither carries the message or the body, which
+      can quote the request. The number is the backend's own and is not
+      mapped to a code common to every backend; a caller that needs the
+      policy behind Core's -26 asks the node, as `testmempoolaccept`
+      answers.
     """
 
     def broadcast(self, tx: Tx) -> bytes:
