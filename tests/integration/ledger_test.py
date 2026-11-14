@@ -14,7 +14,8 @@ what `twin` answers: its balances, coins and transactions, and its
 labels, what each address and label received, and its address groupings.
 A ledger restored from a backup, an encrypted one, and one that bumps a
 fee are compared the same way; the bump's replacement rule is compared
-with what the node accepts.
+with what the node accepts, and the coins a ledger funds a payment from
+with those its twin funds it from.
 
 The node is this module's own, so that it can be restarted; it refuses
 a transaction paying under 2 sat/vB. A second wallet, `miner`, pays the
@@ -72,6 +73,9 @@ ENCRYPTED_CHANGE = f"wpkh({XPRV}/84h/1h/2h/1/*)"
 # and another, for the bump's
 BUMP_RECEIVE = f"wpkh({XPRV}/84h/1h/3h/0/*)"
 BUMP_CHANGE = f"wpkh({XPRV}/84h/1h/3h/1/*)"
+# and another, for the coins a spend tries first
+FIRST_RECEIVE = f"wpkh({XPRV}/84h/1h/4h/0/*)"
+FIRST_CHANGE = f"wpkh({XPRV}/84h/1h/4h/1/*)"
 # the node's own floor, 2 sat/vB, and the fallback the ledger pays above it
 MIN_RELAY = "0.00002"
 FALLBACK = FeeRate.from_sats_per_vbyte(5)
@@ -628,6 +632,77 @@ def test_a_bump_is_what_the_node_takes_and_cores_wallet_answers(
         _mine(node)
         ledger.sync()
         _compare(node, ledger, "bump-twin")
+
+
+def test_the_coins_a_payment_is_funded_from_are_cores(
+    node: Node, tmp_path: Path
+) -> None:
+    """Core's `AutomaticCoinSelection` (src/wallet/spend.cpp:895-925).
+
+    At bitcoin/bitcoin@f0de87f040, the v32.1 tag. Where a confirmed coin
+    funds the payment, neither the ledger nor its twin spends unconfirmed
+    change, though the change alone pays it with no change of its own;
+    and neither spends a coin of a chain of unconfirmed spends past the
+    package limits.
+    """
+    path = tmp_path / "ledger.sqlite"
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    _create_twin(node, "first-twin", FIRST_RECEIVE, FIRST_CHANGE)
+    twin = node.wallet("first-twin")
+    rate = FeeRate.from_sats_per_vbyte(20)
+
+    def twin_funds(payment: TxOut) -> Any:
+        """Return the twin's answer to `fundrawtransaction`, its error kept."""
+        _settle(node)
+        amount = {payment.script_pub_key.address: f"{btc_from_sats(payment.value):.8f}"}
+        raw = twin.call("createrawtransaction", [[], [amount]])
+        _, answer = twin.call_raw("fundrawtransaction", [raw, {"fee_rate": 20}])
+        return answer
+
+    def twin_inputs(payment: TxOut) -> set[OutPoint]:
+        funded = twin_funds(payment)["result"]["hex"]
+        vin = twin.call("decoderawtransaction", [funded])["vin"]
+        return {OutPoint(bytes.fromhex(i["txid"]), i["vout"]) for i in vin}
+
+    with Ledger.create(
+        path, "regtest", fetcher, broadcaster=fetcher, fallback_fee_rate=FALLBACK
+    ) as ledger:
+        ledger.add_source(_source(FIRST_RECEIVE, FIRST_CHANGE))
+        _pay_ledger(node, ledger)
+        _pay_ledger(node, ledger)
+        _mine(node)
+        ledger.sync()
+        small, large = sorted(ledger.utxos(), key=lambda u: u.tx_out.value)
+        ledger.lock(large.outpoint)
+        spend = ledger.spend([_miner_output(node, small.tx_out.value // 2)])
+        ledger.unlock(large.outpoint)
+        (change,) = [u for u in ledger.utxos(0) if u.outpoint.tx_id == spend.id]
+        # what the change alone pays with no change of its own, at `rate`
+        payment = _miner_output(node, change.tx_out.value - 2_600)
+        funded = ledger.fund([payment], rate)
+        assert {tx_in.prev_out for tx_in in funded.psbt.tx.vin} == {large.outpoint}
+        assert twin_inputs(payment) == {large.outpoint}
+
+        # the change's chain grows until its coin has as many unconfirmed
+        # ancestors as the last pass admits; the next coin funds nothing
+        locked = {"txid": large.outpoint.tx_id.hex(), "vout": large.outpoint.vout}
+        twin.call("lockunspent", [False, [locked]])
+        ledger.lock(large.outpoint)
+        payment = _miner_output(node, 100_000)
+        for _ in range(23):
+            ledger.spend([payment])
+        (coin,) = ledger.utxos(0)
+        assert twin_inputs(payment) == {coin.outpoint}
+        ledger.spend([payment])
+        with pytest.raises(BTClibValueError, match="unconfirmed coins are available"):
+            ledger.fund([payment])
+        refusal = twin_funds(payment)["error"]["message"]
+        assert refusal.startswith("Unconfirmed UTXOs are available")
+        twin.call("lockunspent", [True, [locked]])
+        ledger.unlock(large.outpoint)
+        _mine(node)
+        ledger.sync()
+        _compare(node, ledger, "first-twin")
 
 
 def _paying(ledger: Ledger, psbt: Psbt, fee: int) -> Tx:

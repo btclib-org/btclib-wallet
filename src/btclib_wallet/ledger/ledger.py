@@ -127,6 +127,22 @@ bitcoin/bitcoin@f0de87f040, the v32.1 tag); `replaceable=False` gives it
 the sequence Core gives an input that does not signal
 (src/wallet/spend.cpp:1303-1311).
 
+**Confirmed coins first.** `fund` tries its coins in the passes of
+Core's `AutomaticCoinSelection` and keeps the first selection found
+(src/wallet/spend.cpp:895-925 at bitcoin/bitcoin@f0de87f040, the v32.1
+tag). The first two passes take confirmed coins only, and the first asks
+more confirmations of a coin whose transaction spends no output of the
+ledger. The later ones add unconfirmed coins, each with a higher limit
+on a coin's unconfirmed ancestors and on its cluster, up to one below
+the node's default package limits. A coin past the last limit is never
+spent, and where only such coins could fund the payment, the refusal
+says so. The ledger counts the ancestors and the cluster over the
+transactions it holds in the mempool, so a transaction of somebody
+else's in the cluster is not counted. Core also selects among each
+output type's coins on its own before it mixes them, and never mixes
+them in its first pass (:698-723); `fund` selects among every type at
+once.
+
 **Fee bumping.** `bump_psbt` is Core's `psbtbumpfee`, and `bump` its
 `bumpfee`: it signs, records and broadcasts what `bump_psbt` returns
 (src/wallet/feebumper.cpp and src/wallet/rpc/spend.cpp:962-1178 at the
@@ -352,6 +368,67 @@ _MAX_MONEY = 21_000_000 * 100_000_000
 # Core's DEFAULT_INCREMENTAL_RELAY_FEE (src/policy/policy.h:48): the
 # node's incremental rate where the ledger has no relay fee reader to ask
 _INCREMENTAL_RELAY_FEE_RATE = FeeRate(sats_per_kvbyte=100)
+
+# Core's DEFAULT_ANCESTOR_LIMIT and DEFAULT_DESCENDANT_LIMIT
+# (src/policy/policy.h:76-78): the package limits Core's coin selection
+# reads from a node whose options leave them at their defaults
+_ANCESTOR_LIMIT = 25
+_DESCENDANT_LIMIT = 25
+
+
+@dataclass(frozen=True)
+class _Standing:
+    """What Core's `OutputGroup` holds of a coin that its filters read.
+
+    Its confirmations, whether its transaction spends an output of the
+    ledger (Core's `m_from_me`), and the unconfirmed ancestors and the
+    cluster of that transaction, itself included, 0 where it is confirmed.
+    """
+
+    depth: int
+    from_me: bool
+    ancestors: int
+    cluster: int
+
+
+@dataclass(frozen=True)
+class _Filter:
+    """Core's `CoinEligibilityFilter`, src/wallet/coinselection.h:195-223."""
+
+    conf_mine: int
+    conf_theirs: int
+    max_ancestors: int
+    max_cluster: int
+
+    def is_eligible(self, standing: _Standing) -> bool:
+        """Core's `OutputGroup::EligibleForSpending`.
+
+        src/wallet/coinselection.cpp:856-861.
+        """
+        conf = self.conf_mine if standing.from_me else self.conf_theirs
+        return (
+            standing.depth >= conf
+            and standing.ancestors <= self.max_ancestors
+            and standing.cluster <= self.max_cluster
+        )
+
+
+# the passes of Core's `AutomaticCoinSelection` with `-spendzeroconfchange`
+# and `-walletrejectlongchains` at their defaults and no unsafe input, in
+# the order it tries them (src/wallet/spend.cpp:895-925)
+_FILTERS = (
+    _Filter(1, 6, 0, 0),
+    _Filter(1, 1, 0, 0),
+    _Filter(0, 1, 2, 2),
+    _Filter(0, 1, min(4, _ANCESTOR_LIMIT // 3), min(4, _DESCENDANT_LIMIT // 3)),
+    _Filter(0, 1, _ANCESTOR_LIMIT // 2, _DESCENDANT_LIMIT // 2),
+    _Filter(0, 1, _ANCESTOR_LIMIT - 1, _DESCENDANT_LIMIT - 1),
+)
+
+_LONG_CHAINS = (
+    "unconfirmed coins are available, but spending them makes a chain of "
+    "unconfirmed transactions past the node's default package limits"
+)
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -1573,6 +1650,40 @@ class Ledger:
         source, branch, index = position
         return self._sources[source].update_psbt_input(psbt, i, branch, index)
 
+    def _is_from_me(self, tx: Tx) -> bool:
+        """Core's `IsFromMe`: whether an input spends an output of the ledger.
+
+        src/wallet/wallet.cpp:1725-1732 at bitcoin/bitcoin@f0de87f040, the
+        v32.1 tag.
+        """
+        return any(
+            (prevout := _prevout(tx_in, self._txs)) is not None and self._owned(prevout)
+            for tx_in in tx.vin
+        )
+
+    def _mempool_links(
+        self,
+    ) -> tuple[dict[bytes, set[bytes]], dict[bytes, set[bytes]]]:
+        """Return each transaction's parents, and its parents and children.
+
+        For each transaction of the ledger in the mempool, by txid, among
+        those transactions only: what Core's `getTransactionAncestry`
+        counts a transaction's ancestors and its cluster over, less what
+        the ledger does not hold.
+        """
+        mempool = {
+            txid for txid, wtx in self._txs.items() if wtx.state is TxState.MEMPOOL
+        }
+        parents = {
+            txid: {tx_in.prev_out.tx_id for tx_in in self._txs[txid].tx.vin} & mempool
+            for txid in mempool
+        }
+        linked = {txid: set(ids) for txid, ids in parents.items()}
+        for txid, ids in parents.items():
+            for parent in ids:
+                linked[parent].add(txid)
+        return parents, linked
+
     @staticmethod
     def _weight(psbt_in: PsbtIn) -> int:
         """Return the weight the input will add once signed."""
@@ -1605,24 +1716,36 @@ class Ledger:
         rate = self._fee_rate(fee_rate)
         sequence = _RBF_SEQUENCE if replaceable else _NON_RBF_SEQUENCE
         candidates: dict[OutPoint, tuple[Candidate, PsbtIn]] = {}
+        standings: list[tuple[Candidate, _Standing]] = []
+        parents, linked = self._mempool_links()
         for utxo in self.utxos(0, include_unsafe=False):
-            psbt_in = self._psbt_in(
-                self._txs[utxo.outpoint.tx_id].tx, utxo.outpoint.vout, sequence
-            )
+            tx = self._txs[utxo.outpoint.tx_id].tx
+            psbt_in = self._psbt_in(tx, utxo.outpoint.vout, sequence)
             candidate = Candidate(utxo.outpoint, utxo.tx_out, self._weight(psbt_in))
             candidates[utxo.outpoint] = (candidate, psbt_in)
+            unconfirmed = tx.id in parents
+            standing = _Standing(
+                utxo.confirmations,
+                self._is_from_me(tx),
+                len(_reached(tx.id, parents)) if unconfirmed else 0,
+                len(_reached(tx.id, linked)) if unconfirmed else 0,
+            )
+            standings.append((candidate, standing))
         change_position, change_script = self._new_change()
         change_weight = self._change_spend_weight(change_position, change_script)
-        selection = select_coins(
-            [candidate for candidate, _ in candidates.values()],
-            list(outputs),
-            rate,
-            _LONG_TERM_FEE_RATE,
-            change_script.script,
-            change_weight,
-        )
+
+        def select(pool: list[Candidate]) -> tuple[Candidate, ...]:
+            return select_coins(
+                pool,
+                list(outputs),
+                rate,
+                _LONG_TERM_FEE_RATE,
+                change_script.script,
+                change_weight,
+            ).selected
+
         funded = build_psbt(
-            [candidates[c.outpoint][1] for c in selection.selected],
+            [candidates[c.outpoint][1] for c in _first_selection(standings, select)],
             list(outputs),
             rate,
             change_script.script,
@@ -2817,3 +2940,54 @@ def _remove_with_descendants(txid: bytes, txs: dict[bytes, WalletTx]) -> None:
         doomed |= new
     for gone in doomed:
         del txs[gone]
+
+
+def _reached(start: bytes, edges: Mapping[bytes, set[bytes]]) -> set[bytes]:
+    """Return the transactions `edges` lead to from `start`, itself included."""
+    reached = {start}
+    todo = [start]
+    while todo:
+        for txid in edges[todo.pop()] - reached:
+            reached.add(txid)
+            todo.append(txid)
+    return reached
+
+
+def _first_selection(
+    standings: Sequence[tuple[Candidate, _Standing]],
+    select: Callable[[list[Candidate]], tuple[Candidate, ...]],
+) -> tuple[Candidate, ...]:
+    """Return what `select` selects from the first pass of `_FILTERS` it can.
+
+    Where it can from none, the last pass's refusal is raised, unless it
+    can from all the coins: then it needs a coin no pass admits, and the
+    refusal says so, as Core's does (src/wallet/spend.cpp:932-944 at
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag).
+    """
+    *earlier, last = [
+        [
+            candidate
+            for candidate, standing in standings
+            if eligibility.is_eligible(standing)
+        ]
+        for eligibility in _FILTERS
+    ]
+    for pool in earlier:
+        if (selected := _attempt(select, pool)) is not None:
+            return selected
+    try:
+        return select(last)
+    except BTClibValueError as refusal:
+        if _attempt(select, [candidate for candidate, _ in standings]) is None:
+            raise
+        raise BTClibValueError(_LONG_CHAINS) from refusal
+
+
+def _attempt(
+    select: Callable[[list[Candidate]], tuple[Candidate, ...]], pool: list[Candidate]
+) -> tuple[Candidate, ...] | None:
+    """Return what `select` selects from `pool`, None where it refuses."""
+    try:
+        return select(pool)
+    except BTClibValueError:
+        return None
