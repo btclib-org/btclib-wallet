@@ -59,6 +59,10 @@ xprv to its xpub -- so a wallet is watch-only unless it is handed the
 walk, keyed as it keys them. That mapping is also the whole of what
 `is_watch_only` reads, there being nothing else here that could sign.
 
+A WIF key expression is refused, a ``musig()`` participant included,
+whichever way the descriptor comes in: `descriptors.parse` keeps only its
+public key, so the wallet would be watch-only for it without saying so.
+
 BIP380: https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki
 BIP389: https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki
 """
@@ -94,6 +98,23 @@ from btclib_wallet.wallet.wallet import _LAST_INDEX, RangedWallet
 __all__ = [
     "DescriptorWallet",
 ]
+
+
+def _assert_no_wif(descriptor: Descriptor) -> None:
+    """Refuse a WIF key expression, a ``musig()`` participant included.
+
+    The message names no key: a WIF is a private key.
+    """
+    keys = list(descriptor.key_expressions)
+    while keys:
+        key = keys.pop()
+        if key.wif_prefix:
+            err_msg = (
+                "a WIF key expression is not supported: the wallet would"
+                " keep only its public key, and could not sign for it"
+            )
+            raise BTClibValueError(err_msg)
+        keys.extend(key.participants)
 
 
 def _assert_distinct(
@@ -154,6 +175,7 @@ class DescriptorWallet(RangedWallet):
         for branch, descriptor in by_branch.items():
             if branch < 0:
                 raise BTClibValueError(f"invalid branch: {branch}")
+            _assert_no_wif(descriptor)
             if isinstance(descriptor, ComboDescriptor):
                 err_msg = f"combo() at branch {branch}: four scripts at one"
                 err_msg += " index are four addresses at one position, so a"
@@ -193,6 +215,8 @@ class DescriptorWallet(RangedWallet):
         branch is read in `network`. A descriptor with no such step is one
         chain, and a wallet of one branch -- which is what a caller watching
         a single chain has, and not an error.
+
+        A WIF key expression is refused, as the module docstring says.
         """
         return cls(
             [
