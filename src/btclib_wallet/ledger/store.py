@@ -85,6 +85,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
+from typing import TypeGuard
 from urllib.parse import quote
 
 from btclib.exceptions import BTClibValueError
@@ -323,6 +324,10 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
 _DECIMAL = re.compile(r"0|[1-9][0-9]{0,9}")
 _BLOCK_ID = re.compile(r"[0-9a-f]{64}")
 _STATES = {state.value: state for state in TxState}
+# what `_DECIMAL` reads a height to: the bound of a height or a seq a row
+# holds as an integer
+_MAX_DECIMAL = 10**10
+_BLOCK_ID_SIZE = 32
 
 
 def _branches(value: object, source_id: int) -> dict[int, str]:
@@ -339,6 +344,29 @@ def _branches(value: object, source_id: int) -> dict[int, str]:
         err_msg += " are not keyed by branch"
         raise BTClibValueError(err_msg)
     return {int(b): text for b, text in value.items()}
+
+
+def _counted(value: object) -> TypeGuard[int]:
+    """Return whether a column holds a height or a seq as the file writes it."""
+    return type(value) is int and 0 <= value < _MAX_DECIMAL
+
+
+def _tx_block(height: object, block_id: object) -> BlockRef | None:
+    """Return the block a transaction's row confirms it in, None for none.
+
+    `BlockRef` checks nothing, so a row is read where its height and its
+    block id are as `_upsert_txs` writes them: both None, or a height and
+    the bytes of an id.
+    """
+    if height is None and block_id is None:
+        return None
+    if not (
+        _counted(height)
+        and isinstance(block_id, bytes)
+        and len(block_id) == _BLOCK_ID_SIZE
+    ):
+        raise BTClibValueError("not a ledger file: a transaction in a malformed block")
+    return BlockRef(height, block_id)
 
 
 def _tx_state(value: object) -> TxState:
@@ -565,29 +593,36 @@ class _Store:
             "SELECT raw, state, height, block_id, seq, comment, comment_to,"
             " replaces, replaced_by FROM txs ORDER BY seq"
         )
-        return [
-            WalletTx(
-                tx_for_network(Tx.parse(raw), network),
-                _tx_state(state),
-                None if height is None else BlockRef(height, block_id),
-                seq,
-                comment,
-                comment_to,
-                replaces,
-                replaced_by,
+        txs: list[WalletTx] = []
+        for (
+            raw,
+            state,
+            height,
+            block_id,
+            seq,
+            comment,
+            comment_to,
+            replaces,
+            replaced_by,
+        ) in rows:
+            # `WalletTx` checks nothing either
+            if not _counted(seq):
+                raise BTClibValueError(
+                    "not a ledger file: a transaction with a malformed seq"
+                )
+            txs.append(
+                WalletTx(
+                    tx_for_network(Tx.parse(raw), network),
+                    _tx_state(state),
+                    _tx_block(height, block_id),
+                    seq,
+                    comment,
+                    comment_to,
+                    replaces,
+                    replaced_by,
+                )
             )
-            for (
-                raw,
-                state,
-                height,
-                block_id,
-                seq,
-                comment,
-                comment_to,
-                replaces,
-                replaced_by,
-            ) in rows
-        ]
+        return txs
 
     def blocks(self) -> dict[int, bytes]:
         """Return the id of each block synced through, by height."""

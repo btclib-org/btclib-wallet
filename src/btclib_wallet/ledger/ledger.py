@@ -687,8 +687,11 @@ class Ledger:
             _assert_height(birth_height, "birth_height")
         _assert_height(lookahead, "lookahead")
         if wallet.network != self.network:
-            err_msg = f"a {_label(wallet.network, NETWORKS)} wallet in a "
-            err_msg += f"{_label(self.network, NETWORKS)} ledger"
+            # each network between commas, where no article stands before
+            # what `_label` writes of one it does not know: either
+            # attribute can be written after it was checked
+            err_msg = f"the wallet's network, {_label(wallet.network, NETWORKS)},"
+            err_msg += f" is not the ledger's, {_label(self.network, NETWORKS)}"
             raise BTClibValueError(err_msg)
         if label is not None:
             _assert_label(label)
@@ -1773,10 +1776,13 @@ class Ledger:
                 f"not a ledger file: source {_quoted(source_id)}'s keys are unreadable"
             )
             raise BTClibValueError(err_msg)
+        prv_keys = held.get("prv_keys")
+        if not isinstance(prv_keys, dict):
+            err_msg = f"not a ledger file: source {_quoted(source_id)}'s prv_keys"
+            err_msg += " is not a JSON object"
+            raise BTClibValueError(err_msg)
         return _wallet(
-            _branches(held.get("descriptors"), source_id),
-            self.network,
-            held["prv_keys"],
+            _branches(held.get("descriptors"), source_id), self.network, prv_keys
         )
 
     @_relocking

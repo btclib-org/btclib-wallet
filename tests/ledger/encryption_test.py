@@ -1282,7 +1282,7 @@ def test_every_refusal_a_secret_reaches_holds_none(
             lambda: ledger.add_source(_wallet(XPRV2), birth_height=-1),
             "negative birth_height",
         )
-        refused(lambda: ledger.add_source(testnet), "a testnet wallet")
+        refused(lambda: ledger.add_source(testnet), "the wallet's network, testnet")
         refused(lambda: ledger.bump(bytes(32)), "the ledger is locked")
         refused(lambda: ledger.bump_psbt(bytes(32)), "the ledger is locked")
         refused(lambda: ledger.unlock_keys(WRONG, 10), "the passphrase is wrong")
@@ -1440,8 +1440,12 @@ _UNREADABLE = "^not a ledger file: source 0's keys are unreadable$"
             b'{"descriptors": {"' + HEX.encode() + b'": "x"}, "prv_keys": {}}',
             "^not a ledger file: source 0's descriptors are not keyed by branch$",
         ),
+        (
+            b'{"descriptors": {}}',
+            "^not a ledger file: source 0's prv_keys is not a JSON object$",
+        ),
     ],
-    ids=["cut short", "no utf-8", "no object", "descriptors map key"],
+    ids=["cut short", "no utf-8", "no object", "descriptors map key", "no prv_keys"],
 )
 def test_keys_that_decrypt_to_no_ledger_json_are_refused_alone(
     chain: FakeChain, path: Path, clock: Clock, plaintext: bytes, err_msg: str

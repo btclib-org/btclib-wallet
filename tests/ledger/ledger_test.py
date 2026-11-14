@@ -45,6 +45,8 @@ from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
 from tests.ledger.conftest import LOOKAHEAD as SMALL_LOOKAHEAD
 from tests.ledger.conftest import XPRV, FakeChain, script_of, source, tampered
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 
 def _state(ledger: Ledger, tx: Tx) -> TxState:
@@ -237,8 +239,20 @@ def test_a_source_is_checked(ledger: Ledger) -> None:
         ledger.add_source(source(), lookahead=-1)
     xpub = SoftwareSigner(XPRV).xpub("m/84h/1h/0h")
     wallet = DescriptorWallet(parse(f"wpkh({xpub}/0/*)", "testnet"))
-    with pytest.raises(BTClibValueError, match="a testnet wallet in a regtest ledger"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^the wallet's network, testnet, is not the ledger's, regtest$",
+    ):
         ledger.add_source(wallet)
+    # a network written after the wallet checked it is told by its length,
+    # with no article before it (issue #821)
+    wallet.network = HEX
+    err_msg = (
+        "^the wallet's network, a value of 64 characters, is not the ledger's, regtest$"
+    )
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
+        ledger.add_source(wallet)
+    assert_secret_free(e.value, SPELLINGS)
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
         ledger.new_address(0, "0")  # type: ignore[arg-type]
 
