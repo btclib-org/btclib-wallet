@@ -83,6 +83,7 @@ from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     _fetch_errors,
     _touching_ids,
+    _WrongChainError,
     block_header_from_raw,
     block_header_height,
     client_errors,
@@ -426,7 +427,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                     break
             err_msg = f"the explorer serves {served}, and this fetcher was built"
             err_msg += f" for {_label(self.network, NETWORKS)}"
-            raise BTClibValueError(err_msg)
+            raise _WrongChainError(err_msg)
 
     def broadcast(self, tx: Tx) -> bytes:
         """Announce `tx` to the server, and return the txid it confirmed.

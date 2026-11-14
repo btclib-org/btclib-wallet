@@ -3115,7 +3115,8 @@ def test_finalize_checks_a_partial_signature_against_its_pub_key() -> None:
     keys = list(psbt.inputs[0].partial_sigs)
     sigs = list(psbt.inputs[0].partial_sigs.values())
     psbt.inputs[0].partial_sigs = {keys[0]: sigs[1], keys[1]: sigs[0]}
-    err_msg = "invalid partial signature"
+    # which signature failed is said by where it is
+    err_msg = "^input 0: partial signature 0: invalid$"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3124,6 +3125,7 @@ def test_finalize_checks_a_partial_signature_against_its_pub_key() -> None:
     keys = list(psbt.inputs[1].partial_sigs)
     sigs = list(psbt.inputs[1].partial_sigs.values())
     psbt.inputs[1].partial_sigs = {keys[0]: sigs[1], keys[1]: sigs[0]}
+    err_msg = "^input 1: partial signature 0: invalid$"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 

@@ -73,6 +73,7 @@ from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     _fetch_errors,
     _touching_ids,
+    _WrongChainError,
     block_header_from_raw,
     block_header_height,
     client_errors,
@@ -349,7 +350,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
                     break
             err_msg = f"the server serves {served}, and this fetcher was built"
             err_msg += f" for {_label(self.network, NETWORKS)}"
-            raise BTClibValueError(err_msg)
+            raise _WrongChainError(err_msg)
 
     def get_tx_merkle(self, tx_id: Octets, height: int) -> electrum.MerkleProof:
         """Return the branch proving `tx_id` confirmed at `height`.

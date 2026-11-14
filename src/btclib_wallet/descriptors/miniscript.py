@@ -2115,12 +2115,15 @@ def _read_multi(
     A bracket that leaves the arguments unpaired is refused after the
     keys Core reads before it, since Core counts no bracket in them.
     """
-    try:
+    arguments = None
+    with suppress(BTClibValueError):
         arguments = _split_arguments(argument)
-    except BTClibValueError:
-        threshold, *keys = argument.split(",")
-        _read_keys_as_core(threshold, keys, context, prv_keys)
-        raise
+    if arguments is None:
+        unsplit_threshold, *unsplit_keys = argument.split(",")
+        _read_keys_as_core(unsplit_threshold, unsplit_keys, context, prv_keys)
+        # the split refused again, with no exception handled: the one
+        # caught above is not raised from an `except`
+        arguments = _split_arguments(argument)
     if len(arguments) < 2:
         err_msg = f"{_label(name, _NAMES)}() takes a threshold and at least one key"
         raise BTClibValueError(err_msg)

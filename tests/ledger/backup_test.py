@@ -30,7 +30,10 @@ from btclib.tx import TxOut
 
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, store
+from tests import raises_alone
 from tests.ledger.conftest import LOOKAHEAD, FakeChain, script_of, source
+from tests.refused_value_test import KEY, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 _PYPY = platform.python_implementation() == "PyPy"
 # what a copy SQLite refuses to write raises: PyPy's `Connection.backup`
@@ -132,14 +135,30 @@ def test_a_backup_refuses_anything_at_its_path(
         ledger.backup(b"ledger.bak")  # type: ignore[arg-type]
 
 
-def test_a_backup_into_a_missing_directory_is_refused(
-    ledger: Ledger, tmp_path: Path
+@pytest.mark.parametrize("parent", ["missing", "a file"])
+def test_a_file_the_system_cannot_make_is_refused_by_its_class(
+    ledger: Ledger, chain: FakeChain, tmp_path: Path, parent: str
 ) -> None:
-    """The system's own refusal, with nothing made."""
-    target = tmp_path / "missing" / "ledger.bak"
-    with pytest.raises(FileNotFoundError):
-        ledger.backup(target)
-    assert not target.parent.exists()
+    """A key's hex in the path is in no refusal (issue #821).
+
+    The system's `OSError` holds the path, so the refusal names its class
+    alone and chains nothing: under a missing directory, and under a file,
+    which POSIX and Windows refuse as different classes.
+    """
+    backup = tmp_path / "ledger.bak"
+    ledger.backup(backup)
+    if parent == "a file":
+        (tmp_path / parent).write_bytes(b"")
+    target = tmp_path / parent / KEY.hex()
+    for call in (
+        lambda: ledger.backup(target),
+        lambda: Ledger.create(target, "regtest", chain),
+        lambda: Ledger.restore(backup, target, "regtest", chain),
+    ):
+        with raises_alone(BTClibValueError, r"^cannot make the ledger file: \w+$") as e:
+            call()
+        assert_secret_free(e.value, SPELLINGS)
+        assert not target.exists()
 
 
 def test_a_backup_that_cannot_open_its_file_leaves_none(

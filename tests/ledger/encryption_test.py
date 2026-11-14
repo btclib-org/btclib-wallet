@@ -45,6 +45,7 @@ from btclib_wallet.ledger import MAX_UNLOCK_TIME, Ledger, TxState, crypto
 from btclib_wallet.ledger import ledger as ledger_module
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet import DescriptorWallet
+from tests import raises_alone
 from tests.ledger.conftest import (
     LOOKAHEAD,
     XPRV,
@@ -1424,6 +1425,34 @@ def test_a_damaged_ciphertext_is_told_from_a_wrong_passphrase(
         pytest.raises(BTClibValueError, match="the passphrase is wrong"),
     ):
         ledger.unlock_keys(PASSPHRASE, 10)
+
+
+@pytest.mark.parametrize(
+    "plaintext",
+    [b'{"prv_keys": ["' + HEX.encode(), b"\xff" + HEX.encode(), b"[]"],
+    ids=["cut short", "no utf-8", "no object"],
+)
+def test_keys_that_decrypt_to_no_json_object_are_refused_alone(
+    chain: FakeChain, path: Path, clock: Clock, plaintext: bytes
+) -> None:
+    """The codec's or `json`'s error holds the keys decrypted (issue #821).
+
+    So the refusal names the source alone and chains nothing.
+    """
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        ledger.encrypt(PASSPHRASE)
+        ledger.unlock_keys(PASSPHRASE, 10)
+        key = ledger._key
+        assert key is not None
+        sealed = crypto._sealed(key, plaintext, ledger_module._aad(0))
+    _damaged(path, "UPDATE sources SET encrypted = ?", sealed)
+    err_msg = "^not a ledger file: source 0's keys are unreadable$"
+    with (
+        _loaded(path, chain) as ledger,
+        raises_alone(BTClibValueError, err_msg) as e,
+    ):
+        ledger.unlock_keys(PASSPHRASE, 10)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 class _Recorded(bytearray):

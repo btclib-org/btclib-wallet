@@ -243,7 +243,7 @@ class TcpPeerTransport:
             sock.sendall(message.serialize())
         except OSError:
             pass
-        except FetchError:
+        except _TransportError:
             self._discard()
             raise
         else:
@@ -274,7 +274,7 @@ class TcpPeerTransport:
             failure = f"no message from {where}"
         except ValueError:
             failure = f"{where}: a message that does not parse"
-        except FetchError:
+        except _TransportError:
             self._discard()
             raise
         self._discard()
@@ -380,7 +380,7 @@ class V2PeerTransport:
                 closed = True
             except OSError:
                 pass
-            except FetchError:
+            except _TransportError:
                 self._pending = None
                 raise
             self._pending = None
@@ -427,7 +427,7 @@ class V2PeerTransport:
             failure = f"no connection to {where}"
         except ValueError as e:
             failure = f"{where}: {type(e).__name__}"
-        except FetchError:
+        except _TransportError:
             self._discard()
             raise
         except BaseException:
@@ -533,7 +533,7 @@ class V2PeerTransport:
             failure = f"no message from {where}"
         except ValueError as e:
             failure = f"{where}: {type(e).__name__}"
-        except FetchError:
+        except _TransportError:
             self._discard()
             raise
         except BaseException:
@@ -601,15 +601,17 @@ def _send_key(
     written: a v1 peer hangs up on a header it cannot read.
     """
     written = 0
+    hung_up = False
     try:
         while written < len(data):
             sock.settimeout(_time_left(deadline, timeout, where))
             written += sock.send(data[written:])
     except ConnectionError:
-        if written < _HEADER_SIZE:
-            raise
-        return False
-    return True
+        hung_up = True
+    # refused after the `except` block, as every refusal of this module
+    if hung_up and written < _HEADER_SIZE:
+        raise _TransportError(f"no connection to {where}")
+    return not hung_up
 
 
 def _packet(

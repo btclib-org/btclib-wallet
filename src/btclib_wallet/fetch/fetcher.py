@@ -127,10 +127,19 @@ def _client_errors(request: str) -> Iterator[None]:
         # a `FetchError`
         err_msg = "the node is on another chain than this fetcher,"
         err_msg += " or the signet challenge is no script"
-        refusal = BTClibValueError(err_msg)
+        refusal = _WrongChainError(err_msg)
     else:
         return
     _raise_alone(refusal)
+
+
+class _WrongChainError(BTClibValueError):
+    """A backend serving another chain than the one a fetcher was built for.
+
+    `NetworkVerifyingFetcher` remembers it and raises it again at every
+    later call. A class of the package's own, so that what is raised
+    again is a refusal the census reads, and no other library's.
+    """
 
 
 def _raise_alone(refusal: Exception) -> NoReturn:
@@ -352,7 +361,7 @@ class NetworkVerifyingFetcher(Fetcher):
         super().__init__(network)
         self.verify_network = verify_network
         self._agreed = False
-        self._disagreement: BTClibValueError | None = None
+        self._disagreement: _WrongChainError | None = None
 
     @abstractmethod
     def assert_network(self) -> None:
@@ -393,7 +402,7 @@ class NetworkVerifyingFetcher(Fetcher):
             raise self._disagreement
         try:
             self.assert_network()
-        except BTClibValueError as e:
+        except _WrongChainError as e:
             self._disagreement = e
             raise
         self._agreed = True

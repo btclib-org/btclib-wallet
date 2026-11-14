@@ -1274,16 +1274,13 @@ def scan_transaction_outputs(
         # the bindings refuse the scan for an output that is no point and
         # the Python scan walks past it: retried without those, which
         # costs a lift per output only here. The retry is outside the
-        # `except` block, so that what it raises chains nothing
-        points = outputs_to_check
-        try:
+        # `suppress`, so that what it raises chains nothing; where every
+        # output is a point, it is the same scan, which refuses again
+        with suppress(BTClibValueError):
             return _delegated_scan_outputs(
                 q_scan, outpoints, pub_keys, P_spend, outputs_to_check, labels
             )
-        except BTClibValueError:
-            points = _outputs_with_a_point(outputs_to_check)
-            if len(points) == len(outputs_to_check):
-                raise
+        points = _outputs_with_a_point(outputs_to_check)
         if not points:
             return []
         return _delegated_scan_outputs(
