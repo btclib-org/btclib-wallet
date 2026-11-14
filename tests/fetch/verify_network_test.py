@@ -47,7 +47,7 @@ from tests.fetch.bitcoin_core_test import client as rpc_client
 from tests.fetch.bitcoin_core_test import recording as rpc_recording
 from tests.fetch.electrum_test import TESTNET_GENESIS_HEADER, LineRecorded
 from tests.fetch.esplora_test import BASE, TESTNET_GENESIS
-from tests.fetch.peer_chain_test import Chain, ScriptedPeer
+from tests.fetch.peer_chain import Chain, ScriptedPeer
 
 _FETCH = Path(__file__).parents[2] / "src" / "btclib_wallet" / "fetch"
 

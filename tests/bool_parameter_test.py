@@ -130,7 +130,7 @@ from tests.exception_family_test import TYPE_ERRORS
 from tests.fetch import Recorded
 from tests.fetch.bitcoin_core_test import client
 from tests.fetch.electrum_test import LineRecorded
-from tests.fetch.peer_chain_test import Chain, ScriptedPeer
+from tests.fetch.peer_chain import Chain, ScriptedPeer
 from tests.ledger.conftest import FakeChain, script_of, source
 from tests.psbt import frost_test as psbt_frost_test
 from tests.psbt import musig2_test as psbt_musig2_test

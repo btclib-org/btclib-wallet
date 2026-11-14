@@ -30,7 +30,7 @@ from tests.fetch.esplora_history_test import _explorer, _fetcher
 from tests.fetch.esplora_test import BASE, fee_estimates
 from tests.fetch.esplora_test import fetcher as esplora_fetcher
 from tests.fetch.history_test import OURS
-from tests.fetch.peer_chain_test import WALLET
+from tests.fetch.peer_chain import WALLET
 from tests.refused_value_test import HEX, KEY, SCALAR, SPELLINGS
 from tests.secret_free import assert_secret_free
 

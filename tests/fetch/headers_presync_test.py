@@ -8,7 +8,7 @@ A chain without the work to be held is downloaded twice, by btclib's
 `HeadersSyncState`, whose own tests are btclib's; these test the fetcher
 around it. The headers that are held are checked on the checks of
 `ContextualCheckBlockHeader`, except its version check. The peers are
-the scripted ones of `tests/fetch/peer_chain_test.py`.
+the scripted ones of `tests.fetch.peer_chain`.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
-from tests.fetch.peer_chain_test import (
+from tests.fetch.peer_chain import (
     OTHER,
     REGTEST_BITS,
     REGTEST_HALVING,

@@ -4,9 +4,9 @@
 
 """Tests for `CompactFilterFetcher`, against a peer scripted from a chain.
 
-`tests/fetch/peer_chain_test.py` mines a regtest chain in memory and answers
-the BIP157 requests from it, as Bitcoin Core does. Each test that wants
-the peer to lie replaces one of its `reply_*` methods; nothing opens a
+`tests.fetch.peer_chain` mines a regtest chain in memory and answers the
+BIP157 requests from it, as Bitcoin Core does. Each test that wants the
+peer to lie replaces one of its `reply_*` methods; nothing opens a
 socket. `tests/integration/compact_filters_test.py` is where a real node
 is asked.
 """
@@ -47,7 +47,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
-from tests.fetch.peer_chain_test import (
+from tests.fetch.peer_chain import (
     OTHER,
     REGTEST_BITS,
     REGTEST_HALVING,

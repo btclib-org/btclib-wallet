@@ -36,7 +36,7 @@ from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger import Ledger, TxState
 from tests.fetch.electrum_test import TESTNET_GENESIS, TESTNET_GENESIS_HEADER
 from tests.fetch.history_test import OTHER, OURS, _tx
-from tests.fetch.peer_chain_test import REGTEST_BITS, REGTEST_HALVING, mined
+from tests.fetch.peer_chain import REGTEST_BITS, REGTEST_HALVING, mined
 from tests.ledger.conftest import source
 from tests.refused_value_test import KEY, SPELLINGS
 from tests.secret_free import assert_secret_free
