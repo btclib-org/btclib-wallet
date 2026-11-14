@@ -147,20 +147,28 @@ def _assert_distinct(
 def _labels(by_branch: Mapping[int, Descriptor]) -> dict[int, Descriptor]:
     """Refuse a label that is no integer, or is outside 0 to 2**63 - 1.
 
-    The module docstring says why. Neither value refusal prints the value:
-    an int past the interpreter's digit limit has no str(). Each label is
-    kept as the int it equals: the str() of an IntEnum can be its name,
-    which a ledger would write and could not read back.
+    The module docstring says why. No value refusal prints the value: an
+    int past the interpreter's digit limit has no str(). Each label is
+    kept as the exact int it holds, read by `int.__index__`, which no
+    subclass overrides: the str() of an IntEnum can be its name, which a
+    ledger would write and could not read back, and a subclass's
+    `__int__` can answer another number. Two labels holding one int are
+    refused, since one descriptor would replace the other.
     """
-    for branch in by_branch:
+    labels: dict[int, Descriptor] = {}
+    for branch, descriptor in by_branch.items():
         if not is_integer(branch):
             err_msg = f"invalid branch type: {type(branch).__name__}"
             raise BTClibTypeError(err_msg)
-        if branch < 0:
+        value = int.__index__(branch)
+        if value < 0:
             raise BTClibValueError("invalid branch: negative")
-        if branch >= 2**63:
+        if value >= 2**63:
             raise BTClibValueError("invalid branch: not below 2**63")
-    return {int(branch): descriptor for branch, descriptor in by_branch.items()}
+        if value in labels:
+            raise BTClibValueError("invalid branch: two labels hold one int")
+        labels[value] = descriptor
+    return labels
 
 
 class DescriptorWallet(RangedWallet):

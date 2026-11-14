@@ -19,7 +19,8 @@ from enum import Enum, IntEnum
 from typing import Any
 
 import pytest
-from btclib.exceptions import BTClibTypeError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
+from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.bip32.bip32 import (
@@ -238,3 +239,37 @@ def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
     assert str_from_index_int(Index.ONE) == "1"
     (branch,) = DescriptorWallet({Index.ONE: _DESCRIPTOR}).branches
     assert type(branch) is int
+
+
+def test_a_branch_is_the_int_its_label_holds() -> None:
+    """Read by `int.__index__`, whatever a subclass's `__int__` answers.
+
+    Through `int()` these would label a chain -1 or 2**70, which a ledger
+    cannot hold, or put two descriptors on one branch.
+    """
+
+    class Negative(int):
+        @override
+        def __int__(self) -> int:
+            return -1
+
+    class Huge(int):
+        @override
+        def __int__(self) -> int:
+            return 2**70
+
+    class Twin(int):
+        __hash__ = int.__hash__
+
+        @override
+        def __eq__(self, other: object) -> bool:
+            return self is other
+
+    # what `int()` answers for each, which the wallet must not take
+    assert (int(Negative(5)), int(Huge(5))) == (-1, 2**70)
+    (branch,) = DescriptorWallet({Negative(5): _DESCRIPTOR}).branches
+    assert (type(branch), branch) == (int, 5)
+    assert DescriptorWallet({Huge(5): _DESCRIPTOR}).branches == (5,)
+    other = parse(f"wpkh({_XPUB}/1/*)")
+    with pytest.raises(BTClibValueError, match="two labels hold one int"):
+        DescriptorWallet({Twin(5): _DESCRIPTOR, 5: other})
