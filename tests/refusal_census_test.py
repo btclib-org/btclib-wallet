@@ -8,8 +8,10 @@ Section 7 of the btclib-org standard, *A refusal carries no secret*, says
 an argument in the wrong place may be a key. The census reads the sources
 of the package with `ast` and runs none of them. It is a lint over the
 shapes its controls show, the pairs of `_SHAPES` it traces and flags, and
-not a proof: a shape no control holds may pass unseen, as the ones named
-at the end do.
+not a proof: a shape no control holds may pass unseen. Each shape
+measured to pass unseen is an open issue whose title starts "The refusal
+census does not see", of btclib-org/btclib-wallet or of
+btclib-org/bitcoin-core-rpc, whose census this one is ported from.
 
 It reads as an exception the package builds each call of a name ending in
 `Error` or `Exception`, or of a name an assignment or an import binds to
@@ -111,15 +113,6 @@ it ends in. What a cleanup relays passes on as it would with no `try`
 around it. What a call outside the package raises, and an exception
 another package raises that none of the package's `except` catches, are
 not read by the census.
-
-These shapes pass unseen, measured: an item of a container bound to
-another name, as in `alias = values[0]` and then `alias.append(key)`; an
-item of a shallow copy one of `_READERS` makes, as in
-`alias = list(values)` and then `alias[0].append(key)`; and a value a
-method puts into an item, as in `values[0].append(key)`. A refusal that
-holds `values` holds the key in each. The first two are filed as
-btclib-org/bitcoin-core-rpc#811, the third as
-btclib-org/bitcoin-core-rpc#813.
 """
 
 from __future__ import annotations
@@ -217,12 +210,11 @@ _PURE_BUILTINS = frozenset(
         "zip",
     }
 )
-# what an `except` may raise again whose text is the interpreter's own
-# bases outside the package of which no exception derives
+# bases outside the package that alone make no class an exception
 _PLAIN_BASES = frozenset(
     {"ABC", "Enum", "Generic", "IntEnum", "NamedTuple", "Protocol", "list", "object"}
 )
-
+# what an `except` may raise again whose text is the interpreter's own
 _INTERRUPTS = frozenset({"KeyboardInterrupt", "SystemExit"})
 # a call whose answer is a field of at most 4 bytes, in hex
 _FIELDS = frozenset({"_hex_field"})
@@ -2422,9 +2414,15 @@ _SHAPES = {
             "    raise ValueError(key)\n_g()"
         ),
     ),
-    "default of a lambda": (
-        "def f(key):\n    pick = lambda x=key: 1\n    raise ValueError('a')",
-        "def f(key):\n    pick = lambda x=key: x\n    raise ValueError(pick())",
+    "default of a lambda read where the lambda stands": (
+        (
+            "def _h():\n    return 'a'\ndef f(key):\n"
+            "    pick = lambda _h=None, x=ValueError(_h()): x\n    return pick"
+        ),
+        (
+            "def _h():\n    return 'a'\ndef f(key):\n"
+            "    pick = lambda _h: ValueError(_h())\n    return pick"
+        ),
     ),
     "exception class bound to another name": (
         (
