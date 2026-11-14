@@ -37,7 +37,7 @@ AGENTS.md, not CONTRIBUTING.md, suggests a worktree per task; CONTRIBUTING.md
 and REPOSITORY.md say the merge is explicit and auto-merge is off (issue
 btclib-org/.github#2263, btclib-org/.github#2272).
 
-### The workflows say which pull requests each gate runs on
+### RELEASING.md and REPOSITORY.md say which pull requests each gate runs on
 
 (#914).
 

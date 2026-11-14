@@ -11,7 +11,7 @@ before upgrading, rather than a digit.
 
 ## v2026.11.14.1
 
-A patch on v2026.11.14: one fix, and no other change to the package.
+A patch on v2026.11.14 that changes the package by this fix alone.
 
 - **A node's RPC error raises `btclib_wallet.exceptions.RpcError` with
   bitcoin-core-rpc 2026.11.14 installed**
