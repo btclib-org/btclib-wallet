@@ -91,7 +91,7 @@ def client_errors() -> Iterator[None]:
     try:
         yield
     except rpc.RpcError as e:
-        raise RpcError(e.args[0], e.code, e.data) from e
+        raise RpcError(e.args[0], e.code) from e
     except rpc.HttpError as e:
         raise HttpError(e.args[0], e.status) from e
     except rpc.FetchError as e:
@@ -99,8 +99,7 @@ def client_errors() -> Iterator[None]:
     except rpc.BtcRpcValueError as e:
         # what `assert_chain` raises for a node serving another chain: a
         # refusal on valid inputs, so `BTClibValueError` and not a
-        # `FetchError`. Its message names the node's chain and the client's,
-        # which is the whole of what a caller has to act on
+        # `FetchError`
         raise BTClibValueError(str(e)) from e
 
 

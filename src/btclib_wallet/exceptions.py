@@ -97,11 +97,9 @@ class RpcError(FetchError):
     number, and parsing it back out of the message is what having a field
     avoids.
 
-    `data` is JSON-RPC's optional third member of an error object, kept as
-    it arrived. Core leaves it out today, so it is None for every error a
-    node sends; a method that starts sending one -- or a proxy between the
-    two adding its own -- would otherwise have it dropped here, which is
-    the one place it cannot be recovered from.
+    `data` is JSON-RPC's optional third member of an error object. It is
+    None for every error a node sends: `client_errors` keeps the node's
+    code and not its `data`.
 
     From an Electrum server the message names the method asked, `data` is
     None, and `code` is 0 where the server's is no integer or does not

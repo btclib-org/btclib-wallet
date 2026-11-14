@@ -319,7 +319,7 @@ def test_get_history_raises_any_other_rpc_error() -> None:
     """Only the node not having the transaction is a skip."""
     node = FakeNode([[(COINBASE, [None])]], [PAYMENT])
     node.refused = {PAYMENT.id.hex(): int(RPCErrorCode.IN_WARMUP)}
-    with pytest.raises(RpcError, match="refused with -28") as raised:
+    with pytest.raises(RpcError) as raised:
         _fetcher(node).get_history([OURS])
     assert raised.value.code == RPCErrorCode.IN_WARMUP
 

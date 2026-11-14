@@ -290,6 +290,18 @@ def broadcast(node: BitcoinCoreRpcClient, psbt: Psbt) -> str:
     return tx_id.hex()
 
 
+def reject_reason(node: BitcoinCoreRpcClient, tx: Tx) -> str:
+    """Return why the node's mempool refuses `tx`, as Core words it.
+
+    A broadcast's refusal keeps Core's code and not its text, and -26 is
+    the code of every mempool policy: `testmempoolaccept`, asked by the
+    test and not by the package, says which policy it was.
+    """
+    (answer,) = node.call("testmempoolaccept", [[tx.serialize(True).hex()]])
+    assert not answer["allowed"]
+    return str(answer["reject-reason"])
+
+
 # The fetcher tests' stack: a `bitcoind` of its own and an index server
 # reading it. `node` above is one for the whole session and the reorg test
 # invalidates blocks, which would change the chain under every other test.

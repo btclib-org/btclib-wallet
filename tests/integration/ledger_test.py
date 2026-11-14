@@ -47,7 +47,12 @@ from btclib_wallet.ledger.ledger import _assert_replaces
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_size import miniscript_sizer
 from btclib_wallet.wallet import DescriptorWallet
-from tests.integration.conftest import _start_node, _stop, start_on_free_ports
+from tests.integration.conftest import (
+    _start_node,
+    _stop,
+    reject_reason,
+    start_on_free_ports,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -337,16 +342,19 @@ def test_the_ledger_answers_what_cores_wallet_answers(
     copy = tmp_path / "refusing.sqlite"
     ledger.backup(copy)
     refusing = Ledger.load(copy, "regtest", fetcher, broadcaster=fetcher)
-    with pytest.raises(RpcError, match="min relay fee not met"):
+    with pytest.raises(RpcError) as raised:
         refusing.spend(
             [_miner_output(node, refusing.balances().trusted // 4)],
             FeeRate.from_sats_per_vbyte(1),
         )
+    assert raised.value.code == -26
     refusing.sync()
     # the last transaction recorded
     last = refusing.transactions[-1].wallet_tx
     assert last.state is TxState.INACTIVE
     refused = last.tx
+    # -26 is every mempool policy: the node says it was the floor
+    assert reject_reason(node.client, refused) == "min relay fee not met"
     spent = sum(_value_spent(refusing, tx_in) for tx_in in refused.vin)
     _settle(node)
     mine = node.wallet("twin").call("getbalances")["mine"]

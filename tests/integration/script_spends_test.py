@@ -33,7 +33,7 @@ from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.silent_payments import NUMS_H
 from btclib_wallet.tx_builder import build_psbt
-from tests.integration.conftest import broadcast
+from tests.integration.conftest import broadcast, reject_reason
 
 pytestmark = pytest.mark.integration
 
@@ -145,9 +145,10 @@ def test_core_relays_a_taproot_script_path_spend(
     invalid.vin[0].script_witness = Witness(
         [bytes(len(signature)), script, control_block]
     )
-    with pytest.raises(RpcError, match="Invalid Schnorr signature") as refused:
+    with pytest.raises(RpcError) as refused:
         BitcoinCoreFetcher(node, "regtest").broadcast(invalid)
     assert refused.value.code == -26
+    assert "Invalid Schnorr signature" in reject_reason(node, invalid)
     _mine_spend(node, funded_miner, signed)
 
 
@@ -160,18 +161,20 @@ def test_core_relays_an_older_spend_only_when_its_sequence_matures(
     descriptor = parse(f"wsh(and_v(v:pk({key}),older({delay})))", "regtest")
     signed = _signed_spend(node, funded_miner, descriptor, signer, sequence=delay)
     assert signed.tx.vin[0].sequence == delay
-    with pytest.raises(RpcError, match="non-BIP68-final") as refused:
+    with pytest.raises(RpcError) as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
+    assert reject_reason(node, extract_tx(signed)) == "non-BIP68-final"
 
     # BIP68 evaluates the next block: at depth delay-1 the input is still
     # too young, and one more block opens the same transaction.
     funded_miner.call(
         "generatetoaddress", [delay - 2, funded_miner.call("getnewaddress")]
     )
-    with pytest.raises(RpcError, match="non-BIP68-final") as refused:
+    with pytest.raises(RpcError) as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
+    assert reject_reason(node, extract_tx(signed)) == "non-BIP68-final"
     funded_miner.call("generatetoaddress", [1, funded_miner.call("getnewaddress")])
     _mine_spend(node, funded_miner, signed)
 
@@ -193,17 +196,19 @@ def test_core_relays_an_after_spend_only_when_its_lock_height_passes(
     )
     assert signed.tx.lock_time == lock_height
     assert signed.tx.vin[0].sequence == 0xFFFFFFFE
-    with pytest.raises(RpcError, match="non-final") as refused:
+    with pytest.raises(RpcError) as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
+    assert reject_reason(node, extract_tx(signed)) == "non-final"
 
     height = int(node.call("getblockcount"))
     funded_miner.call(
         "generatetoaddress",
         [lock_height - height - 1, funded_miner.call("getnewaddress")],
     )
-    with pytest.raises(RpcError, match="non-final") as refused:
+    with pytest.raises(RpcError) as refused:
         broadcast(node, signed)
     assert refused.value.code == -26
+    assert reject_reason(node, extract_tx(signed)) == "non-final"
     funded_miner.call("generatetoaddress", [1, funded_miner.call("getnewaddress")])
     _mine_spend(node, funded_miner, signed)
