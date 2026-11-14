@@ -237,6 +237,7 @@ import json
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from math import ceil
@@ -1752,10 +1753,20 @@ class Ledger:
                 f"not a ledger file: source {_quoted(source_id)}'s keys do not decrypt"
             )
             raise BTClibValueError(err_msg) from None
+        held = None
         try:
-            held = json.loads(plaintext)
+            # a `ValueError` of the codec or of `json` holds the keys
+            # decrypted: it is not let out, and the refusal is raised after
+            # the block
+            with suppress(ValueError):
+                held = json.loads(plaintext)
         finally:
             _wipe(plaintext)
+        if not isinstance(held, dict):
+            err_msg = (
+                f"not a ledger file: source {_quoted(source_id)}'s keys are unreadable"
+            )
+            raise BTClibValueError(err_msg)
         return _wallet(
             {int(b): t for b, t in held["descriptors"].items()},
             self.network,

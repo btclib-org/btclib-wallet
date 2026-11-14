@@ -334,18 +334,23 @@ def _new_file(path: str | PathLike[str]) -> None:
 
     A directory and a link are refused too. The file is its owner's
     alone where the system has POSIX permissions.
+
+    A failure of the system is refused by the class of its `OSError`,
+    raised after the `except` block: the error's own text and `filename`
+    are the caller's path, which can hold anything.
     """
-    exists = False
+    failure = None
     try:
         Path(path).touch(mode=0o600, exist_ok=False)
     except OSError as e:
         # Windows refuses to make a file over a directory as a
         # PermissionError, not a FileExistsError
-        if not (isinstance(e, FileExistsError) or Path(path).exists()):
-            raise
-        exists = True
-    if exists:
-        raise BTClibValueError("the ledger file exists")
+        if isinstance(e, FileExistsError) or Path(path).exists():
+            failure = "the ledger file exists"
+        else:
+            failure = f"cannot make the ledger file: {type(e).__name__}"
+    if failure is not None:
+        raise BTClibValueError(failure)
 
 
 def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
@@ -361,17 +366,23 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
     try:
         target = _connect(path, "rw")
         db.backup(target)
-    except BaseException as e:
-        if target is not None:
-            _release(target)
-        Path(path).unlink(missing_ok=True)
-        if not isinstance(e, sqlite3.DatabaseError):
-            raise
+    except sqlite3.DatabaseError as e:
+        _undo_copy(target, path)
         failure = f"cannot copy the ledger file: {type(e).__name__}"
+    except BaseException:
+        _undo_copy(target, path)
+        raise
     else:
         _release(target)
         return
     raise BTClibValueError(failure)
+
+
+def _undo_copy(target: sqlite3.Connection | None, path: str | PathLike[str]) -> None:
+    """Close the copy where it was opened, and remove its file."""
+    if target is not None:
+        _release(target)
+    Path(path).unlink(missing_ok=True)
 
 
 def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None:

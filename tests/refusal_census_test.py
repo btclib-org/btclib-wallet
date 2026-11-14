@@ -54,12 +54,21 @@ not at all.
 
 An exception that is not one of the package's classes may hold the
 input, as a `UnicodeError` holds its bytes, so no refusal chains one or
-has it as context. A `raise` inside an `except` of another class, or in a
+has it as context, and no `except` raises one again. A class is the
+package's where the scope that names it defines it, or imports it from a
+module of the package that does: one of another package is not, whatever
+its name. A `raise` inside an `except` of another class, or in a
 `finally`, is a finding, and so is a `raise ... from` anything but `None`
 or an exception of the package's classes; a call inside such an `except`
 of a function of the package that raises is one too. A method called
 there on another object than its own is known by its name only, and is
-not read.
+not read. A bare `raise`, or a `raise` of the name the `except` binds, is
+a finding unless the `except` catches the package's classes alone,
+`KeyboardInterrupt` and `SystemExit` alone, or is a cleanup: one that
+catches everything, binds no name and has no way out but the bare
+`raise` it ends in. What a cleanup relays passes on as it would with no
+`try` around it, and an exception another package raises and none of the
+package's `except` catches is not read by the census.
 """
 
 from __future__ import annotations
@@ -87,7 +96,9 @@ _OUTSIDE_METHODS = frozenset({"fromkeys", "get", "hex", "items", "join"})
 # the names a method is called on that make it one of its own class's
 _BOUND = frozenset({"self", "cls"})
 # what a module holds that the process was handed
-_PROCESS_INPUT = frozenset({"environ", "argv", "stdin"})
+_PROCESS_INPUT = frozenset({"environ", "environb", "argv", "orig_argv", "stdin"})
+# what an `except` may raise again whose text is the interpreter's own
+_INTERRUPTS = frozenset({"KeyboardInterrupt", "SystemExit"})
 # a call whose answer is a field of at most 4 bytes, in hex
 _FIELDS = frozenset({"_hex_field"})
 # the methods that put values into a list, a set, a dict or a deque
@@ -151,6 +162,34 @@ def _own_nodes(scope: ast.AST) -> list[ast.AST]:
             continue
         todo.extend(ast.iter_child_nodes(node))
     return found
+
+
+def _cleanup(handler: ast.ExceptHandler) -> bool:
+    """Return whether an `except` cleans up and relays what it caught.
+
+    It catches everything, binds no name, ends in a bare `raise`, and has
+    no other way out: no other `raise`, no `return`, `break`, `continue`
+    or `yield`.
+    """
+    caught = handler.type
+    everything = caught is None or (
+        isinstance(caught, ast.Name) and caught.id == "BaseException"
+    )
+    last = handler.body[-1]
+    exits = (ast.Raise, ast.Return, ast.Break, ast.Continue, ast.Yield, ast.YieldFrom)
+    others = [
+        node
+        for statement in handler.body
+        for node in [statement, *_own_nodes(statement)]
+        if isinstance(node, exits) and node is not last
+    ]
+    return (
+        everything
+        and handler.name is None
+        and isinstance(last, ast.Raise)
+        and last.exc is None
+        and not others
+    )
 
 
 def _names(target: ast.AST) -> list[str]:
@@ -268,13 +307,10 @@ class _Census:
     mutations: dict[int, dict[str, list[ast.AST]]] = field(default_factory=dict)
     edges: dict[_Key, tuple[list[str], set[_Key]]] = field(default_factory=dict)
     reached: dict[_Key, frozenset[str]] = field(default_factory=dict)
-    classes: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:  # noqa: C901
         for module in self.modules:
             for node in ast.walk(module.tree):
-                if isinstance(node, ast.ClassDef):
-                    self.classes.add(node.name)
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     self.functions[id(node)] = (module, node)
                     if isinstance(module.parents.get(node), ast.ClassDef):
@@ -370,7 +406,11 @@ class _Census:
             for node in ast.walk(module.tree):
                 if isinstance(node, ast.Raise) and node.exc is not None:
                     found.extend(self._chained(node, module))
-                elif isinstance(node, ast.ExceptHandler) and not self._own(node.type):
+                elif isinstance(node, ast.Raise):
+                    found.extend(self._raised_again(node, module))
+                elif isinstance(node, ast.ExceptHandler) and not self._own(
+                    node.type, module
+                ):
                     found.extend(self._raising_calls(node, module))
         return found
 
@@ -428,10 +468,11 @@ class _Census:
             child, parent = parent, module.parents.get(parent)
         names = {handler.name for handler in handlers if handler.name}
         if isinstance(node.exc, ast.Name) and node.exc.id in names:
-            # the exception handled, raised again: no refusal of the package
-            return found
+            # the exception handled, raised again, as a bare `raise` does
+            handler = next(h for h in handlers if h.name == node.exc.id)
+            return [*found, *self._relayed(node, handler, module)]
         for handler in handlers:
-            if not self._own(handler.type):
+            if not self._own(handler.type, module):
                 caught = (
                     "everything" if handler.type is None else ast.unparse(handler.type)
                 )
@@ -462,7 +503,7 @@ class _Census:
             for handler in self._scope_nodes(scope)
             if isinstance(handler, ast.ExceptHandler)
             and handler.name
-            and self._own(handler.type)
+            and self._own(handler.type, module)
         }
         values: list[ast.expr | None] = []
         # and what any function the scope holds puts into it
@@ -484,11 +525,109 @@ class _Census:
             for value in values
         )
 
-    def _own(self, caught: ast.expr | None) -> bool:
-        """Return whether an `except` catches the package's classes alone."""
+    def _raised_again(self, node: ast.Raise, module: _Module) -> list[str]:
+        """Return what a bare `raise` relays: what the `except` caught."""
+        parent = module.parents.get(node)
+        while parent is not None and not isinstance(parent, (*_FUNCTION, ast.ClassDef)):
+            if isinstance(parent, ast.ExceptHandler):
+                return self._relayed(node, parent, module)
+            parent = module.parents.get(parent)
+        return []
+
+    def _relayed(
+        self, node: ast.Raise, handler: ast.ExceptHandler, module: _Module
+    ) -> list[str]:
+        """Return a finding where an exception raised again can hold the input.
+
+        It cannot where each class the `except` catches is the package's or
+        an interrupt, whose text is the interpreter's. Nor does a cleanup,
+        an `except` of everything that binds no name and ends in a bare
+        `raise`, with no other way out: what it relays passes on as it
+        would with no `try` at all.
+        """
+        caught = handler.type
+        each = caught.elts if isinstance(caught, ast.Tuple) else [caught]
+        relayed = caught is not None and all(
+            (isinstance(c, ast.Name) and c.id in _INTERRUPTS) or self._own(c, module)
+            for c in each
+        )
+        if relayed or _cleanup(handler):
+            return []
+        what = "everything" if caught is None else ast.unparse(caught)
+        return [f"{module.where(node)}: raises {what} again"]
+
+    def _own(self, caught: ast.expr | None, module: _Module) -> bool:
+        """Return whether an `except` catches the package's classes alone.
+
+        A class is the package's where the scope that names it defines it,
+        or imports it from a module of the package that does: a class of
+        another package is not, whatever its name.
+        """
         if isinstance(caught, ast.Tuple):
-            return all(self._own(each) for each in caught.elts)
-        return _called_name(caught) in self.classes if caught is not None else False
+            return all(self._own(each, module) for each in caught.elts)
+        if isinstance(caught, ast.Attribute) and isinstance(caught.value, ast.Name):
+            # a class of a module of the package, read off the module
+            source = self._module_bound(caught.value, module)
+            return source is not None and self._defines(source, caught.attr, set())
+        if not isinstance(caught, ast.Name):
+            return False
+        for scope in module.scopes(caught):
+            bindings = [n for n in self._scope_nodes(scope) if _binds(n, caught.id)]
+            if bindings:
+                return all(
+                    self._is_class(binding, caught.id, set()) for binding in bindings
+                )
+        return False
+
+    def _module_bound(self, name: ast.Name, module: _Module) -> _Module | None:
+        """Return the module of the package an import binds to a name."""
+        for scope in module.scopes(name):
+            for node in self._scope_nodes(scope):
+                if isinstance(node, (ast.Import, ast.ImportFrom)) and _binds(
+                    node, name.id
+                ):
+                    alias = next(
+                        a for a in node.names if (a.asname or a.name) == name.id
+                    )
+                    dotted = alias.name
+                    if isinstance(node, ast.ImportFrom):
+                        dotted = f"{node.module}.{alias.name}"
+                    return self._module_of(dotted)
+        return None
+
+    def _module_of(self, dotted: str) -> _Module | None:
+        """Return the package's module a dotted name is, None for another."""
+        path = f"{dotted.replace('.', '/')}.py"
+        package = path.removesuffix(".py") + "/__init__.py"
+        return next((m for m in self.modules if m.name in {path, package}), None)
+
+    def _defines(self, module: _Module, name: str, seen: set[tuple[str, str]]) -> bool:
+        """Return whether a module binds a name to a class of the package."""
+        if (module.name, name) in seen:
+            return False
+        seen.add((module.name, name))
+        bindings = [n for n in self._scope_nodes(module.tree) if _binds(n, name)]
+        return bool(bindings) and all(
+            self._is_class(binding, name, seen) for binding in bindings
+        )
+
+    def _is_class(
+        self, binding: ast.AST, name: str, seen: set[tuple[str, str]]
+    ) -> bool:
+        """Return whether a binding is a class the package defines.
+
+        A `class` statement is one, and so is an import of a name from a
+        module of the package that binds it to one.
+        """
+        if isinstance(binding, ast.ClassDef):
+            return True
+        if not isinstance(binding, ast.ImportFrom):
+            return False
+        source_name = next(
+            a.name for a in binding.names if (a.asname or a.name) == name
+        )
+        source = self._module_of(binding.module or "")
+        return source is not None and self._defines(source, source_name, seen)
 
     def untraced(self, exprs: list[ast.expr], module: _Module) -> set[str]:
         """Return each value the expressions hold that cannot be traced."""
@@ -1261,6 +1400,82 @@ _SHAPES = {
             "        pass\n    except ValueError:\n        _g()"
         ),
     ),
+    "raised again": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError:\n        raise"
+        ),
+        "def f(key):\n    try:\n        pass\n    except ValueError:\n        raise",
+    ),
+    "raised again by its name": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError as e:\n        raise e"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except ValueError as e:\n"
+            "        raise e"
+        ),
+    ),
+    "interrupts raised again": (
+        (
+            "def f(key):\n    try:\n        pass\n"
+            "    except (KeyboardInterrupt, SystemExit):\n        raise"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n"
+            "    except (KeyboardInterrupt, ValueError):\n        raise"
+        ),
+    ),
+    "cleanup": (
+        (
+            "def f(key):\n    try:\n        pass\n    except BaseException:\n"
+            "        g()\n        raise"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except Exception:\n"
+            "        g()\n        raise"
+        ),
+    ),
+    "cleanup with another way out": (
+        "def f(key):\n    try:\n        pass\n    except:\n        g()\n        raise",
+        (
+            "def f(key):\n    try:\n        pass\n    except:\n"
+            "        if g():\n            return\n        raise"
+        ),
+    ),
+    "cleanup binding the exception": (
+        (
+            "def f(key):\n    try:\n        pass\n    except BaseException:\n"
+            "        g()\n        raise"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except BaseException as e:\n"
+            "        g(e)\n        raise"
+        ),
+    ),
+    "bare raise outside an except": (
+        "def f(key):\n    raise",
+        "def f(key):\n    try:\n        pass\n    except ValueError:\n        raise",
+    ),
+    "class read off what no import binds": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError:\n        raise"
+        ),
+        (
+            "def f(key, errors):\n    try:\n        pass\n"
+            "    except errors.FetchError:\n        raise"
+        ),
+    ),
+    "environment as bytes": (
+        "import os\ndef f(key):\n    raise ValueError(len(os.environb))",
+        "import os\ndef f(key):\n    raise ValueError(os.environb[b'HOME'])",
+    ),
+    "arguments of the interpreter": (
+        "import sys\ndef f(key):\n    raise ValueError(len(sys.orig_argv))",
+        "import sys\ndef f(key):\n    raise ValueError(sys.orig_argv[0])",
+    ),
 }
 
 
@@ -1269,3 +1484,42 @@ def test_census_controls(traced: str, flagged: str) -> None:
     """The census traces one module of a shape and flags the other."""
     assert not _census({"m.py": traced}).findings()
     assert _census({"m.py": flagged}).findings()
+
+
+_ERRORS = "class FetchError(Exception):\n    pass"
+_RELAY = "def f(key):\n    try:\n        pass\n    except {}:\n        raise"
+
+
+@pytest.mark.parametrize(
+    "imports, caught",
+    [
+        ("from errors import FetchError", "FetchError"),
+        ("from errors import FetchError as Refused", "Refused"),
+        ("import errors", "errors.FetchError"),
+        ("from errors import FetchError", "(FetchError, KeyboardInterrupt)"),
+    ],
+)
+def test_census_knows_a_class_by_its_import(imports: str, caught: str) -> None:
+    """A class is the package's by where it comes from, not by its name.
+
+    `errors` is a module of the package, `outside` another package's: a
+    class of the same name imported from it is not the package's.
+    """
+    own = {"errors.py": _ERRORS, "m.py": f"{imports}\n{_RELAY.format(caught)}"}
+    assert not _census(own).findings()
+    foreign = imports.replace("errors", "outside")
+    other = {
+        "errors.py": _ERRORS,
+        "m.py": f"{foreign}\n{_RELAY.format(caught.replace('errors', 'outside'))}",
+    }
+    assert _census(other).findings()
+
+
+def test_census_finds_no_class_in_an_import_cycle() -> None:
+    """A name two modules import from each other is bound to no class."""
+    sources = {
+        "a.py": "from b import FetchError",
+        "b.py": "from a import FetchError",
+        "m.py": f"from a import FetchError\n{_RELAY.format('FetchError')}",
+    }
+    assert _census(sources).findings()

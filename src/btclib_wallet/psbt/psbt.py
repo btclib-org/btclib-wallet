@@ -3828,7 +3828,7 @@ def _assert_partial_sigs_verify(psbt_in: PsbtIn, tx: Tx, vin_i: int) -> None:
     # transaction once instead of n times. None is a value worth caching
     # too, so membership and not truthiness says whether it is computed
     sig_hashes: dict[int, bytes | None] = {}
-    for pub_key, sig in psbt_in.partial_sigs.items():
+    for position, (pub_key, sig) in enumerate(psbt_in.partial_sigs.items()):
         hash_type = sig[-1]
         if hash_type not in sig_hashes:
             sig_hashes[hash_type] = _sig_hash_from_psbt_in(
@@ -3838,8 +3838,8 @@ def _assert_partial_sigs_verify(psbt_in: PsbtIn, tx: Tx, vin_i: int) -> None:
         if msg_hash is None:
             continue
         if not dsa.verify_(msg_hash, pub_key, sig[:-1]):
-            err_msg = "invalid partial signature"
-            raise BTClibValueError(err_msg)
+            where = f"input {_quoted(vin_i)}: partial signature {_quoted(position)}"
+            raise BTClibValueError(f"{where}: invalid")
 
 
 # the spend of one input, by the caller who knows: the final script_sig

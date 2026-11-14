@@ -500,12 +500,15 @@ def _read_split(arguments: str, read: Callable[[list[str]], _T]) -> _T:
     what it can of the arguments split leniently: Core reads the keys
     before it finds them, so a fault of a key comes first.
     """
-    try:
+    split = None
+    with suppress(BTClibValueError):
         split = _split_arguments(arguments)
-    except BTClibValueError as e:
-        read(_split_unpaired_arguments(arguments))
+    if split is None:
         # a stray bracket stays in the text of the argument it is in
-        raise e from None
+        read(_split_unpaired_arguments(arguments))
+        # the split refused again, with no exception handled: the one
+        # caught above is not raised from an `except`
+        split = _split_arguments(arguments)
     return read(split)
 
 

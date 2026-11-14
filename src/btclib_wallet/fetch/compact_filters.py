@@ -129,6 +129,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     _fetch_errors,
+    _WrongChainError,
     block_header_height,
     client_errors,
     tx_for_network,
@@ -1164,4 +1165,4 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             err_msg = "the peer serves a chain whose first block does not follow"
             err_msg += f" the genesis this {_label(self.network, NETWORKS)} fetcher was"
             err_msg += " built for"
-            raise BTClibValueError(err_msg)
+            raise _WrongChainError(err_msg)

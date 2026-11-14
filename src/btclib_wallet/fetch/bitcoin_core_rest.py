@@ -71,6 +71,7 @@ from btclib_wallet.fetch.bitcoin_core import (
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     _fetch_errors,
+    _WrongChainError,
     block_header_from_raw,
     block_header_height,
     client_errors,
@@ -225,7 +226,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         if reported != expected:
             err_msg = f"the node reports chain {_quoted(reported)},"
             err_msg += f" not the {_quoted(expected)} this fetcher was built for"
-            raise BTClibValueError(err_msg)
+            raise _WrongChainError(err_msg)
         if expected_magic is None:
             return
 
@@ -239,7 +240,7 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
         if node_magic != expected_magic:
             err_msg = "the node is on a signet this fetcher is not: its"
             err_msg += " challenge derives another magic than the one expected"
-            raise BTClibValueError(err_msg)
+            raise _WrongChainError(err_msg)
 
     def _get_bin(self, path: str, *, max_body_size: int | None) -> bytes:
         """Return the raw body of one `-rest` request, translating its errors.
