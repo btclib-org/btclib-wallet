@@ -1280,12 +1280,11 @@ def scan_transaction_outputs(
             return _delegated_scan_outputs(
                 q_scan, outpoints, pub_keys, P_spend, outputs_to_check, labels
             )
-        points = _outputs_with_a_point(outputs_to_check)
-        if not points:
-            return []
-        return _delegated_scan_outputs(
-            q_scan, outpoints, pub_keys, P_spend, points, labels
-        )
+        if points := _outputs_with_a_point(outputs_to_check):
+            return _delegated_scan_outputs(
+                q_scan, outpoints, pub_keys, P_spend, points, labels
+            )
+        return []
 
     # `tweak_data` would recompute `input_hash`, redoing the outpoint sort
     # and the tagged hash over the same data: `h` is already this

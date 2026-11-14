@@ -134,11 +134,10 @@ def add_participant_pub_keys(
 
 def _participants(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
     """Return the participants of an aggregate key, in aggregation order."""
-    participants = psbt_in.musig2_participant_pub_keys.get(aggregate_pub_key)
-    if not participants:
-        err_msg = "no musig2 participants for the aggregate key"
-        raise BTClibValueError(err_msg)
-    return participants
+    if participants := psbt_in.musig2_participant_pub_keys.get(aggregate_pub_key):
+        return participants
+    err_msg = "no musig2 participants for the aggregate key"
+    raise BTClibValueError(err_msg)
 
 
 def _participant(participants: list[bytes], pub_key: bytes) -> str:
@@ -167,8 +166,10 @@ def _derivation_tweaks(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]
     fingerprint = hash160(aggregate_pub_key)[:4]
     derivation = psbt_in.taproot_hd_key_paths.get(internal_key)
     if derivation is None or derivation[1].master_fingerprint != fingerprint:
-        err_msg = "no BIP328 derivation from the musig2 aggregate key "
-        err_msg += "to the taproot internal key"
+        err_msg = (
+            "no BIP328 derivation from the musig2 aggregate key "
+            "to the taproot internal key"
+        )
         raise BTClibValueError(err_msg)
     return pub_key_derivation_tweaks(
         aggregate_pub_key, BIP328_CHAIN_CODE, derivation[1].der_path
@@ -211,8 +212,10 @@ def _tweaks(
     if output_key == x_only_aggregate:
         return [], []
 
-    err_msg = "the musig2 aggregate key is neither "
-    err_msg += "the taproot output key nor the internal key of the input"
+    err_msg = (
+        "the musig2 aggregate key is neither "
+        "the taproot output key nor the internal key of the input"
+    )
     raise BTClibValueError(err_msg)
 
 
@@ -563,8 +566,10 @@ def partial_sigs_agg(
         # a partial signature that verifies on its own and does not add
         # up is what a peer sending one of another session produces, so
         # this is the Finalizer's check and not a belt-and-braces one
-        err_msg = "the musig2 partial signatures do not add up to a signature "
-        err_msg += "of the tweaked key"
+        err_msg = (
+            "the musig2 partial signatures do not add up to a signature "
+            "of the tweaked key"
+        )
         raise BTClibValueError(err_msg)
 
     signature = sig.serialize()
@@ -613,6 +618,7 @@ def assert_valid_participants(psbt_map: PsbtIn | PsbtOut) -> None:
         assert_valid_musig2_pub_key(aggregate_pub_key, "musig2 aggregate pub key")
         computed = bytes_from_point(musig2.key_agg_var(participants).Q, secp256k1)
         if computed != aggregate_pub_key:
-            err_msg = "musig2 participants aggregate to another key "
-            err_msg += "than the aggregate key"
+            err_msg = (
+                "musig2 participants aggregate to another key than the aggregate key"
+            )
             raise BTClibValueError(err_msg)

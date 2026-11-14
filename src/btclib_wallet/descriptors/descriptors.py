@@ -3646,8 +3646,9 @@ def _template_key(
     if key.participants:
         for participant in key.participants:
             if participant.der_path or participant.wildcard is not None:
-                err_msg = "derivation before aggregation is not allowed in a"
-                err_msg += " wallet policy"
+                err_msg = (
+                    "derivation before aggregation is not allowed in a wallet policy"
+                )
                 raise BTClibValueError(err_msg)
         _assert_policy_wildcard(key)
         indexes = tuple(
@@ -3786,8 +3787,10 @@ def _paired_key(
         ):
             for participant in (recv_participant, chg_participant):
                 if participant.der_path or participant.wildcard is not None:
-                    err_msg = "derivation before aggregation is not allowed in a"
-                    err_msg += " wallet policy"
+                    err_msg = (
+                        "derivation before aggregation is not allowed in a"
+                        " wallet policy"
+                    )
                     raise BTClibValueError(err_msg)
             if (recv_participant.origin, recv_participant.xkey) != (
                 chg_participant.origin,

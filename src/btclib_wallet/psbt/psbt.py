@@ -1012,8 +1012,9 @@ def _assert_taproot_signable(psbt_in: PsbtIn) -> None:
             err_msg += f"block's {_quoted(control_block[0] & 0xFE)}"
             raise BTClibValueError(err_msg)
         if not taproot.check_output_pubkey(output_key, script, control_block):
-            err_msg = "a control block does not prove its leaf script "
-            err_msg += "against the output key"
+            err_msg = (
+                "a control block does not prove its leaf script against the output key"
+            )
             raise BTClibValueError(err_msg)
 
 
@@ -2534,8 +2535,10 @@ def single_leaf_key(script: bytes) -> bytes:
         or script[0] != _PUSH_32
         or script[-1] != _OP_CHECKSIG
     ):
-        err_msg = "cannot finalize a taproot script path whose leaf script "
-        err_msg += "is neither a single key and OP_CHECKSIG nor a multi_a"
+        err_msg = (
+            "cannot finalize a taproot script path whose leaf script "
+            "is neither a single key and OP_CHECKSIG nor a multi_a"
+        )
         raise BTClibValueError(err_msg)
     return script[1:-1]
 

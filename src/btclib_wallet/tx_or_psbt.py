@@ -75,10 +75,8 @@ def _octets_from_text(text: str) -> bytes:
     _assert_text_size(size, 2 * _MAX_PSBT_SIZE, "text")
     packed = text.translate(str.maketrans("", "", string.whitespace))
 
-    try:
+    with suppress(ValueError):
         return bytes.fromhex(packed)
-    except ValueError:
-        pass
 
     _assert_text_size(size, _b64_size(_MAX_PSBT_SIZE), "base64 text")
     # canonical base64 alone (issue #114), refused after `suppress`, so

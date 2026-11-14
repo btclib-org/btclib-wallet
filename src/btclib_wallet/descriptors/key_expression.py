@@ -1066,10 +1066,7 @@ def _fault(error: Exception, default: str) -> str:
     written out only where it equals one of this module's own.
     """
     text = str(error)
-    for fault in _FAULTS:
-        if fault == text:
-            return fault
-    return default
+    return next((fault for fault in _FAULTS if fault == text), default)
 
 
 _RANGED_PARTICIPANT = "musig() cannot have a ranged participant and derivation too"

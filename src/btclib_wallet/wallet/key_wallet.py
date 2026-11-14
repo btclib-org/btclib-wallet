@@ -237,8 +237,10 @@ class KeyWallet(Wallet):
         # key and address" -- true of every wrong key and misleading
         # here, where the key is right and the scheme is the problem
         if info.script_type == "p2tr":
-            err_msg = "BMS cannot sign for a p2tr address;"
-            err_msg += " message signing for taproot is btclib_wallet.bip322"
+            err_msg = (
+                "BMS cannot sign for a p2tr address;"
+                " message signing for taproot is btclib_wallet.bip322"
+            )
             raise BTClibValueError(err_msg)
         prv_key = b58.prv_key_data_from_wif(self.prv_key(info.address))
         return bms.sign(msg, prv_key, info.address)

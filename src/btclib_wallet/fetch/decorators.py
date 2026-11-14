@@ -217,8 +217,7 @@ class FallbackFetcher(Fetcher):
             raise BTClibValueError("no backends given")
         networks = {fetcher.network for fetcher in fetchers}
         if len(networks) > 1:
-            err_msg = "mismatched networks: "
-            err_msg += ", ".join(
+            err_msg = "mismatched networks: " + ", ".join(
                 _label(network, NETWORKS) for network in sorted(networks)
             )
             raise BTClibValueError(err_msg)

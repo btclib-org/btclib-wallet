@@ -566,8 +566,7 @@ def display_address(
     expected = descriptor.address(index)
     shown = signer.display_address(descriptor, index)
     if shown != expected:
-        err_msg = "the signer displayed another address than the descriptor"
-        err_msg += " describes"
+        err_msg = "the signer displayed another address than the descriptor describes"
         raise BTClibValueError(err_msg)
     return shown
 
@@ -610,8 +609,7 @@ def display_policy_address(
     )
     shown = signer.display_policy_address(registration, index, multipath_index)
     if shown != expected:
-        err_msg = "the signer displayed another address than the policy"
-        err_msg += " describes"
+        err_msg = "the signer displayed another address than the policy describes"
         raise BTClibValueError(err_msg)
     return shown
 

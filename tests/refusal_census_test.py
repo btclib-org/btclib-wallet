@@ -284,9 +284,7 @@ def _bound(receiver: ast.expr) -> bool:
 def _called_name(func: ast.expr) -> str | None:
     if isinstance(func, ast.Name):
         return func.id
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    return None
+    return func.attr if isinstance(func, ast.Attribute) else None
 
 
 def _positional(func: ast.AST) -> list[ast.arg]:
@@ -346,10 +344,14 @@ def _cleanup(handler: ast.ExceptHandler) -> bool:
 
 def _function_name(module: _Module, node: ast.AST) -> str:
     """Return the name of the `def` a node is in, or `<module>`."""
-    for scope in module.scopes(node):
-        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return scope.name
-    return "<module>"
+    return next(
+        (
+            scope.name
+            for scope in module.scopes(node)
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ),
+        "<module>",
+    )
 
 
 def _names(target: ast.AST) -> list[str]:
@@ -788,8 +790,7 @@ class _Census:
                 if key in kept:
                     self.kept_used.add(key)
                     continue
-            untraced = sorted(self.untraced(values, module))
-            if untraced:
+            if untraced := sorted(self.untraced(values, module)):
                 found.append(f"{module.where(site)}: " + "; ".join(untraced))
         return found
 
@@ -1111,8 +1112,9 @@ class _Census:
         if not isinstance(caught, ast.Name):
             return False
         for scope in module.scopes(caught):
-            bindings = [n for n in self._scope_nodes(scope) if _binds(n, caught.id)]
-            if bindings:
+            if bindings := [
+                n for n in self._scope_nodes(scope) if _binds(n, caught.id)
+            ]:
                 return all(
                     self._is_class(binding, caught.id, set()) for binding in bindings
                 )
@@ -1179,7 +1181,8 @@ class _Census:
             found |= self._reach(key)
         return found
 
-    def _visit(  # noqa: C901, PLR0911, PLR0912
+    # low-code-quality measures the complexity the noqa already declines
+    def _visit(  # noqa: C901, PLR0911, PLR0912  # sourcery skip: low-code-quality
         self, expr: ast.AST | None, module: _Module, leaves: list[str], keys: set[_Key]
     ) -> None:
         """Sort what an expression holds into untraced values and keys."""
@@ -1369,7 +1372,8 @@ class _Census:
                     self.reached[member] = frozenset(found)
         return self.reached[start]
 
-    def _edges(self, key: _Key) -> tuple[list[str], set[_Key]]:  # noqa: C901, PLR0912
+    # low-code-quality measures the complexity the noqa already declines
+    def _edges(self, key: _Key) -> tuple[list[str], set[_Key]]:  # noqa: C901, PLR0912  # sourcery skip: low-code-quality
         """Return the untraced values a key holds and the keys it reads."""
         if key not in self.edges:
             leaves: list[str] = []
@@ -1420,7 +1424,8 @@ class _Census:
             self.edges[key] = (leaves, keys)
         return self.edges[key]
 
-    def _binding(  # noqa: C901
+    # low-code-quality measures the complexity the noqa already declines
+    def _binding(  # noqa: C901  # sourcery skip: low-code-quality
         self,
         node: ast.AST,
         name: str,
@@ -1536,7 +1541,8 @@ class _Census:
                 return False
         return True
 
-    def _element(  # noqa: C901, PLR0911, PLR0912
+    # low-code-quality measures the complexity the noqa already declines
+    def _element(  # noqa: C901, PLR0911, PLR0912  # sourcery skip: low-code-quality
         self,
         target: ast.AST,
         value: ast.expr | None,
@@ -1627,7 +1633,8 @@ class _Census:
                 return
         self._visit(value, module, leaves, keys)
 
-    def _parameter(  # noqa: C901
+    # low-code-quality measures the complexity the noqa already declines
+    def _parameter(  # noqa: C901  # sourcery skip: low-code-quality
         self,
         func: ast.AST,
         name: str,
@@ -1662,7 +1669,7 @@ class _Census:
                 strict=True,
             )
         )
-        defaults.update(zip(func_args.kwonlyargs, func_args.kw_defaults, strict=True))
+        defaults |= zip(func_args.kwonlyargs, func_args.kw_defaults, strict=True)
         default = defaults.get(arg)
         if default is not None:
             self._visit(default, module, leaves, keys)

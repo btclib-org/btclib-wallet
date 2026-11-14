@@ -923,8 +923,9 @@ def set_output_scripts(psbt: Psbt) -> None:
     if missing := [
         i for i, o in enumerate(psbt.outputs) if o.sp_v0_info and i not in scripts
     ]:
-        err_msg = "no ECDH share to derive the script of output(s) "
-        err_msg += ", ".join(_quoted(i) for i in missing)
+        err_msg = "no ECDH share to derive the script of output(s) " + ", ".join(
+            _quoted(i) for i in missing
+        )
         raise BTClibValueError(err_msg)
     if not scripts:
         return

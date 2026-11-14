@@ -343,11 +343,14 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         if reported != expected:
             # the chain named where its genesis is a network's: the hash
             # itself is the server's, and is not written
-            served = "a chain whose genesis is no network's"
-            for name, params in NETWORKS.items():
-                if params.genesis_block == reported:
-                    served = f"the {name} chain"
-                    break
+            served = next(
+                (
+                    f"the {name} chain"
+                    for name, params in NETWORKS.items()
+                    if params.genesis_block == reported
+                ),
+                "a chain whose genesis is no network's",
+            )
             err_msg = f"the server serves {served}, and this fetcher was built"
             err_msg += f" for {_label(self.network, NETWORKS)}"
             raise _WrongChainError(err_msg)

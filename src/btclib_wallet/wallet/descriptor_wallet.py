@@ -219,8 +219,7 @@ class DescriptorWallet(RangedWallet):
 
         networks = {descriptor.network for descriptor in by_branch.values()}
         if len(networks) != 1:
-            err_msg = "descriptors of different networks: "
-            err_msg += ", ".join(
+            err_msg = "descriptors of different networks: " + ", ".join(
                 _label(network, NETWORKS) for network in sorted(networks)
             )
             raise BTClibValueError(err_msg)

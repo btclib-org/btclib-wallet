@@ -413,8 +413,10 @@ def test_the_network_check_names_the_method_it_asked() -> None:
     """
     error = {"code": int(RPCErrorCode.IN_WARMUP), "message": "Loading block index"}
     body = json.dumps({"jsonrpc": "2.0", "error": error, "id": "x"}).encode()
-    pattern = r"^getblockchaininfo: the server answered an rpc error"
-    pattern += r" \(rpc error code -28\)$"
+    pattern = (
+        r"^getblockchaininfo: the server answered an rpc error"
+        r" \(rpc error code -28\)$"
+    )
     with raises_alone(RpcError, match=pattern) as raised:
         fetcher((200, body), verify_network=True).get_block_count()
     assert isinstance(raised.value, RpcError)

@@ -469,8 +469,10 @@ def _tweaks(
     if not psbt_in.taproot_internal_key and output_key == x_only:
         return [], []
 
-    err_msg = "the frost threshold public key is neither the "
-    err_msg += "taproot output key nor the internal key of the input"
+    err_msg = (
+        "the frost threshold public key is neither the "
+        "taproot output key nor the internal key of the input"
+    )
     raise BTClibValueError(err_msg)
 
 
@@ -750,8 +752,10 @@ def partial_sigs_agg(
         # a partial signature that verifies on its own and does not add
         # up is what a peer sending one of another session produces, so
         # this is the Finalizer's check and not a belt-and-braces one
-        err_msg = "the frost partial signatures do not add up to a signature "
-        err_msg += "of the tweaked key"
+        err_msg = (
+            "the frost partial signatures do not add up to a signature "
+            "of the tweaked key"
+        )
         raise BTClibValueError(err_msg)
 
     signature = sig.serialize()

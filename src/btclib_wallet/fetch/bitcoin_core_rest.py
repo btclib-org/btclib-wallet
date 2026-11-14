@@ -238,8 +238,10 @@ class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
                 )
             node_magic = magic_from_signet_challenge(challenge)
         if node_magic != expected_magic:
-            err_msg = "the node is on a signet this fetcher is not: its"
-            err_msg += " challenge derives another magic than the one expected"
+            err_msg = (
+                "the node is on a signet this fetcher is not: its"
+                " challenge derives another magic than the one expected"
+            )
             raise _WrongChainError(err_msg)
 
     def _get_bin(self, path: str, *, max_body_size: int | None) -> bytes:

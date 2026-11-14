@@ -302,8 +302,7 @@ def _assert_origin(key: BIP32KeyData, origin: BIP32KeyOrigin) -> None:
         raise BTClibValueError(err_msg)
     own = fingerprint(key.b58encode())
     if not key.depth and origin.master_fingerprint != own:
-        err_msg = "invalid key origin: the master key's own fingerprint is"
-        err_msg += " another"
+        err_msg = "invalid key origin: the master key's own fingerprint is another"
         raise BTClibValueError(err_msg)
 
 
