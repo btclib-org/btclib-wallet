@@ -13,12 +13,12 @@
 # that the descriptor comparison reads, and a bump changes what the
 # comparison measures.
 #
-# every pull request dependabot opens here runs the whole merge gate
-# while it is not a draft, so each ecosystem groups its updates into a
-# single pull request rather than paying for that once each. None
-# declares a target-branch: without one dependabot opens against the
-# default branch, which is the only branch a change lands on -- and a
-# target-branch naming a branch that is not there is not an error
+# every pull request dependabot opens here runs the merge gate as far as
+# the `if:` of its jobs admits it, so each ecosystem groups its updates
+# into a single pull request rather than paying for that once each.
+# None declares a target-branch: without one dependabot opens against
+# the default branch, which is the only branch a change lands on -- and
+# a target-branch naming a branch that is not there is not an error
 # anywhere, it is a repository where nothing is proposed.
 #
 # Weekly: the deps-latest workflow upgrades everything uv resolves and
