@@ -718,13 +718,13 @@ def test_an_error_the_client_raises_without_a_status_is_a_fetch_error() -> None:
     assert type(exc.value) is FetchError
 
 
-def test_an_rpc_error_keeps_its_code_and_its_data_across_the_translation() -> None:
-    """The code, and the message composed once rather than twice.
+def test_an_rpc_error_keeps_its_code_and_drops_its_data() -> None:
+    """The code kept, the node's message and `data` dropped, the code once.
 
-    Both classes append `(rpc error code N)` in `__str__`, so a
-    translation handing the composed message back in would say it again
-    per hop. `args[0]` is what it passes instead, and this is the
-    assertion that says so.
+    The translation writes a text of its own, the method and "the server
+    answered an rpc error", and hands it over with the code and a `data`
+    of None. This package's `RpcError.__str__` adds `(rpc error code N)`
+    to it once.
     """
     error = {"code": -5, "message": "No such mempool transaction", "data": {"tx": 1}}
     body = json.dumps({"jsonrpc": "2.0", "error": error, "id": "x"}).encode()
@@ -735,6 +735,11 @@ def test_an_rpc_error_keeps_its_code_and_its_data_across_the_translation() -> No
     # passed in the wrong place (issue #821)
     assert exc.value.data is None
     assert not isinstance(exc.value, rpc.RpcError)
+    assert exc.value.args == (
+        "getrawtransaction: the server answered an rpc error",
+        -5,
+        None,
+    )
     assert str(exc.value).count("rpc error code") == 1
     assert "No such mempool transaction" not in str(exc.value)
 
