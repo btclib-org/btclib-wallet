@@ -139,7 +139,7 @@ from ecc.curves import bytes_from_prv_key_int
 from ecc.exceptions import EccRuntimeError
 from ecc.hashes import tagged_hash
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _hex_field, _quoted
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx
 from btclib_wallet.psbt.psbt import _MAX_PSBT_SIZE, _ascii_text, _b64_size, _b64decode
@@ -607,7 +607,8 @@ def _assert_hash_types(hash_types: list[int]) -> None:
     """
     for hash_type in hash_types:
         if hash_type not in (ALL, DEFAULT):
-            err_msg = f"hash type {hash_type:#04x}: BIP322 requires SIGHASH_ALL"
+            # a field of the signature, which the script engine reads
+            err_msg = f"hash type {_hex_field(hash_type)}: BIP322 requires SIGHASH_ALL"
             raise BTClibValueError(err_msg)
 
 
