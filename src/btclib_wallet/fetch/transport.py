@@ -179,10 +179,11 @@ def _open_connection(
     Each address the host resolves to is tried in turn, as
     `socket.create_connection` tries them, but each attempt is given what
     is left of the deadline rather than the whole of `timeout`, and none
-    is begun once it has passed. Where every address fails before the
-    deadline, the last one's error is raised, as there; once the deadline
-    has passed, `_time_left`'s `FetchError` is. `TlsLineTransport` says
-    what the deadline leaves unbounded.
+    is begun once it has passed. Where no attempt connects, the last
+    one's error is raised, as there, unless the deadline passed with an
+    address still untried: then `_time_left`'s `FetchError` is. A host
+    resolving to no address is an `OSError`, as there. `TlsLineTransport`
+    says what the deadline leaves unbounded.
     """
     host, port = address
     error = OSError("getaddrinfo returns an empty list")

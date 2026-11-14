@@ -248,6 +248,18 @@ def test_where_no_socket_can_be_made_the_last_error_is_raised(
     assert net.attempts == []
 
 
+@pytest.mark.parametrize(
+    "outcomes", [("timeout",), (1.0, "timeout")], ids=["one-address", "the-last"]
+)
+def test_the_attempt_that_runs_out_the_deadline_raises_its_own_error(
+    network: Callable[..., Network], outcomes: tuple[Outcome, ...]
+) -> None:
+    """No address is left untried, so the error is the last attempt's."""
+    net = network(*outcomes)
+    with pytest.raises(TimeoutError, match="timed out"):
+        _open_connection((HOST, PORT), net.now + TIMEOUT, TIMEOUT, "here")
+
+
 def test_where_no_address_connects_the_last_error_is_raised(
     network: Callable[..., Network],
 ) -> None:
