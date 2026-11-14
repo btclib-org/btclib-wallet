@@ -454,9 +454,11 @@ def _new_file(path: str | PathLike[str]) -> None:
 def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
     """Write the pages of `db` into a new file at `path`.
 
-    A copy that fails after making the file removes it. A failure of
-    SQLite's is refused by the class of SQLite's error, whose text is not
-    relayed.
+    A copy that fails after making the file removes it, as
+    `_remove_new_file` says. An `sqlite3.DatabaseError` is refused by its
+    class, whose text is not relayed, and the refusal names a removal that
+    fails by the class of its error. Any other failure, `_connect`'s
+    refusal included, is raised as it is.
     """
     _new_file(path)
     target: sqlite3.Connection | None = None
@@ -473,15 +475,37 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
         _release(target)
         return
     # undone after the block, where no exception is handled
-    _undo_copy(target, path)
+    left = _undo_copy(target, path)
+    if left is not None:
+        failure += f"; cannot remove the copy: {left}"
     raise BTClibValueError(failure)
 
 
-def _undo_copy(target: sqlite3.Connection | None, path: str | PathLike[str]) -> None:
-    """Close the copy where it was opened, and remove its file."""
+def _undo_copy(
+    target: sqlite3.Connection | None, path: str | PathLike[str]
+) -> str | None:
+    """Close the copy where it was opened, and remove its file.
+
+    Return what `_remove_new_file` returns.
+    """
     if target is not None:
         _release(target)
-    Path(path).unlink(missing_ok=True)
+    return _remove_new_file(path)
+
+
+def _remove_new_file(path: str | PathLike[str]) -> str | None:
+    """Remove the file at `path`, for a step that failed after making it.
+
+    Return None where the file is gone. Where the removal fails, return
+    the class name of its `OSError` and leave the file. That error is not
+    raised: its text and `filename` are the caller's path, which can hold
+    anything, and it would replace the failure being undone.
+    """
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError as e:
+        return type(e).__name__
+    return None
 
 
 def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None:
@@ -519,7 +543,8 @@ class _Store:
         the system has POSIX permissions; SQLite gives its journal the
         same permissions. The header, the tables and the network are
         written in one SQLite transaction. A create that fails after
-        making the file removes it, so nothing is left at `path`.
+        making the file removes it, as `_remove_new_file` says, and raises
+        its failure as it is.
         """
         _new_file(path)
         db: sqlite3.Connection | None = None
@@ -539,7 +564,7 @@ class _Store:
         except BaseException:
             if db is not None:
                 _release(db)
-            Path(path).unlink(missing_ok=True)
+            _remove_new_file(path)
             raise
         return cls(db)
 
