@@ -105,7 +105,11 @@ def _client_errors(request: str) -> Iterator[None]:
     refusal names none.
     """
     head = f"{request}: " if request else ""
-    refusal: Exception
+    # what failed, read in the `except` block, and the refusal built after
+    # it: a constructor of the package runs while no exception is handled
+    refused = ""
+    code = 0
+    failure = ""
     try:
         yield
     except FetchError:
@@ -113,14 +117,23 @@ def _client_errors(request: str) -> Iterator[None]:
         # composed where the census reads it
         raise
     except rpc.RpcError as e:
-        refusal = RpcError(f"{head}the server answered an rpc error", _code(e.code))
+        refused, code = "rpc", _code(e.code)
     except rpc.HttpError as e:
-        status = _code(e.status)
-        refusal = HttpError(f"{head}the server answered HTTP {status}", status)
+        refused, code = "http", _code(e.status)
     except rpc.FetchError as e:
-        failure = type(e).__name__
-        refusal = FetchError(f"{head}no usable answer from the server: {failure}")
+        refused, failure = "fetch", type(e).__name__
     except rpc.BtcRpcValueError:
+        refused = "chain"
+    else:
+        return
+    refusal: Exception
+    if refused == "rpc":
+        refusal = RpcError(f"{head}the server answered an rpc error", code)
+    elif refused == "http":
+        refusal = HttpError(f"{head}the server answered HTTP {code}", code)
+    elif refused == "fetch":
+        refusal = FetchError(f"{head}no usable answer from the server: {failure}")
+    else:
         # what `assert_chain` raises for a node serving another chain, and
         # what deriving a magic raises for a signet challenge that is no
         # script: a refusal on valid inputs, so `BTClibValueError` and not
@@ -128,8 +141,6 @@ def _client_errors(request: str) -> Iterator[None]:
         err_msg = "the node is on another chain than this fetcher,"
         err_msg += " or the signet challenge is no script"
         refusal = _WrongChainError(err_msg)
-    else:
-        return
     _raise_alone(refusal)
 
 

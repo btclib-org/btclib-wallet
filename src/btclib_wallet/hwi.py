@@ -444,17 +444,20 @@ def _started(
     The refusal is raised after the block, so it chains no cause: an
     `OSError` holds the path it could not run.
     """
-    failure: SignerError
+    # the refusal is built after the block too: a constructor of the
+    # package runs while no exception is handled
+    missing = False
+    failure = ""
     try:
         return subprocess.Popen(argv, stdin=stdin, stdout=out, stderr=err)  # noqa: S603
-    except FileNotFoundError:
+    except OSError as e:
+        missing, failure = isinstance(e, FileNotFoundError), type(e).__name__
+    if missing:
         # the one failure that is not about a device: the command line
         # is not installed, which a caller offering signers of several
         # kinds reports differently from one it could not reach
-        failure = SignerNotFoundError("cannot run the hwi command: no such file")
-    except OSError as e:
-        failure = SignerError(f"cannot run the hwi command: {type(e).__name__}")
-    raise failure
+        raise SignerNotFoundError("cannot run the hwi command: no such file")
+    raise SignerError(f"cannot run the hwi command: {failure}")
 
 
 def _run(

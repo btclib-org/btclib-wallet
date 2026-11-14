@@ -225,12 +225,13 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
             db.execute("COMMIT")
             db.execute("PRAGMA journal_mode = TRUNCATE").fetchall()
         except sqlite3.DatabaseError as e:
-            db.close()
             if isinstance(e, sqlite3.OperationalError):
                 refusal = _database_refusal(e, "cannot open the ledger file")
             else:
                 refusal = _database_refusal(e, "not a ledger file")
+        # closed after the block, where no exception is handled
         if refusal is not None:
+            db.close()
             raise BTClibValueError(refusal)
     return db
 
@@ -454,7 +455,6 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
         target = _connect(path, "rw")
         db.backup(target)
     except sqlite3.DatabaseError as e:
-        _undo_copy(target, path)
         failure = f"cannot copy the ledger file: {type(e).__name__}"
     except BaseException:
         _undo_copy(target, path)
@@ -462,6 +462,8 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
     else:
         _release(target)
         return
+    # undone after the block, where no exception is handled
+    _undo_copy(target, path)
     raise BTClibValueError(failure)
 
 
@@ -539,14 +541,15 @@ class _Store:
         try:
             _check_and_migrate(db, network)
         except sqlite3.DatabaseError as e:
-            _release(db)
             failure = f"not a ledger file: {type(e).__name__}"
         except BaseException:
             # a refusal, or a migration step that failed: the file is
             # closed either way
             _release(db)
             raise
+        # closed after the block, where no exception is handled
         if failure is not None:
+            _release(db)
             raise BTClibValueError(failure)
         return cls(db)
 

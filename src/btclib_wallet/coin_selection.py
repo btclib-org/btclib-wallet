@@ -96,7 +96,9 @@ from __future__ import annotations
 
 import random
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
+from functools import partial
 from math import ceil
 
 from btclib import var_int
@@ -924,53 +926,60 @@ def select_coins(
 
     results: list[SelectionResult] = []
     errors: list[str] = []
-    if "bnb" in algorithms:
-        try:
-            results.append(
-                branch_and_bound(
-                    candidates,
-                    outputs,
-                    fee_rate,
-                    long_term_fee_rate,
-                    change_script_pub_key,
-                    change_spend_weight,
-                    dust_fee_rate=dust_fee_rate,
-                )
-            )
-        except BTClibValueError:
-            errors.append("bnb")
-    if "knapsack" in algorithms:
-        try:
-            results.append(
-                knapsack(
-                    candidates,
-                    outputs,
-                    fee_rate,
-                    long_term_fee_rate,
-                    change_script_pub_key,
-                    change_spend_weight,
-                    dust_fee_rate=dust_fee_rate,
-                    rng=rng,
-                )
-            )
-        except BTClibValueError:
-            errors.append("knapsack")
-    if "srd" in algorithms:
-        try:
-            results.append(
-                single_random_draw(
-                    candidates,
-                    outputs,
-                    fee_rate,
-                    long_term_fee_rate,
-                    change_script_pub_key,
-                    change_spend_weight,
-                    dust_fee_rate=dust_fee_rate,
-                    rng=rng,
-                )
-            )
-        except BTClibValueError:
-            errors.append("srd")
+    for algorithm, run in (
+        (
+            "bnb",
+            partial(
+                branch_and_bound,
+                candidates,
+                outputs,
+                fee_rate,
+                long_term_fee_rate,
+                change_script_pub_key,
+                change_spend_weight,
+                dust_fee_rate=dust_fee_rate,
+            ),
+        ),
+        (
+            "knapsack",
+            partial(
+                knapsack,
+                candidates,
+                outputs,
+                fee_rate,
+                long_term_fee_rate,
+                change_script_pub_key,
+                change_spend_weight,
+                dust_fee_rate=dust_fee_rate,
+                rng=rng,
+            ),
+        ),
+        (
+            "srd",
+            partial(
+                single_random_draw,
+                candidates,
+                outputs,
+                fee_rate,
+                long_term_fee_rate,
+                change_script_pub_key,
+                change_spend_weight,
+                dust_fee_rate=dust_fee_rate,
+                rng=rng,
+            ),
+        ),
+    ):
+        if algorithm not in algorithms:
+            continue
+        # an algorithm that finds no selection is named after `suppress`,
+        # where no exception is handled
+        result = None
+        with suppress(BTClibValueError):
+            result = run()
+        if result is None:
+            errors.append(algorithm)
+        else:
+            results.append(result)
 
     if not results:
         # the algorithms that refused, by name, and not their messages: a

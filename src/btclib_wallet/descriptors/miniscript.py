@@ -187,14 +187,13 @@ _WRAPPERS = ("a:", "s:", "c:", "d:", "v:", "j:", "n:")
 # every table below. andor() is the only three-argument fragment
 _BINARY = ("and_v", "and_b", "or_b", "or_c", "or_d", "or_i")
 
-# the hash fragments and the op code each commits with, and the size of
-# the digest it holds
-_HASH_OP_CODES = {
-    "sha256": "OP_SHA256",
-    "hash256": "OP_HASH256",
-    "ripemd160": "OP_RIPEMD160",
-    "hash160": "OP_HASH160",
-}
+# the hash fragments, the op code each commits with, and the size of the
+# digest it holds. The tables built of the fragments read the tuple: a
+# dict handed on is one the census cannot follow
+_HASHES = ("sha256", "hash256", "ripemd160", "hash160")
+_HASH_OP_CODES = dict(
+    zip(_HASHES, ("OP_SHA256", "OP_HASH256", "OP_RIPEMD160", "OP_HASH160"), strict=True)
+)
 _DATA_SIZE = {"sha256": 32, "hash256": 32, "ripemd160": 20, "hash160": 20}
 
 # how many subexpressions each fragment takes. thresh() is not here: it
@@ -203,7 +202,7 @@ _ARITY = {
     **dict.fromkeys(
         ("0", "1", "pk_k", "pk_h", "older", "after", "multi", "multi_a"), 0
     ),
-    **dict.fromkeys(_HASH_OP_CODES, 0),
+    **dict.fromkeys(_HASHES, 0),
     **dict.fromkeys(_WRAPPERS, 1),
     **dict.fromkeys(_BINARY, 2),
     "andor": 3,
@@ -211,8 +210,8 @@ _ARITY = {
 # the names a refusal prints as they are, by `_label`: every fragment, the
 # sugar and the wrappers that are not one, the sorted multisigs, and the
 # two spend contexts
-_NAMES = frozenset(
-    (*_ARITY, "thresh", "pk", "pkh", "l:", "u:", "t:", "sortedmulti", "sortedmulti_a")
+_NAMES = frozenset(_ARITY) | frozenset(
+    ("thresh", "pk", "pkh", "l:", "u:", "t:", "sortedmulti", "sortedmulti_a")
 )
 _CONTEXTS = (P2WSH, TAPSCRIPT)
 # what `_read_number` refuses a lock time with
@@ -310,7 +309,7 @@ _LEAF_PROPERTIES = {
     "pk_h": "Knudemsxk",
     "multi": "Bnudemsk",
     "multi_a": "Budemsk",
-    **dict.fromkeys(_HASH_OP_CODES, "Bonudmk"),
+    **dict.fromkeys(_HASHES, "Bonudmk"),
 }
 
 
@@ -737,7 +736,7 @@ _LEAF_OPS: dict[str, tuple[int, int | None, int | None]] = {
     "pk_h": (3, 0, 0),
     "older": (1, 0, None),
     "after": (1, 0, None),
-    **dict.fromkeys(_HASH_OP_CODES, (4, 0, None)),
+    **dict.fromkeys(_HASHES, (4, 0, None)),
 }
 
 
@@ -823,7 +822,7 @@ _LEAF_STACK: dict[str, tuple[_Trace | None, _Trace | None]] = {
         _concat(_concat(_PUSH, _NOP), _concat(_PUSH, _EQUALVERIFY)),
         _concat(_concat(_PUSH, _NOP), _concat(_PUSH, _EQUALVERIFY)),
     ),
-    **dict.fromkeys(_HASH_OP_CODES, (_hash_trace(), None)),
+    **dict.fromkeys(_HASHES, (_hash_trace(), None)),
 }
 
 
@@ -1872,7 +1871,7 @@ _KEY_FRAGMENTS = ("pk", "pkh", "pk_k", "pk_h")
 _COMBINATORS = ("andor", "and_n", *_BINARY)
 # and every fragment whose arguments are not subexpressions, which is
 # what makes the name of one either a leaf or a word the language has not
-_LEAVES = (*_KEY_FRAGMENTS, *_HASH_OP_CODES, "older", "after", "multi", "multi_a")
+_LEAVES = (*_KEY_FRAGMENTS, *_HASHES, "older", "after", "multi", "multi_a")
 
 # the states of `parse` and of `from_script`, both of which walk a stack
 # of them rather than recursing: an expression nests as deep as its script

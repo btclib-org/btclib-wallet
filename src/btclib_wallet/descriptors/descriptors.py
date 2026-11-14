@@ -2526,7 +2526,7 @@ _PARSERS: dict[
 
 # the names a refusal prints as they are, by `_label`: every function an
 # expression may call, and every miniscript fragment
-_NAMES = frozenset((*_PARSERS, *_MINISCRIPT_NAMES, "musig"))
+_NAMES = frozenset(_PARSERS) | _MINISCRIPT_NAMES | {"musig"}
 
 
 def _parse_miniscript_expression(
