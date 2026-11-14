@@ -263,6 +263,7 @@ def _random_prv_key() -> PrvKeyData:
     "expression",
     [
         "wpkh({wif})",
+        "combo({wif})",
         "wsh(multi(1,{other},{wif}))",
         "tr(musig({wif},{other}))",
     ],
@@ -271,9 +272,9 @@ def _random_prv_key() -> PrvKeyData:
 def test_a_wif_is_refused_by_name(expression: str, from_text: bool) -> None:
     """The refusal names the WIF key expression and shows nothing of the key.
 
-    Why a WIF is refused is the module docstring of
-    `btclib_wallet.wallet.descriptor_wallet`. The message shows neither
-    the WIF, nor the scalar in hex or decimal, nor the public key.
+    The module docstring of `btclib_wallet.wallet.descriptor_wallet` says
+    why a WIF is refused. The message shows neither the WIF, nor the
+    scalar in hex or decimal, nor the public key.
     """
     prv_key = _random_prv_key()
     wif = wif_from_prv_key(prv_key.q, prv_key.network, prv_key.compressed)

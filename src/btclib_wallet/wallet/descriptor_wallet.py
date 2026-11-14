@@ -175,13 +175,13 @@ class DescriptorWallet(RangedWallet):
         for branch, descriptor in by_branch.items():
             if branch < 0:
                 raise BTClibValueError(f"invalid branch: {branch}")
+            _assert_no_wif(descriptor)
             if isinstance(descriptor, ComboDescriptor):
                 err_msg = f"combo() at branch {branch}: four scripts at one"
                 err_msg += " index are four addresses at one position, so a"
                 err_msg += " wallet cannot hold one -- Descriptor"
                 err_msg += ".script_pub_keys is what answers for it"
                 raise BTClibValueError(err_msg)
-            _assert_no_wif(descriptor)
 
         networks = {descriptor.network for descriptor in by_branch.values()}
         if len(networks) != 1:
