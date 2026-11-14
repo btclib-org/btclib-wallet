@@ -1427,17 +1427,29 @@ def test_a_damaged_ciphertext_is_told_from_a_wrong_passphrase(
         ledger.unlock_keys(PASSPHRASE, 10)
 
 
-@pytest.mark.parametrize(
-    "plaintext",
-    [b'{"prv_keys": ["' + HEX.encode(), b"\xff" + HEX.encode(), b"[]"],
-    ids=["cut short", "no utf-8", "no object"],
-)
-def test_keys_that_decrypt_to_no_json_object_are_refused_alone(
-    chain: FakeChain, path: Path, clock: Clock, plaintext: bytes
-) -> None:
-    """The codec's or `json`'s error holds the keys decrypted (issue #821).
+_UNREADABLE = "^not a ledger file: source 0's keys are unreadable$"
 
-    So the refusal names the source alone and chains nothing.
+
+@pytest.mark.parametrize(
+    "plaintext, err_msg",
+    [
+        (b'{"prv_keys": ["' + HEX.encode(), _UNREADABLE),
+        (b"\xff" + HEX.encode(), _UNREADABLE),
+        (b"[]", _UNREADABLE),
+        (
+            b'{"descriptors": {"' + HEX.encode() + b'": "x"}, "prv_keys": {}}',
+            "^not a ledger file: source 0's descriptors are not keyed by branch$",
+        ),
+    ],
+    ids=["cut short", "no utf-8", "no object", "descriptors map key"],
+)
+def test_keys_that_decrypt_to_no_ledger_json_are_refused_alone(
+    chain: FakeChain, path: Path, clock: Clock, plaintext: bytes, err_msg: str
+) -> None:
+    """The codec's, `json`'s or `int`'s error holds the keys decrypted.
+
+    So the refusal names the source alone and chains nothing (issues #821
+    and #900).
     """
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(PASSPHRASE)
@@ -1446,7 +1458,6 @@ def test_keys_that_decrypt_to_no_json_object_are_refused_alone(
         assert key is not None
         sealed = crypto._sealed(key, plaintext, ledger_module._aad(0))
     _damaged(path, "UPDATE sources SET encrypted = ?", sealed)
-    err_msg = "^not a ledger file: source 0's keys are unreadable$"
     with (
         _loaded(path, chain) as ledger,
         raises_alone(BTClibValueError, err_msg) as e,

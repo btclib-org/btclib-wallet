@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -272,9 +273,11 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     if row is None:
         raise BTClibValueError("not a ledger file: it names no network")
     if row[0] != network:
-        raise BTClibValueError(
-            f"a {_label(row[0], NETWORKS)} ledger file, not a {_label(network, NETWORKS)} one"
-        )
+        # the file's network after a colon, where no article stands before
+        # what `_label` writes of one it does not know
+        err_msg = f"not a {_label(network, NETWORKS)} ledger file: its network is"
+        err_msg += f" {_label(row[0], NETWORKS)}"
+        raise BTClibValueError(err_msg)
     while version < FORMAT_VERSION:
         # an explicit BEGIN: the sqlite3 module opens a transaction before
         # a DML statement alone, so a step's DDL would commit as it runs
@@ -313,6 +316,40 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
         err_msg += " is not a JSON object"
         raise BTClibValueError(err_msg)
     return decoded
+
+
+# a branch or a height as the file writes it: the decimal `str` writes,
+# short enough for `int` to read
+_DECIMAL = re.compile(r"0|[1-9][0-9]{0,9}")
+_BLOCK_ID = re.compile(r"[0-9a-f]{64}")
+_STATES = {state.value: state for state in TxState}
+
+
+def _branches(value: object, source_id: int) -> dict[int, str]:
+    """Return a source's descriptors by branch, from the object the file holds.
+
+    `int` quotes the literal it refuses, and a key of the file can be
+    anything, so a key that is not a branch is refused here, by the
+    source alone, before `int` reads it (issue #900).
+    """
+    if not isinstance(value, dict) or not all(
+        isinstance(b, str) and _DECIMAL.fullmatch(b) for b in value
+    ):
+        err_msg = f"not a ledger file: source {_quoted(source_id)}'s descriptors"
+        err_msg += " are not keyed by branch"
+        raise BTClibValueError(err_msg)
+    return {int(b): text for b, text in value.items()}
+
+
+def _tx_state(value: object) -> TxState:
+    """Return the state a transaction's row holds.
+
+    `TxState` quotes a value it does not know, so one is refused here.
+    """
+    state = _STATES.get(value) if isinstance(value, str) else None
+    if state is None:
+        raise BTClibValueError("not a ledger file: a transaction in no state")
+    return state
 
 
 def _encrypted(value: object, source_id: int) -> bytes | None:
@@ -481,12 +518,9 @@ class _Store:
             (
                 source_id,
                 _Source(
-                    {
-                        int(b): text
-                        for b, text in _decoded(
-                            descriptors, source_id, "descriptors"
-                        ).items()
-                    },
+                    _branches(
+                        _decoded(descriptors, source_id, "descriptors"), source_id
+                    ),
                     _decoded(prv_keys, source_id, "prv_keys"),
                     _encrypted(encrypted, source_id),
                     lookahead,
@@ -534,7 +568,7 @@ class _Store:
         return [
             WalletTx(
                 tx_for_network(Tx.parse(raw), network),
-                TxState(state),
+                _tx_state(state),
                 None if height is None else BlockRef(height, block_id),
                 seq,
                 comment,
@@ -570,7 +604,17 @@ class _Store:
             )
         ):
             return None
-        return BlockRef(int(rows["tip_height"]), bytes.fromhex(rows["tip_id"]))
+        height, block_id = rows.get("tip_height"), rows.get("tip_id")
+        # `int` quotes the literal it refuses: a tip is read where it is
+        # spelled as `_write_tip` writes it, and refused otherwise
+        if not (
+            isinstance(height, str)
+            and _DECIMAL.fullmatch(height)
+            and isinstance(block_id, str)
+            and _BLOCK_ID.fullmatch(block_id)
+        ):
+            raise BTClibValueError("not a ledger file: a malformed tip")
+        return BlockRef(int(height), bytes.fromhex(block_id))
 
     def labels(self) -> dict[bytes, tuple[str, str]]:
         """Return the label and the purpose of each script given one."""

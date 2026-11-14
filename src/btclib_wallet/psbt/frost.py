@@ -399,7 +399,8 @@ def threshold_info(
     for writer, record_t, record_n, record_shares in parsed:
         if writer >= record_n:
             err_msg = f"frost threshold info of participant {_quoted(writer)}, "
-            err_msg += f"who is not one of the {_quoted(record_n)} the record declares"
+            err_msg += "who is not one of the participants the record declares:"
+            err_msg += f" {_quoted(record_n)}"
             raise BTClibValueError(err_msg)
         if (record_t, record_n) != (t, n):
             err_msg = (
