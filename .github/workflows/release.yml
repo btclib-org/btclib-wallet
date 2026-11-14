@@ -148,8 +148,8 @@ jobs:
       concurrency-suffix: "-release"
 
   # a live bitcoind accepting what this tree builds: it gates every pull
-  # request, and the tag's own tree is asked once more, where the answer is
-  # still cheap to act on
+  # request that is not a draft, and the tag's own tree is asked once more,
+  # where the answer is still cheap to act on
   integration:
     name: Run the integration workflow
     uses: ./.github/workflows/integration-bitcoind.yml # zizmor: ignore[self-repository]

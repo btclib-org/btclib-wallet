@@ -28,8 +28,9 @@ ci:
   #
   # actionlint-shellcheck runs past pre-commit.ci's time limit.
   # What the skip costs is nothing that decides a merge -- lint.yml runs
-  # this file whole, with the command a developer runs, on every push to
-  # main and on every pull request that is not a draft
+  # this file whole, with the command a developer runs, on every pull
+  # request that is not a draft, and starts the same run on every push to
+  # main
   skip: [mypy, pyroma, uv-lock, actionlint-shellcheck]
 
 repos:
@@ -207,8 +208,8 @@ repos:
   # strings, authentication headers) belong to Secret Protection, and the
   # API accepts that setting with a 200 and leaves it disabled.
   # detect-private-key above covers the PEM case, and the lint workflow
-  # runs these hooks on every pull request, a fork's included, so this is
-  # not only a local gate.
+  # runs these hooks on every pull request that is not a draft, a fork's
+  # included, so this is not only a local gate.
   # It earns its place twice over on a tree whose subject is keys: an
   # extended private key, a WIF and a mnemonic are what the tests are full
   # of, and each of them is a shape the scanner is right to stop on.

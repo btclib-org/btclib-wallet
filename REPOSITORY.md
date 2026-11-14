@@ -126,7 +126,7 @@ introduced, and a red check nobody can act on from a branch is noise.
 `codeql: every job passed` is not required either: the analysis is more
 cells a merge would wait for, against the ceiling *Plan-gated settings*
 has, and `zizmor` in `lint.yml` already audits the workflows on every
-pull request.
+pull request that is not a draft.
 
 Every required check is an Actions check, bound to the app that produces
 it — `checks` with an `app_id` rather than the bare `contexts` list, 15368
