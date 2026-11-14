@@ -5,10 +5,11 @@
 """Which coins `Ledger.fund` tries first, over a chain in memory.
 
 The passes of Core's `AutomaticCoinSelection`, src/wallet/spend.cpp:895-925
-at bitcoin/bitcoin@f0de87f040, the v32.1 tag. Each test pays what one
-coin alone pays with no change, at a rate above Core's long-term rate,
-so that a selection of that coin alone is the one of least waste: a pass
-that leaves the coin out is what keeps it from being spent.
+at bitcoin/bitcoin@f0de87f040, the v32.1 tag. Each test that orders two
+coins pays what one of them alone pays with no change, at a rate above
+Core's long-term rate, so that a selection of that coin alone is the one
+of least waste: a pass that leaves the coin out is what keeps it from
+being spent.
 """
 
 from __future__ import annotations
@@ -62,6 +63,29 @@ def _spent(funded: FundedPsbt) -> set[OutPoint]:
     return {tx_in.prev_out for tx_in in funded.psbt.tx.vin}
 
 
+def _locked_but(ledger: Ledger, kept: set[OutPoint]) -> list[OutPoint]:
+    """Lock every coin of the ledger but `kept`, and return those locked."""
+    locked = [u.outpoint for u in ledger.utxos(0) if u.outpoint not in kept]
+    for coin in locked:
+        ledger.lock(coin)
+    return locked
+
+
+def _unlocked(ledger: Ledger, coins: list[OutPoint]) -> None:
+    for coin in coins:
+        ledger.unlock(coin)
+
+
+def _chain_of(ledger: Ledger, chain: FakeChain, length: int) -> OutPoint:
+    """Return a coin at the end of a line of `length` unconfirmed spends."""
+    coin = _received(ledger, chain, 1_000_000)
+    locked = _locked_but(ledger, {coin})
+    for _ in range(length):
+        (coin,) = _coins(ledger, ledger.spend([_outside()]))
+    _unlocked(ledger, locked)
+    return coin
+
+
 def test_a_confirmed_coin_funds_before_unconfirmed_change(
     ledger: Ledger, chain: FakeChain
 ) -> None:
@@ -82,9 +106,14 @@ def test_the_first_pass_asks_more_confirmations_of_a_coin_received(
 ) -> None:
     """Six for a coin whose transaction spends no output of the ledger."""
     old = _received(ledger, chain, 100_000)
-    chain.mine(count=5)
+    chain.mine(count=3)
     ledger.sync()
     recent = _received(ledger, chain, 50_000)
+    # at five confirmations the old coin waits for the second pass, where
+    # the recent one is the selection of least waste
+    assert _spent(_matching(ledger, recent)) == {recent}
+    chain.mine()
+    ledger.sync()
     assert _spent(_matching(ledger, recent)) == {old}
     # one for a coin whose transaction spends one
     ledger.lock(old)
@@ -97,19 +126,14 @@ def test_the_first_pass_asks_more_confirmations_of_a_coin_received(
     assert _spent(_matching(ledger, own)) == {own}
 
 
+@pytest.mark.parametrize("shallow, deep", [(1, 3), (2, 3), (4, 5), (12, 13)])
 def test_unconfirmed_coins_with_fewer_ancestors_fund_first(
-    ledger: Ledger, chain: FakeChain
+    ledger: Ledger, chain: FakeChain, shallow: int, deep: int
 ) -> None:
-    """A coin three unconfirmed transactions deep waits for a shallower one."""
-    _received(ledger, chain, 100_000)
-    other = _received(ledger, chain, 100_000)
-    ledger.lock(other)
-    ledger.spend([_outside()])
-    ledger.spend([_outside()])
-    (deep,) = _coins(ledger, ledger.spend([_outside()]))
-    ledger.unlock(other)
-    (shallow,) = _coins(ledger, ledger.spend([_outside()]))
-    assert _spent(_matching(ledger, deep)) == {shallow}
+    """A coin within a pass's ancestor limit funds before one past it."""
+    shallower = _chain_of(ledger, chain, shallow)
+    deeper = _chain_of(ledger, chain, deep)
+    assert _spent(_matching(ledger, deeper)) == {shallower}
 
 
 def test_unconfirmed_coins_in_a_smaller_cluster_fund_first(
@@ -128,6 +152,28 @@ def test_unconfirmed_coins_in_a_smaller_cluster_fund_first(
     ledger.unlock(other)
     (small,) = _coins(ledger, ledger.spend([_outside()]))
     assert _spent(_matching(ledger, own)) == {small}
+
+
+@pytest.mark.parametrize("limit", [4, 12])
+def test_a_cluster_one_past_a_pass_waits_for_the_next(
+    ledger: Ledger, chain: FakeChain, limit: int
+) -> None:
+    """A coin of one ancestor waits where its cluster is one past the limit.
+
+    Its sibling's chain grows the cluster, and a coin at the end of a line
+    as long as the limit, admitted by the same pass, is spent instead.
+    """
+    _received(ledger, chain, 1_000_000)
+    first = ledger.spend([TxOut(20_000, script_of(ledger.new_address()))])
+    (own,) = [c for c in _coins(ledger, first) if _value(ledger, c) == 20_000]
+    ledger.lock(own)
+    (tip,) = _coins(ledger, ledger.spend([_outside()]))
+    for _ in range(limit - 1):
+        (tip,) = _coins(ledger, ledger.spend([_outside()]))
+    ledger.lock(tip)
+    line = _chain_of(ledger, chain, limit)
+    ledger.unlock(own)
+    assert _spent(_matching(ledger, own)) == {line}
 
 
 def test_a_chain_past_the_package_limits_is_not_spent(
@@ -149,3 +195,27 @@ def test_a_chain_past_the_package_limits_is_not_spent(
     chain.mine(list(chain.mempool.values()))
     ledger.sync()
     ledger.spend([_outside()])
+
+
+def test_a_cluster_past_the_package_limits_is_not_spent(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """A coin of one ancestor, whose cluster grows by its sibling's chain."""
+    _received(ledger, chain, 1_000_000)
+    first = ledger.spend([TxOut(20_000, script_of(ledger.new_address()))])
+    (own,) = [c for c in _coins(ledger, first) if _value(ledger, c) == 20_000]
+    ledger.lock(own)
+    # the cluster of `first` is as large as the last pass admits
+    (tip,) = _coins(ledger, ledger.spend([_outside()]))
+    for _ in range(22):
+        (tip,) = _coins(ledger, ledger.spend([_outside()]))
+    ledger.lock(tip)
+    ledger.unlock(own)
+    assert _spent(ledger.fund([_outside(10_000)])) == {own}
+    ledger.lock(own)
+    ledger.unlock(tip)
+    (tip,) = _coins(ledger, ledger.spend([_outside()]))
+    ledger.lock(tip)
+    ledger.unlock(own)
+    with pytest.raises(BTClibValueError, match="unconfirmed coins are available"):
+        ledger.fund([_outside(10_000)])

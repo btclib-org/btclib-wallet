@@ -47,6 +47,7 @@ from btclib_wallet.ledger import Ledger, TxState
 from btclib_wallet.ledger.ledger import _assert_replaces
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_size import miniscript_sizer
+from btclib_wallet.tx_builder import FundedPsbt
 from btclib_wallet.wallet import DescriptorWallet
 from tests.integration.conftest import (
     _start_node,
@@ -76,6 +77,13 @@ BUMP_CHANGE = f"wpkh({XPRV}/84h/1h/3h/1/*)"
 # and another, for the coins a spend tries first
 FIRST_RECEIVE = f"wpkh({XPRV}/84h/1h/4h/0/*)"
 FIRST_CHANGE = f"wpkh({XPRV}/84h/1h/4h/1/*)"
+# and another, for where those passes end
+PASSES_RECEIVE = f"wpkh({XPRV}/84h/1h/5h/0/*)"
+PASSES_CHANGE = f"wpkh({XPRV}/84h/1h/5h/1/*)"
+# a rate above Core's long-term rate, at which a coin alone can pay a
+# payment of its value less `LEFT_OVER`, with no change
+RATE = FeeRate.from_sats_per_vbyte(20)
+LEFT_OVER = 2_600
 # the node's own floor, 2 sat/vB, and the fallback the ledger pays above it
 MIN_RELAY = "0.00002"
 FALLBACK = FeeRate.from_sats_per_vbyte(5)
@@ -649,21 +657,6 @@ def test_the_coins_a_payment_is_funded_from_are_cores(
     fetcher = BitcoinCoreFetcher(node.client, "regtest")
     _create_twin(node, "first-twin", FIRST_RECEIVE, FIRST_CHANGE)
     twin = node.wallet("first-twin")
-    rate = FeeRate.from_sats_per_vbyte(20)
-
-    def twin_funds(payment: TxOut) -> Any:
-        """Return the twin's answer to `fundrawtransaction`, its error kept."""
-        _settle(node)
-        amount = {payment.script_pub_key.address: f"{btc_from_sats(payment.value):.8f}"}
-        raw = twin.call("createrawtransaction", [[], [amount]])
-        _, answer = twin.call_raw("fundrawtransaction", [raw, {"fee_rate": 20}])
-        return answer
-
-    def twin_inputs(payment: TxOut) -> set[OutPoint]:
-        funded = twin_funds(payment)["result"]["hex"]
-        vin = twin.call("decoderawtransaction", [funded])["vin"]
-        return {OutPoint(bytes.fromhex(i["txid"]), i["vout"]) for i in vin}
-
     with Ledger.create(
         path, "regtest", fetcher, broadcaster=fetcher, fallback_fee_rate=FALLBACK
     ) as ledger:
@@ -677,32 +670,138 @@ def test_the_coins_a_payment_is_funded_from_are_cores(
         spend = ledger.spend([_miner_output(node, small.tx_out.value // 2)])
         ledger.unlock(large.outpoint)
         (change,) = [u for u in ledger.utxos(0) if u.outpoint.tx_id == spend.id]
-        # what the change alone pays with no change of its own, at `rate`
-        payment = _miner_output(node, change.tx_out.value - 2_600)
-        funded = ledger.fund([payment], rate)
-        assert {tx_in.prev_out for tx_in in funded.psbt.tx.vin} == {large.outpoint}
-        assert twin_inputs(payment) == {large.outpoint}
+        payment = _miner_output(node, change.tx_out.value - LEFT_OVER)
+        assert _inputs(ledger.fund([payment], RATE)) == {large.outpoint}
+        assert _twin_inputs(node, twin, payment) == {large.outpoint}
 
         # the change's chain grows until its coin has as many unconfirmed
         # ancestors as the last pass admits; the next coin funds nothing
-        locked = {"txid": large.outpoint.tx_id.hex(), "vout": large.outpoint.vout}
-        twin.call("lockunspent", [False, [locked]])
+        _twin_lock(twin, large.outpoint)
         ledger.lock(large.outpoint)
         payment = _miner_output(node, 100_000)
         for _ in range(23):
             ledger.spend([payment])
         (coin,) = ledger.utxos(0)
-        assert twin_inputs(payment) == {coin.outpoint}
+        assert _twin_inputs(node, twin, payment) == {coin.outpoint}
         ledger.spend([payment])
         with pytest.raises(BTClibValueError, match="unconfirmed coins are available"):
             ledger.fund([payment])
-        refusal = twin_funds(payment)["error"]["message"]
+        refusal = _twin_funds(node, twin, payment)["error"]["message"]
         assert refusal.startswith("Unconfirmed UTXOs are available")
-        twin.call("lockunspent", [True, [locked]])
+        twin.call("lockunspent", [True])
         ledger.unlock(large.outpoint)
         _mine(node)
         ledger.sync()
         _compare(node, ledger, "first-twin")
+
+
+def test_the_passes_end_where_cores_do(node: Node, tmp_path: Path) -> None:
+    """The confirmations of the first pass, and the cluster of the last.
+
+    A coin received from outside joins the first pass once it has six
+    confirmations; an unconfirmed coin whose cluster its sibling's chain
+    grows past the package limits is spent by neither the ledger nor its
+    twin.
+    """
+    path = tmp_path / "ledger.sqlite"
+    fetcher = BitcoinCoreFetcher(node.client, "regtest")
+    _create_twin(node, "passes-twin", PASSES_RECEIVE, PASSES_CHANGE)
+    twin = node.wallet("passes-twin")
+    with Ledger.create(
+        path, "regtest", fetcher, broadcaster=fetcher, fallback_fee_rate=FALLBACK
+    ) as ledger:
+        ledger.add_source(_source(PASSES_RECEIVE, PASSES_CHANGE))
+        miner = node.wallet("miner")
+
+        def pay(value: int) -> str:
+            sent = f"{btc_from_sats(value):.8f}"
+            return str(miner.call("sendtoaddress", [ledger.new_address(), sent]))
+
+        # the old coin, the larger, pays the recent one's payment too
+        value = _sats(miner.call("getbalance")) // 4
+        old_id = pay(value)
+        _mine(node, 4)
+        recent_id = pay(value // 2)
+        _mine(node)
+        ledger.sync()
+        (old,) = [u for u in ledger.utxos() if u.outpoint.tx_id.hex() == old_id]
+        (recent,) = [u for u in ledger.utxos() if u.outpoint.tx_id.hex() == recent_id]
+        assert (old.confirmations, recent.confirmations) == (5, 1)
+        # the recent coin alone pays it with no change, so where the old
+        # one waits for the second pass, the recent one is spent
+        payment = _miner_output(node, recent.tx_out.value - LEFT_OVER)
+        assert _inputs(ledger.fund([payment], RATE)) == {recent.outpoint}
+        assert _twin_inputs(node, twin, payment) == {recent.outpoint}
+        _mine(node)
+        ledger.sync()
+        assert _inputs(ledger.fund([payment], RATE)) == {old.outpoint}
+        assert _twin_inputs(node, twin, payment) == {old.outpoint}
+
+        # a coin of one unconfirmed ancestor, whose sibling's chain grows
+        # its cluster to as large as the last pass admits, and then larger
+        ledger.lock(recent.outpoint)
+        _twin_lock(twin, recent.outpoint)
+        first = ledger.spend(
+            [TxOut(20_000, ScriptPubKey.from_address(ledger.new_address()))]
+        )
+        (own,) = [
+            u.outpoint
+            for u in ledger.utxos(0)
+            if u.outpoint.tx_id == first.id and u.tx_out.value == 20_000
+        ]
+        ledger.lock(own)
+        payment = _miner_output(node, 10_000)
+        for _ in range(23):
+            ledger.spend([payment])
+        (tip,) = ledger.utxos(0)
+        ledger.lock(tip.outpoint)
+        _twin_lock(twin, tip.outpoint)
+        ledger.unlock(own)
+        assert _inputs(ledger.fund([payment], RATE)) == {own}
+        assert _twin_inputs(node, twin, payment) == {own}
+        ledger.lock(own)
+        ledger.unlock(tip.outpoint)
+        ledger.spend([payment])
+        (tip,) = ledger.utxos(0)
+        ledger.lock(tip.outpoint)
+        _twin_lock(twin, tip.outpoint)
+        ledger.unlock(own)
+        with pytest.raises(BTClibValueError, match="unconfirmed coins are available"):
+            ledger.fund([payment], RATE)
+        refusal = _twin_funds(node, twin, payment)["error"]["message"]
+        assert refusal.startswith("Unconfirmed UTXOs are available")
+        twin.call("lockunspent", [True])
+        for coin in ledger.locked:
+            ledger.unlock(coin)
+        _mine(node)
+        ledger.sync()
+        _compare(node, ledger, "passes-twin")
+
+
+def _inputs(funded: FundedPsbt) -> set[OutPoint]:
+    return {tx_in.prev_out for tx_in in funded.psbt.tx.vin}
+
+
+def _twin_funds(node: Node, twin: BitcoinCoreRpcClient, payment: TxOut) -> Any:
+    """Return the twin's answer to `fundrawtransaction` at `RATE`, unread."""
+    _settle(node)
+    amount = {payment.script_pub_key.address: f"{btc_from_sats(payment.value):.8f}"}
+    raw = twin.call("createrawtransaction", [[], [amount]])
+    fee_rate = RATE.sats_per_kvbyte // 1_000
+    _, answer = twin.call_raw("fundrawtransaction", [raw, {"fee_rate": fee_rate}])
+    return answer
+
+
+def _twin_inputs(
+    node: Node, twin: BitcoinCoreRpcClient, payment: TxOut
+) -> set[OutPoint]:
+    funded = _twin_funds(node, twin, payment)["result"]["hex"]
+    vin = twin.call("decoderawtransaction", [funded])["vin"]
+    return {OutPoint(bytes.fromhex(i["txid"]), i["vout"]) for i in vin}
+
+
+def _twin_lock(twin: BitcoinCoreRpcClient, coin: OutPoint) -> None:
+    twin.call("lockunspent", [False, [{"txid": coin.tx_id.hex(), "vout": coin.vout}]])
 
 
 def _paying(ledger: Ledger, psbt: Psbt, fee: int) -> Tx:

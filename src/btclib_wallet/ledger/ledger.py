@@ -2977,10 +2977,11 @@ def _first_selection(
             return selected
     try:
         return select(last)
-    except BTClibValueError as refusal:
-        if _attempt(select, [candidate for candidate, _ in standings]) is None:
-            raise
-        raise BTClibValueError(_LONG_CHAINS) from refusal
+    except BTClibValueError as err:
+        refusal = err
+    if _attempt(select, [candidate for candidate, _ in standings]) is None:
+        raise refusal
+    raise BTClibValueError(_LONG_CHAINS) from refusal
 
 
 def _attempt(
