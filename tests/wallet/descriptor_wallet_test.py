@@ -269,13 +269,11 @@ def _random_prv_key() -> PrvKeyData:
 )
 @pytest.mark.parametrize("from_text", [True, False])
 def test_a_wif_is_refused_by_name(expression: str, from_text: bool) -> None:
-    """The wallet would keep only its public key, and sign for nothing.
+    """The refusal names the WIF key expression and shows nothing of the key.
 
-    `descriptors.parse` reduces a WIF to its public key, so a wallet
-    holding it would be watch-only without saying so, whether it reads
-    the text or is handed the parsed descriptor. The refusal names the
-    WIF key expression and shows nothing of the key: not the WIF, not
-    the scalar in hex or decimal, not the public key.
+    Why a WIF is refused is the module docstring of
+    `btclib_wallet.wallet.descriptor_wallet`. The message shows neither
+    the WIF, nor the scalar in hex or decimal, nor the public key.
     """
     prv_key = _random_prv_key()
     wif = wif_from_prv_key(prv_key.q, prv_key.network, prv_key.compressed)
