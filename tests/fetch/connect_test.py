@@ -13,7 +13,11 @@ on a clock the test moves, so no socket is opened and no time passes.
 
 from __future__ import annotations
 
+import contextlib
+import gc
+import platform
 import socket
+import weakref
 from collections.abc import Callable
 from typing import Any
 
@@ -43,6 +47,10 @@ MESSAGE = Ping(7).to_message(b"\xfa\xbf\xb5\xda")
 Outcome = str | float | BaseException
 
 
+class RefusedError(ConnectionRefusedError):
+    """A refused connect, which a weak reference can watch."""
+
+
 class Network:
     """The clock, and the addresses the host resolves to and what each does."""
 
@@ -51,6 +59,7 @@ class Network:
         self.lookup = lookup
         self.outcomes = {f"192.0.2.{i}": o for i, o in enumerate(outcomes, 1)}
         self.attempts: list[FakeSocket] = []
+        self.refusals: list[weakref.ref[RefusedError]] = []
 
     def clock(self) -> float:
         """Return the time on the clock."""
@@ -72,6 +81,15 @@ class Network:
             )
             for ip, outcome in self.outcomes.items()
         ]
+
+    def refusal(self, ip: str) -> RefusedError:
+        """Return a refusal of `ip`, watched once raised.
+
+        Made here, so that no frame the raise passes through holds it.
+        """
+        refused = RefusedError(f"{ip} refused")
+        self.refusals.append(weakref.ref(refused))
+        return refused
 
     def socket(self, *args: Any) -> FakeSocket:
         """Return a socket recording its attempt, refusing an IPv6 one."""
@@ -107,7 +125,7 @@ class FakeSocket:
             raise TimeoutError("timed out")
         if isinstance(outcome, float):
             network.now += outcome
-            raise ConnectionRefusedError(f"{sockaddr[0]} refused")
+            raise network.refusal(sockaddr[0])
 
     def close(self) -> None:
         """Record the close."""
@@ -180,7 +198,7 @@ def test_the_deadline_bounds_every_address_tried(
     """Each attempt gets what is left of the deadline, none once it passed."""
     net = network(*outcomes)
     start = net.now
-    with pytest.raises(FetchError):
+    with pytest.raises(FetchError, match="timeout expired"):
         call()
     assert net.now - start <= TIMEOUT
     assert [sock.timeout for sock in net.attempts] == timeouts
@@ -257,3 +275,27 @@ def test_an_interrupted_connect_leaves_no_socket_open(
         _open_connection((HOST, PORT), net.now + TIMEOUT, TIMEOUT, "here")
     (interrupted,) = net.attempts
     assert interrupted.closed
+
+
+@pytest.mark.skipif(
+    platform.python_implementation() == "PyPy",
+    reason="PyPy frees an object only when its collector runs",
+)
+@pytest.mark.parametrize(
+    "outcomes",
+    [(1.0, "connect"), (1.0, 1.0), (4.0, 1.0, "timeout")],
+    ids=["connected", "every-address-refused", "deadline-passed"],
+)
+def test_no_error_is_kept_once_the_call_ends(
+    network: Callable[..., Network], outcomes: tuple[Outcome, ...]
+) -> None:
+    """Each refusal is freed when the call ends, without the collector."""
+    net = network(*outcomes)
+    gc.disable()
+    try:
+        with contextlib.suppress(OSError, FetchError):
+            _open_connection((HOST, PORT), net.now + TIMEOUT, TIMEOUT, "here")
+        assert net.refusals
+        assert [ref() for ref in net.refusals] == [None] * len(net.refusals)
+    finally:
+        gc.enable()

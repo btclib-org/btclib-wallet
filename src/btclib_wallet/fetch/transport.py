@@ -179,36 +179,43 @@ def _open_connection(
     Each address the host resolves to is tried in turn, as
     `socket.create_connection` tries them, but each attempt is given what
     is left of the deadline rather than the whole of `timeout`, and none
-    is begun once it has passed. Where no attempt connects, the last
-    one's error is raised, as there. `TlsLineTransport` says what the
-    deadline leaves unbounded.
+    is begun once it has passed. Where every address fails before the
+    deadline, the last one's error is raised, as there; once the deadline
+    has passed, `_time_left`'s `FetchError` is. `TlsLineTransport` says
+    what the deadline leaves unbounded.
     """
     host, port = address
     error = OSError("getaddrinfo returns an empty list")
-    for family, kind, proto, _, sockaddr in socket.getaddrinfo(
-        host, port, 0, socket.SOCK_STREAM
-    ):
-        left = _time_left(deadline, timeout, where)
-        try:
-            # a family the host offers and this machine lacks is one more
-            # address that fails
-            sock = socket.socket(family, kind, proto)
-        except OSError as e:
-            error = e
-            continue
-        try:
-            sock.settimeout(left)
-            sock.connect(sockaddr)
-        except OSError as e:
-            sock.close()
-            error = e
-            continue
-        except BaseException:
-            # a `KeyboardInterrupt` leaves no socket open behind it
-            sock.close()
-            raise
-        return sock
-    raise error
+    try:
+        for family, kind, proto, _, sockaddr in socket.getaddrinfo(
+            host, port, 0, socket.SOCK_STREAM
+        ):
+            left = _time_left(deadline, timeout, where)
+            try:
+                # a family the host offers and this machine lacks is one
+                # more address that fails
+                sock = socket.socket(family, kind, proto)
+            except OSError as e:
+                error = e
+                continue
+            try:
+                sock.settimeout(left)
+                sock.connect(sockaddr)
+            except OSError as e:
+                sock.close()
+                error = e
+                continue
+            except BaseException:
+                # a `KeyboardInterrupt` leaves no socket open behind it
+                sock.close()
+                raise
+            return sock
+        raise error
+    finally:
+        # the error's traceback holds this frame, so the frame lets go of
+        # the error, as `socket.create_connection` does: a cycle between
+        # them is freed only by the garbage collector
+        del error
 
 
 def _read_line(
