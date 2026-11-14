@@ -34,6 +34,7 @@ from tests.integration.conftest import (
     Stack,
     electrs_binary,
     make_fetcher,
+    reject_reason,
     running_stack,
 )
 
@@ -185,12 +186,17 @@ def test_esplora_broadcasts_and_the_node_mines_it(stack: Stack) -> None:
 
 
 def test_esplora_reports_a_rejected_broadcast(stack: Stack) -> None:
-    """A transaction spending nothing that exists is a 400 with the reason."""
+    """A transaction spending nothing that exists is a 400, for that reason.
+
+    The refusal keeps the status and not the server's text: the node says
+    why, in the words Core's own mempool check uses.
+    """
     fetcher = EsploraFetcher(stack.http_url, network="regtest")
     tx = Tx(
         vin=[TxIn(OutPoint(bytes.fromhex("11" * 32), 0))],
         vout=[TxOut(1000, bytes.fromhex("0014" + "22" * 20))],
     )
-    with pytest.raises(HttpError, match="bad-txns-inputs-missingorspent") as raised:
+    with pytest.raises(HttpError) as raised:
         fetcher.broadcast(tx)
     assert raised.value.status == 400
+    assert reject_reason(stack.node, tx) == "missing-inputs"
