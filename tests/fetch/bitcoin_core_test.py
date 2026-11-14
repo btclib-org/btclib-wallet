@@ -57,6 +57,7 @@ from tests.fetch import (
     TIP_ID,
     TX_ID,
     Recorded,
+    bounds_handed,
     chain_mismatch,
     recorded_body,
 )
@@ -72,9 +73,9 @@ RPC_PASSWORD = "rpcpassword"  # noqa: S105  # pragma: allowlist secret
 
 # the endpoint the tests build against, written once
 URL = "http://127.0.0.1:8332"
-# what `client_errors` answers for a refusal of the client's own, whose text
-# is not relayed
-_NO_USABLE_ANSWER = "^no usable answer from the server: FetchError$"
+# what the network check answers for a refusal of the client's own, the
+# method named and the client's text not relayed
+_NO_USABLE_ANSWER = "^getblockchaininfo: no usable answer from the server: FetchError$"
 
 
 def asked_id(request: Request) -> str:
@@ -402,6 +403,24 @@ def test_a_challenge_that_is_no_script_is_refused_at_construction() -> None:
         fetcher(network="signet", verify_network=True, signet_challenge="not hex")
 
 
+def test_the_network_check_names_the_method_it_asked() -> None:
+    """A node refusing the check is named by the method, as each other call is.
+
+    The check is `getblockchaininfo`, asked by the client's `assert_chain`
+    before the call the caller made. Its refusal keeps Core's code and
+    names the method, so that a node still loading its index is told from
+    one refusing the call itself.
+    """
+    error = {"code": int(RPCErrorCode.IN_WARMUP), "message": "Loading block index"}
+    body = json.dumps({"jsonrpc": "2.0", "error": error, "id": "x"}).encode()
+    pattern = r"^getblockchaininfo: the server answered an rpc error"
+    pattern += r" \(rpc error code -28\)$"
+    with raises_alone(RpcError, match=pattern) as raised:
+        fetcher((200, body), verify_network=True).get_block_count()
+    assert isinstance(raised.value, RpcError)
+    assert raised.value.code == RPCErrorCode.IN_WARMUP
+
+
 @pytest.mark.parametrize(
     "result, message, network",
     [
@@ -629,18 +648,24 @@ def test_get_block_header_verifies_the_chain_once_like_the_others() -> None:
     assert asked(endpoint) == ["getblockchaininfo", "getblockhash", "getblockheader"]
 
 
-def test_a_small_reply_carries_a_small_limit() -> None:
+def test_a_small_reply_carries_a_small_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A height and a tip hash are bounded by what they are.
 
     `BitcoinCoreRpcClient.call` is public and takes any method, so it
     keeps the client's default, `DEFAULT_MAX_BODY_SIZE`. The answers that
-    are a number and a hash narrow it.
+    are a number and a hash narrow it, to the 1024 octets read here where
+    the fetcher hands them to the client: a refusal names no number.
     """
     oversized = b'{"result":' + b"9" * 1100 + b',"error":null,"id":"x"}'
+    small = fetcher((200, oversized))
+    handed = bounds_handed(monkeypatch, small.client, "call")
     with pytest.raises(
         FetchError, match="no usable answer from the server: FetchError"
     ):
-        fetcher((200, oversized)).get_block_count()
+        small.get_block_count()
+    assert handed == [1024]
 
     # the recorded answers are well inside it, which is the other half of
     # the claim

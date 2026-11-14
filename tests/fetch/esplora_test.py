@@ -21,6 +21,7 @@ from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 
 from btclib_wallet.exceptions import FetchError, HttpError
+from btclib_wallet.fetch import esplora as esplora_module
 from btclib_wallet.fetch.balance import Balance
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
@@ -34,6 +35,7 @@ from tests.fetch import (
     TIP_ID,
     TX_ID,
     Recorded,
+    bounds_handed,
     recorded_body,
 )
 from tests.refused_value_test import HEX, SCALAR, SPELLINGS
@@ -513,15 +515,17 @@ def test_whitespace_around_an_answer_is_not_part_of_it() -> None:
     assert fetcher((200, b"  481824\n")).get_block_count() == TIP_HEIGHT
 
 
-def test_each_answer_is_bounded_by_what_it_is() -> None:
+def test_each_answer_is_bounded_by_what_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
     """A height is not megabytes, and the limit says so per endpoint.
 
     One limit for every answer would have to be the widest of them -- a raw
     transaction in hex -- so a host answering `blocks/tip/height` with a
     transaction's worth of digits would be held in memory and only then
     refused by `int`. The narrow answers carry narrow limits, with room
-    for the newline a proxy adds and for nothing else.
+    for the newline a proxy adds and for nothing else. A refusal names no
+    number, so each limit is read where the fetcher hands it on.
     """
+    handed = bounds_handed(monkeypatch, esplora_module, "http_request")
     height = fetcher((200, b"9" * 65))
     with pytest.raises(
         FetchError, match="no usable answer from the server: FetchError"
@@ -533,6 +537,7 @@ def test_each_answer_is_bounded_by_what_it_is() -> None:
         FetchError, match="no usable answer from the server: FetchError"
     ):
         tip.get_best_block_id()
+    assert handed == [64, 128]
 
     # and the recorded answers are inside their limits, which is the other
     # half of the claim
@@ -540,12 +545,14 @@ def test_each_answer_is_bounded_by_what_it_is() -> None:
     assert fetcher((200, TIP_ID.encode() + b"\n")).get_best_block_id().hex() == TIP_ID
 
 
-def test_the_header_answer_is_bounded_too() -> None:
+def test_the_header_answer_is_bounded_too(monkeypatch: pytest.MonkeyPatch) -> None:
     """The header endpoint, bounded the same way the others are.
 
     Eighty bytes of hex is a hundred and sixty digits, so the limit
-    leaves room for a proxy's newline and nothing past it.
+    leaves room for a proxy's newline and nothing past it. The limits are
+    read where the fetcher hands them on: the hash's, then the header's.
     """
+    handed = bounds_handed(monkeypatch, esplora_module, "http_request")
     header = fetcher(
         (200, recorded_body("esplora_block_height_hash.txt")), (200, b"a" * 257)
     )
@@ -553,6 +560,7 @@ def test_the_header_answer_is_bounded_too() -> None:
         FetchError, match="no usable answer from the server: FetchError"
     ):
         header.get_block_header(TIP_HEIGHT)
+    assert handed == [128, 256]
 
     # and the recorded answer is inside its limit
     ok = fetcher(

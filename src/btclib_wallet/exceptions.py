@@ -100,8 +100,11 @@ class RpcError(FetchError):
     number, and parsing it back out of the message is what having a field
     avoids.
 
-    The message names the method asked, and `data`, JSON-RPC's optional
-    third member of an error object, is None. The backend's own text and
+    The message names the method asked. The one exception is a
+    `bitcoin_core_rpc.RpcError` raised by a `LineTransport` of the
+    caller's own: `ElectrumFetcher` hands it a request line and not a
+    method, so that refusal names none. `data`, JSON-RPC's optional third
+    member of an error object, is None. The backend's own text and
     `data` are dropped, since they can quote the request:
     `btclib_wallet.electrum`'s `_raise_rpc_error` says why.
 

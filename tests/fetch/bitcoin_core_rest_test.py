@@ -40,6 +40,7 @@ from tests.fetch import (
     TIP_ID,
     TX_ID,
     Recorded,
+    bounds_handed,
     recorded_body,
 )
 from tests.refused_value_test import HEX, SCALAR, SPELLINGS
@@ -264,7 +265,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
 
 
 def test_get_block_header_refuses_a_height_with_no_block() -> None:
-    """A height past the tip is a 404, naming the height and not a hash."""
+    """A height past the tip is a 404, from the endpoint asked by height."""
     with pytest.raises(HttpError) as exc:
         fetcher((404, b"Block height out of range")).get_block_header(999_999_999)
     assert exc.value.status == 404
@@ -538,7 +539,9 @@ def test_the_body_bound_admits_a_maximal_signet_challenge() -> None:
     ).assert_network()
 
 
-def test_each_answer_is_bounded_by_what_it_is() -> None:
+def test_each_answer_is_bounded_by_what_it_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A chaininfo reply, a block hash and a header, each bounded by what it is.
 
     The client's own default is wide enough for a block, which is the
@@ -548,26 +551,36 @@ def test_each_answer_is_bounded_by_what_it_is() -> None:
     hold it in order to find that out. The hash and the header bounds
     are the size their endpoint answers with; the chaininfo bound is
     what a maximal signet challenge needs, which the constant's own
-    comment argues. Each refusal carries the number it was measured
-    against, which is what pins the bound to its value.
+    comment argues. A refusal names no number, so each bound is read where
+    the fetcher hands it to the client, against the number written here:
+    that is what pins it to its value. An answer one octet past it is
+    refused.
     """
+    chaininfo_fetcher = fetcher((200, b"x" * 32769))
+    chaininfo = bounds_handed(monkeypatch, chaininfo_fetcher.client, "get_json")
     with pytest.raises(
         FetchError, match="no usable answer from the server: FetchError"
     ):
-        fetcher((200, b"x" * 32769)).get_block_count()
+        chaininfo_fetcher.get_block_count()
+    assert chaininfo == [32768]
 
+    hash_fetcher = fetcher((200, b"\x00" * 33))
+    block_hash = bounds_handed(monkeypatch, hash_fetcher.client, "get_bin")
     with pytest.raises(
         FetchError, match="no usable answer from the server: FetchError"
     ):
-        fetcher((200, b"\x00" * 33)).get_block_header(TIP_HEIGHT)
+        hash_fetcher.get_block_header(TIP_HEIGHT)
+    assert block_hash == [32]
 
     oversized_header = fetcher(
         (200, recorded_body("rest_blockhashbyheight.bin")), (200, b"\x00" * 81)
     )
+    header = bounds_handed(monkeypatch, oversized_header.client, "get_bin")
     with pytest.raises(
         FetchError, match="no usable answer from the server: FetchError"
     ):
         oversized_header.get_block_header(TIP_HEIGHT)
+    assert header == [32, 80]
 
     # and the recorded answers are inside their limits, which is the
     # other half of the claim

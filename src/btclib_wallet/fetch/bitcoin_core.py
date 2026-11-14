@@ -226,8 +226,9 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
     ) -> Any:
         """Invoke one rpc method, raising this package's exceptions for it.
 
-        The one line of this class that crosses into `bitcoin_core_rpc`,
-        which is why every method below goes through it: the package
+        The one line of this class that calls the client's `call`, which
+        is why every method below goes through it; `assert_network` asks
+        the client's `assert_chain`, under the same wrap. The package
         declares a `FetchError` of its own, and what a `Fetcher` promises
         its caller is `btclib_wallet.exceptions`'. `client_errors` carries the
         `status` and the `code` across.
@@ -319,8 +320,9 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         # every network of NETWORKS is a chain of Core's -- the catalogue is
         # fixed at import and `tests/fetch/bitcoin_core_test.py` holds the
         # two vocabularies to covering each other -- so the translation
-        # cannot fail for a name this fetcher was allowed to carry
-        with client_errors():
+        # cannot fail for a name this fetcher was allowed to carry. The
+        # check is one `getblockchaininfo`, which its refusal names
+        with _client_errors("getblockchaininfo"):
             self.client.assert_chain(
                 chain_from_network(self.network),
                 signet_challenge=self.signet_challenge,

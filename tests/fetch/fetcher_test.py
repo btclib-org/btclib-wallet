@@ -285,7 +285,7 @@ def test_block_header_from_raw_returns_a_checked_header() -> None:
     ],
 )
 def test_block_header_from_raw_reports_what_is_not_a_header(raw: str) -> None:
-    """Wrap an unparsable body in a FetchError naming the height."""
+    """Wrap an unparsable body in a FetchError naming a block header."""
     with pytest.raises(FetchError, match="^block header:"):
         block_header_from_raw(raw, network="mainnet")
 
