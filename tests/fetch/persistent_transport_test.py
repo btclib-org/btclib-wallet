@@ -751,11 +751,13 @@ def test_a_handshake_refused_names_its_error_and_not_the_close(
 ) -> None:
     """A socket that fails to close after a failed handshake hides nothing."""
 
-    def connect(address: tuple[str, int], timeout: float) -> socket.socket:
+    def connect(
+        address: tuple[str, int], _deadline: float, timeout: float, _where: str
+    ) -> socket.socket:
         sock = socket.create_connection(address, timeout=timeout)
         return FailingSocket(sock.family, sock.type, sock.proto, sock.detach())
 
-    monkeypatch.setattr(transport_module, "create_connection", connect)
+    monkeypatch.setattr(transport_module, "_open_connection", connect)
     server = serve(numbered)
     with PersistentTlsLineTransport(HOST, server.port) as transport:
         with pytest.raises(

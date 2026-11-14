@@ -21,6 +21,7 @@ from base58_bech32.bech32 import BECH32_M_CONST, bech32_encode
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.b32 import power_of_2_base_conversion
 from btclib.exceptions import BTClibRuntimeError, BTClibTypeError, BTClibValueError
+from btclib.p2p import Ping
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.curves import bytes_from_point, mult
@@ -45,6 +46,7 @@ from btclib_wallet.electrum import (
     transaction_get_request,
 )
 from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.fetch import peer_transport as peer_transport_module
 from btclib_wallet.fetch import transport as transport_module
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
@@ -67,6 +69,8 @@ from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.secret_free import assert_secret_free
 
 URL = "http://127.0.0.1:8332"
+# a message a peer transport sends, on regtest's magic
+_PING = Ping(7).to_message(b"\xfa\xbf\xb5\xda")
 ADDRESS = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
 # credentials of no node, named so that no `password=` argument holds a literal
 RPC_USER = "rpcuser"
@@ -936,13 +940,51 @@ def test_a_host_that_passed_construction_is_described_where_it_fails(
     `_quoted` does (issue #821).
     """
 
-    def create_connection(address: tuple[str, int], timeout: float) -> object:
+    def open_connection(
+        address: tuple[str, int], _deadline: float, timeout: float, _where: str
+    ) -> object:
         raise ConnectionRefusedError(address, timeout)
 
-    monkeypatch.setattr(transport_module, "create_connection", create_connection)
+    monkeypatch.setattr(transport_module, "_open_connection", open_connection)
     host = f"{HEX[:32]}.{HEX[32:]}"
     err_msg = "^no answer from a value of 65 characters:1: ConnectionRefusedError$"
     with pytest.raises(FetchError, match=err_msg) as e:
         TcpLineTransport(host, 1)(b"{}\n", 1.0)
     assert e.value.__cause__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda host: TcpLineTransport(host, 1)(b"{}\n", 1.0),
+        lambda host: TlsLineTransport(host, 1)(b"{}\n", 1.0),
+        lambda host: PersistentTlsLineTransport(host, 1)(b'{"id": 1}\n', 1.0),
+        lambda host: TcpPeerTransport(host, 1).send(_PING, 1.0),
+        lambda host: V2PeerTransport(host, 1).send(_PING, 1.0),
+    ],
+    ids=["tcp line", "tls line", "persistent tls", "tcp peer", "v2 peer"],
+)
+def test_a_failed_connect_names_no_address(
+    call: Callable[[str], object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each caller of `_open_connection` refuses without its error's text.
+
+    `_open_connection` raises the last connect's `OSError` as
+    `socket.create_connection` does, and that text can name the address:
+    each caller names at most the error's class (issue #821).
+    """
+    host = f"{HEX[:32]}.{HEX[32:]}"
+
+    def open_connection(
+        address: tuple[str, int], _deadline: float, _timeout: float, _where: str
+    ) -> object:
+        raise ConnectionRefusedError(f"cannot reach {address[0]}")
+
+    monkeypatch.setattr(transport_module, "_open_connection", open_connection)
+    monkeypatch.setattr(peer_transport_module, "_open_connection", open_connection)
+    with pytest.raises(FetchError) as e:
+        call(host)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
     assert_secret_free(e.value, SPELLINGS)

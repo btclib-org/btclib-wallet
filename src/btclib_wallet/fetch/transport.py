@@ -217,14 +217,16 @@ def _open_connection(
                 sock.settimeout(left)
                 sock.connect(sockaddr)
             except OSError as e:
-                sock.close()
                 error = e
-                continue
             except BaseException:
                 # a `KeyboardInterrupt` leaves no socket open behind it
                 sock.close()
                 raise
-            return sock
+            else:
+                return sock
+            # closed after the handler, so that a close that fails raises
+            # its own error, with no connect error as its context
+            sock.close()
         raise error
     finally:
         # the error's traceback holds this frame, so the frame lets go of

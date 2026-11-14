@@ -1726,9 +1726,13 @@ CLEANUPS = {
         " raises `_TransportError` alone, a `FetchError`"
     ),
     ("fetch/transport.py", "_connected", "sock.close"): (
-        "the socket `create_connection` answered, closed by the standard"
+        "the socket `_open_connection` answered, closed by the standard"
         " library under `suppress(OSError)`: no `close` of the package runs,"
         " and a close that fails leaves the handshake's error to be raised"
+    ),
+    ("fetch/transport.py", "_open_connection", "sock.close"): (
+        "the `socket.socket` built above, closed by the standard library"
+        " while an interrupt is handled: no `close` of the package runs"
     ),
     ("fetch/compact_filters.py", "_sync_headers", "self._restore"): (
         "`_restore` reaches a raise only through `_append`'s `append` calls,"
@@ -1760,6 +1764,13 @@ CLEANUPS = {
 #: An exception raised by a name the census does not trace, keyed by
 #: module, function and the source of what is raised, each with its reason.
 KEPT = {
+    ("fetch/transport.py", "_open_connection", "error"): (
+        "`error` is the last `OSError` a connect attempt raised, raised"
+        " again as `socket.create_connection` raises it. Each caller catches"
+        " `OSError` and refuses with a text of its own, naming at most the"
+        " error's class; `test_a_failed_connect_names_no_address` holds them"
+        " to it"
+    ),
     ("fetch/fetcher.py", "_verify_once", "self._disagreement"): (
         "`_disagreement` is assigned `None` in `__init__` and, in"
         " `_verify_once`, the exception `except _WrongChainError` binds"
