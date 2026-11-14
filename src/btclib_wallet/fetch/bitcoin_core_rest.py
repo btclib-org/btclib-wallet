@@ -121,7 +121,7 @@ def _field(reply: Any, name: str) -> Any:
     `TypeError` depending on what came back, neither of which
     `_fetch_errors` reads as a source's own failure. Raising
     `BTClibTypeError` for both is what keeps the diagnosis inside
-    `_fetch_errors`, which chains it, its text being this package's.
+    `_fetch_errors`, which refuses it as a `FetchError`.
     """
     if not isinstance(reply, dict) or name not in reply:
         raise BTClibTypeError(

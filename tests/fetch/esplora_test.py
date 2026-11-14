@@ -24,7 +24,7 @@ from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch.balance import Balance
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
-from tests import chained_text, raises_from
+from tests import chained_text, raises_alone
 from tests.fetch import (
     LATER_TX_ID,
     REGTEST_GENESIS_HEADER_RAW,
@@ -737,11 +737,7 @@ def test_estimate_fee_refuses_a_malformed_payload(body: bytes) -> None:
 
 def test_estimate_fee_says_not_an_object_for_a_reply_that_is_not_one() -> None:
     """A list is named as what it is, and described, not quoted."""
-    with raises_from(
-        FetchError,
-        match="^fee-estimates: a malformed answer$",
-        cause="not an object: a list of length 2",
-    ):
+    with raises_alone(FetchError, match="^fee-estimates: a malformed answer$"):
         fetcher((200, b"[1, 2]")).estimate_fee(1)
 
 
@@ -924,67 +920,53 @@ def test_get_balance_refuses_an_answer_for_another_address() -> None:
 
 
 @pytest.mark.parametrize(
-    "body, message",
+    "body",
     [
         # the parser's text is not relayed, the type of its refusal is
-        (b"not json", "as JSONDecodeError"),
-        (b"[1, 2]", "not an object"),
-        (address_body(chain=(True, 0)), "chain_stats: invalid sums"),
-        (address_body(mempool=(5, 1.5)), "mempool_stats: invalid sums"),
-        (address_body(chain=("100", 0)), "chain_stats: invalid sums"),
-        (address_body(chain=(10, 30)), "negative confirmed balance: -20"),
+        b"not json",
+        b"[1, 2]",
+        address_body(chain=(True, 0)),
+        address_body(mempool=(5, 1.5)),
+        address_body(chain=("100", 0)),
+        address_body(chain=(10, 30)),
     ],
 )
-def test_get_balance_refuses_a_malformed_answer(body: bytes, message: str) -> None:
+def test_get_balance_refuses_a_malformed_answer(body: bytes) -> None:
     """Every refusal of the answer is a `FetchError` naming the question.
 
     The address is the caller's, so it is not written: what was wrong is
     the refusal the answer met, which the `FetchError` chains.
     """
-    with raises_from(FetchError, match="^address: a malformed answer", cause=message):
+    with raises_alone(FetchError, match="^address: a malformed answer"):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
 
 
 def test_get_balance_refuses_stats_that_are_no_object() -> None:
     """A stats member that is no object is refused, not read as zero."""
     body = json.dumps({"address": GENESIS_ADDRESS, "chain_stats": None}).encode()
-    with raises_from(
-        FetchError,
-        match="address: a malformed answer",
-        cause="chain_stats: not an object",
-    ):
+    with raises_alone(FetchError, match="address: a malformed answer"):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
 
 
 @pytest.mark.parametrize(
-    "body, message",
+    "body",
     [
-        (json.dumps(HEX).encode(), "not an object: a str of length 64"),
-        (address_body(address=HEX), "the server answered for a str of length 64"),
-        (
-            json.dumps({"address": GENESIS_ADDRESS, "chain_stats": HEX}).encode(),
-            "chain_stats: not an object: a str of length 64",
-        ),
-        (
-            address_body(chain=(HEX, SCALAR)),
-            "chain_stats: invalid sums: a str of length 64, an int of 256 bits",
-        ),
+        json.dumps(HEX).encode(),
+        address_body(address=HEX),
+        json.dumps({"address": GENESIS_ADDRESS, "chain_stats": HEX}).encode(),
+        address_body(chain=(HEX, SCALAR)),
     ],
 )
-def test_get_balance_describes_what_it_refuses(body: bytes, message: str) -> None:
+def test_get_balance_describes_what_it_refuses(body: bytes) -> None:
     """What the explorer answered is described, not printed (issue #802)."""
-    with raises_from(FetchError, match="^address: ", cause=message) as e:
+    with raises_alone(FetchError, match="^address: ") as e:
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
     assert_secret_free(e.value, SPELLINGS)
 
 
 def test_estimate_fee_describes_a_reply_that_is_not_an_object() -> None:
     """What the explorer answered is described, not printed (issue #802)."""
-    with raises_from(
-        FetchError,
-        match="^fee-estimates: a malformed answer$",
-        cause="not an object: a str of length 64",
-    ) as e:
+    with raises_alone(FetchError, match="^fee-estimates: a malformed answer$") as e:
         fetcher((200, json.dumps(HEX).encode())).estimate_fee(1)
     assert_secret_free(e.value, SPELLINGS)
 

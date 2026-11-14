@@ -54,20 +54,19 @@ def chained_text(e: BaseException | None) -> str:
 
 
 @contextmanager
-def raises_from(
-    kind: type[BaseException], match: str, cause: str
+def raises_alone(
+    kind: type[BaseException], match: str
 ) -> Iterator[pytest.ExceptionInfo[BaseException]]:
-    """Expect `kind` matching `match`, and `cause` matching in its chain.
+    """Expect `kind` matching `match`, chaining nothing and with no context.
 
-    A refusal prints no value it refuses, so the detail a test once read
-    from its message is read from the exception it is raised from, which
-    says what was wrong in the words of the code that found it. The
-    refusal's own text is in the chain too, for a case whose refusal
-    chains nothing.
+    An exception that is not the package's own may hold the input, so a
+    refusal raised where one was handled is raised after the `except`
+    block, and holds none of it (issue #821).
     """
     with pytest.raises(kind, match=match) as caught:
         yield caught
-    assert re.search(cause, chained_text(caught.value)), repr(caught.value)
+    assert caught.value.__cause__ is None, repr(caught.value.__cause__)
+    assert caught.value.__context__ is None, repr(caught.value.__context__)
 
 
 # what `str.strip()` takes and `string.whitespace` does not: U+001C is

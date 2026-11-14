@@ -170,11 +170,11 @@ def _fetch_errors(source: str) -> Iterator[None]:
     All of them name the converter and not the host, and the host is what
     has to be fixed.
 
-    Their text is not relayed. A refusal of btclib's or of this package's
-    is chained, since it prints no value it refuses. Any other is not, and
-    the refusal is raised after the `except` block: a builtin's text can
-    hold the answer it refused, as `int` quotes the literal it could not
-    read.
+    Their text is not relayed, and none of them is chained: the refusal
+    is raised after the `except` block. A builtin's text can hold the
+    answer it refused, as `int` quotes the literal it could not read, and
+    so can a refusal of btclib's, as `BlockHeader.assert_valid` quotes the
+    time of a header it refuses.
     """
     try:
         yield
@@ -183,8 +183,8 @@ def _fetch_errors(source: str) -> Iterator[None]:
         # too, so it has to be let through before the clauses below wrap
         # it in a second refusal
         raise
-    except (BTClibTypeError, BTClibValueError, BTClibRuntimeError) as e:
-        raise FetchError(f"{source}: a malformed answer") from e
+    except (BTClibTypeError, BTClibValueError, BTClibRuntimeError):
+        refusal = FetchError(f"{source}: a malformed answer")
     except (TypeError, ValueError) as e:
         refusal = FetchError(f"{source}: a malformed answer, as {type(e).__name__}")
     else:

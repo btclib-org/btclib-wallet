@@ -649,8 +649,8 @@ def _member(reply: Any, name: str) -> Any:
     """Return one member of a json object, refusing what is not one.
 
     `BTClibTypeError` for a missing member as for a reply that is no
-    object, which `_fetch_errors` reads as the node's own failure and
-    chains, as `bitcoin_core_rest._field` does.
+    object, which `_fetch_errors` reads as the node's own failure, as
+    `bitcoin_core_rest._field` does.
     """
     if not isinstance(reply, dict) or name not in reply:
         raise BTClibTypeError(f"no {name!r} member")

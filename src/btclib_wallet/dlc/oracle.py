@@ -66,6 +66,7 @@ refusal never prints a key or a nonce.
 from __future__ import annotations
 
 import unicodedata
+from contextlib import suppress
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
@@ -123,10 +124,11 @@ _I32 = 0x80000000
 
 
 def _int_bytes(value: int, size: int, what: str, *, signed: bool) -> bytes:
-    try:
+    # each refusal of this module is raised after its `suppress`, so that
+    # it chains nothing: a codec's error holds the whole value
+    with suppress(OverflowError):
         return value.to_bytes(size, "big", signed=signed)
-    except OverflowError:
-        raise BTClibValueError(f"{what} out of range") from None
+    raise BTClibValueError(f"{what} out of range")
 
 
 def _bigsize(value: int) -> bytes:
@@ -172,10 +174,9 @@ class _Reader:
 
     def string(self) -> str:
         data = self.take(self.bigsize())
-        try:
+        with suppress(UnicodeDecodeError):
             return data.decode()
-        except UnicodeDecodeError:
-            raise BTClibValueError("a string is not UTF-8") from None
+        raise BTClibValueError("a string is not UTF-8")
 
     def tlv(self, *types: int) -> tuple[int, _Reader]:
         """Return the type and the reader of the value of the next TLV."""
@@ -191,10 +192,11 @@ class _Reader:
 
 def _assert_string(value: object, what: str) -> None:
     assert_type(value, str, what)
-    try:
-        value.encode()  # type: ignore[attr-defined]
-    except UnicodeEncodeError:
-        raise BTClibValueError(f"{what} is not UTF-8") from None
+    encoded = None
+    with suppress(UnicodeEncodeError):
+        encoded = value.encode()  # type: ignore[attr-defined]
+    if encoded is None:
+        raise BTClibValueError(f"{what} is not UTF-8")
     if unicodedata.normalize("NFC", value) != value:  # type: ignore[arg-type]
         raise BTClibValueError(f"{what} is not NFC normalized")
 
@@ -210,10 +212,11 @@ def _assert_x_only(value: object, what: str) -> None:
     assert_type(value, bytes, what)
     if len(value) != 32:  # type: ignore[arg-type]
         raise BTClibValueError(f"{what} is not 32 octets")
-    try:
-        ssa.point_from_bip340pub_key_var(value)  # type: ignore[arg-type]
-    except ValueError:
-        raise BTClibValueError(f"{what} is not a point") from None
+    point = None
+    with suppress(ValueError):
+        point = ssa.point_from_bip340pub_key_var(value)  # type: ignore[arg-type]
+    if point is None:
+        raise BTClibValueError(f"{what} is not a point")
 
 
 def _assert_signature(value: object, what: str) -> None:

@@ -1265,8 +1265,8 @@ def test_every_refusal_a_secret_reaches_holds_none(
     path = tmp_path / "hardened.sqlite"
     with _created(path, chain, _wallet(XPRV), _hardened(XPRV2)) as ledger:
         refused(lambda: ledger.encrypt(SECRET), "a locked ledger cannot watch")
-        # raised `from None`: the context walked is the parser's refusal
-        assert len(list(chained(refusals[-1]))) == 2
+        # raised after the `except` block, so that it chains nothing
+        assert len(list(chained(refusals[-1]))) == 1
     path = tmp_path / "encrypted.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)
@@ -1305,7 +1305,7 @@ def test_every_refusal_a_secret_reaches_holds_none(
     with _loaded(path, chain) as ledger:
         refused(lambda: ledger.unlock_keys(SECRET, 10), "keys do not decrypt")
         names = [type(e).__name__ for e in chained(refusals[-1])]
-        assert names == ["BTClibValueError", "_WrongKeyError", "InvalidTag"]
+        assert names == ["BTClibValueError", "_WrongKeyError"]
     path = tmp_path / "unciphered.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)

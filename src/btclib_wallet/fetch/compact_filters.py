@@ -626,7 +626,10 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             median_time_past(parent, parent_height, self._parent_of),
             self._locator(parent_height),
         )
-        try:
+        # a clock far behind the median time past of the start, refused
+        # after `suppress`, so that it chains nothing
+        headers_sync = None
+        with suppress(BTClibValueError):
             headers_sync = HeadersSyncState(
                 self._consensus,
                 self._headers_sync_params,
@@ -634,10 +637,9 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
                 threshold,
                 now=datetime.fromtimestamp(time(), UTC),
             )
-        except BTClibValueError as e:
-            # a clock far behind the median time past of the start
+        if headers_sync is None:
             err_msg = "headers sync: a clock behind the median time past"
-            raise FetchError(f"{err_msg} of the start") from e
+            raise FetchError(f"{err_msg} of the start")
         return _LowWorkSync(headers_sync, threshold, parent_height, parent_height)
 
     def _released_reach(self, ready: list[BlockHeader], threshold: int) -> bool:
@@ -875,7 +877,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             if filter_.header(previous) != served or not _holds_all(filter_, scripts):
                 wrong.append(each)
         if not wrong:
-            index = self._peers.index(peer) - 1
+            index = _quoted(self._peers.index(peer) - 1)
             err_msg = f"cross_check[{index}] and transport disagree on the filter"
             err_msg += f" of block {_quoted(height)}, and the block does not say"
             err_msg += " which one is wrong"

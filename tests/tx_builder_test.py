@@ -43,7 +43,7 @@ from btclib_wallet.psbt.psbt_size import SIG_SIZE
 from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.psbt_signer import SoftwareSigner, export_account, request_signatures
 from btclib_wallet.tx_builder import DEFAULT_MAX_FEE, DEFAULT_MAX_FEE_RATE, build_psbt
-from tests import raises_from
+from tests import raises_alone
 
 # BIP39's "abandon abandon ... about" root, which BIP84 publishes and
 # `tests/software_signer_test.py` signs with
@@ -397,9 +397,7 @@ def test_an_input_of_no_readable_type_is_answered_by_a_sizer() -> None:
     psbt_in = spendable(100_000, ScriptPubKey.p2wsh(witness_script))
     psbt_in.witness_script = witness_script
 
-    with raises_from(
-        BTClibValueError, match="input 0: no size estimate", cause="no estimate"
-    ):
+    with raises_alone(BTClibValueError, match="input 0: no size estimate"):
         build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)
 
     small = build_psbt(

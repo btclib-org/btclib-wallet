@@ -41,7 +41,7 @@ from btclib_wallet.psbt.psbt_size import (
     SIG_SIZE,
     estimated_input_sizes,
 )
-from tests import load, load_bin, raises_from, vector_id
+from tests import load, load_bin, raises_alone, vector_id
 from tests.exception_family_test import VALUE_ERRORS
 
 # BIP174's example, at the two stages this file needs it: what the
@@ -473,11 +473,7 @@ def test_a_taproot_script_path_has_no_estimate() -> None:
     psbt = bip371_psbt(3)
     assert psbt.inputs[0].taproot_leaf_scripts
 
-    with raises_from(
-        BTClibValueError,
-        match="input 0: no size estimate",
-        cause="taproot script path",
-    ):
+    with raises_alone(BTClibValueError, match="input 0: no size estimate"):
         _ = psbt.estimated_vsize
 
 
@@ -607,11 +603,7 @@ def test_a_sizer_answers_for_a_taproot_script_path() -> None:
     psbt_in = psbt.inputs[0]
     assert psbt_in.taproot_leaf_scripts
 
-    with raises_from(
-        BTClibValueError,
-        match="input 0: no size estimate",
-        cause="taproot script path",
-    ):
+    with raises_alone(BTClibValueError, match="input 0: no size estimate"):
         _ = psbt.estimated_vsize
 
     ((leaf_script, leaf_version),) = list(psbt_in.taproot_leaf_scripts.values())[:1]

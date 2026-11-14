@@ -112,7 +112,9 @@ def test_finalize_verifies_extra_multi_a_signatures() -> None:
     psbt.inputs[0].taproot_script_spend_signatures[
         keys[1] + taproot.leaf_hash(0xC0, script)
     ] = b"\x01" * 64
-    with pytest.raises(BTClibValueError, match="invalid taproot script path signature"):
+    with pytest.raises(
+        BTClibValueError, match=r"taproot script path signature \d+: invalid"
+    ):
         finalize(psbt)
 
 
@@ -125,7 +127,7 @@ def test_finalize_refuses_a_signature_for_a_key_outside_multi_a() -> None:
     ] = next(iter(psbt.inputs[0].taproot_script_spend_signatures.values()))
     with pytest.raises(
         BTClibValueError,
-        match="taproot script path signature of a key that is not the key of the leaf script",
+        match=r"taproot script path signature \d+: of a key that is not the key of the leaf script",
     ):
         finalize(psbt)
 

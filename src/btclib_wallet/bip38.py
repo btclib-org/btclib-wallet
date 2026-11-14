@@ -186,15 +186,18 @@ def _payload_from_base58(text: String, size: int) -> bytes:
 
     The codec refuses with `Base58Bech32TypeError` and
     `Base58Bech32ValueError`, which leave here as the `BTClibTypeError` and
-    the `BTClibValueError` this package refuses with, chaining the codec's,
-    whose text prints no character of the string.
+    the `BTClibValueError` this package refuses with. These are raised
+    after the `except` block, so that they chain nothing: a refusal chains
+    no exception that is not the package's own.
     """
+    refusal: Exception
     try:
         return b58decode_check(text, out_size=size)
-    except Base58Bech32TypeError as e:
-        raise BTClibTypeError("invalid Base58Check type") from e
-    except Base58Bech32ValueError as e:
-        raise BTClibValueError("invalid Base58Check string") from e
+    except Base58Bech32TypeError:
+        refusal = BTClibTypeError("invalid Base58Check type")
+    except Base58Bech32ValueError:
+        refusal = BTClibValueError("invalid Base58Check string")
+    raise refusal
 
 
 def _xor(a: bytes, b: bytes) -> bytes:

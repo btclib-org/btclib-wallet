@@ -178,11 +178,11 @@ def _checked_base_url(base_url: str) -> str:
     number, a url that cannot work is refused at the line that wrote it.
 
     Credentials in the url are refused, as `bitcoin_core_rpc` refuses
-    them in its own: the url is echoed by the messages this class raises,
-    and a password would travel with it into every traceback and log.
-    Any `@` is refused, since `urlsplit` ends the netloc at a `/`, `?` or
-    `#` and so reads no credentials in `user:/pw@host`. Nothing here echoes
-    the url, and `urlsplit`'s own messages, which quote it, are not chained.
+    them in its own, whose messages echo its url: a password there would
+    travel into every traceback and log. Any `@` is refused, since
+    `urlsplit` ends the netloc at a `/`, `?` or `#` and so reads no
+    credentials in `user:/pw@host`. Nothing here echoes the url, and
+    `urlsplit`'s own messages, which quote it, are not chained.
     """
     if not isinstance(base_url, str):
         raise BTClibTypeError(f"non-string base_url: {type(base_url).__name__}")

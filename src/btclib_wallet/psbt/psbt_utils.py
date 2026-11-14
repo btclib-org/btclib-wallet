@@ -31,7 +31,7 @@ from btclib.utils import (
 )
 from ecc.curves import sec_point
 
-from btclib_wallet._refusal import _label, _quoted
+from btclib_wallet._refusal import _hex_field, _label, _quoted
 from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
 
@@ -949,7 +949,8 @@ def assert_valid_taproot_signatures(signatures: list[bytes], what: str) -> None:
             # test against, and a psbt carrying what neither would accept
             # is a signature nothing can spend with
             if sig_hash_type not in SIG_HASH_TYPES:
-                err_msg = f"invalid {_label(what, _LABELS)} sig_hash type: {_quoted(sig_hash_type)}"
+                err_msg = f"invalid {_label(what, _LABELS)} sig_hash type: "
+                err_msg += _hex_field(sig_hash_type)
                 raise BTClibValueError(err_msg)
 
 

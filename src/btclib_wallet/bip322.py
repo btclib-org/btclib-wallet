@@ -699,16 +699,21 @@ def _assert_scripts(prevouts: list[TxOut], tx: Tx) -> None:
     upgradeable ones say, which is the order BIP322 puts the two sets in.
     """
     hash_types: list[int] = []
+    # what fails under the upgradeable rules is read again after the
+    # `except` block, so that no refusal chains the script's own
+    upgradeable_failed = False
     try:
         verify_transaction(
             prevouts, tx, REQUIRED_RULES | UPGRADEABLE_RULES, hash_types=hash_types
         )
-    except _INVALID as e:
+    except _INVALID:
+        upgradeable_failed = True
+    if upgradeable_failed:
         required_only: list[int] = []
         verify_transaction(prevouts, tx, REQUIRED_RULES, hash_types=required_only)
         _assert_hash_types(required_only)
         _assert_no_code_separator(prevouts, tx)
-        raise InconclusiveError("upgradeable rule") from e
+        raise InconclusiveError("upgradeable rule")
     _assert_hash_types(hash_types)
     _assert_no_code_separator(prevouts, tx)
 

@@ -1100,7 +1100,7 @@ def test_taproot_signature_carries_its_sig_hash_type() -> None:
 
     # not one of the seven values SIG_HASH_TYPES holds
     psbt.inputs[0].taproot_key_spend_signature = signature + b"\x04"
-    err_msg = "invalid taproot key path signature sig_hash type: 4"
+    err_msg = "invalid taproot key path signature sig_hash type: 0x4"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -1128,7 +1128,7 @@ def test_taproot_signature_carries_its_sig_hash_type() -> None:
 
     # 0x80 is ANYONECANPAY with DEFAULT, which BIP341 does not define
     signatures[key] = signature + b"\x80"
-    err_msg = "invalid taproot script path signature sig_hash type: 128"
+    err_msg = "invalid taproot script path signature sig_hash type: 0x80"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -3081,7 +3081,7 @@ def test_finalize_refuses_a_signature_of_another_sig_hash_type() -> None:
     finalize(psbt)
 
     psbt.inputs[0].sig_hash_type = 3
-    err_msg = "mismatched sig_hash type: 1 vs 3"
+    err_msg = "mismatched sig_hash type: 0x1 vs 0x3"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3089,7 +3089,7 @@ def test_finalize_refuses_a_signature_of_another_sig_hash_type() -> None:
     # signature carries: what BIP174 tests is the field's presence, so a
     # falsy value is not an absent field
     psbt.inputs[0].sig_hash_type = 0
-    err_msg = "mismatched sig_hash type: 1 vs 0"
+    err_msg = "mismatched sig_hash type: 0x1 vs 0x0"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3680,7 +3680,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     # the signature commits to another
     psbt = _taproot_signed("output key is a MuSig2 Aggregate Pubkey, with all partial")
     psbt.inputs[0].sig_hash_type = 1
-    err_msg = "invalid taproot key path signature sig_hash type"
+    err_msg = "input 0: taproot key path signature: invalid sig_hash type"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3688,7 +3688,9 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     psbt = _taproot_signed("output key is a MuSig2 Aggregate Pubkey, with all partial")
     psbt.inputs[0].taproot_key_spend_signature = b"\x01" * 64
     err_msg = "invalid taproot key path signature for output key"
-    with pytest.raises(BTClibValueError, match="^invalid taproot key path signature$"):
+    with pytest.raises(
+        BTClibValueError, match="^input 0: taproot key path signature: invalid$"
+    ):
         finalize(psbt)
 
     # no utxo, which is not one input's problem: a taproot signature
@@ -3760,7 +3762,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
         "a key in a script is a MuSig2 Aggregate Pubkey, with all partial"
     )
     psbt.inputs[0].taproot_script_spend_signatures = {key_data: b"\x01" * 64}
-    err_msg = "invalid taproot script path signature"
+    err_msg = r"taproot script path signature \d+: invalid"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -4744,7 +4746,7 @@ def test_an_answer_that_touches_the_first_signature_is_refused() -> None:
     request, returned = _request_and_answer()
     del returned.inputs[0].partial_sigs[_PUB_KEY]
     with pytest.raises(
-        BTClibValueError, match="input 0: partial_sigs entry was dropped"
+        BTClibValueError, match="input 0: partial_sigs entry 0 was dropped"
     ):
         assert_signatures_only(request, returned)
 
@@ -4753,7 +4755,7 @@ def test_an_answer_that_touches_the_first_signature_is_refused() -> None:
         _OTHER_PUB_KEY
     ]
     with pytest.raises(
-        BTClibValueError, match="input 0: partial_sigs entry was changed"
+        BTClibValueError, match="input 0: partial_sigs entry 0 was changed"
     ):
         assert_signatures_only(request, returned)
 
@@ -4767,7 +4769,7 @@ def test_an_answer_carrying_a_signature_that_does_not_verify_is_refused() -> Non
     returned.inputs[0].partial_sigs[_OTHER_PUB_KEY] = (
         request.inputs[0].partial_sigs[_PUB_KEY][:-1] + good[-1:]
     )
-    err_msg = "input 0: invalid partial signature"
+    err_msg = r"input 0: partial signature \d+: invalid"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, returned)
 
@@ -4788,9 +4790,7 @@ def test_a_signature_whose_message_cannot_be_computed_is_refused() -> None:
     returned.inputs[0].witness_script = b""
     del request.inputs[0].partial_sigs[_PUB_KEY]
 
-    err_msg = (
-        "input 0: cannot verify a signature, the psbt does not say what was signed"
-    )
+    err_msg = "input 0: partial signature 0: cannot be verified, the psbt does not say what was signed"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, returned)
 
@@ -4894,7 +4894,7 @@ def test_a_taproot_answer_is_checked_against_the_output_key() -> None:
     returned.inputs[0].taproot_key_spend_signature = b"\x01" * 64
     with pytest.raises(
         BTClibValueError,
-        match="^input 0: invalid taproot key path signature$",
+        match="^input 0: taproot key path signature: invalid$",
     ):
         assert_signatures_only(request, returned)
 
@@ -4962,7 +4962,7 @@ def test_a_taproot_script_path_answer_is_checked_against_the_leaf_key() -> None:
     returned.inputs[0].taproot_script_spend_signatures[key_data] = b"\x01" * 64
     with pytest.raises(
         BTClibValueError,
-        match="^input 0: invalid taproot script path signature$",
+        match=r"^input 0: taproot script path signature \d+: invalid$",
     ):
         assert_signatures_only(request, returned)
 
@@ -5082,9 +5082,13 @@ def test_a_signature_that_does_not_verify_is_refused_however_many_there_are() ->
         partial_sigs[_PUB_KEY],
     )
 
-    with pytest.raises(BTClibValueError, match="input 0: invalid partial signature"):
+    with pytest.raises(
+        BTClibValueError, match="^input 0: partial signature 0: invalid$"
+    ):
         assert_signed(returned)
-    with pytest.raises(BTClibValueError, match="input 0: invalid partial signature"):
+    with pytest.raises(
+        BTClibValueError, match="^input 0: partial signature 0: invalid$"
+    ):
         assert_signed(returned, allow_partial=True)
 
 
@@ -5145,7 +5149,7 @@ def test_a_taproot_signature_is_verified_against_the_key_it_spends() -> None:
     err_msg = "invalid taproot key path signature for output key"
     with pytest.raises(
         BTClibValueError,
-        match="^input 0: invalid taproot key path signature$",
+        match="^input 0: taproot key path signature: invalid$",
     ):
         assert_signed(returned)
 
@@ -5156,7 +5160,7 @@ def test_a_taproot_signature_is_verified_against_the_key_it_spends() -> None:
 
     key_data = next(iter(script_path.inputs[0].taproot_script_spend_signatures))
     script_path.inputs[0].taproot_script_spend_signatures[key_data] = b"\x01" * 64
-    err_msg = "invalid taproot script path signature"
+    err_msg = r"taproot script path signature \d+: invalid"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signed(script_path)
 
@@ -6239,7 +6243,7 @@ def test_a_none_signature_pays_whoever_holds_it() -> None:
     psbt.inputs[0].sig_hash_type = 2  # NONE
     with pytest.raises(
         BTClibValueError,
-        match="input 0 asks for sig_hash type 2, which allowed_sig_hash_types does not name",
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
     ):
         sign(psbt, key_manager)
 
@@ -6455,7 +6459,7 @@ def test_an_ecdsa_signature_of_another_type_is_refused_without_the_field() -> No
     answer, _ = sign(asking_none, key_manager, allowed_sig_hash_types={sig_hash.NONE})
     answer.inputs[0].sig_hash_type = None
 
-    err_msg = "mismatched sig_hash type: 2 vs 1"
+    err_msg = "mismatched sig_hash type: 0x2 vs 0x1"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, answer)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -6501,7 +6505,7 @@ def test_a_taproot_all_signature_is_refused_with_an_explicit_default(
     answer, _ = sign(asking_all, key_manager)
     answer.inputs[0].sig_hash_type = 0  # an explicit DEFAULT is a field
 
-    err_msg = "sig_hash type: 1, the input asks for 0"
+    err_msg = "invalid sig_hash type 1, the input asks for 0"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signed(answer)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -6524,7 +6528,7 @@ def test_a_taproot_signature_of_another_type_is_refused_without_the_field(
     answer, _ = sign(asking, key_manager, allowed_sig_hash_types={hash_type})
     answer.inputs[0].sig_hash_type = None
 
-    err_msg = f"sig_hash type: {hash_type}, the input asks for None"
+    err_msg = f"invalid sig_hash type {hash_type}, the input asks for None"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, answer)
     with pytest.raises(BTClibValueError, match=err_msg):

@@ -48,6 +48,21 @@ def _code(value: object) -> int:
     return 0
 
 
+def _hex_field(value: object) -> str:
+    """Return a field a format defines, such as a sig_hash type, in hex.
+
+    Section 7 lets a refusal print a field of at most 4 bytes: an int that
+    fits in 32 unsigned bits, a bool excepted, is written as `hex` writes
+    it, and anything else as `_quoted` shows it.
+    """
+    kind = type(value)
+    if issubclass(kind, int) and kind is not bool and isinstance(value, int):
+        number = _exact_int(value)
+        if 0 <= number < 2**32:
+            return hex(number)
+    return _quoted(value)
+
+
 def _quoted(value: object) -> str:
     """Return a refused parameter as a refusal may print it.
 

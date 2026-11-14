@@ -25,6 +25,7 @@ answer is one or the other and `tx` may not import `psbt`.
 from __future__ import annotations
 
 import string
+from contextlib import suppress
 
 from btclib.alias import String
 from btclib.exceptions import BTClibValueError
@@ -80,11 +81,13 @@ def _octets_from_text(text: str) -> bytes:
         pass
 
     _assert_text_size(size, _b64_size(_MAX_PSBT_SIZE), "base64 text")
-    try:
-        # canonical base64 alone (issue #114)
+    # canonical base64 alone (issue #114), refused after `suppress`, so
+    # that it chains nothing
+    decoded = None
+    with suppress(BTClibValueError):
         decoded = _b64decode(packed)
-    except BTClibValueError as e:
-        raise BTClibValueError("neither hex nor base64") from e
+    if decoded is None:
+        raise BTClibValueError("neither hex nor base64")
     _assert_decoded_size(decoded, "base64 text")
     return decoded
 

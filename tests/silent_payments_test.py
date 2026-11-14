@@ -39,7 +39,13 @@ from ecc import curves, ssa
 from ecc.curves import bytes_from_point, mult, secp256k1
 
 from btclib_wallet import silent_payments
-from tests import NOT_STRIPPED, load, needs_bindings, raises_from, vector_id
+from tests import (
+    NOT_STRIPPED,
+    load,
+    needs_bindings,
+    raises_alone,
+    vector_id,
+)
 
 # the bindings, None where they are not installed: every test reading
 # them is marked `bindings`, skipped in that configuration
@@ -328,10 +334,8 @@ def test_an_address_bech32_refuses_is_refused_here_too() -> None:
     """
     address = _address()
     assert "k" in address  # otherwise the replacement below replaces nothing
-    with raises_from(
-        BTClibValueError,
-        match="invalid silent payment address encoding",
-        cause="mixed case",
+    with raises_alone(
+        BTClibValueError, match="invalid silent payment address encoding"
     ):
         silent_payments.keys_from_address(address[:10] + address[10:].upper())
     kelvin = address.upper().replace("K", "\N{KELVIN SIGN}")

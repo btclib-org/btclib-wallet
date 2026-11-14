@@ -26,7 +26,7 @@ from btclib.tx import OutPoint
 from btclib_wallet.exceptions import FetchError, RpcError
 from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT
-from tests import raises_from
+from tests import raises_alone
 from tests.fetch import (
     REGTEST_GENESIS_HEADER_RAW,
     TIP_HEADER_RAW,
@@ -367,11 +367,7 @@ def test_verify_tx_refuses_a_wrong_position() -> None:
 def test_a_response_whose_id_does_not_match_is_refused() -> None:
     """A line answering a different request is refused, not returned."""
     wrong_id = json.dumps({"id": 999999, "result": MERKLE_TX_RAW}).encode()
-    with raises_from(
-        FetchError,
-        match="transaction: a malformed answer",
-        cause="does not answer request",
-    ):
+    with raises_alone(FetchError, match="transaction: a malformed answer"):
         fetcher(wrong_id).get_tx(MERKLE_TX_ID)
 
 
@@ -393,11 +389,7 @@ def test_two_questions_carry_two_request_ids() -> None:
 
 def test_a_line_that_is_not_json_is_refused() -> None:
     """A line a server never sends, refused rather than misread."""
-    with raises_from(
-        FetchError,
-        match="transaction: a malformed answer",
-        cause="not a JSON-RPC line",
-    ):
+    with raises_alone(FetchError, match="transaction: a malformed answer"):
         fetcher(b"this is not json\n").get_tx(MERKLE_TX_ID)
 
 
@@ -698,58 +690,32 @@ def test_get_block_headers_may_answer_fewer_than_asked() -> None:
 def test_get_block_headers_asks_at_most_a_retarget_period() -> None:
     """A larger count is asked as 2016, and an answer of more is refused."""
     endpoint = fetcher(chunk_answer(count=2017), network="regtest")
-    with raises_from(
-        FetchError,
-        match="block headers: a malformed answer",
-        cause="invalid count: an int of 11 bits",
-    ):
+    with raises_alone(FetchError, match="block headers: a malformed answer"):
         endpoint.get_block_headers(0, 10**9)
     request = json.loads(transport_of(endpoint).requests[0])
     assert request["params"] == [0, 2016]
 
 
 @pytest.mark.parametrize(
-    "result, match",
+    "result",
     [
-        pytest.param([], "not an object", id="not-an-object"),
-        pytest.param({"hex": ""}, "invalid count", id="no-count"),
-        pytest.param({"count": True, "hex": ""}, "invalid count", id="bool-count"),
-        pytest.param({"count": -1, "hex": ""}, "invalid count", id="negative-count"),
-        pytest.param(
-            chunk_answer(*REGTEST_CHUNK, count=3), "invalid count", id="more-than-asked"
-        ),
-        pytest.param({"count": 1}, "not a hex string", id="no-hex"),
-        pytest.param(
-            {"count": 1, "hex": "zz" * 80},
-            "block headers: a malformed answer",
-            id="not-hex",
-        ),
-        pytest.param(
-            {"count": 1, "hex": "0" * 159},
-            "block headers: a malformed answer",
-            id="odd-length",
-        ),
-        pytest.param({"count": 1, "hex": 5}, "not a hex string", id="hex-not-a-string"),
-        pytest.param(
-            chunk_answer(REGTEST_CHUNK[0], count=2),
-            "not 80 for each header counted",
-            id="too-short",
-        ),
-        pytest.param(
-            chunk_answer(f"{REGTEST_CHUNK[0]}00", count=1),
-            "not 80 for each header counted",
-            id="too-long",
-        ),
+        pytest.param([], id="not-an-object"),
+        pytest.param({"hex": ""}, id="no-count"),
+        pytest.param({"count": True, "hex": ""}, id="bool-count"),
+        pytest.param({"count": -1, "hex": ""}, id="negative-count"),
+        pytest.param(chunk_answer(*REGTEST_CHUNK, count=3), id="more-than-asked"),
+        pytest.param({"count": 1}, id="no-hex"),
+        pytest.param({"count": 1, "hex": "zz" * 80}, id="not-hex"),
+        pytest.param({"count": 1, "hex": "0" * 159}, id="odd-length"),
+        pytest.param({"count": 1, "hex": 5}, id="hex-not-a-string"),
+        pytest.param(chunk_answer(REGTEST_CHUNK[0], count=2), id="too-short"),
+        pytest.param(chunk_answer(f"{REGTEST_CHUNK[0]}00", count=1), id="too-long"),
     ],
 )
-def test_get_block_headers_refuses_a_chunk_that_is_not_one(
-    result: object, match: str
-) -> None:
+def test_get_block_headers_refuses_a_chunk_that_is_not_one(result: object) -> None:
     """Every field of the answer is the server's word, and checked."""
     endpoint = fetcher(result, network="regtest")
-    with raises_from(
-        FetchError, match="^block headers: a malformed answer$", cause=match
-    ):
+    with raises_alone(FetchError, match="^block headers: a malformed answer$"):
         endpoint.get_block_headers(0, 2)
 
 
@@ -767,11 +733,7 @@ def test_get_block_headers_refuses_a_header_that_does_not_follow() -> None:
 def test_get_block_headers_holds_each_header_to_the_networks_limit() -> None:
     """Regtest's headers are above mainnet's proof-of-work limit."""
     endpoint = fetcher(chunk_answer(*REGTEST_CHUNK[1:]), network="mainnet")
-    with raises_from(
-        FetchError,
-        match="block header: a malformed answer",
-        cause="above the limit",
-    ):
+    with raises_alone(FetchError, match="block header: a malformed answer"):
         endpoint.get_block_headers(1, 2)
 
 

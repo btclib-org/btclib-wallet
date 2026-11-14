@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from typing import SupportsIndex, TypeVar
 
@@ -2236,16 +2237,18 @@ def _read_leaf(
     if name in {"older", "after"}:
         # `_read_number`'s own text, written out where it is one of
         # `_NUMBER_FAULTS`, and the threshold quoted where `_assert_number`
-        # refuses it
+        # refuses it: each raised after its `except` block, so that it
+        # chains nothing
+        fault: str
         try:
             threshold = _read_number(name, argument)
         except BTClibValueError as error:
-            raise _CoreFallbackError(_label(str(error), _NUMBER_FAULTS)) from error
-        try:
-            return Miniscript(name, context, threshold=threshold)
-        except BTClibValueError as error:
-            err_msg = f"invalid {_label(name, _NAMES)}() value: {_quoted(threshold)}"
-            raise _CoreFallbackError(err_msg) from error
+            fault = _label(str(error), _NUMBER_FAULTS)
+        else:
+            with suppress(BTClibValueError):
+                return Miniscript(name, context, threshold=threshold)
+            fault = f"invalid {_label(name, _NAMES)}() value: {_quoted(threshold)}"
+        raise _CoreFallbackError(fault)
     return _read_multi(name, argument, context, prv_keys)
 
 

@@ -23,7 +23,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
-from tests import raises_from
+from tests import raises_alone
 from tests.fetch import bitcoin_core_rest_test as rest
 from tests.fetch import bitcoin_core_test as rpc
 from tests.fetch import chain_mismatch
@@ -117,11 +117,7 @@ def test_a_rate_finer_than_a_satoshi_is_rounded_up(build: _Build) -> None:
 def test_a_missing_rate_is_refused(build: _Build, source: str, missing: str) -> None:
     """All three are answered, or none is."""
     info = {name: rate for name, rate in MEMPOOL_INFO.items() if name != missing}
-    with raises_from(
-        FetchError,
-        match=f"^{source}: a malformed answer$",
-        cause=f"no {missing!r} member",
-    ):
+    with raises_alone(FetchError, match=f"^{source}: a malformed answer$"):
         build(info).get_relay_fees()
 
 

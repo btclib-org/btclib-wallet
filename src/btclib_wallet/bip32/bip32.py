@@ -853,12 +853,17 @@ def __prv_key_derivation(xkey: _BIP32KeyData, index: int, pub_key: bytes) -> Non
     # without them, and SECURITY.md says of it what it says of every
     # Python path: the arithmetic is on integers and is not constant-time
     if is_libsecp256k1_serving():
+        # past the range check above, the one sum libsecp256k1 refuses is
+        # the zero BIP32 refuses too. Refused after the `except` block, so
+        # that the bindings' error, which sees the key, is not chained
+        tweaked: bytes | None
         try:
-            key = libsecp256k1_keys.prvkey_tweak_add(xkey.key[1:], offset)
-        except ValueError as e:
-            # past the range check above, the one sum libsecp256k1 refuses
-            # is the zero BIP32 refuses too
-            raise _invalid_child(index, "the child private key is zero") from e
+            tweaked = libsecp256k1_keys.prvkey_tweak_add(xkey.key[1:], offset)
+        except ValueError:
+            tweaked = None
+        if tweaked is None:
+            raise _invalid_child(index, "the child private key is zero")
+        key = tweaked
         prv_key_int = int.from_bytes(key, byteorder="big", signed=False)
     else:
         # ki = parse256(IL) + kpar (mod n), which is BIP32's own equation
@@ -1095,14 +1100,15 @@ def __pub_key_derivation(
     # derivation's, held across every index of the path so that only the
     # first of them pays for parsing xkey.key rather than every one --
     # and which of the two it holds is its own business
+    # past the range check above, the one sum the chain refuses is the
+    # point at infinity BIP32 refuses too, refused after the `except` block
+    sec: bytes | None
     try:
         sec = chain.tweak_add(offset, compressed=True)
-    except ValueError as e:
-        # past the range check above, the one sum the chain refuses is
-        # the point at infinity BIP32 refuses too
-        raise _invalid_child(
-            index, "the child public key is the point at infinity"
-        ) from e
+    except ValueError:
+        sec = None
+    if sec is None:
+        raise _invalid_child(index, "the child public key is the point at infinity")
 
     xkey.chain_code = chain_code
     xkey.key = sec

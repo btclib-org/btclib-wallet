@@ -328,10 +328,13 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
     if not addr.isascii():
         raise BTClibValueError("non-ASCII character in address")
 
-    try:
-        hrp, data, _ = bech32_decode(addr, m=BECH32_M_CONST)
-    except Base58Bech32ValueError as e:
-        raise BTClibValueError("invalid silent payment address encoding") from e
+    # refused after `suppress`, so that it chains nothing
+    decoded = None
+    with suppress(Base58Bech32ValueError):
+        decoded = bech32_decode(addr, m=BECH32_M_CONST)
+    if decoded is None:
+        raise BTClibValueError("invalid silent payment address encoding")
+    hrp, data, _ = decoded
     if hrp not in {_MAINNET_HRP, _TESTNET_HRP, _REGTEST_HRP}:
         raise BTClibValueError(f"invalid hrp: {_quoted(hrp)}")
 
@@ -1268,22 +1271,24 @@ def scan_transaction_outputs(
         and len(labels or ()) > _PYTHON_SCAN_LABELS
         and len(labels or ()) * _OUTPUTS_PER_LABEL > len(outputs_to_check)
     ):
+        # the bindings refuse the scan for an output that is no point and
+        # the Python scan walks past it: retried without those, which
+        # costs a lift per output only here. The retry is outside the
+        # `except` block, so that what it raises chains nothing
+        points = outputs_to_check
         try:
             return _delegated_scan_outputs(
                 q_scan, outpoints, pub_keys, P_spend, outputs_to_check, labels
             )
         except BTClibValueError:
-            # the bindings refuse the scan for an output that is no point
-            # and the Python scan walks past it: retried without those,
-            # which costs a lift per output only here
             points = _outputs_with_a_point(outputs_to_check)
             if len(points) == len(outputs_to_check):
                 raise
-            if not points:
-                return []
-            return _delegated_scan_outputs(
-                q_scan, outpoints, pub_keys, P_spend, points, labels
-            )
+        if not points:
+            return []
+        return _delegated_scan_outputs(
+            q_scan, outpoints, pub_keys, P_spend, points, labels
+        )
 
     # `tweak_data` would recompute `input_hash`, redoing the outpoint sort
     # and the tagged hash over the same data: `h` is already this
