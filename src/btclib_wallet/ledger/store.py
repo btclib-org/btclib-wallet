@@ -81,6 +81,7 @@ import contextlib
 import json
 import re
 import sqlite3
+import sys
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from os import PathLike
@@ -319,15 +320,32 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
     return decoded
 
 
-# a branch or a height as the file writes it: the decimal `str` writes,
-# short enough for `int` to read
-_DECIMAL = re.compile(r"0|[1-9][0-9]{0,9}")
+# a branch as the file writes it: the decimal `str` writes of an int that
+# is not negative, which `add_source` takes with no upper bound
+_BRANCH = re.compile(r"0|[1-9][0-9]*")
+# a height or a seq: an int an SQLite INTEGER holds, not negative. A sync
+# writes its tip's height into `blocks` too, in the transaction that
+# writes the tip's text into `meta`, so that text is below the bound too
+_MAX_INTEGER = 2**63
+_HEIGHT = re.compile(r"0|[1-9][0-9]{0,18}")
 _BLOCK_ID = re.compile(r"[0-9a-f]{64}")
 _STATES = {state.value: state for state in TxState}
-# what `_DECIMAL` reads a height to: the bound of a height or a seq a row
-# holds as an integer
-_MAX_DECIMAL = 10**10
 _BLOCK_ID_SIZE = 32
+
+
+def _is_branch(key: object) -> bool:
+    """Return whether a key of a descriptors map is a branch `int` can read.
+
+    The interpreter's limit on the digits of an int holds for `str` and
+    `int` alike: a key past it is none `str` wrote, and `int` would raise
+    on it.
+    """
+    limit = sys.get_int_max_str_digits()
+    return (
+        isinstance(key, str)
+        and _BRANCH.fullmatch(key) is not None
+        and (limit == 0 or len(key) <= limit)
+    )
 
 
 def _branches(value: object, source_id: int) -> dict[int, str]:
@@ -337,9 +355,7 @@ def _branches(value: object, source_id: int) -> dict[int, str]:
     anything, so a key that is not a branch is refused here, by the
     source alone, before `int` reads it (issue #900).
     """
-    if not isinstance(value, dict) or not all(
-        isinstance(b, str) and _DECIMAL.fullmatch(b) for b in value
-    ):
+    if not isinstance(value, dict) or not all(_is_branch(b) for b in value):
         err_msg = f"not a ledger file: source {_quoted(source_id)}'s descriptors"
         err_msg += " are not keyed by branch"
         raise BTClibValueError(err_msg)
@@ -348,7 +364,7 @@ def _branches(value: object, source_id: int) -> dict[int, str]:
 
 def _counted(value: object) -> TypeGuard[int]:
     """Return whether a column holds a height or a seq as the file writes it."""
-    return type(value) is int and 0 <= value < _MAX_DECIMAL
+    return type(value) is int and 0 <= value < _MAX_INTEGER
 
 
 def _tx_block(height: object, block_id: object) -> BlockRef | None:
@@ -644,7 +660,8 @@ class _Store:
         # spelled as `_write_tip` writes it, and refused otherwise
         if not (
             isinstance(height, str)
-            and _DECIMAL.fullmatch(height)
+            and _HEIGHT.fullmatch(height)
+            and int(height) < _MAX_INTEGER
             and isinstance(block_id, str)
             and _BLOCK_ID.fullmatch(block_id)
         ):
