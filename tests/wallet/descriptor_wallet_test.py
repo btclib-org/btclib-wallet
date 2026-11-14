@@ -25,9 +25,12 @@ tree in their place.
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
+from btclib.b58 import wif_from_prv_key
 from btclib.exceptions import BTClibTypeError, BTClibValueError
-from btclib.key import PubKeyData
+from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import script
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.tx.out_point import OutPoint
@@ -46,6 +49,7 @@ from btclib_wallet.descriptors import (
 )
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet import BIP32KeyWallet, DescriptorWallet
+from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" seed and its BIP84 account, which is the
 # account every other wallet test uses too
@@ -248,6 +252,50 @@ def test_a_combo_is_four_addresses_at_one_position() -> None:
     combo = parse(_descriptor(f"combo({_XPUB}/0/*)"))
     with pytest.raises(BTClibValueError, match="combo\\(\\) at branch 0"):
         DescriptorWallet([combo])
+
+
+def _random_prv_key() -> PrvKeyData:
+    """Return a random compressed regtest key, never one a test spells out."""
+    return PrvKeyData(secrets.randbelow(2**255) + 1, "regtest", compressed=True)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "wpkh({wif})",
+        "wsh(multi(1,{other},{wif}))",
+        "tr(musig({wif},{other}))",
+    ],
+)
+@pytest.mark.parametrize("from_text", [True, False])
+def test_a_wif_is_refused_by_name(expression: str, from_text: bool) -> None:
+    """The wallet would keep only its public key, and sign for nothing.
+
+    `descriptors.parse` reduces a WIF to its public key, so a wallet
+    holding it would be watch-only without saying so, whether it reads
+    the text or is handed the parsed descriptor. The refusal names the
+    WIF key expression and shows nothing of the key: not the WIF, not
+    the scalar in hex or decimal, not the public key.
+    """
+    prv_key = _random_prv_key()
+    wif = wif_from_prv_key(prv_key.q, prv_key.network, prv_key.compressed)
+    other = _random_prv_key().pub.sec.hex()
+    text = _descriptor(expression.format(wif=wif, other=other))
+    with pytest.raises(BTClibValueError, match="^a WIF key expression") as caught:
+        if from_text:
+            DescriptorWallet.from_descriptor(text, "regtest")
+        else:
+            DescriptorWallet(parse(text, "regtest", {}))
+    assert_secret_free(
+        caught.value,
+        [
+            wif,
+            prv_key.q.to_bytes(32, "big"),
+            f"{prv_key.q:x}",
+            str(prv_key.q),
+            prv_key.pub.sec,
+        ],
+    )
 
 
 def test_a_script_with_no_address_is_not_handed_out() -> None:
