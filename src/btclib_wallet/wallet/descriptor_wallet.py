@@ -24,8 +24,8 @@ ways in put the labels there:
 - `from_account`, which is `bip44.account_descriptors`: an account xpub
   and its master fingerprint in, the receive and change descriptors out.
 
-A label is an integer from 0 to 2**63 - 1: a `Ledger` writes it into an
-SQLite INTEGER, which is signed and 64 bits wide.
+A label is an integer from 0 to 2**63 - 1, the top being the largest
+SQLite INTEGER a `Ledger` writes it into.
 
 What this adds to a descriptor is the branch, the record of what has been
 handed out, and `position_of`; what it delegates is everything else, and
@@ -145,16 +145,19 @@ def _assert_distinct(
 
 
 def _labels(by_branch: Mapping[int, Descriptor]) -> dict[int, Descriptor]:
-    """Refuse a label that is no integer, or is 2**63 or more.
+    """Refuse a label that is no integer, or is outside 0 to 2**63 - 1.
 
-    The module docstring says why. Each label is kept as the int it
-    equals: the str() of an IntEnum can be its name, which a ledger would
-    write and could not read back.
+    The module docstring says why. Neither value refusal prints the value:
+    an int past the interpreter's digit limit has no str(). Each label is
+    kept as the int it equals: the str() of an IntEnum can be its name,
+    which a ledger would write and could not read back.
     """
     for branch in by_branch:
         if not is_integer(branch):
             err_msg = f"invalid branch type: {type(branch).__name__}"
             raise BTClibTypeError(err_msg)
+        if branch < 0:
+            raise BTClibValueError("invalid branch: negative")
         if branch >= 2**63:
             raise BTClibValueError("invalid branch: not below 2**63")
     return {int(branch): descriptor for branch, descriptor in by_branch.items()}
@@ -193,8 +196,6 @@ class DescriptorWallet(RangedWallet):
         by_branch = _labels(by_branch)
 
         for branch, descriptor in by_branch.items():
-            if branch < 0:
-                raise BTClibValueError(f"invalid branch: {branch}")
             _assert_no_wif(descriptor)
             if isinstance(descriptor, ComboDescriptor):
                 err_msg = f"combo() at branch {branch}: four scripts at one"
