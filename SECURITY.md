@@ -58,7 +58,10 @@ What belongs here is everything this package does on top of them:
 A refusal that prints a value that may be secret belongs here: [*A refusal
 carries no
 secret*](https://github.com/btclib-org/.github/blob/main/README.md#a-refusal-carries-no-secret)
-says what a refusal may print.
+says what a refusal may print. So does a flaw that lets funds be
+stolen, lost or locked: lost includes a transaction that pays far more
+fee than was asked, and locked includes an output that consensus can
+spend but standard relay policy refuses.
 
 Report it wherever you found it, though: routing a report is the
 maintainers' job, not the reporter's, and a doubt about which project
