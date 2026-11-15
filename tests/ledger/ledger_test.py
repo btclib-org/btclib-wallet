@@ -39,7 +39,7 @@ from btclib_wallet.ledger import (
     TxDetail,
     TxState,
 )
-from btclib_wallet.ledger.ledger import _SYNC_ATTEMPTS, _parents_first
+from btclib_wallet.ledger.ledger import _KEEP_SPAN, _SYNC_ATTEMPTS, _parents_first
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
@@ -522,6 +522,65 @@ def test_a_reorganization_below_every_block_held(
     result = ledger.sync()
     assert result.fork_height == -1
     assert result.tip == chain.tip
+
+
+def _synced_each_block(ledger: Ledger, chain: FakeChain, tip: int) -> Tx:
+    """Sync at 0, confirm a payment at 1, then sync at each block to `tip`."""
+    ledger.sync()
+    payment = _funded(ledger, chain)
+    while chain.tip.height < tip:
+        chain.mine()
+        ledger.sync()
+    return payment
+
+
+def test_the_blocks_held_grow_with_the_chain_not_with_the_syncs(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """The file keeps the blocks *The blocks held* names, and no other.
+
+    A walk down from a tip no longer on the chain asks from each block
+    held below it, so its reads list them.
+    """
+    tip = 2 * _KEEP_SPAN + 100
+    _synced_each_block(ledger, chain, tip)
+    ledger.close()
+    loaded = Ledger.load(path, "regtest", chain)
+    chain.blocks = [(b"\x07" * 32, [])]
+    chain.mine(count=tip + 1)
+    chain.reads.clear()
+    with loaded:
+        assert loaded.sync().fork_height == -1
+    near = list(range(tip - 1, tip - _KEEP_SPAN, -1))
+    # the lowest of the second span, the payment's block, the lowest of
+    # the first span, and then height 0 once nothing held is on the chain
+    assert chain.reads == [tip, *near, _KEEP_SPAN, 1, 0, 0]
+
+
+@pytest.mark.parametrize(
+    "fork, found",
+    [(10, 10), (9, 1)],
+    ids=["the-lowest-block-near-the-tip", "below-it"],
+)
+def test_a_reorganization_at_the_deepest_block_kept_near_the_tip(
+    ledger: Ledger, chain: FakeChain, fork: int, found: int
+) -> None:
+    """A fork at the lowest block near the tip is found there.
+
+    One block lower, it is found at the next block held, the payment's,
+    which stays where it is.
+    """
+    # the lowest block near the tip is at height 10
+    tip = _KEEP_SPAN + 9
+    payment = _synced_each_block(ledger, chain, tip)
+    chain.invalidate(fork + 1)
+    chain.mine(count=tip - fork + 1)
+    result = ledger.sync()
+    assert result.fork_height == found
+    assert payment.id not in result.changed
+    assert ledger.transaction(payment.id).wallet_tx.block == BlockRef(
+        1, chain.blocks[1][0]
+    )
 
 
 def test_a_coinbase_matures_after_100_blocks(ledger: Ledger, chain: FakeChain) -> None:
