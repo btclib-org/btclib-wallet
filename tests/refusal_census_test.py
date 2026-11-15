@@ -1765,11 +1765,11 @@ CLEANUPS = {
 #: module, function and the source of what is raised, each with its reason.
 KEPT = {
     ("fetch/transport.py", "_open_connection", "error"): (
-        "`error` is the last `OSError` a connect attempt raised, raised"
-        " again as `socket.create_connection` raises it. Each caller catches"
-        " `OSError` and refuses with a text of its own, naming at most the"
-        " error's class; `test_a_failed_connect_names_no_address` holds them"
-        " to it"
+        "`error` is what `socket.create_connection` would raise: the last"
+        " attempt's `OSError`, or its own where the host resolves to no"
+        " address. Each caller catches `OSError` and refuses with a text of"
+        " its own, naming at most the error's class;"
+        " `test_a_failed_connect_names_no_address` holds them to it"
     ),
     ("fetch/fetcher.py", "_verify_once", "self._disagreement"): (
         "`_disagreement` is assigned `None` in `__init__` and, in"
