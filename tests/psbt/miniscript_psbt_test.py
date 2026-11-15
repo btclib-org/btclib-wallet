@@ -213,19 +213,60 @@ def test_the_solver_reads_a_key_the_input_knows_by_its_hash() -> None:
 
     The keys an input carries are what makes that readable: the ones that
     signed, and the ones a key origin names. Without either the witness
-    script is not a miniscript as far as anything can tell, and the solver
-    says so by answering None.
+    script cannot be read, and the solver refuses it, though the branch
+    these signatures open needs nothing of that key: so does Bitcoin
+    Core's ``finalizepsbt``.
     """
     node = parse(f"or_d(pk({KEYS[0]}),and_v(v:pkh({KEYS[1]}),older(1008)))")
     psbt, _ = signed_psbt(node, [KEYS[1]], 499999999, 1008)
     assert miniscript_solver(psbt, 0) is not None
     # the origin of a key is enough, the psbt knowing the key from it
     psbt, _ = signed_psbt(node, [KEYS[0]], 499999999, 0x0000FFFF)
-    assert miniscript_solver(psbt, 0) is None
+    with pytest.raises(BTClibValueError, match=UNKNOWN_KEY):
+        miniscript_solver(psbt, 0)
     psbt.inputs[0].hd_key_paths = {
         bytes.fromhex(KEYS[1]): BIP32KeyOrigin("deadbeef", [0])
     }
     assert miniscript_solver(psbt, 0) is not None
+
+
+UNKNOWN_KEY = "input 0: no public key for a hash160 the witness script holds"
+
+
+def test_no_witness_is_guessed_for_a_key_hash_the_input_does_not_name() -> None:
+    """Refuse a miniscript whose pk_h() key the input names nowhere.
+
+    Answered None, `finalize` built its guess for a script of no standard
+    kind: the two signatures and the script, without the empty element
+    OP_CHECKMULTISIG pops, which the engine refuses. The key's origin
+    makes the script readable, and the witness is then the one that
+    verifies.
+    """
+    node = parse(
+        f"or_d(multi(2,{KEYS[0]},{KEYS[1]}),and_v(v:pkh({KEYS[2]}),older(144)))"
+    )
+    psbt, prevouts = signed_psbt(node, KEYS[:2], 499999999, 0xFFFFFFFD)
+    with pytest.raises(BTClibValueError, match=UNKNOWN_KEY):
+        finalize(psbt, solver=miniscript_solver)
+    psbt.inputs[0].hd_key_paths = {
+        bytes.fromhex(KEYS[2]): BIP32KeyOrigin("deadbeef", [0])
+    }
+    final = finalize(psbt, solver=miniscript_solver)
+    spending = final.tx
+    spending.vin[0].script_witness = final.inputs[0].final_script_witness
+    verify_transaction(prevouts, spending)
+
+
+def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> None:
+    """Answer None for a script that is no miniscript, whatever key it lacks.
+
+    The pk_h() at its end is read with a stand-in key, and what is left
+    before it is no expression: the input is not this solver's business.
+    """
+    pkh = parse(f"pkh({KEYS[2]})").script()
+    psbt, _ = signed_psbt(parse(f"pk({KEYS[0]})"), [KEYS[0]], 499999999, 0)
+    psbt.inputs[0].witness_script = serialize(["OP_DROP"]) + pkh
+    assert miniscript_solver(psbt, 0) is None
 
 
 # a tr() whose script tree holds a miniscript leaf beside a key one: the
@@ -273,8 +314,7 @@ def psbt_input(node: Miniscript) -> tuple[PsbtIn, TxIn]:
     With the key origins an Updater writes, which is what a `pkh()`
     fragment needs to be readable at all: its script holds the hash of its
     key, so an input carrying neither a signature nor an origin for that
-    key is one whose witness script is not miniscript as far as anything
-    can tell.
+    key is one whose witness script cannot be read.
     """
     script = node.script()
     psbt_in = PsbtIn(

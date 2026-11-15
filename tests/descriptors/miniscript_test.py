@@ -935,6 +935,30 @@ def test_a_key_hash_without_its_key_cannot_be_read() -> None:
     assert str(node) == f"pkh({KEY})"
 
 
+@pytest.mark.parametrize(
+    "context, key",
+    [
+        pytest.param(P2WSH, KEY, id="P2WSH"),
+        pytest.param(TAPSCRIPT, XONLY, id="tapscript"),
+    ],
+)
+def test_a_script_lacking_a_key_is_refused_for_what_else_is_wrong_first(
+    context: str, key: str
+) -> None:
+    """Name the missing key only where nothing else is wrong with the script.
+
+    The rest of the script is read past the hash, so a script that is no
+    miniscript is refused for that, which no key could change.
+    """
+    script = parse(f"and_v(v:pkh({key}),older(36))", context).script()
+    with pytest.raises(
+        BTClibValueError, match="no public key for a hash160 the script holds"
+    ):
+        from_script(script, context)
+    with pytest.raises(BTClibValueError, match="ill-typed miniscript: and_v"):
+        from_script(serialize(["OP_1"]) + script, context)
+
+
 def test_a_key_answered_for_a_hash_that_is_not_its_own_is_refused() -> None:
     """Refuse a mapping whose key does not hash to the hash it is filed under.
 

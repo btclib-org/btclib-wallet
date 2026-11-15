@@ -93,6 +93,7 @@ from btclib.tx.limits import (
 )
 from btclib.utils import assert_type, bytes_from_octets, decode_num, encode_num
 from btclib.var_int import serialize as var_int_serialize
+from ecc.curves import bytes_from_point, secp256k1
 from typing_extensions import override
 
 from btclib_wallet._refusal import _label, _quoted
@@ -2558,6 +2559,14 @@ def _key_from_sec(sec: bytes, context: str) -> KeyExpression:
     return KeyExpression(pub_key=sec)
 
 
+# the key `_Decoder` reads a pk_h() with where it has none for the hash:
+# the generator, which is a point. The type of an expression does not
+# depend on its keys, so this tells a script that is a miniscript but for
+# a key from one that is no miniscript; the expression read with it is
+# never returned, `lacks_keys` saying it was read so
+_STAND_IN_KEY = bytes_from_point(secp256k1.G)
+
+
 @dataclass
 class _Decoder:
     """The stack machine that reads a script back into an expression.
@@ -2567,6 +2576,7 @@ class _Decoder:
     `pos` how far into them the walk has come, `to_parse` what is still
     expected, and `built` the expressions completed so far -- the last of
     them being the leftmost, since the script is read from its end.
+    `lacks_keys` says that a ``pk_h()`` was read with `_STAND_IN_KEY`.
     """
 
     entries: list[tuple[int, bytes]]
@@ -2575,6 +2585,7 @@ class _Decoder:
     pos: int = 0
     to_parse: list[tuple[str, int, int]] = field(default_factory=list)
     built: list[Miniscript] = field(default_factory=list)
+    lacks_keys: bool = False
 
     def _remaining(self) -> int:
         return len(self.entries) - self.pos
@@ -2603,7 +2614,9 @@ class _Decoder:
         back needs the key from somewhere else: `key_hashes` is that
         somewhere, and without the entry the script cannot be read --
         which is Bitcoin Core's answer too, its own inference asking a
-        signing provider for the key behind the hash.
+        signing provider for the key behind the hash. The walk goes on
+        with a stand-in key, so that a script that is no miniscript is
+        refused for what is wrong with it before a missing key is named.
         """
         data = self._data(0)
         if len(data) in {32, 33}:
@@ -2624,16 +2637,16 @@ class _Decoder:
             and len(self._data(2)) == 20
         ):
             key_hash = self._data(2)
-            if key_hash not in self.key_hashes:
-                err_msg = "no public key for a hash160 the script holds"
-                raise BTClibValueError(err_msg)
-            sec = self.key_hashes[key_hash]
+            sec = self.key_hashes.get(key_hash)
+            if sec is None:
+                self.lacks_keys = True
+                sec = _STAND_IN_KEY[1:] if self.context == TAPSCRIPT else _STAND_IN_KEY
             # the answer is checked against the question, which is the one
             # thing the script itself cannot say: a mapping filing a key
             # under a hash that is not its own reads the script into an
             # expression writing a different script back, and the inverse
             # this module documents would hold for every input but that one
-            if hash160(sec) != key_hash:
+            elif hash160(sec) != key_hash:
                 err_msg = "the key answered for a hash160 hashes to another"
                 raise BTClibValueError(err_msg)
             self.pos += 5
@@ -2968,7 +2981,34 @@ def from_script(
     `reads_back` is this question asked without the refusal, for a caller
     that holds a script and wants to know whether any language reads it.
     """
-    script = bytes_from_octets(script)
+    node, lacks_keys = _decoded(bytes_from_octets(script), context, key_hashes)
+    if lacks_keys:
+        raise BTClibValueError("no public key for a hash160 the script holds")
+    return node
+
+
+def _lacks_only_keys(
+    script: bytes, context: str, key_hashes: Mapping[Octets, Octets]
+) -> bool:
+    """Whether the script is a miniscript but for a ``pk_h()`` key.
+
+    That is, whether `from_script` refuses it only because `key_hashes`
+    lacks the key behind a hash the script holds.
+    """
+    try:
+        return _decoded(script, context, key_hashes)[1]
+    except BTClibValueError:
+        return False
+
+
+def _decoded(
+    script: bytes, context: str, key_hashes: Mapping[Octets, Octets] | None
+) -> tuple[Miniscript, bool]:
+    """Return the Miniscript a script reads as, and whether it lacks a key.
+
+    `from_script`'s checks, whatever keys `key_hashes` lacks. Where it
+    lacks one, the expression holds `_STAND_IN_KEY` and is no answer.
+    """
     if len(script) > _max_script_size(context):
         err_msg = (
             f"script too large for {_label(context, _CONTEXTS)}: {len(script)} bytes"
@@ -2991,7 +3031,7 @@ def from_script(
         basic = "".join(sorted(node.properties & _t("BVKW")))
         err_msg = f"not a miniscript script: a {_quoted(basic)}, not a B"
         raise BTClibValueError(err_msg)
-    return node
+    return node, decoder.lacks_keys
 
 
 def reads_back(

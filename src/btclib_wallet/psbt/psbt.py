@@ -92,6 +92,7 @@ from btclib_wallet.bip32 import (
     encode_to_bip32_derivs,
 )
 from btclib_wallet.descriptors import miniscript
+from btclib_wallet.descriptors.miniscript import _lacks_only_keys
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt.psbt_size import (
@@ -3973,6 +3974,13 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     is building. A ``pk_h()`` names its key by a hash160, so the keys the
     input knows are offered for that lookup.
 
+    A miniscript holding a ``pk_h()`` whose key the input does not name,
+    in `partial_sigs` or in `hd_key_paths`, is refused, whichever branch
+    the signatures open: the script cannot be read without that key, and
+    None would leave `finalize` to guess a witness. Bitcoin Core's
+    ``finalizepsbt`` leaves such an input unfinalized, and its
+    ``analyzepsbt`` names the missing key's hash.
+
     None where the input is not this solver's business: no witness script,
     or one that is not a miniscript, both of which `finalize` then answers
     for as it did before. Where the script *is* a miniscript and the
@@ -3994,14 +4002,19 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     # input carries are what can be recognized: the ones that signed, and
     # the ones an origin names
     known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
-    try:
+    key_hashes: dict[Octets, Octets] = {hash160(key): key for key in known}
+    # refused after `suppress`, so that it chains nothing
+    node = None
+    with suppress(BTClibValueError):
         node = miniscript.from_script(
-            psbt_in.witness_script,
-            miniscript.P2WSH,
-            {hash160(key): key for key in known},
+            psbt_in.witness_script, miniscript.P2WSH, key_hashes
         )
-    # not a miniscript, which is not an error: it is the answer "not mine"
-    except BTClibValueError:
+    if node is None:
+        if _lacks_only_keys(psbt_in.witness_script, miniscript.P2WSH, key_hashes):
+            err_msg = f"input {_quoted(vin_i)}: no public key for a hash160 "
+            err_msg += "the witness script holds"
+            raise BTClibValueError(err_msg)
+        # not a miniscript, which is not an error: it is the answer "not mine"
         return None
     tx = psbt.tx
     spend = miniscript.SpendContext(
