@@ -8,10 +8,12 @@ Each derives from btclib's class of its kind, so `except BTClibException`
 catches these as it catches btclib's own, and `except ValueError` or
 `except RuntimeError` catches them too.
 
-The classes carrying a field hand every constructor argument to
-`BaseException.__init__` and compose the message in `__str__`. That is
-what keeps them picklable, for the reason `btclib.exceptions`' own
-docstring gives.
+The classes carrying a field store every constructor argument in `args`
+and compose the message in `__str__`. That is what keeps them
+picklable, for the reason `btclib.exceptions`' own docstring gives.
+`SignerError` stores them through `BaseException.__init__`; `HttpError`
+and `RpcError` through `FetchError.__init__`, which assigns `args`
+itself, for the reason its comment gives.
 """
 
 from __future__ import annotations
