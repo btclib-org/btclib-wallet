@@ -39,7 +39,7 @@ from btclib_wallet.ledger import (
     TxDetail,
     TxState,
 )
-from btclib_wallet.ledger.ledger import _SYNC_ATTEMPTS, _parents_first
+from btclib_wallet.ledger.ledger import _KEEP_SPAN, _SYNC_ATTEMPTS, _parents_first
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
@@ -522,6 +522,102 @@ def test_a_reorganization_below_every_block_held(
     result = ledger.sync()
     assert result.fork_height == -1
     assert result.tip == chain.tip
+
+
+def _synced_each_block(ledger: Ledger, chain: FakeChain, tip: int) -> Tx:
+    """Sync at 0, confirm a payment at 1, then sync at each block to `tip`."""
+    ledger.sync()
+    payment = _funded(ledger, chain)
+    while chain.tip.height < tip:
+        chain.mine()
+        ledger.sync()
+    return payment
+
+
+def test_the_blocks_held_grow_with_the_chain_not_with_the_syncs(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """The file keeps the blocks *The blocks held* names, and no other.
+
+    A walk down from a tip no longer on the chain asks from each block
+    held below it, so its reads list them.
+    """
+    tip = 2 * _KEEP_SPAN + 100
+    _synced_each_block(ledger, chain, tip)
+    ledger.close()
+    loaded = Ledger.load(path, "regtest", chain)
+    chain.blocks = [(b"\x07" * 32, [])]
+    chain.mine(count=tip + 1)
+    chain.reads.clear()
+    with loaded:
+        assert loaded.sync().fork_height == -1
+    near = list(range(tip - 1, tip - _KEEP_SPAN, -1))
+    # the lowest of the second span, the payment's block, the lowest of
+    # the first span, and then height 0 once nothing held is on the chain
+    assert chain.reads == [tip, *near, _KEEP_SPAN, 1, 0, 0]
+
+
+@pytest.mark.parametrize(
+    "fork, found",
+    [(10, 10), (9, 1)],
+    ids=["the-lowest-block-near-the-tip", "below-it"],
+)
+def test_a_reorganization_at_the_deepest_block_kept_near_the_tip(
+    ledger: Ledger, chain: FakeChain, fork: int, found: int
+) -> None:
+    """A fork at the lowest block near the tip is found there.
+
+    One block lower, it is found at the next block held, the payment's,
+    which stays where it is.
+    """
+    # the lowest block near the tip is at height 10
+    tip = _KEEP_SPAN + 9
+    payment = _synced_each_block(ledger, chain, tip)
+    chain.invalidate(fork + 1)
+    chain.mine(count=tip - fork + 1)
+    result = ledger.sync()
+    assert result.fork_height == found
+    assert payment.id not in result.changed
+    assert ledger.transaction(payment.id).wallet_tx.block == BlockRef(
+        1, chain.blocks[1][0]
+    )
+
+
+def test_a_backend_that_pruned_the_block_held_fails_each_sync(
+    ledger: Ledger, chain: FakeChain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fork below the blocks near the tip reads from the next block held.
+
+    `BitcoinCoreFetcher` raises `FetchError` on a block a pruned node no
+    longer has. Where that block is the one held, the sync fails before
+    it writes anything, so the next sync walks down to it again and fails
+    too. A span of 4 keeps 9 to 12 near the tip 12, and 8, 4 and 0 below.
+    """
+    monkeypatch.setattr("btclib_wallet.ledger.ledger._KEEP_SPAN", 4)
+    ledger.sync()
+    while chain.tip.height < 12:
+        chain.mine()
+        ledger.sync()
+    tip = ledger.tip
+    read = chain.get_history
+
+    def pruned(
+        scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        if start_height < 5:
+            raise FetchError("the node pruned the block")
+        return read(scripts, start_height)
+
+    monkeypatch.setattr(chain, "get_history", pruned)
+    # the fork is at 6, which the node still has
+    chain.invalidate(7)
+    chain.mine(count=8)
+    for _ in range(2):
+        chain.reads.clear()
+        with pytest.raises(FetchError, match="pruned"):
+            ledger.sync()
+        assert chain.reads == [12, 11, 10, 9, 8]
+        assert ledger.tip == tip
 
 
 def test_a_coinbase_matures_after_100_blocks(ledger: Ledger, chain: FakeChain) -> None:

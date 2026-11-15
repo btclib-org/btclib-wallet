@@ -42,7 +42,20 @@ reads no earlier block either: it hands the new scripts to
 `TopUpCallback`, which only caches them
 (src/wallet/scriptpubkeyman.cpp:1109-1169 and
 src/wallet/wallet.cpp:4560-4571 at bitcoin/bitcoin@f0de87f040, the v32.1
-tag).
+tag). *The blocks held* says when a reorganization finds one.
+
+**The blocks held.** The ledger holds the tip of each sync and the
+block of each transaction it reads. Of those it keeps the tip, each one
+less than `_KEEP_SPAN` below the tip, the block of each transaction it
+holds, a conflicted one's included, and the lowest in each span of
+`_KEEP_SPAN` heights from height 0. So the blocks held grow with the
+transactions and the chain, not with the syncs. A fork below the blocks
+near the tip is found at the next block held below it, and the answer
+from that block lists again the transactions above it, a payment to a
+position that came into the window after that block was synced
+included. Where the backend cannot read from that block, as a node
+that pruned it cannot, the sync fails with the backend's `FetchError`,
+and so does each later one.
 
 The mempool part of the answers replaces the one the ledger held. A
 transaction that was in the mempool or in a block and is in neither
@@ -348,6 +361,11 @@ _LONG_TERM_FEE_RATE = FeeRate(sats_per_kvbyte=10_000)
 
 # how many times `sync` reads again after the tip moved between two reads
 _SYNC_ATTEMPTS = 3
+
+# how far below the tip a sync keeps every block it holds, and the span
+# it keeps one block in below that, as *The blocks held* says: a
+# retarget period, the span `ElectrumFetcher` keeps one header in
+_KEEP_SPAN = 2016
 
 # the longest `unlock_keys` keeps the keys unlocked, in seconds: Core's
 # MAX_SLEEP_TIME (src/wallet/rpc/encrypt.cpp:63-67 at
@@ -1196,13 +1214,14 @@ class Ledger:
         _admit(txs, confirmed, mempool)
         _drop_unverified(txs, scripts)
         _mark_conflicts(txs)
+        blocks = _kept(blocks, txs, read.tip.height)
         upserted = tuple(wtx for txid, wtx in txs.items() if self._txs.get(txid) != wtx)
         deleted = tuple(txid for txid in self._txs if txid not in txs)
         self._store.write_sync(
             _SyncWrite(
                 upserted,
                 deleted,
-                read.fork_height,
+                tuple(h for h in self._blocks if h not in blocks),
                 tuple(
                     BlockRef(h, b)
                     for h, b in blocks.items()
@@ -2810,6 +2829,26 @@ def _disconnected(
             state = TxState.ABANDONED if wtx.tx.is_coinbase else TxState.INACTIVE
             txs[txid] = replace(wtx, state=state, block=None)
     return txs, {h: b for h, b in blocks.items() if h <= fork_height}
+
+
+def _kept(
+    blocks: Mapping[int, bytes], txs: Mapping[bytes, WalletTx], tip_height: int
+) -> dict[int, bytes]:
+    """Return the blocks of `blocks` a sync keeps, as *The blocks held* says.
+
+    *The blocks held* is a paragraph of the module's docstring. `txs` are
+    the transactions the sync keeps, and `tip_height` its tip's height.
+    """
+    confirming = {wtx.block.height for wtx in txs.values() if wtx.block is not None}
+    # highest first, so that the lowest of each span is the one left
+    lowest = {height // _KEEP_SPAN: height for height in sorted(blocks, reverse=True)}
+    return {
+        h: b
+        for h, b in blocks.items()
+        if h in confirming
+        or h > tip_height - _KEEP_SPAN
+        or lowest[h // _KEEP_SPAN] == h
+    }
 
 
 def _admit(

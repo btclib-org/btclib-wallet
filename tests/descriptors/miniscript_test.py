@@ -935,6 +935,48 @@ def test_a_key_hash_without_its_key_cannot_be_read() -> None:
     assert str(node) == f"pkh({KEY})"
 
 
+@pytest.mark.parametrize(
+    "context, key",
+    [
+        pytest.param(P2WSH, KEY, id="P2WSH"),
+        pytest.param(TAPSCRIPT, XONLY, id="tapscript"),
+    ],
+)
+def test_a_script_lacking_a_key_is_refused_for_what_else_is_wrong_first(
+    context: str, key: str
+) -> None:
+    """Name the missing key only where nothing else is wrong with the script.
+
+    The rest of the script is read past the hash, so a script that is no
+    miniscript is refused for that, which no key could change.
+    """
+    script = parse(f"and_v(v:pkh({key}),older(36))", context).script()
+    with pytest.raises(
+        BTClibValueError, match="no public key for a hash160 the script holds"
+    ):
+        from_script(script, context)
+    with pytest.raises(BTClibValueError, match="ill-typed miniscript: and_v"):
+        from_script(serialize(["OP_1"]) + script, context)
+
+
+def test_a_multi_count_out_of_bounds_is_refused_before_a_key_is_read() -> None:
+    """Refuse a CHECKMULTISIG whose count Bitcoin Core's decoder refuses.
+
+    The count is an offset into the script's entries, so it is bounded
+    before it is used: a negative one would read them from the other end.
+    A script lacking a key is read past the key, so it reaches the count
+    too.
+    """
+    pkh = parse(f"pkh({KEY})").script()
+    key_hashes: dict[Octets, Octets] = {hash160(bytes.fromhex(KEY)): KEY}
+    # -100, minimally encoded in one byte, and then 0
+    for prefix in ("5101e4ae", "5100ae"):
+        script = bytes.fromhex(prefix) + pkh
+        for mapping in (None, key_hashes):
+            with pytest.raises(BTClibValueError, match=r"not a multi\(\): -?\d+ keys"):
+                from_script(script, P2WSH, mapping)
+
+
 def test_a_key_answered_for_a_hash_that_is_not_its_own_is_refused() -> None:
     """Refuse a mapping whose key does not hash to the hash it is filed under.
 

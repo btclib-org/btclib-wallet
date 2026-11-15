@@ -19,7 +19,7 @@ when the file is opened.
 
 The file holds everything a load answers from: the sources, the
 positions handed out, every transaction with its state, block, comments
-and the bump that links it to another, the blocks synced through, the
+and the bump that links it to another, the blocks the ledger holds, the
 tip, and the labels. Each source's private keys are written in plain
 text, as an unencrypted Core wallet writes its own, until
 `Ledger.encrypt` encrypts them. In an encrypted file a source
@@ -189,7 +189,7 @@ class _SyncWrite:
 
     upserted: tuple[WalletTx, ...]
     deleted: tuple[bytes, ...]
-    fork_height: int | None
+    dropped: tuple[int, ...]
     blocks: tuple[BlockRef, ...]
     tip: BlockRef
     scanned: tuple[int, ...]
@@ -685,7 +685,7 @@ class _Store:
         return txs
 
     def blocks(self) -> dict[int, bytes]:
-        """Return the id of each block synced through, by height."""
+        """Return the id of each block the ledger holds, by height."""
         rows = self._db.execute("SELECT height, block_id FROM blocks")
         return dict(rows.fetchall())
 
@@ -841,10 +841,10 @@ class _Store:
     def write_sync(self, write: _SyncWrite) -> None:
         """Write what a sync decided, in one SQLite transaction."""
         with self._db:
-            if write.fork_height is not None:
-                self._db.execute(
-                    "DELETE FROM blocks WHERE height > ?", (write.fork_height,)
-                )
+            self._db.executemany(
+                "DELETE FROM blocks WHERE height = ?",
+                [(height,) for height in write.dropped],
+            )
             self._db.executemany(
                 "INSERT OR REPLACE INTO blocks VALUES (?, ?)",
                 [(block.height, block.block_id) for block in write.blocks],
