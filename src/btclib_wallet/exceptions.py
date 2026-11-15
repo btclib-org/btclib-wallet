@@ -20,8 +20,8 @@ import functools
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
-from types import FrameType, FunctionType
-from typing import Any, ParamSpec, TypeVar
+from types import FrameType, FunctionType, TracebackType
+from typing import Any, Literal, ParamSpec, TypeVar, cast
 from weakref import ref
 
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
@@ -347,24 +347,21 @@ def _caller_errors(request: str) -> Iterator[None]:
     what the caller's code gave it, which the census does not read. Its
     text is not relayed, and nothing is chained to the refusal, which
     `_failed` reads: an `RpcError` keeps its code and an `HttpError` its
-    status, as `_code` bounds them, and any other names its class. So is
-    an `ExceptionGroup` refused by its class, whatever it holds.
-    `request` names the call, empty for none.
+    status, as `_code` bounds them, and any other names its class. An
+    `ExceptionGroup` is refused as `_GROUPS` says, and any other exception
+    passes as it is. `request` names the call, empty for none.
     """
     head = f"{request}: " if request else ""
     kind = failure = ""
     code = 0
     try:
-        yield
+        with _GROUPS:
+            yield
     except FetchError as e:
         if _as_built(e):
             _cut_at_the_callers(e)
             raise
         kind, code, failure = _failed(e, RpcError, HttpError)
-    except ExceptionGroup as group:
-        # this package raises no group, so each is the caller's code's, and
-        # `except* FetchError` would hand the caller a `FetchError` it holds
-        failure = _class_name(group)
     else:
         return
     refusal: FetchError
@@ -381,6 +378,74 @@ def _caller_errors(request: str) -> Iterator[None]:
         # raised inside the `with` statement's handling of what its block
         # raised, which Python sets as the refusal's `__context__`
         refusal.__context__ = None
+
+
+class _CallersGroups:
+    """Refuse by its class an `ExceptionGroup` holding a `FetchError`.
+
+    This package raises no group, so each is the caller's code's, and
+    `except* FetchError` would hand the caller a `FetchError` it holds,
+    which `_holds_a_fetch_error` looks for. Any other group passes as it
+    is, as any exception that is no `FetchError` does. A context manager
+    and not an `except`: one lets an exception through by returning
+    False, where an `except` would have to raise it again. The refusal is
+    a `FetchError` that `_caller_errors` passes, without its `request`.
+    """
+
+    def __enter__(self) -> None:
+        """Enter the block, holding nothing."""
+
+    def __exit__(
+        self,
+        _kind: type[BaseException] | None,
+        error: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> Literal[False]:
+        """Return False for what passes, and raise the refusal of the rest.
+
+        What `error` is, is read off its type and not off its `__class__`.
+        """
+        if not issubclass(type(error), ExceptionGroup):
+            return False
+        if not _holds_a_fetch_error(cast("ExceptionGroup[Exception]", error)):
+            return False
+        refusal = FetchError(f"no usable answer from the server: {_class_name(error)}")
+        try:
+            raise refusal
+        finally:
+            # raised while the `with` statement handles the group, which
+            # Python sets as the refusal's `__context__`
+            refusal.__context__ = None
+
+
+_GROUPS = _CallersGroups()
+
+
+# the descriptor answering `exceptions`, which a subclass can override
+_MEMBERS = vars(BaseExceptionGroup)["exceptions"]
+
+
+def _holds_a_fetch_error(group: ExceptionGroup[Exception]) -> bool:
+    """Return whether a `FetchError` is among the leaves of `group`.
+
+    Each group is read through `BaseExceptionGroup`'s own `exceptions`,
+    and each member by its type: a subclass of the caller's can answer
+    `exceptions`, `__class__` or `derive`, which `split` and `subgroup`
+    call, otherwise.
+    """
+    todo: list[BaseExceptionGroup[BaseException]] = [group]
+    seen: set[int] = set()
+    while todo:
+        each = todo.pop()
+        if id(each) in seen:
+            continue
+        seen.add(id(each))
+        for member in _MEMBERS.__get__(each, BaseExceptionGroup):
+            if issubclass(type(member), FetchError):
+                return True
+            if issubclass(type(member), BaseExceptionGroup):
+                todo.append(member)
+    return False
 
 
 def _class_name(value: object) -> str:

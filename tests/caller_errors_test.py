@@ -443,19 +443,61 @@ def test_a_refusal_the_callers_code_changed_is_refused_by_its_class(
     assert_secret_free(e.value, SPELLINGS)
 
 
-def test_an_exception_group_is_refused_by_its_class() -> None:
+class _HidingGroup(ExceptionGroup[Exception]):
+    """A group of the caller's whose `exceptions` and `derive` raise."""
+
+    @property
+    @override
+    def exceptions(self) -> tuple[Exception, ...]:
+        """Raise a refusal holding the key."""
+        raise FetchError(f"no members for {HEX}")
+
+    @override
+    def derive(self, excs: Any) -> ExceptionGroup[Exception]:  # type: ignore[override]
+        """Raise a refusal holding the key."""
+        raise FetchError(f"no group for {HEX}")
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        ExceptionGroup("failures", [FetchError(f"no answer for {HEX}")]),
+        ExceptionGroup(
+            "failures",
+            [TypeError("a bug"), ExceptionGroup("inner", [FetchError(HEX)])],
+        ),
+        _HidingGroup("failures", [FetchError(f"no answer for {HEX}")]),
+    ],
+    ids=["leaf", "nested", "hiding"],
+)
+def test_a_group_holding_a_fetch_error_is_refused_by_its_class(
+    group: ExceptionGroup[Exception],
+) -> None:
     """`except* FetchError` would hand the caller what the group holds."""
 
     def grouped() -> None:
-        raise ExceptionGroup("failures", [FetchError(f"no answer for {HEX}")])
+        raise group
 
-    err_msg = "^<lambda>: no usable answer from the server: ExceptionGroup$"
+    name = type(group).__name__
+    err_msg = f"^no usable answer from the server: {name}$"
     with pytest.raises(FetchError, match=err_msg) as e:
         _through(grouped)
     assert type(e.value) is FetchError
     assert e.value.__cause__ is None
     assert e.value.__context__ is None
     assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_group_holding_no_fetch_error_passes_as_it_is() -> None:
+    """A group of the caller's bugs stays one, as a bare `TypeError` does."""
+    group = ExceptionGroup("failures", [TypeError("a bug")])
+
+    def grouped() -> None:
+        raise group
+
+    with pytest.raises(ExceptionGroup) as e:
+        _through(grouped)
+    assert e.value is group
 
 
 def test_a_chain_looping_through_the_packages_refusals_is_walked_once() -> None:
