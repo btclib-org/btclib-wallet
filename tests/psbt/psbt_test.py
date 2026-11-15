@@ -28,7 +28,7 @@ from btclib.script import (
     sig_hash,
     taproot,
 )
-from btclib.script.engine import verify_transaction
+from btclib.script.engine import PAY_TO_ANCHOR, verify_transaction
 from btclib.script.taproot import input_script_sig, tree_helper
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
@@ -6994,3 +6994,18 @@ def test_a_p2sh_wrapped_taproot_program_has_no_signature_rule() -> None:
         assert_signed(signed)
     with pytest.raises(BTClibValueError, match="missing signatures"):
         finalize(signed)
+
+
+def test_finalize_spends_a_pay_to_anchor_input_with_nothing() -> None:
+    """A pay-to-anchor input is finalized with an empty spend, no signature.
+
+    Bitcoin Core's SignStep solves the anchor with nothing, and the empty
+    script_sig and empty witness it leaves verify, so finalize must not
+    refuse the input for missing signatures (issue #942).
+    """
+    spk = ScriptPubKey(PAY_TO_ANCHOR, "regtest")
+    psbt = Psbt.from_tx(Tx(2, 0, [TxIn(OutPoint(b"\x02" * 32, 0))], [TxOut(0, spk)]))
+    psbt.inputs[0].witness_utxo = TxOut(240, spk)
+    finalized = finalize(psbt)
+    assert finalized.inputs[0].final_script_sig == b""
+    assert finalized.inputs[0].final_script_witness.stack == ()

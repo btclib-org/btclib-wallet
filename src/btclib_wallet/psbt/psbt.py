@@ -55,7 +55,7 @@ from btclib.script import (
     taproot,
     type_and_payload,
 )
-from btclib.script.engine import verify_transaction
+from btclib.script.engine import PAY_TO_ANCHOR, verify_transaction
 from btclib.script.limits import MAX_SCRIPT_SIZE, MAX_STACK_SIZE
 from btclib.script.script import op_code_spans
 from btclib.script.sig_hash import (
@@ -2185,6 +2185,16 @@ def _is_taproot(psbt_in: PsbtIn) -> bool:
     return prev_out is not None and is_p2tr(prev_out.script_pub_key.script)
 
 
+def _spends_anchor(psbt_in: PsbtIn) -> bool:
+    """Return whether the input spends a pay-to-anchor output.
+
+    The output's script_pub_key is the anchor script itself, bare: a
+    p2sh-wrapped one is a different script and is not this.
+    """
+    prev_out = _prev_out(psbt_in)
+    return prev_out is not None and prev_out.script_pub_key.script == PAY_TO_ANCHOR
+
+
 def _spends_unknown_witness_program(psbt_in: PsbtIn) -> bool:
     """Return whether the input spends a witness program of no known rule.
 
@@ -3959,6 +3969,10 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
         # aggregate signature of a MuSig2 session into them
         elif _is_taproot(psbt_in):
             script_sig, witness = _finalized_taproot_input(psbt, vin_i)
+        # a pay-to-anchor output is spent by nothing at all: Bitcoin Core's
+        # SignStep solves it with no signature, and the spend is empty
+        elif _spends_anchor(psbt_in):
+            script_sig, witness = b"", Witness()
         else:
             if not psbt_in.partial_sigs:
                 raise BTClibValueError("missing signatures")
