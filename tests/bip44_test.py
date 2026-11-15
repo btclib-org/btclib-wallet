@@ -283,7 +283,7 @@ def test_key_depth() -> None:
     # the account xpub of another account: the depth says which index of
     # the path the key must be, and it is not that one
     xpub = bip32.xpub_from_xprv(bip32.derive(_ZPRV_ROOT, "m/84h/0h/1h"))
-    err_msg = "key index an int of 32 bits at depth 3 is not the path's 2147483648"
+    err_msg = "key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xpub, der_path)
 
@@ -518,7 +518,7 @@ def test_an_account_path_is_three_hardened_levels() -> None:
     other = bip32.xpub_from_xprv(bip32.derive(_XPRV_ROOT, "m/84h/0h/1h"))
     with pytest.raises(
         BTClibValueError,
-        match="key index an int of 32 bits at depth 3 is not the path's 2147483648",
+        match="key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648",
     ):
         account_descriptors(other, "m/84h/0h/0h", "deadbeef")
 
@@ -842,7 +842,7 @@ def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
         (
             {84: [_account_xpub("m/84h/0h/1h")]},
             BTClibValueError,
-            "key index an int of 32 bits at depth 3 is not the path's 2147483648",
+            "key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648",
         ),
         (
             {84: [bip32.xpub_from_xprv(_XPRV_ROOT)]},

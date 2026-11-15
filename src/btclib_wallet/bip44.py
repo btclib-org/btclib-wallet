@@ -312,7 +312,7 @@ def _indexes_left_to_derive(xkey: BIP32KeyData, indexes: list[int]) -> list[int]
         raise BTClibValueError(err_msg)
 
     if xkey.depth and xkey.index != indexes[xkey.depth - 1]:
-        err_msg = f"key index {_quoted(xkey.index)} at depth {_position(xkey.depth)}"
+        err_msg = f"key index {_quoted(xkey.index)} at depth {_quoted(xkey.depth)}"
         err_msg += f" is not the path's {_position(indexes[xkey.depth - 1])}"
         raise BTClibValueError(err_msg)
 

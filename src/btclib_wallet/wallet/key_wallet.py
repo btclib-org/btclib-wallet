@@ -317,9 +317,7 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
             err_msg += f" {_ACCOUNT_LEVELS} levels of an account path"
             raise BTClibValueError(err_msg)
         if xkey.depth and xkey.index != indexes[xkey.depth - 1]:
-            err_msg = (
-                f"key index {_quoted(xkey.index)} at depth {_position(xkey.depth)}"
-            )
+            err_msg = f"key index {_quoted(xkey.index)} at depth {_quoted(xkey.depth)}"
             err_msg += (
                 f" is not the account path's {_position(indexes[xkey.depth - 1])}"
             )

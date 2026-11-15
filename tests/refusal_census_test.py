@@ -38,8 +38,10 @@ print, and what the census cannot trace is a finding. It traces
 - what `_position` answers: an index or a count, and for anything else
   what `_message_text` answers. Where an `if` or an `if` expression
   around it, in the same function, compares what it is handed with a
-  constant other than by `is`, that is a finding: the `if` refuses the
-  value for what it is, and `_quoted` describes it;
+  constant other than by `is`, or reads it for its truth, which compares
+  it with 0, that is a finding: the `if` refuses the value for what it
+  is, and `_quoted` describes it. So is a `_position` handed its value
+  with `*` or `**`, which the census cannot compare;
 - what the methods `bit_length`, `count`, `find` and `index` answer,
   where it traces what they are called on;
 - what `_label` answers, where it traces the labels it is handed;
@@ -399,9 +401,23 @@ def _constant(expr: ast.expr) -> bool:
     return bool(parts) and all(_constant(part) for part in parts)
 
 
+def _truths(test: ast.expr) -> list[ast.expr]:
+    """Return what a test reads for its truth: `x`, `not x`, `x and y`."""
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        return _truths(test.operand)
+    if isinstance(test, ast.BoolOp):
+        return [truth for value in test.values for truth in _truths(value)]
+    return [test]
+
+
 def _compares_with_a_constant(test: ast.expr, value: ast.expr) -> bool:
-    """Return whether a test compares the value with a constant, not by `is`."""
+    """Return whether a test compares the value with a constant, not by `is`.
+
+    A test that reads the value for its truth compares it with 0.
+    """
     shape = ast.dump(value)
+    if any(ast.dump(truth) == shape for truth in _truths(test)):
+        return True
     for node in ast.walk(test):
         if not isinstance(node, ast.Compare):
             continue
@@ -853,9 +869,10 @@ class _Census:
         The `if` is one whose body or `else` holds the call, in the same
         function, and whose test compares what the call is handed with a
         constant, other than by `is`: `index > MAX_INDEX`, `not 0 <= index
-        < n`, `version not in {0, 2}`. A call `measured` names by its
-        module, its function and its source is not one, and is recorded
-        as used.
+        < n`, `version not in {0, 2}`, `index and not ranged`. A call
+        `measured` names by its module, its function and its source is not
+        one, and is recorded as used. A call that hands its value with `*`
+        or `**` is a finding wherever it is.
         """
         found: list[str] = []
         for module in self.modules:
@@ -865,6 +882,12 @@ class _Census:
                     and isinstance(node.func, ast.Name)
                     and node.func.id in _POSITIONS
                 ):
+                    continue
+                if _unpacks(node):
+                    found.append(
+                        f"{module.where(node)}: {ast.unparse(node)} hands its value"
+                        " unpacked, which the census cannot compare"
+                    )
                     continue
                 handed = [*node.args[:1]]
                 handed += [k.value for k in node.keywords if k.arg == "value"]
@@ -2078,8 +2101,29 @@ _SHAPES = {
         ),
     ),
     "position in an if expression": (
-        "def f(key):\n    raise ValueError(_position(key) if key else 'a')",
+        "def f(key, n):\n    raise ValueError(_position(key) if n else 'a')",
         "def f(key):\n    raise ValueError(_position(key) if key > LIMIT else 'a')",
+    ),
+    "position for its truth": (
+        (
+            "def f(key, i):\n    if key and not i:\n"
+            "        raise ValueError(_position(len(key)))"
+        ),
+        (
+            "def f(key, ranged):\n    if key and not ranged:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position unpacked": (
+        "def f(key):\n    raise ValueError(_position(key))",
+        ("def f(key):\n    if key > 10:\n        raise ValueError(_position(*(key,)))"),
+    ),
+    "position unpacked by name": (
+        "def f(key):\n    raise ValueError(_position(value=key))",
+        (
+            "def f(key):\n    if key > 10:\n"
+            '        raise ValueError(_position(**{"value": key}))'
+        ),
     ),
     "position by keyword": (
         (

@@ -532,7 +532,7 @@ def test_an_xpub_that_is_not_the_account_is_refused() -> None:
 
     with pytest.raises(
         BTClibValueError,
-        match="key index an int of 32 bits at depth 3 is not the path's 2147483648",
+        match="key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648",
     ):
         export_account(_WrongAccount(), ACCOUNT)
 
