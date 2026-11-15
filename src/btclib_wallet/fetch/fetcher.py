@@ -410,11 +410,11 @@ class NetworkVerifyingFetcher(Fetcher):
         A disagreement is remembered and raised again, as a copy of its
         args alone, for every later call, because it is a settled fact
         about a configuration rather than a request that failed -- and a
-        fetcher that asked once, was
-        refused once and then served an address would be the silent
-        failure this exists to stop. A `FetchError` is not an answer and
-        is remembered as nothing: the host was unreachable or spoke
-        nonsense, which the next call may well find otherwise.
+        fetcher that asked once, was refused once and then served an
+        address would be the silent failure this exists to stop. A
+        `FetchError` is not an answer and is remembered as nothing: the
+        host was unreachable or spoke nonsense, which the next call may
+        well find otherwise.
         """
         if not self.verify_network or self._agreed:
             return
