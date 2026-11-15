@@ -81,12 +81,14 @@ permissions:
 
 # named literally rather than through github.workflow, which in a called
 # workflow is the caller's name; keyed on the pull request's own number,
-# which no push's github.ref can equal; and the suffix keeps a release run
-# out of the branch groups (btclib-org/.github#1083)
+# which no dispatch's github.ref can equal; a push run keyed on its commit
+# and its ref, as test.yml says; and the suffix keeps a release run out of
+# the branch groups (btclib-org/.github#1083)
 concurrency:
   group: >-
-    integration-bitcoind-${{ github.event.pull_request.number ||
-    github.ref }}${{ inputs.concurrency-suffix }}
+    integration-bitcoind-${{ github.event_name == 'push'
+    && format('{0}-{1}', github.sha, github.ref)
+    || github.event.pull_request.number || github.ref }}${{ inputs.concurrency-suffix }}
   cancel-in-progress: true
 
 jobs:
