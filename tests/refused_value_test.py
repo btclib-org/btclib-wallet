@@ -971,8 +971,9 @@ def test_a_failed_connect_names_no_address(
     """Each caller of `_open_connection` refuses without its error's text.
 
     `_open_connection` raises the last connect's `OSError` as
-    `socket.create_connection` does, and that text can name the address:
-    each caller names at most the error's class (issue #821).
+    `socket.create_connection` does, a text the system writes and not this
+    package. Each caller names at most the error's class, which this test
+    holds with an `OSError` written to name the host (issue #821).
     """
     host = f"{HEX[:32]}.{HEX[32:]}"
 
