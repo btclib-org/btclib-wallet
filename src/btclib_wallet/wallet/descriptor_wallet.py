@@ -78,7 +78,7 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.witness import Witness
-from btclib.utils import assert_type, is_integer
+from btclib.utils import assert_type
 from typing_extensions import override
 
 from btclib_wallet._refusal import _exact_int
@@ -151,16 +151,18 @@ def _labels(by_branch: Mapping[int, Descriptor]) -> dict[int, Descriptor]:
     The module docstring says why. No value refusal prints the value: an
     int past the interpreter's digit limit has no str(). The type decides
     whether a label is an int, as `_quoted` says, since a `__class__` can
-    claim one. Each label is kept as the exact int `_exact_int` reads: the
-    str() of an IntEnum can be its name, which a ledger would write and
-    could not read back, and a subclass's `__int__` can answer another
-    number. Two labels holding one int are refused, since one descriptor
-    would replace the other.
+    claim one or raise. Each label is kept as the exact int `_exact_int`
+    reads: the str() of an IntEnum can be its name, which a ledger would
+    write and could not read back, and a subclass's `__int__` can answer
+    another number. Two labels holding one int are refused, since one
+    descriptor would replace the other.
     """
     labels: dict[int, Descriptor] = {}
     for branch, descriptor in by_branch.items():
-        if not (issubclass(type(branch), int) and is_integer(branch)):
-            err_msg = f"invalid branch type: {type(branch).__name__}"
+        # a caller can hand any key, whatever the annotation says
+        kind: type[object] = type(branch)
+        if not issubclass(kind, int) or kind is bool:
+            err_msg = f"invalid branch type: {kind.__name__}"
             raise BTClibTypeError(err_msg)
         value = _exact_int(branch)
         if value < 0:

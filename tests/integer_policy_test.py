@@ -283,3 +283,31 @@ def test_a_branch_is_the_int_its_label_holds() -> None:
     other = parse(f"wpkh({_XPUB}/1/*)")
     with pytest.raises(BTClibValueError, match="two labels hold one int"):
         DescriptorWallet({Twin(5): _DESCRIPTOR, 5: other})
+
+
+def test_a_branch_is_an_int_by_its_type_whatever_its_class_claims() -> None:
+    """The type decides, as `_quoted` does, and `__class__` is never read.
+
+    An int subclass is a label whether its `__class__` claims bool or
+    raises; `isinstance`, which reads `__class__`, would refuse the first
+    and raise from the second.
+    """
+
+    def no_class(_self: object) -> type:
+        raise RuntimeError("no __class__")
+
+    raises_class: Any = property(no_class)
+    claims_bool: Any = property(lambda _self: bool)
+
+    class RaisesClass(int):
+        __class__ = raises_class
+
+    class ClaimsBool(int):
+        __class__ = claims_bool
+
+    # what isinstance reads of each, which the wallet must not ask
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(RaisesClass(5), bool)
+    assert isinstance(ClaimsBool(5), bool)
+    assert DescriptorWallet({RaisesClass(5): _DESCRIPTOR}).branches == (5,)
+    assert DescriptorWallet({ClaimsBool(7): _DESCRIPTOR}).branches == (7,)
