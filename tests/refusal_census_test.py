@@ -1923,10 +1923,6 @@ MEASURED = {
     ("bip322.py", "_assert_sig_op_cost", "_position(cost)"): (
         "the sigop cost `sig_op_cost` counts in to_sign and to_spend"
     ),
-    ("wallet/key_wallet.py", "_account_xkey", "_position(xkey.depth)"): (
-        "the depth of an extended key that parsed: a byte BIP32 defines for"
-        " each of its values, read from the key and not handed by the caller"
-    ),
     ("silent_payments.py", "_assert_labels", "_position(tweak.itemsize)"): (
         "the item size of a memoryview, a part of its type, which section 7"
         " lets a refusal print as it does a type name"

@@ -313,7 +313,7 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
         came from, so the caller's word is taken for the levels above.
         """
         if xkey.depth > _ACCOUNT_LEVELS:
-            err_msg = f"invalid key depth: {_position(xkey.depth)} is past the"
+            err_msg = f"invalid key depth: {_quoted(xkey.depth)} is past the"
             err_msg += f" {_ACCOUNT_LEVELS} levels of an account path"
             raise BTClibValueError(err_msg)
         if xkey.depth and xkey.index != indexes[xkey.depth - 1]:

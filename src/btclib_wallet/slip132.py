@@ -23,7 +23,7 @@ from btclib.network import (
     network_from_xkeyversion,
 )
 
-from btclib_wallet._refusal import _position
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -100,7 +100,7 @@ def _helper_checks(
     if check_root_xkey and not xkey.is_root:
         # xkey may be an xprv: never echo it; the depth is the
         # non-root, non-secret, part
-        err_msg = f"not a root key: depth {_position(xkey.depth)}"
+        err_msg = f"not a root key: depth {_quoted(xkey.depth)}"
         raise BTClibValueError(err_msg)
     network = NETWORKS[network_from_xkeyversion(xkey.version)]
     return xkey, network

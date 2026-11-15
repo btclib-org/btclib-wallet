@@ -290,7 +290,7 @@ def test_key_depth() -> None:
     # a key deeper than the path itself has no tail left to walk, and the
     # bound is the path's own length: an account path is three levels
     xkey = bip32.derive(_ZPRV_ROOT, "m/84h/0h/0h/0/0/0")
-    err_msg = "invalid key depth: 6 is past the 5 levels of the path"
+    err_msg = "invalid key depth: an int of 3 bits is past the 5 levels of the path"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xkey, der_path)
 

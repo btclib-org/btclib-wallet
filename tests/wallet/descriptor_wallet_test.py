@@ -319,7 +319,7 @@ def test_a_wallet_that_is_not_ranged_has_one_position_per_chain() -> None:
     assert not wallet.is_ranged
     assert wallet.address() == address
     assert wallet.position_of(address, 999) == (0, 0)
-    err_msg = "not a ranged descriptor: no script at index 1"
+    err_msg = "not a ranged descriptor: no script at index an int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         wallet.address(0, 1)
 

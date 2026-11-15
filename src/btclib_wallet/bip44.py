@@ -307,7 +307,7 @@ def _indexes_left_to_derive(xkey: BIP32KeyData, indexes: list[int]) -> list[int]
     handed has walked past its end, whichever of the two paths it is.
     """
     if xkey.depth > len(indexes):
-        err_msg = f"invalid key depth: {_position(xkey.depth)} is past the"
+        err_msg = f"invalid key depth: {_quoted(xkey.depth)} is past the"
         err_msg += f" {len(indexes)} levels of the path"
         raise BTClibValueError(err_msg)
 

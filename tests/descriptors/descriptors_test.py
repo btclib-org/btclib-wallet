@@ -2090,6 +2090,10 @@ def test_index_out_of_range() -> None:
     assert not fixed.is_ranged
     with pytest.raises(BTClibValueError, match="not a ranged descriptor"):
         fixed.script_pub_keys(1)
+    # the index refused is described, however large
+    err_msg = "^not a ranged descriptor: no script at index an int of 31 bits$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        fixed.script_pub_keys(0x7FFFFFFF)
 
 
 def test_no_private_key_survives_the_parse() -> None:
