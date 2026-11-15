@@ -65,6 +65,14 @@ class FetchError(BTClibRuntimeError):
 
     One built by a module of this package is told apart from one the
     caller's code built, and `_caller_errors` says what becomes of each.
+    C code adds no frame to those `_built_by_the_package` reads, so one
+    built in C code that a module of this package calls counts as the
+    package's: a transport of the caller's written in C is such code.
+    Under CPython 3.11, C code that raises one by its class, as
+    `PyErr_SetString` does, leaves it to be built in the first frame that
+    handles it, with an `except`, a `finally` or a `with`. The caller's
+    code makes such an error its own by catching it, or building it, in a
+    Python function of its own.
     """
 
     def __init__(self, *args: object) -> None:
@@ -322,7 +330,7 @@ def _built_by_the_package() -> bool:
     The builder is the module of the first frame past `FetchError.__init__`
     that is no `__init__` of this module. A subclass the caller defines is
     then the caller's, and so is a class of this module that the caller's
-    code builds.
+    code builds, but for the C code `FetchError`'s docstring names.
     """
     # the frame that called `FetchError.__init__`
     frame: FrameType | None = sys._getframe(2)

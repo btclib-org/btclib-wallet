@@ -298,6 +298,9 @@ used to teach and to prototype as much as to build.
 - **A `Ledger` verifies a backend's unconfirmed spends of its own coins**
     with btclib's script engine. `btclib_wallet.ledger.ledger`'s
     docstring says when, and what stays unverified.
+- **A `FetchError` that C code of the caller's builds can pass as this
+    package's**, its text included. `btclib_wallet.exceptions.FetchError`'s
+    docstring says when, and how the caller's code makes it its own.
 
 ## A ledger's keys at rest
 
