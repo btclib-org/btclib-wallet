@@ -832,20 +832,18 @@ class _JumpChain(FakeChain):
     "jump",
     [
         BlockRef(10**10, b"\x0b" * 32),
-        BlockRef(-1, b"\x0b" * 32),
         BlockRef(5, b"\x0b" * 31),
         BlockRef(5, b"\x0b" * 33),
     ],
-    ids=["height past 10 digits", "negative height", "31-byte id", "33-byte id"],
+    ids=["height past 10 digits", "31-byte id", "33-byte id"],
 )
 def test_what_a_sync_writes_of_a_backends_block_loads_again(
     path: Path, jump: BlockRef, *, confirmed: bool
 ) -> None:
     """What a sync writes of a block a backend answers, a load reads back.
 
-    A sync keeps the height and the id a backend answers: ElectrumFetcher
-    and BitcoinCoreFetcher take a negative tip height, and a reader of the
-    caller's own any id.
+    A sync keeps the height and the id a backend answers: a height past
+    10 digits, and, from a reader of the caller's own, any id.
     """
     chain = _JumpChain(jump)
     with Ledger.create(path, "regtest", chain) as ledger:

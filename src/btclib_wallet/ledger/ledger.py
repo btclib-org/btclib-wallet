@@ -281,7 +281,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.balance import script_pub_key_for_network
 from btclib_wallet.fetch.broadcaster import Broadcaster
 from btclib_wallet.fetch.fee_estimator import FeeEstimator, valid_confirmation_target
-from btclib_wallet.fetch.fetcher import tx_for_network
+from btclib_wallet.fetch.fetcher import block_header_height, tx_for_network
 from btclib_wallet.fetch.history import BlockRef, HistoryReader, ScriptHistory
 from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
 from btclib_wallet.ledger.crypto import (
@@ -1070,8 +1070,10 @@ class Ledger:
         The module docstring says how. A tip that moves between the reads
         of one sync starts it again, at most `_SYNC_ATTEMPTS` times in
         all, and then raises `FetchError`. A backend's own `FetchError` is
-        raised as it comes, and nothing is written. A ledger with no
-        source is refused, having no script to ask about.
+        raised as it comes, and nothing is written. The tip height the
+        sync records is checked by `fetcher.block_header_height` before
+        anything is written. A ledger with no source is refused, having no
+        script to ask about.
         """
         if not self._sources:
             raise BTClibValueError("no source: add one before the sync")
@@ -1094,6 +1096,7 @@ class Ledger:
             main = self._history(scripts, self._tip.height)
             if main.start != self._tip:
                 main, fork_height = self._walk_down(scripts, self._tip)
+        block_header_height(main.tip.height)
         answers = [main]
         scanned = frozenset(self._unscanned)
         pending: dict[int, set[bytes]] = {}

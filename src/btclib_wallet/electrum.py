@@ -650,7 +650,12 @@ def headers_subscribe_request(request_id: int) -> bytes:
 
 
 def headers_subscribe_response(line: bytes, request_id: int) -> HeaderTip:
-    """Return the chain tip `blockchain.headers.subscribe` answered."""
+    """Return the chain tip `blockchain.headers.subscribe` answered.
+
+    The height is refused as `fetcher.block_header_height` refuses a
+    caller's: `BTClibTypeError` where it is not an integer,
+    `BTClibValueError` where it is negative.
+    """
     result = decode_response(line, request_id, "blockchain.headers.subscribe")
     if not isinstance(result, dict):
         err_msg = f"headers.subscribe: not an object: {_message_text(result)}"
@@ -660,6 +665,9 @@ def headers_subscribe_response(line: bytes, request_id: int) -> HeaderTip:
     if not is_integer(height):
         err_msg = f"headers.subscribe: invalid height: {_message_text(height)}"
         raise BTClibTypeError(err_msg)
+    if cast(int, height) < 0:
+        err_msg = f"headers.subscribe: invalid height: {_message_text(height)} < 0"
+        raise BTClibValueError(err_msg)
     if not isinstance(header, str):
         err_msg = f"headers.subscribe: invalid hex: {_message_text(header)}"
         raise BTClibTypeError(err_msg)

@@ -261,7 +261,7 @@ class BitcoinCoreFetcher(NetworkVerifyingFetcher):
         self._verify_once()
         with _fetch_errors("getblockcount"):
             reply = self._call("getblockcount", None, max_body_size=_MAX_SMALL_REPLY)
-            return int(reply)
+            return block_header_height(reply)
 
     @override
     def get_best_block_id(self) -> bytes:
@@ -583,8 +583,8 @@ def _block_history(
         answered = _member(reply, "hash")
         if answered != block_hex:
             raise BTClibValueError("the answer is another block")
-        answered = _member(reply, "height")
-        if not is_integer(answered) or (height is not None and answered != height):
+        answered = block_header_height(_member(reply, "height"))
+        if height is not None and answered != height:
             raise BTClibValueError(f"the answer is at height {_message_text(answered)}")
         txs = [
             tx_from_raw(_member(entry, "hex"), _member(entry, "txid"), network)
@@ -592,7 +592,7 @@ def _block_history(
             if _touches(entry, elements)
         ]
         parent = str(reply.get("previousblockhash", ""))
-        ref = BlockRef(cast(int, answered), bytes_from_octets(block_hex, 32))
+        ref = BlockRef(answered, bytes_from_octets(block_hex, 32))
     return ref, txs, parent
 
 

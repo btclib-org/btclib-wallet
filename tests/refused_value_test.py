@@ -323,6 +323,12 @@ HEX = KEY.hex()
         ),
         (
             lambda: electrum.headers_subscribe_response(
+                _answer({"height": -SCALAR, "hex": ""}), 1
+            ),
+            "^headers.subscribe: invalid height: a negative int of 256 bits < 0$",
+        ),
+        (
+            lambda: electrum.headers_subscribe_response(
                 _answer({"height": 1, "hex": SCALAR}), 1
             ),
             "^headers.subscribe: invalid hex: an int of 256 bits$",
@@ -405,6 +411,7 @@ HEX = KEY.hex()
         "transaction",
         "tip not an object",
         "tip height",
+        "tip height negative",
         "tip hex",
         "header",
         "headers not an object",

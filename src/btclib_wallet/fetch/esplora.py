@@ -355,7 +355,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         """Return the height of the server's best chain tip."""
         self._verify_once()
         with _fetch_errors("blocks/tip/height"):
-            return int(self.text("/blocks/tip/height", _MAX_HEIGHT_BODY))
+            return block_header_height(
+                int(self.text("/blocks/tip/height", _MAX_HEIGHT_BODY))
+            )
 
     @override
     def get_best_block_id(self) -> bytes:

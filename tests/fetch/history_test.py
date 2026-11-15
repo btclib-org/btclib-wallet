@@ -365,7 +365,12 @@ def _without_prevout(result: dict[str, Any]) -> dict[str, Any]:
     [
         ("getblock", lambda r: _set(r, "hash", "00" * 32), "the answer is block"),
         ("getblock", lambda r: _set(r, "height", 9), "the answer is at height 9"),
-        ("getblock", lambda r: _set(r, "height", "2"), "the answer is at height 2"),
+        ("getblock", lambda r: _set(r, "height", "2"), "invalid height type: str"),
+        (
+            "getblock",
+            lambda r: _set(r, "height", -1),
+            "invalid height: a negative int of 1 bits < 0",
+        ),
         ("getblock", lambda _r: [], "no 'hash' member"),
         ("getblock", _without_prevout, "no 'prevout' member"),
         ("getbestblockhash", lambda _r: "xx", "getbestblockhash"),

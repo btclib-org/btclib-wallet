@@ -227,6 +227,11 @@ def _set(reply: dict[str, Any], key: str, value: Any) -> dict[str, Any]:
     "kind, change, match",
     [
         ("block", lambda r: _set(r, "height", 9), "the answer is at height 9"),
+        (
+            "block",
+            lambda r: _set(r, "height", -1),
+            "invalid height: a negative int of 1 bits < 0",
+        ),
         ("chaininfo", lambda _r: {}, "no 'bestblockhash' member"),
         ("mempool", lambda _r: {}, "not an array: dict"),
         ("getutxos", lambda r: _set(r, "chaintipHash", "00" * 32), "read at 00"),

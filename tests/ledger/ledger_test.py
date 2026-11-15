@@ -981,6 +981,44 @@ def test_a_sync_reads_again_where_the_tip_moved(
     assert calls == 2 * _SYNC_ATTEMPTS
 
 
+@pytest.mark.parametrize(
+    "height, refusal, err_msg",
+    [
+        (True, BTClibTypeError, "^invalid height type: bool$"),
+        (5.0, BTClibTypeError, "^invalid height type: float$"),
+        (-1, BTClibValueError, "^invalid height: a negative int of 1 bits < 0$"),
+    ],
+)
+def test_a_sync_refuses_a_tip_at_no_height(
+    chain: FakeChain,
+    path: Path,
+    height: object,
+    refusal: type[Exception],
+    err_msg: str,
+) -> None:
+    """Refused as a caller's height is, and nothing is written (issue #901)."""
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source(), lookahead=SMALL_LOOKAHEAD)
+        ledger.sync()
+        synced = ledger.tip
+        chain.mine()
+        original = chain.get_history
+
+        def at_no_height(
+            scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+        ) -> ScriptHistory:
+            answer = original(scripts, start_height)
+            tip = BlockRef(height, answer.tip.block_id)  # type: ignore[arg-type]
+            return ScriptHistory(answer.start, tip, answer.txs)
+
+        chain.get_history = at_no_height  # type: ignore[method-assign]
+        with pytest.raises(refusal, match=err_msg):
+            ledger.sync()
+        assert ledger.tip == synced
+    with Ledger.load(path, "regtest", chain) as loaded:
+        assert loaded.tip == synced
+
+
 def test_a_taproot_spend_beside_an_output_not_held_is_kept_out(
     chain: FakeChain, path: Path
 ) -> None:

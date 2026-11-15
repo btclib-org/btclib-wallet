@@ -202,12 +202,21 @@ def test_get_block_count_asks_chaininfo() -> None:
         chaininfo(blocks="not a number", bestblockhash=TIP_ID),
         chaininfo(blocks=None, bestblockhash=TIP_ID),
         chaininfo(blocks=[1], bestblockhash=TIP_ID),
+        chaininfo(blocks=True, bestblockhash=TIP_ID),
+        chaininfo(blocks=5.9, bestblockhash=TIP_ID),
         b"3",  # a reply that is not an object at all
     ],
 )
 def test_a_block_count_that_is_not_one(body: bytes) -> None:
     """Refuse a chaininfo reply whose 'blocks' is missing or not an int."""
     with pytest.raises(FetchError, match="chaininfo:"):
+        fetcher((200, body)).get_block_count()
+
+
+def test_a_negative_block_count() -> None:
+    """Refuse a negative 'blocks', as a caller's height (issue #901)."""
+    body = chaininfo(blocks=-1, bestblockhash=TIP_ID)
+    with pytest.raises(FetchError, match="^chaininfo: a malformed answer$"):
         fetcher((200, body)).get_block_count()
 
 

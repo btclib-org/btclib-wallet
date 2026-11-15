@@ -558,11 +558,18 @@ def test_get_block_count_and_get_best_block_id() -> None:
     assert tip.hex() == TIP_ID
 
 
-@pytest.mark.parametrize("result", ["not a number", None, [1]])
+@pytest.mark.parametrize("result", ["not a number", None, [1], True, 5.9, "7"])
 def test_a_height_that_is_not_one(result: object) -> None:
     """Refuse a getblockcount result that is not an int."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
-    with pytest.raises(FetchError, match="getblockcount:"):
+    with pytest.raises(FetchError, match="^getblockcount: a malformed answer$"):
+        fetcher((200, body)).get_block_count()
+
+
+def test_a_negative_height() -> None:
+    """Refuse a negative getblockcount result, as a caller's (issue #901)."""
+    body = json.dumps({"jsonrpc": "2.0", "result": -1, "id": "x"}).encode()
+    with pytest.raises(FetchError, match="^getblockcount: a malformed answer$"):
         fetcher((200, body)).get_block_count()
 
 

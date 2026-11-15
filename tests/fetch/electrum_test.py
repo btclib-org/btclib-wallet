@@ -277,13 +277,14 @@ def test_get_best_block_id_is_not_the_servers_word() -> None:
     "tip",
     [
         {"height": "not an int", "hex": TIP_HEADER_RAW},
+        {"height": -1, "hex": TIP_HEADER_RAW},
         {"height": TIP_HEIGHT},  # no "hex" member at all
         {"height": TIP_HEIGHT, "hex": "not hex at all!!"},
         "not an object",
     ],
 )
 def test_a_headers_subscribe_answer_that_is_not_one(tip: object) -> None:
-    """A missing or wrongly typed member, or no object at all, is refused."""
+    """A missing, wrongly typed or negative member, or no object, is refused."""
     with pytest.raises(FetchError, match="headers.subscribe:"):
         fetcher(tip).get_block_count()
 
