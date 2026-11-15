@@ -89,10 +89,6 @@ class FakeSocket:
         if self.close_error is not None:
             raise self.close_error
 
-    def fileno(self) -> int:
-        """Return -1 once closed, as a socket does."""
-        return -1 if self.closed else 3
-
 
 def set_clock(monkeypatch: pytest.MonkeyPatch, clock: Callable[[], float]) -> None:
     """Replace the clock of the deadline and of the time left before it."""
@@ -349,6 +345,64 @@ def test_a_message_with_a_wrong_checksum_is_refused(
     ):
         transport.receive(5)
     assert not transport.is_open
+
+
+@pytest.mark.parametrize("call", ["send", "receive"])
+def test_an_interrupt_closes_the_connection(
+    monkeypatch: pytest.MonkeyPatch, call: str
+) -> None:
+    """A message half written or half read leaves no connection open."""
+    # the header arrives and the payload does not, so a read is interrupted
+    fake = FakeSocket([WIRE[:24]], error=KeyboardInterrupt())
+    connect_to(monkeypatch, fake)
+    transport = peer()
+    transport.send(MESSAGE, 5)
+    if call == "send":
+        fake.send_error = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt):
+        getattr(transport, call)(*((MESSAGE, 5) if call == "send" else (5,)))
+    assert not transport.is_open
+    assert fake.closed == 1
+
+
+def interrupt_first_close(monkeypatch: pytest.MonkeyPatch, fake: FakeSocket) -> None:
+    """Interrupt the first close of `fake`, before it closes."""
+    close = fake.close
+    interrupted: list[bool] = []
+
+    def interrupted_close() -> None:
+        if not interrupted:
+            interrupted.append(True)
+            raise KeyboardInterrupt
+        close()
+
+    monkeypatch.setattr(fake, "close", interrupted_close)
+
+
+@pytest.mark.parametrize("call", ["send", "receive"])
+def test_an_interrupt_of_the_close_after_an_interrupt_leaves_nothing_open(
+    monkeypatch: pytest.MonkeyPatch, call: str
+) -> None:
+    """The stream left mid-message is written to no more, and closed after."""
+    first = FakeSocket([WIRE[:24]], error=KeyboardInterrupt())
+    again = FakeSocket([])
+    sockets = iter([first, again])
+    monkeypatch.setattr(
+        peer_transport, "_open_connection", lambda *_a, **_k: next(sockets)
+    )
+    transport = peer()
+    transport.send(MESSAGE, 5)
+    if call == "send":
+        first.send_error = KeyboardInterrupt()
+    interrupt_first_close(monkeypatch, first)
+    with pytest.raises(KeyboardInterrupt):
+        getattr(transport, call)(*((MESSAGE, 5) if call == "send" else (5,)))
+    assert (transport.is_open, first.closed) == (False, 0)
+    first.send_error = None
+    transport.send(MESSAGE, 5)
+    assert first.written == WIRE
+    assert first.closed == 1
+    assert again.written == WIRE
 
 
 # closing
@@ -912,21 +966,13 @@ def opened(
 def test_an_interrupted_close_leaves_the_socket_to_the_next_close(
     monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
-    """A socket is let go of only once closed."""
+    """A socket is let go of only once closed, and is not open meanwhile."""
     transport, fake = opened(monkeypatch, kind)
-    close = fake.close
-    interrupted: list[bool] = []
-
-    def interrupted_close() -> None:
-        if not interrupted:
-            interrupted.append(True)
-            raise KeyboardInterrupt
-        close()
-
-    monkeypatch.setattr(fake, "close", interrupted_close)
+    interrupt_first_close(monkeypatch, fake)
     with pytest.raises(KeyboardInterrupt):
         transport.close()
     assert fake.closed == 0
+    assert not transport.is_open
     transport.close()
     assert fake.closed == 1
     assert not transport.is_open
@@ -966,7 +1012,8 @@ def test_a_send_after_a_close_interrupted_once_the_socket_closed_reconnects(
 
     def closed_then_interrupted() -> None:
         close()
-        raise KeyboardInterrupt
+        if closed.closed == 1:
+            raise KeyboardInterrupt
 
     monkeypatch.setattr(closed, "close", closed_then_interrupted)
     with pytest.raises(KeyboardInterrupt):

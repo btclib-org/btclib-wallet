@@ -371,17 +371,32 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             raise FetchError("the peer did not answer in time")
         return min(remaining, self.timeout)
 
+    @contextmanager
+    def _exchange(self) -> Iterator[None]:
+        """Translate what the peer's transport raises, and forget its greeting.
+
+        A transport is closed where its `send` or its `receive` fails or is
+        interrupted, a `KeyboardInterrupt` included (`PeerTransport`), so
+        the next connection is greeted before anything else is sent on it.
+        """
+        try:
+            with client_errors():
+                yield
+        except BaseException:
+            self._speaker.greeted = False
+            raise
+
     def _send(self, payload: Payload, deadline: float) -> None:
         """Send one payload to the peer, framed for this network, in time."""
         message = payload.to_message(self._magic)
         remaining = self._remaining(deadline)
-        with client_errors():
+        with self._exchange():
             self._speaker.transport.send(message, remaining)
 
     def _next(self, deadline: float) -> Message:
         """Return the next message of the peer, refusing another network's."""
         remaining = self._remaining(deadline)
-        with client_errors():
+        with self._exchange():
             message = self._speaker.transport.receive(remaining)
         if message.magic != self._magic:
             err_msg = f"a message start that is not {_label(self.network, NETWORKS)}'s"

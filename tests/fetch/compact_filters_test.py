@@ -412,6 +412,27 @@ def test_a_silent_peer_is_a_fetch_error_and_the_next_call_greets_again() -> None
     assert peer.versions == 2
 
 
+@pytest.mark.parametrize("call", ["send", "receive"])
+def test_an_interrupted_exchange_greets_the_peer_again(call: str) -> None:
+    """A transport an interrupt closed is greeted again before any request."""
+    fetcher, peer = build()
+    fetcher.get_block_count()
+
+    def interrupted(*_args: object) -> None:
+        # what a shipped transport does: close, and let the interrupt go on
+        peer.close()
+        raise KeyboardInterrupt
+
+    setattr(peer, call, interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        fetcher.get_block_count()
+    delattr(peer, call)
+    asked = len(peer.sent)
+    assert fetcher.get_block_count() == TIP
+    assert peer.sent[asked].command == "version"
+    assert peer.versions == 2
+
+
 def test_a_transport_that_cannot_send_is_a_fetch_error() -> None:
     """A transport's error is translated to this package's `FetchError`."""
     fetcher, peer = build()

@@ -148,7 +148,9 @@ class PeerTransport(Protocol):
 
     A transport that cannot answer raises `bitcoin_core_rpc`'s `FetchError`
     or a subclass of it, and is closed when it does: the next `send` opens
-    a new connection. `close` is idempotent.
+    a new connection. It is closed too where anything else, a
+    `KeyboardInterrupt` included, stops a `send` or a `receive`, since the
+    stream may be left mid-message. `close` is idempotent.
     """
 
     def send(self, message: Message, timeout: float) -> None:
@@ -179,6 +181,11 @@ class TcpPeerTransport:
         self._host = host
         self._port = port
         self._socket: socket | None = None
+        # a socket being closed: held here from the moment its close
+        # begins until it is closed, so that whatever interrupts the
+        # close, a `KeyboardInterrupt` included, leaves it to the next
+        # close and to no `send`
+        self._closing: socket | None = None
 
     @property
     def host(self) -> str:
@@ -193,8 +200,7 @@ class TcpPeerTransport:
     @property
     def is_open(self) -> bool:
         """Return whether a connection is open."""
-        # a close interrupted once the socket closed still holds it, closed
-        return self._socket is not None and self._socket.fileno() != -1
+        return self._socket is not None
 
     def __enter__(self) -> Self:
         """Return this transport."""
@@ -206,15 +212,16 @@ class TcpPeerTransport:
 
     def close(self) -> None:
         """Close the connection, if there is one."""
-        sock = self._socket
+        # from here the socket is no longer open, and it is let go of only
+        # once closed, or once its close failed
+        self._closing, self._socket = self._closing or self._socket, None
+        sock = self._closing
         if sock is not None:
-            # let go of only once closed, or once its close failed: a
-            # close interrupted before that leaves it to the next close
             closed = False
             with suppress(OSError):
                 sock.close()
                 closed = True
-            self._socket = None
+            self._closing = None
             if not closed:
                 raise _TransportError(
                     f"closing {_quoted(self._host)}:{_quoted(self._port)}"
@@ -234,8 +241,9 @@ class TcpPeerTransport:
         where = f"{_quoted(self._host)}:{_quoted(self._port)}"
         try:
             sock = self._socket
-            # a close interrupted once the socket closed leaves it held
-            if sock is None or sock.fileno() == -1:
+            if sock is None:
+                # what an interrupted close left, if anything
+                self._discard()
                 sock = self._socket = _open_connection(
                     (self._host, self._port), deadline, timeout, where
                 )
@@ -244,6 +252,10 @@ class TcpPeerTransport:
         except OSError:
             pass
         except _TransportError:
+            self._discard()
+            raise
+        except BaseException:
+            # a `KeyboardInterrupt` can leave a message half written
             self._discard()
             raise
         else:
@@ -275,6 +287,10 @@ class TcpPeerTransport:
         except ValueError:
             failure = f"{where}: a message that does not parse"
         except _TransportError:
+            self._discard()
+            raise
+        except BaseException:
+            # a `KeyboardInterrupt` can leave a message half read
             self._discard()
             raise
         self._discard()
