@@ -67,7 +67,8 @@ from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_outpu
 _STARTUP_TIMEOUT = 30.0
 
 # the wallet of the session's node that pays the first wallet of each
-# `wallets`, and what it pays it
+# `wallets`, and what it pays it: more than any test on `wallets` spends,
+# so a test that spends more raises it
 _BANK = "bank"
 _ALLOWANCE = "5"
 
