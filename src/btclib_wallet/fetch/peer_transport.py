@@ -116,7 +116,7 @@ def _assert_bip324() -> None:
     """
     # refused after `suppress`, as every refusal of this module is raised
     # after the `except` block that sees its cause, so that it chains
-    # nothing: an OSError holds what the system says of the address
+    # nothing
     with suppress(ImportError):
         import_module("btclib.p2p.bip324")
         return

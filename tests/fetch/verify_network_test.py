@@ -201,18 +201,25 @@ def test_no_question_is_answered_by_a_host_on_another_chain(
 def test_a_disagreement_raised_again_carries_one_calls_traceback(
     backend: str,
 ) -> None:
-    """The refusal a later call raises again holds that call's frames alone.
+    """Each call raises a refusal of its own, which holds that call's frames.
 
-    The one exception is remembered: raised as it is, its traceback would
-    gather the frames of every call that raised it.
+    The first refusal is remembered: raised again as it is, its traceback
+    would gather the frames of every later call, under each caller holding
+    it, and on every thread that asks.
     """
     endpoint, asked = _BACKENDS[backend].build()
-    depths = []
+    raised: list[BaseException] = []
+    held: list[list[traceback.FrameSummary]] = []
     for _ in range(3):
         with pytest.raises(BTClibValueError) as e:
             endpoint.get_block_count()
-        depths.append(len(traceback.extract_tb(e.value.__traceback__)))
-    assert depths[1] == depths[2]
+        raised.append(e.value)
+        held.append(traceback.extract_tb(e.value.__traceback__))
+    assert len({id(refusal) for refusal in raised}) == 3
+    assert {str(refusal) for refusal in raised} == {str(raised[0])}
+    # the first caller's refusal is as it was raised, after two more calls
+    assert traceback.extract_tb(raised[0].__traceback__) == held[0]
+    assert len(held[1]) == len(held[2])
     assert len(asked) == 1
 
 

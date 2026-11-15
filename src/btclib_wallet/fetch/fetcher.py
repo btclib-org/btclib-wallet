@@ -18,6 +18,7 @@ is talking to, in the one place the whole point was not to.
 
 from __future__ import annotations
 
+import copy
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -406,8 +407,8 @@ class NetworkVerifyingFetcher(Fetcher):
         `assert_network` itself goes through -- a check there would ask
         the host about the host, from inside the question.
 
-        A disagreement is remembered and raised again for every later
-        call, because it is a settled fact about a configuration rather
+        A disagreement is remembered and raised again, as a copy, for every
+        later call, because it is a settled fact about a configuration rather
         than a request that failed -- and a fetcher that asked once, was
         refused once and then served an address would be the silent
         failure this exists to stop. A `FetchError` is not an answer and
@@ -417,10 +418,11 @@ class NetworkVerifyingFetcher(Fetcher):
         if not self.verify_network or self._agreed:
             return
         if self._disagreement is not None:
-            # raised with the traceback of this call alone: the one
-            # exception raised again would gather the frames of every call
-            self._disagreement.__traceback__ = None
-            raise self._disagreement
+            # a copy for each call, which holds no traceback, cause or
+            # context of the first: the one exception raised again would
+            # gather the frames of every call, under each caller holding it
+            refusal = copy.copy(self._disagreement)
+            raise refusal
         try:
             self.assert_network()
         except _WrongChainError as e:

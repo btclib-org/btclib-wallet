@@ -1771,10 +1771,11 @@ KEPT = {
         " its own, naming at most the error's class;"
         " `test_a_failed_connect_names_no_address` holds them to it"
     ),
-    ("fetch/fetcher.py", "_verify_once", "self._disagreement"): (
-        "`_disagreement` is assigned `None` in `__init__` and, in"
-        " `_verify_once`, the exception `except _WrongChainError` binds"
-        " alone: a class of the package, built at sites the census reads"
+    ("fetch/fetcher.py", "_verify_once", "refusal"): (
+        "a `copy.copy` of `_disagreement`, which is assigned `None` in"
+        " `__init__` and, in `_verify_once`, the exception"
+        " `except _WrongChainError` binds alone: a class of the package,"
+        " built at sites the census reads"
     ),
 }
 
