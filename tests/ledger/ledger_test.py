@@ -32,6 +32,7 @@ from btclib_wallet.bip32.bip32 import derive, prv_keyinfo_from_xprv, xpub_from_x
 from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.history import BlockRef, ScriptHistory
+from btclib_wallet.fetch.relay_fees import RelayFees
 from btclib_wallet.ledger import (
     LOOKAHEAD,
     Balances,
@@ -44,7 +45,14 @@ from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
 from tests.ledger.conftest import LOOKAHEAD as SMALL_LOOKAHEAD
-from tests.ledger.conftest import XPRV, FakeChain, script_of, source, tampered
+from tests.ledger.conftest import (
+    REFUSED_BROADCAST,
+    XPRV,
+    FakeChain,
+    script_of,
+    source,
+    tampered,
+)
 from tests.refused_value_test import HEX, SPELLINGS
 from tests.secret_free import assert_secret_free
 
@@ -317,13 +325,50 @@ def test_a_replaced_transaction_is_kept_inactive(
     assert [d.category for d in info.details] == ["send", "send"]
 
 
+def test_a_refusal_of_the_callers_backend_relays_none_of_its_text(
+    ledger: Ledger, chain: FakeChain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reader, the broadcaster and the fee reader are the caller's code.
+
+    A `FetchError` each raises is refused by its class, whether the ledger
+    raises it or `resubmit` returns it (issue #935).
+    """
+    _funded(ledger, chain)
+
+    def no_fees() -> RelayFees:
+        raise FetchError(f"no fees for {HEX}")
+
+    monkeypatch.setattr(chain, "get_relay_fees", no_fees)
+    with pytest.raises(FetchError, match="^get_relay_fees: no usable") as e:
+        ledger.spend([_outside()])
+    refusals = [e.value]
+    monkeypatch.undo()
+    chain.refuse = f"refused {HEX}"
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$") as e:
+        ledger.spend([_outside()])
+    refusals += [e.value, *ledger.resubmit().values()]
+    assert [str(refusal) for refusal in refusals[1:]] == [REFUSED_BROADCAST] * 2
+
+    def leak() -> None:
+        raise FetchError(f"no history for {HEX}")
+
+    chain.on_read.append(leak)
+    with pytest.raises(FetchError, match="^get_history: no usable") as e:
+        ledger.sync()
+    refusals.append(e.value)
+    for refusal in refusals:
+        assert refusal.__cause__ is None
+        assert refusal.__context__ is None
+        assert_secret_free(refusal, SPELLINGS)
+
+
 def test_a_refused_broadcast_stays_as_nonmempool(
     ledger: Ledger, chain: FakeChain
 ) -> None:
     """Recorded first, so a refusal keeps it: wallet_balance.py 214-225."""
     _funded(ledger, chain)
     chain.refuse = "min relay fee not met"
-    with pytest.raises(FetchError, match="min relay fee not met"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.spend([_outside()])
     (refused,) = [
         info for info in ledger.transactions if info.wallet_tx.state is TxState.INACTIVE
@@ -614,7 +659,9 @@ def test_a_backend_that_pruned_the_block_held_fails_each_sync(
     chain.mine(count=8)
     for _ in range(2):
         chain.reads.clear()
-        with pytest.raises(FetchError, match="pruned"):
+        # the reader is the caller's: its refusal is relayed by its class
+        err_msg = "^get_history: no usable answer from the server: FetchError$"
+        with pytest.raises(FetchError, match=err_msg):
             ledger.sync()
         assert chain.reads == [12, 11, 10, 9, 8]
         assert ledger.tip == tip

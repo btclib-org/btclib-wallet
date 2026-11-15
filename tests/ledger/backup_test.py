@@ -471,7 +471,8 @@ def test_a_restore_past_the_backends_blocks_fails_at_the_sync(
             raise FetchError("block 2 has no undo data: the node pruned it")
 
         chain.on_read.append(pruned)
-        with pytest.raises(FetchError, match="pruned"):
+        err_msg = "^get_history: no usable answer from the server: FetchError$"
+        with pytest.raises(FetchError, match=err_msg):
             restored.sync()
         assert _answers(restored) == expected
     with Ledger.load(restored_path, "regtest", chain) as reloaded:

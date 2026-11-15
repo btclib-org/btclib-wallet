@@ -49,6 +49,7 @@ from btclib_wallet.descriptors import (
     wallet_policy_address,
     wallet_policy_descriptor,
 )
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.history import (
     BlockRef,
     HistoryTx,
@@ -57,6 +58,8 @@ from btclib_wallet.fetch.history import (
 )
 from btclib_wallet.mnemonic.bip39 import mxprv_from_mnemonic
 from tests import replace_unchecked
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" seed of BIP39, which BIP84 and BIP86
 # publish as a root key: the same key, spelled with two versions
@@ -868,6 +871,32 @@ def test_discover_accounts_refuses_a_reader_and_the_limits() -> None:
     with pytest.raises(BTClibValueError, match="instead of 4"):
         discover_accounts(xpubs, chain, "00")
     assert not chain.reads
+
+
+def test_a_fetch_error_of_the_callers_reader_is_refused_by_its_class() -> None:
+    """The reader is the caller's code, so its text is not relayed (issue #935).
+
+    The first read, of a window, and the last, of every position found,
+    are refused in turn.
+    """
+    pair = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
+    chain = _Chain()
+    chain.pay(pair[0].script_pub_key(0))
+    assert discover_account(pair, chain, gap_limit=2) is not None
+    for refused in (0, len(chain.reads) - 1):
+        chain.reads.clear()
+
+        def refuse(_scripts: frozenset[bytes], refused: int = refused) -> None:
+            if len(chain.reads) == refused:
+                raise FetchError(f"no history for {HEX}")
+
+        chain.on_read = refuse
+        err_msg = "^get_history: no usable answer from the server: FetchError$"
+        with pytest.raises(FetchError, match=err_msg) as e:
+            discover_account(pair, chain, gap_limit=2)
+        assert e.value.__cause__ is None
+        assert e.value.__context__ is None
+        assert_secret_free(e.value, SPELLINGS)
 
 
 def test_an_account_use_is_a_value() -> None:

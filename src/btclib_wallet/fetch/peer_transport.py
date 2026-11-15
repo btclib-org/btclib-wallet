@@ -73,6 +73,7 @@ from ecc import ellswift
 from ecc.curves import secp256k1
 
 from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet.exceptions import _guarded_methods
 from btclib_wallet.fetch.transport import (
     _MAX_PORT,
     _READ_CHUNK,
@@ -163,6 +164,7 @@ class PeerTransport(Protocol):
         """Close the connection, if there is one."""
 
 
+@_guarded_methods
 class TcpPeerTransport:
     """A `PeerTransport` over plain TCP to one peer.
 
@@ -297,6 +299,7 @@ class TcpPeerTransport:
         raise _TransportError(failure)
 
 
+@_guarded_methods
 class V2PeerTransport:
     """A `PeerTransport` over BIP324's v2 transport to one peer.
 

@@ -74,6 +74,11 @@ def script_of(address: str) -> ScriptPubKey:
     return ScriptPubKey.from_address(address)
 
 
+# what the ledger raises, or returns, for a refusal of `FakeChain.broadcast`:
+# the stub is the caller's code, so the text it gives is not relayed
+REFUSED_BROADCAST = "broadcast: no usable answer from the server: FetchError"
+
+
 class FakeChain:
     """Blocks, a mempool, and the backend questions over them."""
 

@@ -147,7 +147,8 @@ def test_a_raising_call_does_not_poison_the_cache() -> None:
     backend = CountingFetcher(tx=Tx.parse(RAW))
     caching = CachingFetcher(backend)
     backend.fail_with = FetchError("the node is down")
-    with pytest.raises(FetchError, match="the node is down"):
+    err_msg = "^get_tx: no usable answer from the server: FetchError$"
+    with pytest.raises(FetchError, match=err_msg):
         caching.get_tx(TX_ID)
     assert backend.calls["get_tx"] == 1
 

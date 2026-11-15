@@ -43,7 +43,7 @@ from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
 from btclib_wallet._refusal import _label, _message_text, _quoted
-from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.exceptions import FetchError, RpcError, _guarded_methods
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -130,6 +130,7 @@ _MAX_MEMPOOL_INFO_REPLY = 1024
 _ESTIMATE_MODES = ("unset", "economical", "conservative")
 
 
+@_guarded_methods
 class BitcoinCoreFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, answered by a node over its RPC.
 

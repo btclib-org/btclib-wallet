@@ -81,6 +81,7 @@ from btclib_wallet.descriptors.descriptors import (
     WpkhDescriptor,
 )
 from btclib_wallet.descriptors.key_expression import KeyExpression
+from btclib_wallet.exceptions import _caller_errors, _guarded
 
 # under TYPE_CHECKING: `btclib_wallet.fetch` imports every fetcher, and
 # `urllib`, `ssl` and `socket` behind them, which a caller deriving an
@@ -639,7 +640,9 @@ def _scanned_indexes(
             for index in range(read, end)
             for script_pub_key in descriptor.script_pub_keys(index)
         }
-        paid = _paid(reader.get_history(sorted(index_of)), index_of)
+        with _caller_errors("get_history"):
+            history = reader.get_history(sorted(index_of))
+        paid = _paid(history, index_of)
         used.extend(sorted({index_of[script] for script in paid}))
         read = end
     return used
@@ -664,7 +667,8 @@ def _discover_account(
     }
     if not position_of:
         return None
-    history = reader.get_history(sorted(position_of))
+    with _caller_errors("get_history"):
+        history = reader.get_history(sorted(position_of))
     paid = {position_of[script] for script in _paid(history, position_of)}
     if not paid:
         return None
@@ -675,6 +679,7 @@ def _discover_account(
     return AccountUse(descriptors, used, history)
 
 
+@_guarded
 def discover_account(
     descriptors: Sequence[Descriptor],
     reader: HistoryReader,
@@ -748,6 +753,7 @@ def _accounts(
     return accounts
 
 
+@_guarded
 def discover_accounts(
     account_xpubs: Mapping[int, Sequence[BIP32Key]],
     reader: HistoryReader,

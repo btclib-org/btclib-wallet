@@ -125,7 +125,7 @@ from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet._refusal import _label, _message_text, _quoted
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, _guarded_methods
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     _fetch_errors,
@@ -244,6 +244,7 @@ def _close_all(peers: list[_Peer]) -> None:
             stack.callback(_close_transport, peer.transport)
 
 
+@_guarded_methods
 class CompactFilterFetcher(NetworkVerifyingFetcher):
     """The blocks that touch some scripts, found by BIP158 filters.
 

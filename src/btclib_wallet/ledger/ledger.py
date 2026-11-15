@@ -289,7 +289,7 @@ from btclib_wallet._refusal import _label, _quoted
 from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.coin_selection import Candidate, select_coins
 from btclib_wallet.descriptors import normalized, parse
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, _caller_errors, _guarded_methods
 from btclib_wallet.fetch.balance import script_pub_key_for_network
 from btclib_wallet.fetch.broadcaster import Broadcaster
 from btclib_wallet.fetch.fee_estimator import FeeEstimator, valid_confirmation_target
@@ -532,6 +532,7 @@ class _Read:
     scanned: frozenset[int]
 
 
+@_guarded_methods
 class Ledger:
     """A set of descriptor wallets, their transactions, and their file.
 
@@ -1092,12 +1093,13 @@ class Ledger:
 
         The module docstring says how. A tip that moves between the reads
         of one sync starts it again, at most `_SYNC_ATTEMPTS` times in
-        all, and then raises `FetchError`. A backend's own `FetchError` is
-        raised as it comes, and nothing is written. The tip height the
-        sync records is checked by `fetcher.block_header_height`, and a
-        height it refuses raises `FetchError`, as a malformed answer of
-        the reader, before anything is written. A ledger with no source is
-        refused, having no script to ask about.
+        all, and then raises `FetchError`. A `FetchError` of the reader is
+        raised as `btclib_wallet.exceptions._caller_errors` says, and
+        nothing is written. The tip height the sync records is checked by
+        `fetcher.block_header_height`, and a height it refuses raises
+        `FetchError`, as a malformed answer of the reader, before anything
+        is written. A ledger with no source is refused, having no script
+        to ask about.
         """
         if not self._sources:
             raise BTClibValueError("no source: add one before the sync")
@@ -1178,7 +1180,8 @@ class Ledger:
 
     def _history(self, scripts: Iterable[bytes], start: int) -> ScriptHistory:
         """Ask the reader, from `start` or from its tip where that is lower."""
-        return self._reader.get_history(sorted(scripts), start)
+        with _caller_errors("get_history"):
+            return self._reader.get_history(sorted(scripts), start)
 
     def _walk_down(
         self, scripts: frozenset[bytes], tip: BlockRef
@@ -1679,7 +1682,8 @@ class Ledger:
         """Return the node's relay fee floors, None with no reader to ask."""
         if self._relay_fee_reader is None:
             return None
-        return self._relay_fee_reader.get_relay_fees()
+        with _caller_errors("get_relay_fees"):
+            return self._relay_fee_reader.get_relay_fees()
 
     def _psbt_in(self, parent: Tx, vout: int, sequence: int) -> PsbtIn:
         """Return the input map spending an output of the ledger, updated."""
@@ -2002,7 +2006,8 @@ class Ledger:
             written.append(replaced)
         self._store.upsert_txs(written)
         self._txs.update((w.tx.id, w) for w in written)
-        broadcaster.broadcast(tx)
+        with _caller_errors("broadcast"):
+            broadcaster.broadcast(tx)
         written = [replace(wtx, state=TxState.MEMPOOL)]
         if replaced is not None and replaced.state is TxState.MEMPOOL:
             written.append(replace(replaced, state=TxState.INACTIVE))
@@ -2340,7 +2345,8 @@ class Ledger:
             if wtx.state not in (TxState.MEMPOOL, TxState.INACTIVE):
                 continue
             try:
-                self._broadcaster.broadcast(wtx.tx)
+                with _caller_errors("broadcast"):
+                    self._broadcaster.broadcast(wtx.tx)
             except FetchError as e:
                 refused[wtx.tx.id] = e
                 continue

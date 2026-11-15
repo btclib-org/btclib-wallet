@@ -42,7 +42,12 @@ from btclib.tx import Tx
 from typing_extensions import override
 
 from btclib_wallet._refusal import _label
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import (
+    FetchError,
+    _caller_errors,
+    _class_name,
+    _guarded_methods,
+)
 from btclib_wallet.fetch.fetcher import Fetcher, tx_id_hex
 
 __all__ = ["CachingFetcher", "FallbackFetcher"]
@@ -52,6 +57,7 @@ _K = TypeVar("_K")
 _V = TypeVar("_V")
 
 
+@_guarded_methods
 class CachingFetcher(Fetcher):
     """A `Fetcher` that remembers `get_tx` and `get_block_header` answers.
 
@@ -144,7 +150,8 @@ class CachingFetcher(Fetcher):
         if key in self._tx_cache:
             self._tx_cache.move_to_end(key)
             return self._tx_cache[key]
-        tx = self.fetcher.get_tx(tx_id)
+        with _caller_errors("get_tx"):
+            tx = self.fetcher.get_tx(tx_id)
         self._remember(self._tx_cache, key, tx)
         return tx
 
@@ -154,19 +161,22 @@ class CachingFetcher(Fetcher):
         if height in self._header_cache:
             self._header_cache.move_to_end(height)
             return self._header_cache[height]
-        header = self.fetcher.get_block_header(height)
+        with _caller_errors("get_block_header"):
+            header = self.fetcher.get_block_header(height)
         self._remember(self._header_cache, height, header)
         return header
 
     @override
     def get_block_count(self) -> int:
         """Pass the call through, uncached: this is the chain tip."""
-        return self.fetcher.get_block_count()
+        with _caller_errors("get_block_count"):
+            return self.fetcher.get_block_count()
 
     @override
     def get_best_block_id(self) -> bytes:
         """Pass the call through, uncached: this is the chain tip."""
-        return self.fetcher.get_best_block_id()
+        with _caller_errors("get_best_block_id"):
+            return self.fetcher.get_best_block_id()
 
     def clear(self) -> None:
         """Forget every cached transaction and header."""
@@ -174,6 +184,7 @@ class CachingFetcher(Fetcher):
         self._header_cache.clear()
 
 
+@_guarded_methods
 class FallbackFetcher(Fetcher):
     """A `Fetcher` that tries a sequence of backends, in order.
 
@@ -234,7 +245,7 @@ class FallbackFetcher(Fetcher):
             try:
                 return call(fetcher)
             except FetchError as e:
-                failures.append(f"{type(fetcher).__name__}: {type(e).__name__}")
+                failures.append(f"{_class_name(fetcher)}: {_class_name(e)}")
         # raised after the loop, outside every `except` block, so that it
         # chains no backend's exception, whose text can be anything
         err_msg = f"{description}: every backend failed -- " + "; ".join(failures)

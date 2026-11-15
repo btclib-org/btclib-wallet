@@ -67,7 +67,7 @@ from typing_extensions import override
 
 from btclib_wallet import electrum
 from btclib_wallet._refusal import _label, _message_text, _quoted
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet.exceptions import FetchError, _caller_errors, _guarded_methods
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -107,6 +107,7 @@ def _anchor(height: int) -> bool:
     return height % _MAX_HEADERS == 0
 
 
+@_guarded_methods
 class ElectrumFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, and a merkle branch, from an Electrum server.
 
@@ -379,8 +380,12 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         class's own docstring for what each half already checks on its
         own.
         """
-        header = self.get_block_header(height)
-        proof = self.get_tx_merkle(tx_id, height)
+        # `get_block_header` and `get_tx_merkle` may be methods of the
+        # caller's own subclass
+        with _caller_errors("get_block_header"):
+            header = self.get_block_header(height)
+        with _caller_errors("get_tx_merkle"):
+            proof = self.get_tx_merkle(tx_id, height)
         return electrum.verify_merkle_proof(tx_id, proof, header)
 
     def _tip_ref(self) -> tuple[BlockRef, BlockHeader]:
@@ -478,12 +483,14 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             {tx_id: h for tx_id, h in heights.items() if h is not None and h >= first},
             chain,
         )
-        txs = [HistoryTx(self.get_tx(tx_id), ref) for tx_id, ref in confirmed]
-        txs += [
-            HistoryTx(self.get_tx(tx_id), None)
-            for tx_id, height in heights.items()
-            if height is None
-        ]
+        # `get_tx` may be a method of the caller's own subclass
+        with _caller_errors("get_tx"):
+            txs = [HistoryTx(self.get_tx(tx_id), ref) for tx_id, ref in confirmed]
+            txs += [
+                HistoryTx(self.get_tx(tx_id), None)
+                for tx_id, height in heights.items()
+                if height is None
+            ]
         touching = _touching_ids([entry.tx for entry in txs], elements, self.get_tx)
         txs = [entry for entry in txs if entry.tx.id in touching]
         if self._tip_ref()[0] != tip:
@@ -516,7 +523,9 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """
         confirmed: list[tuple[int, int, str]] = []
         for tx_id, height in heights.items():
-            proof = self.get_tx_merkle(tx_id, height)
+            # `get_tx_merkle` may be a method of the caller's own subclass
+            with _caller_errors("get_tx_merkle"):
+                proof = self.get_tx_merkle(tx_id, height)
             if not electrum.verify_merkle_proof(tx_id, proof, chain[height]):
                 err_msg = (
                     f"a transaction with no proof it is in block {_quoted(height)}"
@@ -576,7 +585,9 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         kept: dict[int, BlockHeader] = {}
         height, last = low, None
         while height <= end.height:
-            chunk = self.get_block_headers(height, end.height - height + 1)
+            # `get_block_headers` may be a method of the caller's own subclass
+            with _caller_errors("get_block_headers"):
+                chunk = self.get_block_headers(height, end.height - height + 1)
             if not chunk:
                 err_msg = f"block headers: none from {_quoted(height)}"
                 err_msg += f" up to {_quoted(end.height)}"

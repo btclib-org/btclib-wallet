@@ -95,6 +95,7 @@ from btclib.utils import is_integer
 from btclib_wallet._refusal import _message_text, _quoted
 from btclib_wallet.electrum import _reply_ids, _request_ids
 from btclib_wallet.exceptions import FetchError as _PackageFetchError
+from btclib_wallet.exceptions import _guarded_methods
 
 LineTransport = Callable[[bytes, float], bytes]
 
@@ -367,6 +368,7 @@ def _exchange(
     raise _TransportError(f"no answer from {where}: {failure}")
 
 
+@_guarded_methods
 class TlsLineTransport:
     """A `LineTransport` over TLS to one server, verifying its certificate.
 
@@ -470,6 +472,7 @@ class TlsLineTransport:
         )
 
 
+@_guarded_methods
 class TcpLineTransport:
     """A `LineTransport` over plain TCP to one server.
 
@@ -553,6 +556,7 @@ def _line_ids(line: bytes, where: str) -> frozenset[int] | None:
     return ids
 
 
+@_guarded_methods
 class PersistentTlsLineTransport:
     """A `LineTransport` over one TLS connection, kept across calls.
 

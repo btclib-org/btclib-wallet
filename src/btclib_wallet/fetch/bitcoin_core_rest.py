@@ -57,7 +57,7 @@ from btclib.utils import bytes_from_octets
 from typing_extensions import override
 
 from btclib_wallet._refusal import _code, _label, _message_text, _quoted
-from btclib_wallet.exceptions import HttpError
+from btclib_wallet.exceptions import HttpError, _guarded_methods
 from btclib_wallet.fetch.bitcoin_core import (
     _MAX_LARGE_REPLY,
     _MAX_MEMPOOL_INFO_REPLY,
@@ -131,6 +131,7 @@ def _field(reply: Any, name: str) -> Any:
     return reply[name]
 
 
+@_guarded_methods
 class BitcoinCoreRestFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, answered by a node over `-rest`.
 

@@ -23,7 +23,14 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.ledger import GroupedAddress, Ledger, TxDetail
 from btclib_wallet.wallet import DescriptorWallet
 from tests.ledger.conflict_test import _conflicted, _spend_and_child, _two_coins
-from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
+from tests.ledger.conftest import (
+    LOOKAHEAD,
+    REFUSED_BROADCAST,
+    XPRV,
+    FakeChain,
+    script_of,
+    source,
+)
 from tests.ledger.ledger_test import _funded
 
 # an address of somebody else, on the ledger's network
@@ -400,7 +407,7 @@ def test_a_refused_spend_to_its_own_address_hands_out_nothing(
     _funded(ledger, chain, 100_000)
     wallet = ledger.sources[0]
     chain.refuse = "refused"
-    with pytest.raises(FetchError, match="refused"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.spend([TxOut(30_000, wallet.script_pub_key(0, 2))])
     for index in (1, 2):
         assert ledger.label_of(wallet.address(0, index)) is None
@@ -451,7 +458,7 @@ def test_a_resubmission_to_a_script_with_no_address_is_accepted(
     script = _bare(ledger).script_pub_key(0, 0)
     chain.refuse = "refused"
     for _ in range(2):
-        with pytest.raises(FetchError, match="refused"):
+        with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
             ledger.spend([TxOut(10_000_000, script)])
     chain.refuse = ""
     assert ledger.resubmit() == {}

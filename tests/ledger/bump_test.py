@@ -30,6 +30,7 @@ from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
 from tests.ledger.conftest import (
     ONE_SAT,
+    REFUSED_BROADCAST,
     XPRV,
     FakeChain,
     script_of,
@@ -654,7 +655,7 @@ def test_a_refused_replacement_stays_linked_and_inactive(
     _funded(ledger, chain)
     spent = ledger.spend([_outside()])
     chain.refuse = "insufficient fee"
-    with pytest.raises(FetchError, match="insufficient fee"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.bump(spent.id)
     (refused,) = [
         info.wallet_tx
@@ -678,7 +679,7 @@ def test_a_refused_replacement_resubmitted_takes_the_replaced_ones_place(
     _funded(ledger, chain)
     spent = ledger.spend([_outside()])
     chain.refuse = "insufficient fee"
-    with pytest.raises(FetchError, match="insufficient fee"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.bump(spent.id)
     refused = _wtx(ledger, spent).replaced_by
     assert refused is not None
@@ -695,7 +696,7 @@ def test_a_refused_replacement_resubmitted_takes_the_replaced_ones_place(
     ledger.sync()
     ledger.abandon(abandoned.id)
     chain.refuse = "insufficient fee"
-    with pytest.raises(FetchError, match="insufficient fee"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.bump(abandoned.id, _rate(5))
     again = _wtx(ledger, abandoned).replaced_by
     assert again is not None
@@ -716,7 +717,7 @@ def test_a_resubmitted_original_refused_is_left_by_its_replacement(
     _funded(ledger, chain)
     spent = ledger.spend([_outside()])
     chain.refuse = "insufficient fee"
-    with pytest.raises(FetchError, match="insufficient fee"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.bump(spent.id)
     replacement = _wtx(ledger, spent).replaced_by
     assert replacement is not None
@@ -747,14 +748,14 @@ def test_a_refusal_hands_out_the_change_and_nothing_else(
         _funded(ledger, chain)
     receive = ledger.sources[0].script_pub_key(0, 3)
     chain.refuse = "refused"
-    with pytest.raises(FetchError, match="refused"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.spend([_outside(), TxOut(20_000, receive)])
     assert ledger.new_change_address() == ledger.sources[0].address(1, 1)
     assert ledger.new_address() == ledger.sources[0].address(0, 3)
     chain.refuse = ""
     spent = ledger.spend([_outside()])
     chain.refuse = "refused"
-    with pytest.raises(FetchError, match="refused"):
+    with pytest.raises(FetchError, match=f"^{REFUSED_BROADCAST}$"):
         ledger.bump(spent.id, outputs=[_outside(20_000)])
     assert ledger.new_change_address() == ledger.sources[0].address(1, 4)
 

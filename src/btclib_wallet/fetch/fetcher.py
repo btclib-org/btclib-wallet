@@ -37,8 +37,15 @@ from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxOut
 from btclib.utils import bytes_from_octets, is_integer, is_octets
 
-from btclib_wallet._refusal import _code, _message_text, _quoted
-from btclib_wallet.exceptions import FetchError, HttpError, RpcError
+from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet.exceptions import (
+    FetchError,
+    HttpError,
+    RpcError,
+    _caller_errors,
+    _failed,
+    _guarded_methods,
+)
 
 __all__ = [
     "Fetcher",
@@ -91,10 +98,10 @@ def client_errors() -> AbstractContextManager[None]:
     `bitcoin_core_rpc` before 2026.11.14 writes the node's own message
     into it and keeps `data`: either can quote a key passed in the wrong
     place.
-    This package's own `FetchError` passes as it is. A transport this
-    package ships raises it with a text the census reads; a transport or a
-    client of the caller's own that raises it is relayed with the text the
-    caller's code gave it.
+
+    A `FetchError` of this package's classes is let through or refused as
+    `btclib_wallet.exceptions._caller_errors` says.
+
     Section 7 of the btclib-org standard, *A refusal carries no secret*,
     relays another program's code and not its text: a code outside
     `_RPC_CODES`, or a status outside it, is 0.
@@ -117,17 +124,13 @@ def _client_errors(request: str) -> Iterator[None]:
     code = 0
     failure = ""
     try:
-        yield
+        with _caller_errors(request):
+            yield
     except FetchError:
-        # this package's own class: a transport it ships composes the text
-        # where the census reads it, and a caller's own composes its own
+        # built by this package, `_caller_errors` having refused any other
         raise
-    except rpc.RpcError as e:
-        refused, code = "rpc", _code(e.code)
-    except rpc.HttpError as e:
-        refused, code = "http", _code(e.status)
     except rpc.FetchError as e:
-        refused, failure = "fetch", type(e).__name__
+        refused, code, failure = _failed(e, rpc.RpcError, rpc.HttpError)
     except rpc.BtcRpcValueError:
         refused = "chain"
     else:
@@ -206,9 +209,11 @@ def _fetch_errors(source: str) -> Iterator[None]:
     time of a header it refuses.
     """
     try:
-        yield
+        with _caller_errors(source):
+            yield
     except FetchError:
-        # already the answer this would produce, and a BTClibRuntimeError
+        # already the answer this would produce, `_caller_errors` having
+        # refused one the caller's code built, and a BTClibRuntimeError
         # too, so it has to be let through before the clauses below wrap
         # it in a second refusal
         raise
@@ -256,6 +261,7 @@ def tx_for_network(tx: Tx, network: str) -> Tx:
     return Tx(tx.version, tx.lock_time, tx.vin, vout, check_validity=False)
 
 
+@_guarded_methods
 class Fetcher(ABC):
     """What a backend must answer, and what btclib does with the answers.
 
@@ -342,7 +348,9 @@ class Fetcher(ABC):
         read one output of it, and against bitcoind that means a node
         with `-txindex`.
         """
-        tx = self.get_tx(out_point.tx_id)
+        # `get_tx` may be a method of the caller's own subclass
+        with _caller_errors("get_tx"):
+            tx = self.get_tx(out_point.tx_id)
         if out_point.vout >= len(tx.vout):
             err_msg = f"out of range vout: {_message_text(out_point.vout)}"
             err_msg += f" for a transaction with {len(tx.vout)} outputs"
@@ -350,6 +358,7 @@ class Fetcher(ABC):
         return tx.vout[out_point.vout]
 
 
+@_guarded_methods
 class NetworkVerifyingFetcher(Fetcher):
     """A `Fetcher` that can ask its host which chain it serves.
 
@@ -427,7 +436,9 @@ class NetworkVerifyingFetcher(Fetcher):
             refusal = copy.copy(self._disagreement)
             raise refusal
         try:
-            self.assert_network()
+            # `assert_network` may be a method of the caller's own subclass
+            with _caller_errors("assert_network"):
+                self.assert_network()
         except _WrongChainError as e:
             # a copy of its args alone, which is raised to no caller: a caller
             # rewriting the args, notes or attributes of the refusal it holds
@@ -498,7 +509,9 @@ def _touching_ids(
         if prev_out.is_coinbase:
             return False
         if prev_out.tx_id not in known:
-            known[prev_out.tx_id] = get_tx(prev_out.tx_id)
+            # `get_tx` may be a method of the caller's own subclass
+            with _caller_errors("get_tx"):
+                known[prev_out.tx_id] = get_tx(prev_out.tx_id)
         vout = known[prev_out.tx_id].vout
         return (
             prev_out.vout < len(vout)

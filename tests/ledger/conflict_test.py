@@ -22,7 +22,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger import Balances, Ledger, TxState
-from tests.ledger.conftest import FakeChain, script_of
+from tests.ledger.conftest import REFUSED_BROADCAST, FakeChain, script_of
 from tests.ledger.ledger_test import _funded, _outside, _signed
 
 
@@ -348,7 +348,7 @@ def test_resubmit_broadcasts_again_what_is_neither_abandoned_nor_in_a_block(
     refused = ledger.resubmit()
     assert list(refused) == [second.id]
     assert isinstance(refused[second.id], FetchError)
-    assert str(refused[second.id]) == "mempool full"
+    assert str(refused[second.id]) == REFUSED_BROADCAST
     assert _state(ledger, second) is TxState.INACTIVE
     chain.refuse = ""
     assert ledger.resubmit() == {}
