@@ -247,6 +247,29 @@ def test_a_note_on_one_refusal_is_on_no_other(backend: str) -> None:
     assert len(asked) == 1
 
 
+@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def test_a_caller_rewriting_its_refusal_rewrites_no_other(backend: str) -> None:
+    """The refusal remembered is a copy no caller is raised.
+
+    The first caller is raised the refusal `assert_network` raised. Were
+    that the one remembered, a caller rewriting its args would put its
+    own text into every refusal raised after.
+    """
+    endpoint, asked = _BACKENDS[backend].build()
+    with pytest.raises(BTClibValueError) as first:
+        endpoint.get_block_count()
+    text = str(first.value)
+    first.value.args = ("rewritten by the first caller",)
+    with pytest.raises(BTClibValueError) as second:
+        endpoint.get_block_count()
+    assert str(second.value) == text
+    second.value.args = ("rewritten by the second caller",)
+    with pytest.raises(BTClibValueError) as third:
+        endpoint.get_block_count()
+    assert str(third.value) == text
+    assert len(asked) == 1
+
+
 def test_every_call_site_is_pinned() -> None:
     """The census, and the reason this file is not a list kept by hand.
 

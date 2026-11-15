@@ -407,29 +407,33 @@ class NetworkVerifyingFetcher(Fetcher):
         `assert_network` itself goes through -- a check there would ask
         the host about the host, from inside the question.
 
-        A disagreement is remembered and raised again, as a copy of its
-        args alone, for every later call, because it is a settled fact
-        about a configuration rather than a request that failed -- and a
-        fetcher that asked once, was refused once and then served an
-        address would be the silent failure this exists to stop. A
-        `FetchError` is not an answer and is remembered as nothing: the
-        host was unreachable or spoke nonsense, which the next call may
-        well find otherwise.
+        A disagreement is remembered as a copy of its args alone, which
+        no caller is raised, and a copy of that is raised for every
+        later call, because it is a settled fact about a configuration
+        rather than a request that failed -- and a fetcher that asked
+        once, was refused once and then served an address would be the
+        silent failure this exists to stop. A `FetchError` is not an
+        answer and is remembered as nothing: the host was unreachable or
+        spoke nonsense, which the next call may well find otherwise.
         """
         if not self.verify_network or self._agreed:
             return
         if self._disagreement is not None:
-            # a copy for each call, which carries the first's args and
-            # nothing else: the one exception raised again would gather the
-            # frames of every call, under each caller holding it, and a
-            # shallow copy would share the notes a caller adds to any one
+            # a copy for each call: the one exception raised again would
+            # gather the frames of every call, under each caller holding it.
+            # What is remembered holds no `__dict__` entry, so no copy
+            # shares the notes or attributes a caller adds to another
             refusal = copy.copy(self._disagreement)
-            refusal.__dict__.clear()
             raise refusal
         try:
             self.assert_network()
         except _WrongChainError as e:
-            self._disagreement = e
+            # a copy of its args alone, which no caller is raised: a caller
+            # rewriting the args, notes or attributes of the refusal it
+            # holds would otherwise put them into every refusal raised after
+            remembered = copy.copy(e)
+            remembered.__dict__.clear()
+            self._disagreement = remembered
             raise
         self._agreed = True
 
