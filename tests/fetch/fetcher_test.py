@@ -49,6 +49,7 @@ from btclib_wallet.fetch.transport import (
     TcpLineTransport,
     TlsLineTransport,
 )
+from tests import raises_alone
 from tests.fetch import (
     REGTEST_GENESIS_HEADER_RAW,
     SIGNET_GENESIS_HEADER_RAW,
@@ -192,11 +193,12 @@ def _peer_refusing(refusal: Exception) -> object:
     return fetcher.get_block_count()
 
 
-# what `client_errors` answers for a `FetchError` of no field
+# what `client_errors` answers for a plain `FetchError`
 _NO_ANSWER = "no usable answer from the server: FetchError$"
 
-
-@pytest.mark.parametrize(
+# a client or a transport of the caller's raising a refusal, and what
+# `client_errors` answers through it for a plain `FetchError`
+_REFUSING = pytest.mark.parametrize(
     "call, err_msg",
     [
         (lambda e: core_fetcher(e).get_block_count(), f"^getblockcount: {_NO_ANSWER}"),
@@ -207,6 +209,9 @@ _NO_ANSWER = "no usable answer from the server: FetchError$"
     ],
     ids=["rpc client", "rest client", "line transport", "http transport", "peer"],
 )
+
+
+@_REFUSING
 def test_a_fetch_error_of_the_callers_own_is_refused_by_its_class(
     call: Callable[[Exception], object], err_msg: str
 ) -> None:
@@ -219,7 +224,67 @@ def test_a_fetch_error_of_the_callers_own_is_refused_by_its_class(
         call(FetchError(f"no answer for {HEX}"))
     assert e.value.__cause__ is None
     assert e.value.__context__ is None
+    assert e.value.failure_type is None
     assert_secret_free(e.value, SPELLINGS)
+
+
+class _CallersTimeoutError(TimeoutError):
+    """A failure of a class of the caller's, deriving from the builtin's."""
+
+
+class _UnreadFailureError(rpc.FetchError):
+    """A refusal whose `failure_type` cannot be read."""
+
+    @property
+    @override
+    def failure_type(self) -> type[BaseException] | None:  # type: ignore[override]
+        """Raise, as a field of the caller's can."""
+        raise ValueError(HEX)
+
+
+@_REFUSING
+@pytest.mark.parametrize(
+    "refusal, held",
+    [
+        (rpc.FetchError, _CallersTimeoutError),
+        (FetchError, _CallersTimeoutError),
+        (rpc.FetchError, "TimeoutError"),
+        (rpc.FetchError, None),
+    ],
+    ids=["client's class", "package's class", "no class", "none"],
+)
+def test_a_failure_type_of_the_callers_own_is_held_as_the_one_it_derives_from(
+    call: Callable[[Exception], object],
+    err_msg: str,
+    refusal: type[Exception],
+    held: object,
+) -> None:
+    """The refusal holds a class of the standard library, or None.
+
+    A class of the caller's is held as the builtin it derives from, a
+    value that is no class as `BaseException`, and None as None.
+    """
+    error = refusal(f"no answer for {HEX}")
+    setattr(error, "failure_type", held)  # noqa: B010
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call(error)
+    expected = {_CallersTimeoutError: TimeoutError, "TimeoutError": BaseException}
+    assert e.value.failure_type is expected.get(held)
+
+
+@_REFUSING
+def test_a_failure_type_that_cannot_be_read_is_none(
+    call: Callable[[Exception], object], err_msg: str
+) -> None:
+    """What reading it raises is dropped, and nothing is held.
+
+    The refusal names the caller's class, as for any other.
+    """
+    err_msg = err_msg.replace("FetchError$", "_UnreadFailureError$")
+    with raises_alone(FetchError, match=err_msg) as caught:
+        call(_UnreadFailureError(f"no answer for {HEX}"))
+    assert isinstance(caught.value, FetchError)
+    assert caught.value.failure_type is None
 
 
 @pytest.mark.parametrize(
@@ -249,10 +314,14 @@ def test_a_fetch_error_of_the_callers_own_is_refused_by_its_class(
 def test_an_http_or_rpc_error_of_the_callers_own_keeps_its_field_alone(
     call: Callable[[], object], err_msg: str, field: str, value: int
 ) -> None:
-    """Refused as `bitcoin_core_rpc`'s are: the field kept, the text dropped."""
+    """Refused as `bitcoin_core_rpc`'s are: the field kept, the text dropped.
+
+    The server answered, so nothing failed: `failure_type` is None.
+    """
     with pytest.raises(FetchError, match=err_msg) as e:
         call()
     assert getattr(e.value, field) == value
+    assert e.value.failure_type is None
     assert getattr(e.value, "data", None) is None
     assert e.value.__cause__ is None
     assert e.value.__context__ is None
@@ -623,6 +692,7 @@ def test_a_shipped_transports_refusal_reaches_the_caller_as_it_is(
         call(host)
     assert e.value.__cause__ is None
     assert e.value.__context__ is None
+    assert e.value.failure_type is ConnectionRefusedError
     assert_secret_free(e.value, SPELLINGS)
 
 

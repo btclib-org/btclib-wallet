@@ -192,8 +192,11 @@ def test_a_connection_that_cannot_be_made_is_a_fetch_error(
     """The reason is the OS's, and nothing is left open."""
     connect_to(monkeypatch, fake)
     transport = peer()
-    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
+    with pytest.raises(
+        FetchError, match=r"no connection to 'peer\.example':18444"
+    ) as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is type(fake)
     assert not transport.is_open
 
 
@@ -208,8 +211,12 @@ def test_a_write_that_fails_closes_the_connection(
         peer_transport, "_open_connection", lambda *_a, **_k: next(sockets)
     )
     transport = peer()
-    with raises_alone(FetchError, match=r"no connection to 'peer\.example':18444"):
+    with raises_alone(
+        FetchError, match=r"no connection to 'peer\.example':18444"
+    ) as caught:
         transport.send(MESSAGE, 5)
+    assert isinstance(caught.value, FetchError)
+    assert caught.value.failure_type is BrokenPipeError
     assert broken.closed == 1
     transport.send(MESSAGE, 5)
     assert working.written == WIRE
@@ -224,8 +231,9 @@ def test_a_send_that_outlasts_its_timeout_is_a_fetch_error(
     ticks = itertools.count()
     set_clock(monkeypatch, lambda: next(ticks) * 10.0)
     transport = peer()
-    with pytest.raises(FetchError, match="timeout expired"):
+    with pytest.raises(FetchError, match="timeout expired") as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is TimeoutError
     assert fake.closed == 1
     assert not transport.is_open
 
@@ -268,9 +276,10 @@ def test_a_timeout_is_never_longer_than_the_one_the_call_took(
 
 
 def test_a_receive_without_a_connection_is_a_fetch_error() -> None:
-    """Nothing is read before something is sent."""
-    with pytest.raises(FetchError, match="not connected"):
+    """Nothing is read before something is sent, and no exchange began."""
+    with pytest.raises(FetchError, match="not connected") as e:
         peer().receive(5)
+    assert e.value.failure_type is None
     with pytest.raises(BTClibValueError, match="timeout"):
         peer().receive(-1)
 
@@ -283,8 +292,9 @@ def test_a_peer_that_goes_quiet_is_a_fetch_error(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match=r"no message from 'peer\.example':18444"):
+    with pytest.raises(FetchError, match=r"no message from 'peer\.example':18444") as e:
         transport.receive(5)
+    assert e.value.failure_type is TimeoutError
     assert not transport.is_open
     assert fake.closed == 1
 
@@ -296,8 +306,9 @@ def test_a_peer_that_hangs_up_is_a_fetch_error(
     connect_to(monkeypatch, FakeSocket([WIRE[:30]]))
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match="closed before a whole message"):
+    with pytest.raises(FetchError, match="closed before a whole message") as e:
         transport.receive(5)
+    assert e.value.failure_type is EOFError
     assert not transport.is_open
 
 
@@ -310,8 +321,9 @@ def test_a_peer_that_trickles_is_a_fetch_error(
     transport.send(MESSAGE, 5)
     ticks = itertools.chain([0.0, 1.0], itertools.repeat(100.0))
     set_clock(monkeypatch, lambda: next(ticks))
-    with pytest.raises(FetchError, match="timeout expired"):
+    with pytest.raises(FetchError, match="timeout expired") as e:
         transport.receive(5)
+    assert e.value.failure_type is TimeoutError
     assert not transport.is_open
 
 
@@ -441,8 +453,10 @@ def test_a_socket_that_fails_to_close_is_a_fetch_error(
     connect_to(monkeypatch, fake)
     transport = peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match=r"closing 'peer\.example':18444"):
+    with pytest.raises(FetchError, match=r"closing 'peer\.example':18444") as e:
         transport.close()
+    # a close, and no exchange
+    assert e.value.failure_type is None
     assert not transport.is_open
     transport.close()
     assert fake.closed == 1
@@ -711,8 +725,9 @@ def test_a_v2_peer_that_hangs_up_inside_its_key_is_a_fetch_error(
     fake = FakeSocket([ellswift.create(PEER_PRV_KEY)[:10]])
     connect_to(monkeypatch, fake)
     transport = v2_peer(v1_fallback=True)
-    with pytest.raises(FetchError, match="closed before a whole message"):
+    with pytest.raises(FetchError, match="closed before a whole message") as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is EOFError
     assert not transport.is_open
 
 
@@ -722,13 +737,20 @@ def test_a_v2_peer_that_hangs_up_inside_its_key_is_a_fetch_error(
 def test_a_v1_peer_is_refused_without_the_fallback(
     monkeypatch: pytest.MonkeyPatch, error: Exception | None
 ) -> None:
-    """A hang-up before the peer's key is what a v1 peer does."""
+    """A hang-up before the peer's key is what a v1 peer does.
+
+    Its `failure_type` is the class of the read's error, or `EOFError` for
+    a read that found the end.
+    """
     pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
     fake = FakeSocket([], error=error)
     connect_to(monkeypatch, fake)
     transport = v2_peer()
-    with pytest.raises(FetchError, match="hung up on the v2 handshake.*v1_fallback"):
+    with pytest.raises(
+        FetchError, match="hung up on the v2 handshake.*v1_fallback"
+    ) as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is (EOFError if error is None else type(error))
     assert not transport.is_open
     assert fake.closed == 1
     # the key and the garbage, which a v1 peer reads as a wrong header
@@ -1127,8 +1149,11 @@ def test_a_hang_up_while_the_key_is_written_names_the_fallback(
     fake = HangingUp(24, hang_up)
     calls = connect_to(monkeypatch, fake)
     transport = v2_peer()
-    with pytest.raises(FetchError, match="as a v1 peer does, and v1_fallback is off"):
+    with pytest.raises(
+        FetchError, match="as a v1 peer does, and v1_fallback is off"
+    ) as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is type(hang_up)
     assert (len(calls), fake.closed) == (1, 1)
     assert not transport.is_open
 
@@ -1140,8 +1165,11 @@ def test_a_hang_up_before_a_v1_header_is_written_is_a_failure(
     fake = HangingUp(23, ConnectionResetError("reset"))
     calls = connect_to(monkeypatch, fake)
     transport = v2_peer(v1_fallback=True)
-    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
+    with pytest.raises(
+        FetchError, match=r"no connection to 'peer\.example':18444"
+    ) as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is ConnectionResetError
     assert (len(calls), fake.closed) == (1, 1)
 
 
@@ -1152,8 +1180,11 @@ def test_a_v2_connection_that_cannot_be_made_is_a_fetch_error(
     pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
     connect_to(monkeypatch, OSError("unreachable"))
     transport = v2_peer()
-    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
+    with pytest.raises(
+        FetchError, match=r"no connection to 'peer\.example':18444"
+    ) as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is OSError
     assert not transport.is_open
 
 
@@ -1164,8 +1195,11 @@ def test_a_v2_write_that_fails_closes_the_connection(
     fake = V2Peer(send_error=BrokenPipeError("gone"))
     connect_to(monkeypatch, fake)
     transport = v2_peer()
-    with pytest.raises(FetchError, match=r"no connection to 'peer\.example':18444"):
+    with pytest.raises(
+        FetchError, match=r"no connection to 'peer\.example':18444"
+    ) as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is BrokenPipeError
     assert fake.closed == 1
     assert not transport.is_open
 
@@ -1179,8 +1213,9 @@ def test_a_v2_handshake_that_outlasts_its_timeout_is_a_fetch_error(
     transport = v2_peer()
     ticks = itertools.count()
     set_clock(monkeypatch, lambda: next(ticks) * 10.0)
-    with pytest.raises(FetchError, match="timeout expired"):
+    with pytest.raises(FetchError, match="timeout expired") as e:
         transport.send(MESSAGE, 5)
+    assert e.value.failure_type is TimeoutError
     assert fake.closed == 1
 
 
@@ -1198,8 +1233,9 @@ def test_a_v2_peer_that_goes_quiet_is_a_fetch_error(
     connect_to(monkeypatch, fake)
     transport = v2_peer()
     transport.send(MESSAGE, 5)
-    with pytest.raises(FetchError, match=r"no message from 'peer\.example':18444"):
+    with pytest.raises(FetchError, match=r"no message from 'peer\.example':18444") as e:
         transport.receive(5)
+    assert e.value.failure_type is TimeoutError
     assert not transport.is_open
 
 
@@ -1212,8 +1248,12 @@ def test_a_v2_packet_announcing_too_much_is_refused_before_it_is_read(
     transport = v2_peer()
     transport.send(MESSAGE, 5)
     monkeypatch.setattr(peer_transport, "_MAX_CONTENTS_LEN", 20)
-    with pytest.raises(FetchError, match="packet length too large: an int of 5 bits"):
+    with pytest.raises(
+        FetchError, match="packet length too large: an int of 5 bits"
+    ) as e:
         transport.receive(5)
+    # the peer answered, with a packet it may not send
+    assert e.value.failure_type is None
     assert not transport.is_open
     assert len(fake.chunks[0]) == 21 + 17
 

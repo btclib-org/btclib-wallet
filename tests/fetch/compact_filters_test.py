@@ -443,8 +443,10 @@ def test_a_transport_that_cannot_send_is_a_fetch_error() -> None:
     setattr(peer, "send", refuse)  # noqa: B010
     with pytest.raises(
         FetchError, match="no usable answer from the server: FetchError"
-    ):
+    ) as e:
         fetcher.get_block_count()
+    # the caller's refusal says nothing of what failed
+    assert e.value.failure_type is None
     assert peer.closed == 1
 
 
@@ -455,8 +457,9 @@ def test_an_answer_that_takes_longer_than_the_timeout_is_a_fetch_error(
     ticks = itertools.count()
     monkeypatch.setattr(compact_filters, "monotonic", lambda: next(ticks) * 1000.0)
     fetcher, _ = build(timeout=5)
-    with pytest.raises(FetchError, match="did not answer in time"):
+    with pytest.raises(FetchError, match="did not answer in time") as e:
         fetcher.get_block_count()
+    assert e.value.failure_type is TimeoutError
 
 
 def test_a_peer_that_pings_and_stops_reading_does_not_outlast_the_timeout(
@@ -484,8 +487,9 @@ def test_a_peer_that_pings_and_stops_reading_does_not_outlast_the_timeout(
 
     setattr(peer, "receive", late_ping)  # noqa: B010
     setattr(peer, "send", blocked_pong)  # noqa: B010
-    with pytest.raises(FetchError, match="did not answer in time"):
+    with pytest.raises(FetchError, match="did not answer in time") as e:
         fetcher.get_block_count()
+    assert e.value.failure_type is TimeoutError
     assert now <= 10
 
 

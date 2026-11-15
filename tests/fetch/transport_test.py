@@ -20,6 +20,7 @@ servers, in `tests/fetch/persistent_transport_test.py`.
 from __future__ import annotations
 
 import json
+import pickle
 import re
 import socket
 import ssl
@@ -328,8 +329,9 @@ def test_the_deadline_is_over_the_whole_exchange(
     clock = iter([100.0, 100.5, 101.0, 101.5, 102.5])
     monkeypatch.setattr(transport_module, "monotonic", lambda: next(clock))
     transport, _ = line_transport(kind, tcp, b"{", b"}")
-    with pytest.raises(RpcFetchError, match="timeout expired"):
+    with pytest.raises(RpcFetchError, match="timeout expired") as e:
         transport(REQUEST, 2.0)
+    assert e.value.failure_type is TimeoutError
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -345,9 +347,11 @@ def test_a_line_over_the_limit_is_refused(kind: str, tcp: Calls) -> None:
     transport, connection = line_transport(
         kind, tcp, b"123", b"456", b"\n", max_line_size=5
     )
-    with pytest.raises(RpcFetchError, match="max_line_size of 5"):
+    with pytest.raises(RpcFetchError, match="max_line_size of 5") as e:
         transport(REQUEST, 1.0)
     assert connection.asked == [6, 3]
+    # an answer arrived, too long to be one
+    assert e.value.failure_type is None
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -364,8 +368,9 @@ def test_a_connection_closed_before_the_newline_is_a_fetch_error(
 ) -> None:
     """A partial line is not an answer, however much of one arrived."""
     transport, _ = line_transport(kind, tcp, b'{"id": 1, "result"')
-    with pytest.raises(RpcFetchError, match="closed before a whole line"):
+    with pytest.raises(RpcFetchError, match="closed before a whole line") as e:
         transport(REQUEST, 1.0)
+    assert e.value.failure_type is EOFError
 
 
 @pytest.mark.parametrize(
@@ -385,7 +390,8 @@ def test_what_goes_wrong_below_the_answer_is_a_fetch_error(
     """The contract `LineTransport` states, the failure named by its type.
 
     Its text is neither relayed nor chained: an ssl refusal can quote the
-    names on the certificate the server sent.
+    names on the certificate the server sent. Its class is the
+    `failure_type`.
     """
     transport, _ = line_transport(kind, tcp, failure=failure)
     where = f"{re.escape(repr(HOST))}:{PORT}"
@@ -394,6 +400,28 @@ def test_what_goes_wrong_below_the_answer_is_a_fetch_error(
     ) as e:
         transport(REQUEST, 1.0)
     assert e.value.__cause__ is None
+    assert e.value.failure_type is type(failure)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_failure_of_a_class_of_the_callers_is_held_as_the_one_it_derives_from(
+    kind: str, tcp: Calls
+) -> None:
+    """A context of the caller's can raise a class pickle cannot find.
+
+    Defined in this function, the class has no name pickle can look up:
+    the refusal holds the `ssl.SSLError` it derives from, and pickles.
+    """
+
+    class LocalError(ssl.SSLError):
+        """A failure of a context of the caller's own."""
+
+    transport, _ = line_transport(kind, tcp, failure=LocalError("handshake"))
+    with pytest.raises(RpcFetchError, match="LocalError") as e:
+        transport(REQUEST, 1.0)
+    assert e.value.failure_type is ssl.SSLError
+    back = pickle.loads(pickle.dumps(e.value))  # noqa: S301
+    assert back.failure_type is ssl.SSLError
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -407,6 +435,7 @@ def test_a_failed_read_is_a_fetch_error(kind: str, tcp: Calls) -> None:
     ) as e:
         transport(REQUEST, 1.0)
     assert e.value.__cause__ is None
+    assert e.value.failure_type is ConnectionResetError
     assert connection.closed
 
 
@@ -417,8 +446,9 @@ def test_electrum_fetcher_translates_what_the_transport_raises(
     """A failed transport is this package's `FetchError` to the caller."""
     transport, _ = line_transport(kind, tcp, b"")
     endpoint = ElectrumFetcher(transport=transport, verify_network=False)
-    with pytest.raises(FetchError, match="closed before a whole line"):
+    with pytest.raises(FetchError, match="closed before a whole line") as e:
         endpoint.get_block_count()
+    assert e.value.failure_type is EOFError
 
 
 @pytest.mark.parametrize("kind", KINDS)

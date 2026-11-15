@@ -125,7 +125,7 @@ from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet._refusal import _label, _message_text, _position, _quoted
-from btclib_wallet.exceptions import FetchError, _guarded_methods
+from btclib_wallet.exceptions import FetchError, _failed_exchange, _guarded_methods
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
     _fetch_errors,
@@ -369,7 +369,8 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
         """
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise FetchError("the peer did not answer in time")
+            refusal = FetchError("the peer did not answer in time")
+            raise _failed_exchange(refusal, TimeoutError)
         return min(remaining, self.timeout)
 
     @contextmanager

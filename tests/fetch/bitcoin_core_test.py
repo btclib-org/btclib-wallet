@@ -713,8 +713,9 @@ def test_an_error_the_client_raises_without_a_status_is_a_fetch_error() -> None:
 
     The transport raises rather than answering, which is what a socket
     that never connected does; the client turns it into its own
-    `FetchError`, and this is the branch of the translation with no field
-    to carry.
+    `FetchError`, and this is the branch of the translation that carries
+    no status and no code, only the `failure_type`, which this one leaves
+    None.
     """
     refused = rpc.FetchError("no answer from http://127.0.0.1:8332: refused")
     with pytest.raises(
@@ -723,6 +724,7 @@ def test_an_error_the_client_raises_without_a_status_is_a_fetch_error() -> None:
         fetcher(refused).get_block_count()
     assert not isinstance(exc.value, rpc.FetchError)
     assert type(exc.value) is FetchError
+    assert exc.value.failure_type is None
 
 
 def test_an_rpc_error_keeps_its_code_and_drops_its_data() -> None:

@@ -73,7 +73,11 @@ from ecc import ellswift
 from ecc.curves import secp256k1
 
 from btclib_wallet._refusal import _message_text, _position, _quoted
-from btclib_wallet.exceptions import _guarded_methods
+from btclib_wallet.exceptions import (
+    _failed_exchange,
+    _failure_class,
+    _guarded_methods,
+)
 from btclib_wallet.fetch.transport import (
     _MAX_PORT,
     _READ_CHUNK,
@@ -175,7 +179,11 @@ class TcpPeerTransport:
     Everything that goes wrong below the message -- an unresolvable host, a
     refused connection, a timeout, a connection closed before a whole
     message, a message announcing more than a peer may send, a checksum that
-    does not match, a socket that fails to close -- is a `FetchError`.
+    does not match, a socket that fails to close -- is a `FetchError`. Its
+    `failure_type` is set as `FetchError`'s docstring in
+    `btclib_wallet.exceptions` says, and is None where the peer sent what
+    is refused, or where no exchange was begun: a call with no connection,
+    and a close.
     """
 
     def __init__(self, host: str, port: int) -> None:
@@ -241,6 +249,7 @@ class TcpPeerTransport:
         valid_timeout(timeout)
         deadline = monotonic() + timeout
         where = f"{_quoted(self._host)}:{_position(self._port)}"
+        failure_type: type[BaseException] | None = None
         try:
             sock = self._socket
             if sock is None:
@@ -251,8 +260,8 @@ class TcpPeerTransport:
                 )
             sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(message.serialize())
-        except OSError:
-            pass
+        except OSError as e:
+            failure_type = _failure_class(type(e))
         except _TransportError:
             self._discard()
             raise
@@ -263,7 +272,8 @@ class TcpPeerTransport:
         else:
             return
         self._discard()
-        raise _TransportError(f"no connection to {where}")
+        refusal = _TransportError(f"no connection to {where}")
+        raise _failed_exchange(refusal, failure_type)
 
     def receive(self, timeout: float) -> Message:
         """Return the next message the peer sends, waiting up to `timeout`."""
@@ -274,6 +284,7 @@ class TcpPeerTransport:
             raise _TransportError(f"{where}: not connected")
         deadline = monotonic() + timeout
         failure: str
+        failure_type: type[BaseException] | None = None
         try:
             header = _read(sock, _HEADER_SIZE, deadline, timeout, where)
             missing = 0
@@ -284,8 +295,9 @@ class TcpPeerTransport:
                 missing = e.missing
             rest = _read(sock, missing, deadline, timeout, where)
             return Message.parse(header + rest)
-        except OSError:
+        except OSError as e:
             failure = f"no message from {where}"
+            failure_type = _failure_class(type(e))
         except ValueError:
             failure = f"{where}: a message that does not parse"
         except _TransportError:
@@ -296,7 +308,7 @@ class TcpPeerTransport:
             self._discard()
             raise
         self._discard()
-        raise _TransportError(failure)
+        raise _failed_exchange(_TransportError(failure), failure_type)
 
 
 @_guarded_methods
@@ -427,6 +439,7 @@ class V2PeerTransport:
         deadline = monotonic() + timeout
         where = f"{_quoted(self._host)}:{_position(self._port)}"
         failure: str
+        failure_type: type[BaseException] | None = None
         try:
             if self._v1 is not None:
                 self._v1.send(message, timeout)
@@ -442,8 +455,9 @@ class V2PeerTransport:
             )
             sock.settimeout(_time_left(deadline, timeout, where))
             sock.sendall(packet)
-        except OSError:
+        except OSError as e:
             failure = f"no connection to {where}"
+            failure_type = _failure_class(type(e))
         except ValueError as e:
             failure = f"{where}: {type(e).__name__}"
         except _TransportError:
@@ -456,7 +470,7 @@ class V2PeerTransport:
         else:
             return
         self._discard()
-        raise _TransportError(failure)
+        raise _failed_exchange(_TransportError(failure), failure_type)
 
     def _assert_network(self, message: Message) -> None:
         """Refuse a message for another network than the connection's.
@@ -506,18 +520,19 @@ class V2PeerTransport:
         sock = self._pending = _open_connection(
             (self._host, self._port), deadline, timeout, where
         )
-        cipher = _handshake(sock, magic, deadline, timeout, where)
-        if cipher is None:
+        handshake = _handshake(sock, magic, deadline, timeout, where)
+        if isinstance(handshake, type):
             with suppress(FetchError):
                 self._close_pending()
             if not self._v1_fallback:
                 err_msg = f"{where} hung up on the v2 handshake, as a v1 peer"
-                raise _TransportError(f"{err_msg} does, and v1_fallback is off")
+                refusal = _TransportError(f"{err_msg} does, and v1_fallback is off")
+                raise _failed_exchange(refusal, handshake)
             v1 = self._pending = TcpPeerTransport(self._host, self._port)
             return v1
         self._socket, self._cipher, self._magic, self._pending = (
             sock,
-            cipher,
+            handshake,
             magic,
             None,
         )
@@ -535,6 +550,7 @@ class V2PeerTransport:
         where = f"{_quoted(self._host)}:{_position(self._port)}"
         deadline = monotonic() + timeout
         failure: str
+        failure_type: type[BaseException] | None = None
         try:
             if self._v1 is not None:
                 return self._v1.receive(timeout)
@@ -548,8 +564,9 @@ class V2PeerTransport:
                 except BTClibValueError:
                     continue
                 return Message(self._magic, command, payload)
-        except OSError:
+        except OSError as e:
             failure = f"no message from {where}"
+            failure_type = _failure_class(type(e))
         except ValueError as e:
             failure = f"{where}: {type(e).__name__}"
         except _TransportError:
@@ -560,17 +577,20 @@ class V2PeerTransport:
             self._discard()
             raise
         self._discard()
-        raise _TransportError(failure)
+        raise _failed_exchange(_TransportError(failure), failure_type)
 
 
 def _handshake(
     sock: socket, magic: bytes, deadline: float, timeout: float, where: str
-) -> Cipher | None:
+) -> Cipher | type[BaseException]:
     """Return the cipher of a v2 handshake completed as its initiator.
 
-    None where the peer hung up as a v1 peer does: before sending a byte,
-    and after a v1 header's worth of ours, which is the rule of Core's
-    `ShouldReconnectV1`. The hang-up is seen on a write or on a read.
+    Where the peer hung up as a v1 peer does, before sending a byte and
+    after a v1 header's worth of ours, which is the rule of Core's
+    `ShouldReconnectV1`, the class of what ended the connection instead.
+    The hang-up is seen on a write or on a read: it is the class of the
+    `ConnectionError` raised, as `_failure_class` reads it, or `EOFError`
+    for a read that found the end.
     """
     from btclib.p2p.bip324 import (  # noqa: PLC0415
         GARBAGE_TERMINATOR_LEN,
@@ -580,15 +600,18 @@ def _handshake(
     prv_key = 1 + secrets.randbelow(secp256k1.n - 1)
     ell_ours = ellswift.create(prv_key)
     garbage = secrets.token_bytes(secrets.randbelow(_MAX_GARBAGE_LEN + 1))
-    if not _send_key(sock, ell_ours + garbage, deadline, timeout, where):
-        return None
+    hung_up = _send_key(sock, ell_ours + garbage, deadline, timeout, where)
+    if hung_up is not None:
+        return hung_up
     sock.settimeout(_time_left(deadline, timeout, where))
+    ended: type[BaseException] = EOFError
     try:
         first = sock.recv(1)
-    except ConnectionError:
+    except ConnectionError as e:
         first = b""
+        ended = _failure_class(type(e))
     if not first:
-        return None
+        return ended
     ell_theirs = first + _read(sock, ELL_SIZE - 1, deadline, timeout, where)
     cipher = Cipher(prv_key, ell_ours, ell_theirs, initiator=True, magic=magic)
     sock.settimeout(_time_left(deadline, timeout, where))
@@ -613,24 +636,27 @@ def _handshake(
 
 def _send_key(
     sock: socket, data: bytes, deadline: float, timeout: float, where: str
-) -> bool:
-    """Write the key and the garbage; return False where the peer hung up.
+) -> type[BaseException] | None:
+    """Write the key and the garbage, and return None once they are written.
 
-    A hang-up is refused, as any failure, until a v1 header's worth is
-    written: a v1 peer hangs up on a header it cannot read.
+    Where the peer hung up, return the class of the `ConnectionError` the
+    write raised, as `_failure_class` reads it. A hang-up is refused, as
+    any failure, until a v1 header's worth is written: a v1 peer hangs up
+    on a header it cannot read.
     """
     written = 0
-    hung_up = False
+    hung_up: type[BaseException] | None = None
     try:
         while written < len(data):
             sock.settimeout(_time_left(deadline, timeout, where))
             written += sock.send(data[written:])
-    except ConnectionError:
-        hung_up = True
+    except ConnectionError as e:
+        hung_up = _failure_class(type(e))
     # refused after the `except` block, as every refusal of this module
-    if hung_up and written < _HEADER_SIZE:
-        raise _TransportError(f"no connection to {where}")
-    return not hung_up
+    if hung_up is not None and written < _HEADER_SIZE:
+        refusal = _TransportError(f"no connection to {where}")
+        raise _failed_exchange(refusal, hung_up)
+    return hung_up
 
 
 def _packet(
@@ -662,6 +688,7 @@ def _read(
     while len(buffer) < size:
         sock.settimeout(_time_left(deadline, timeout, where))
         if not (chunk := sock.recv(min(_READ_CHUNK, size - len(buffer)))):
-            raise _TransportError(f"{where}: connection closed before a whole message")
+            err_msg = f"{where}: connection closed before a whole message"
+            raise _failed_exchange(_TransportError(err_msg), EOFError)
         buffer.extend(chunk)
     return bytes(buffer)

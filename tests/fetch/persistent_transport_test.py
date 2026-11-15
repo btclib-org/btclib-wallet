@@ -479,8 +479,9 @@ def test_the_deadline_holds_over_each_line_read(
 
     server = serve(notifying)
     with client(server, authority) as transport:
-        with pytest.raises(RpcFetchError, match="timeout expired"):
+        with pytest.raises(RpcFetchError, match="timeout expired") as e:
             transport(request(1), TIMEOUT)
+        assert e.value.failure_type is TimeoutError
         assert not transport.is_open
 
 
@@ -592,8 +593,10 @@ def test_a_late_answer_is_never_read(
         with pytest.raises(
             RpcFetchError,
             match=r"^no answer from '127\.0\.0\.1':\d+: TimeoutError$",
-        ):
+        ) as e:
             transport(request(1), 0.5)
+        # the server took the request and did not answer in time
+        assert e.value.failure_type is TimeoutError
         assert asked.is_set()
         assert not transport.is_open
         release.set()
@@ -731,8 +734,9 @@ def test_the_default_context_refuses_an_untrusted_server(
         with pytest.raises(
             RpcFetchError,
             match=r"^no answer from '127\.0\.0\.1':\d+: SSLCertVerificationError$",
-        ):
+        ) as e:
             transport(request(1), TIMEOUT)
+        assert e.value.failure_type is ssl.SSLCertVerificationError
         assert not transport.is_open
 
 
@@ -763,8 +767,9 @@ def test_a_handshake_refused_names_its_error_and_not_the_close(
         with pytest.raises(
             RpcFetchError,
             match=r"^no answer from '127\.0\.0\.1':\d+: SSLCertVerificationError$",
-        ):
+        ) as e:
             transport(request(1), TIMEOUT)
+        assert e.value.failure_type is ssl.SSLCertVerificationError
         assert not transport.is_open
 
 
@@ -816,8 +821,9 @@ def test_the_wait_for_the_connection_counts_against_the_deadline(
     with client(server, authority) as transport, ThreadPoolExecutor(1) as pool:
         first = pool.submit(transport, request(1), TIMEOUT)
         assert asked.wait(TIMEOUT)
-        with pytest.raises(RpcFetchError, match="timeout expired"):
+        with pytest.raises(RpcFetchError, match="timeout expired") as e:
             transport(request(2), 0.2)
+        assert e.value.failure_type is TimeoutError
         # it did not wait for the slow call to end
         assert not first.done()
         release.set()

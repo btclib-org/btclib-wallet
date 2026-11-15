@@ -95,7 +95,11 @@ from btclib.utils import is_integer
 from btclib_wallet._refusal import _message_text, _position, _quoted
 from btclib_wallet.electrum import _reply_ids, _request_ids
 from btclib_wallet.exceptions import FetchError as _PackageFetchError
-from btclib_wallet.exceptions import _guarded_methods
+from btclib_wallet.exceptions import (
+    _failed_exchange,
+    _failure_class,
+    _guarded_methods,
+)
 
 LineTransport = Callable[[bytes, float], bytes]
 
@@ -183,7 +187,8 @@ def _time_left(deadline: float, timeout: float, where: str) -> float:
     """
     remaining = deadline - monotonic()
     if remaining <= 0:
-        raise _TransportError(f"{where}: timeout expired before an answer arrived")
+        err_msg = f"{where}: timeout expired before an answer arrived"
+        raise _failed_exchange(_TransportError(err_msg), TimeoutError)
     return min(remaining, timeout)
 
 
@@ -267,7 +272,8 @@ def _read_line(
         if chunk := connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer))):
             buffer.extend(chunk)
         else:
-            raise _TransportError(f"{where}: connection closed before a whole line")
+            err_msg = f"{where}: connection closed before a whole line"
+            raise _failed_exchange(_TransportError(err_msg), EOFError)
 
 
 def _valid_endpoint(host: str, port: int, max_line_size: int) -> None:
@@ -348,6 +354,7 @@ def _exchange(
     where = f"{_quoted(host)}:{_position(port)}"
     deadline = monotonic() + timeout
     failure = ""
+    failure_type: type[BaseException] | None = None
     try:
         with _open_connection((host, port), deadline, timeout, where) as sock:
             connection = sock
@@ -366,7 +373,9 @@ def _exchange(
         # Named by its class and raised after the block, so it is not
         # chained: a certificate that does not match names the host
         failure = type(e).__name__
-    raise _TransportError(f"no answer from {where}: {failure}")
+        failure_type = _failure_class(type(e))
+    err_msg = f"no answer from {where}: {failure}"
+    raise _failed_exchange(_TransportError(err_msg), failure_type)
 
 
 @_guarded_methods
@@ -419,7 +428,10 @@ class TlsLineTransport:
     connection closed before a whole line, a line over the limit -- is a
     `_TransportError`: `bitcoin_core_rpc`'s `FetchError`, the contract
     `LineTransport` states, and this package's own, which `ElectrumFetcher`
-    lets through as it is.
+    lets through as it is. Its `failure_type` is set as `FetchError`'s
+    docstring in `btclib_wallet.exceptions` says, and is None where the
+    server sent what is refused, as a line over the limit, and for a
+    close.
     """
 
     def __init__(
@@ -690,8 +702,10 @@ class PersistentTlsLineTransport:
         where = f"{_quoted(self._host)}:{_position(self._port)}"
         deadline = monotonic() + timeout
         if not self._lock.acquire(timeout=timeout):
-            raise _TransportError(f"{where}: timeout expired before an answer arrived")
+            err_msg = f"{where}: timeout expired before an answer arrived"
+            raise _failed_exchange(_TransportError(err_msg), TimeoutError)
         failure = ""
+        failure_type: type[BaseException] | None = None
         try:
             return self._answer(request, ids, where, deadline, timeout)
         except OSError as e:
@@ -700,9 +714,11 @@ class PersistentTlsLineTransport:
             # Named by its class and raised after the block, as
             # `_exchange` does
             failure = type(e).__name__
+            failure_type = _failure_class(type(e))
         finally:
             self._lock.release()
-        raise _TransportError(f"no answer from {where}: {failure}")
+        err_msg = f"no answer from {where}: {failure}"
+        raise _failed_exchange(_TransportError(err_msg), failure_type)
 
     def _answer(
         self,

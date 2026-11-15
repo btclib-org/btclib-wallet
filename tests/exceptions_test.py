@@ -15,15 +15,28 @@ between workers.
 from __future__ import annotations
 
 import copy
+import http.client
 import pickle
+import socket
+import ssl
+import urllib.error
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibException, BTClibRuntimeError, BTClibValueError
+from typing_extensions import override
 
 from btclib_wallet import exceptions
-from btclib_wallet.exceptions import FetchError, HttpError, RpcError, SignerError
+from btclib_wallet.exceptions import (
+    FetchError,
+    HttpError,
+    RpcError,
+    SignerError,
+    _as_built,
+    _failure_class,
+)
+from btclib_wallet.fetch.transport import _time_left
 
 HTTP_MESSAGE = "getblockcount at http://127.0.0.1:8332: HTTP 503"
 
@@ -151,3 +164,88 @@ def test_a_field_carrying_exception_crosses_a_process_boundary() -> None:
     assert type(remote.value) is type(local.value)
     assert str(remote.value) == str(local.value)
     assert remote.value.status == local.value.status == 503
+
+
+class _CallersRefusalError(ConnectionRefusedError):
+    """A failure of a class of the caller's, deriving from the builtin's."""
+
+
+class _Meta(type):
+    """A metaclass of the caller's, answering a class's `__mro__` itself."""
+
+    @property
+    @override
+    def __mro__(cls) -> tuple[type, ...]:
+        """Fail the test, as code of the caller's that ran."""
+        raise AssertionError(cls.__name__)
+
+
+class _MetaError(OSError, metaclass=_Meta):
+    """A failure whose `__mro__` its metaclass answers."""
+
+
+@pytest.mark.parametrize(
+    "value, held",
+    [
+        (TimeoutError, TimeoutError),
+        (ssl.SSLCertVerificationError, ssl.SSLCertVerificationError),
+        (socket.gaierror, socket.gaierror),
+        (http.client.RemoteDisconnected, http.client.RemoteDisconnected),
+        (urllib.error.URLError, urllib.error.URLError),
+        (_CallersRefusalError, ConnectionRefusedError),
+        (_MetaError, OSError),
+        (int, BaseException),
+        ("TimeoutError", BaseException),
+        (TimeoutError("timed out"), BaseException),
+    ],
+    ids=[
+        "builtin",
+        "ssl",
+        "socket",
+        "http.client",
+        "urllib.error",
+        "the caller's",
+        "the caller's metaclass",
+        "no exception",
+        "a name",
+        "an instance",
+    ],
+)
+def test_failure_type_holds_a_class_of_the_standard_library(
+    value: object, held: type[BaseException]
+) -> None:
+    """A class of the caller's is held as the one it derives from.
+
+    Anything but a class is `BaseException`. Each class held pickles.
+    """
+    assert _failure_class(value) is held
+    assert pickle.loads(pickle.dumps(held)) is held  # noqa: S301
+
+
+def test_failure_type_asks_no_metaclass_for_the_bases() -> None:
+    """The control: `__mro__` read as an attribute runs the caller's code."""
+    with pytest.raises(AssertionError, match="_MetaError"):
+        _ = _MetaError.__mro__
+    assert _failure_class(_MetaError) is OSError
+
+
+@pytest.mark.parametrize("cls", [FetchError, HttpError, RpcError])
+def test_a_refusal_holds_no_failure_unless_one_is_set(cls: type[FetchError]) -> None:
+    """`failure_type` is None on the class, so on each refusal by default."""
+    assert cls.failure_type is None
+
+
+def test_a_refusal_holding_a_failure_stays_the_packages_and_round_trips() -> None:
+    """Set after the refusal is built, the member does not make it the caller's.
+
+    `_caller_errors` relays a refusal of the package as it is only where
+    `_as_built` reads it as built. A copy and a pickled one keep the member.
+    """
+    with pytest.raises(FetchError, match="timeout expired") as e:
+        _time_left(0.0, 1.0, "here")
+    assert _as_built(e.value)
+    assert e.value.failure_type is TimeoutError
+    for back in (pickle.loads(pickle.dumps(e.value)), copy.copy(e.value)):  # noqa: S301
+        assert type(back) is type(e.value)
+        assert str(back) == str(e.value)
+        assert back.failure_type is TimeoutError

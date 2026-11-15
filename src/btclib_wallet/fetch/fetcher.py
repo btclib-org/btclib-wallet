@@ -44,6 +44,7 @@ from btclib_wallet.exceptions import (
     RpcError,
     _caller_errors,
     _failed,
+    _failed_exchange,
     _guarded_methods,
 )
 
@@ -90,14 +91,12 @@ def client_errors() -> AbstractContextManager[None]:
     The fields are what make this a translation rather than a blanket
     wrap: `status` and `code` are the whole reason those two classes
     exist, and losing them would leave a caller matching on the text of a
-    message again.
+    message again. A plain `FetchError` keeps the class of what failed, in
+    its `failure_type`, as `_failed` reads it.
 
     The client's text is not relayed, and its exception is not chained:
     the refusal is raised after the `except` block. That text names the
-    request, whose path can hold a tx id, and a release of
-    `bitcoin_core_rpc` before 2026.11.14 writes the node's own message
-    into it and keeps `data`: either can quote a key passed in the wrong
-    place.
+    request, whose path can hold a tx id.
 
     A `FetchError` of this package's classes is let through or refused as
     `btclib_wallet.exceptions._caller_errors` says.
@@ -123,6 +122,7 @@ def _client_errors(request: str) -> Iterator[None]:
     refused = ""
     code = 0
     failure = ""
+    failure_type: type[BaseException] | None = None
     try:
         with _caller_errors(request):
             yield
@@ -130,7 +130,7 @@ def _client_errors(request: str) -> Iterator[None]:
         # built by this package, `_caller_errors` having refused any other
         raise
     except rpc.FetchError as e:
-        refused, code, failure = _failed(e, rpc.RpcError, rpc.HttpError)
+        refused, code, failure, failure_type = _failed(e, rpc.RpcError, rpc.HttpError)
     except rpc.BtcRpcValueError:
         refused = "chain"
     else:
@@ -143,6 +143,7 @@ def _client_errors(request: str) -> Iterator[None]:
             refusal = HttpError(f"{head}the server answered HTTP {code}", code)
         case "fetch":
             refusal = FetchError(f"{head}no usable answer from the server: {failure}")
+            _failed_exchange(refusal, failure_type)
         case _:
             # what `assert_chain` raises for a node serving another chain,
             # and what deriving a magic raises for a signet challenge that

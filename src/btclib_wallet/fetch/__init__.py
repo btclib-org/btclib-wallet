@@ -88,10 +88,10 @@ costs one translation. The package declares a `FetchError`, an `HttpError` and
 an `RpcError` of its own -- it declares zero dependencies and imports nothing of
 btclib's -- so those are not the classes `btclib_wallet.exceptions` declares,
 and `fetcher.client_errors` re-raises them as the ones a caller catches,
-`status` and `code` carried across. What that buys back is the import cost:
-`btclib_wallet.exceptions` reaches no protocol client, so `urllib.request`,
-`ssl` and `socket` are loaded by the code that fetches and not by every module
-that catches.
+`status`, `code` and `failure_type` carried across. What that buys back is the
+import cost: `btclib_wallet.exceptions` reaches no protocol client, so
+`urllib.request`, `ssl` and `socket` are loaded by the code that fetches and not
+by every module that catches.
 
 The re-exported client is the exception:
 `btclib_wallet.fetch.BitcoinCoreRpcClient` is the package's class unchanged, so

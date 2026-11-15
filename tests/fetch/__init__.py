@@ -93,12 +93,9 @@ def chain_mismatch(reported: str, expected: str) -> str:
     """Return a pattern for a backend's refusal of a node on the wrong chain.
 
     The REST fetcher names both chains, quoted. The RPC fetcher names
-    neither: the client's text is not relayed, since a release of
-    `bitcoin-core-rpc` before 2026.11.14 writes the node's answer into it
-    unbounded. Those releases raise an exception with no attribute the
-    chains could be read from instead; 2026.11.14's `ChainMismatchError`
-    carries them as `expected` and `reported`, which `client_errors` does
-    not read.
+    neither: `client_errors` relays none of the client's text, and does
+    not read the `expected` and `reported` its `ChainMismatchError`
+    carries.
     """
     r, e = re.escape(reported), re.escape(expected)
     rest = rf"the node reports chain '{r}', not the '{e}' this fetcher was built for"
