@@ -146,25 +146,33 @@ def _assert_distinct(
                 raise BTClibValueError(err_msg)
 
 
+def _assert_int_type(value: object, name: str) -> None:
+    """Refuse a value unless its type is int or an int subclass but bool.
+
+    The type decides, as `_quoted` says, since a `__class__` can claim
+    int or bool, or raise. `name` is what the refusal calls the value.
+    """
+    kind = type(value)
+    if not issubclass(kind, int) or kind is bool:
+        raise BTClibTypeError(f"invalid {name} type: {kind.__name__}")
+
+
 def _labels(by_branch: Mapping[int, Descriptor]) -> dict[int, Descriptor]:
     """Refuse a label that is no integer, or is outside 0 to 2**63 - 1.
 
     The module docstring says why. No value refusal prints the value: an
-    int past the interpreter's digit limit has no str(). The type decides
-    whether a label is an int, as `_quoted` says, since a `__class__` can
-    claim one or raise. Each label is kept as the exact int `_exact_int`
-    reads: the str() of an IntEnum can be its name, which a ledger would
-    write and could not read back, and a subclass's `__int__` can answer
-    another number. Two labels holding one int are refused, since one
-    descriptor would replace the other.
+    int past the interpreter's digit limit has no str().
+    `_assert_int_type` decides whether a label is an int. Each label
+    is kept as the exact int `_exact_int` reads: the str() of an IntEnum
+    can be its name, which a ledger would write and could not read back,
+    and a subclass's `__int__` can answer another number. Two labels
+    holding one int are refused, since one descriptor would replace the
+    other.
     """
     labels: dict[int, Descriptor] = {}
     for branch, descriptor in by_branch.items():
         # a caller can hand any key, whatever the annotation says
-        kind: type[object] = type(branch)
-        if not issubclass(kind, int) or kind is bool:
-            err_msg = f"invalid branch type: {kind.__name__}"
-            raise BTClibTypeError(err_msg)
+        _assert_int_type(branch, "branch")
         value = _exact_int(branch)
         if value < 0:
             raise BTClibValueError("invalid branch: negative")

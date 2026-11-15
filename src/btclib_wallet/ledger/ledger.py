@@ -342,7 +342,10 @@ from btclib_wallet.tx_builder import (
     _ShortfallError,
     build_psbt,
 )
-from btclib_wallet.wallet.descriptor_wallet import DescriptorWallet
+from btclib_wallet.wallet.descriptor_wallet import (
+    DescriptorWallet,
+    _assert_int_type,
+)
 
 __all__ = ["LOOKAHEAD", "MAX_UNLOCK_TIME", "Ledger"]
 
@@ -862,8 +865,7 @@ class Ledger:
 
     def _source(self, source: int) -> DescriptorWallet:
         """Return the source of an id, refusing an unknown one."""
-        if not is_integer(source):
-            raise BTClibTypeError(f"invalid source type: {type(source).__name__}")
+        _assert_int_type(source, "source")
         if source not in self._sources:
             raise BTClibValueError(f"no source {_quoted(source)}")
         return self._sources[source]
@@ -913,8 +915,7 @@ class Ledger:
     def _new_position(self, source: int, branch: int) -> _Position:
         """Return the position the next address of a branch is at."""
         wallet = self._source(source)
-        if not is_integer(branch):
-            raise BTClibTypeError(f"invalid branch type: {type(branch).__name__}")
+        _assert_int_type(branch, "branch")
         if branch not in wallet.branches:
             raise BTClibValueError(f"invalid branch: {_quoted(branch)}")
         if not wallet.descriptor(branch).is_ranged:
