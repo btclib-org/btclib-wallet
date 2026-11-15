@@ -427,6 +427,10 @@ class DescriptorWallet(RangedWallet):
         as the wallet's own is a claim about where money goes, and the
         whole script is the only evidence for it. `position_of` is the
         same claim asked as a question.
+
+        It also refuses a descriptor whose expansion gives a taproot
+        merkle root and no tree, for the reason `psbt.update_psbt_output`
+        gives.
         """
         self._assert_position(branch, index)
         return update_psbt_output(

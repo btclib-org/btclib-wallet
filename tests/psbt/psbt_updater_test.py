@@ -11,6 +11,7 @@ BIP174's Updater over a descriptor: what `update_psbt_input` and
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields, replace
 from typing import Any
 
 import pytest
@@ -25,10 +26,17 @@ from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc import dsa, ssa
 from ecc.hashes import tagged_hash
+from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.bip32.bip32 import prv_keyinfo_from_xprv
-from btclib_wallet.descriptors import Descriptor, TrDescriptor, parse
+from btclib_wallet.descriptors import (
+    Descriptor,
+    Expansion,
+    PrvKeys,
+    TrDescriptor,
+    parse,
+)
 from btclib_wallet.psbt.musig2 import nonce_gen, partial_sign, partial_sigs_agg
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -669,6 +677,46 @@ def test_a_taproot_output_with_no_tree_publishes_none() -> None:
     ).outputs[1]
     assert psbt_out.taproot_internal_key == bytes.fromhex(XONLY_A)
     assert not psbt_out.taproot_tree
+
+
+@dataclass(frozen=True, kw_only=True)
+class _RootOnly(TrDescriptor):
+    """A ``tr()`` whose expansion gives its merkle root and `tree_given`."""
+
+    tree_given: list[tuple[int, int, bytes]] | None
+
+    @override
+    def expansion(self, index: int = 0, prv_keys: PrvKeys | None = None) -> Expansion:
+        return replace(super().expansion(index, prv_keys), taproot_tree=self.tree_given)
+
+
+@pytest.mark.parametrize("tree", [None, []])
+def test_the_output_updater_refuses_a_merkle_root_with_no_tree(
+    tree: list[tuple[int, int, bytes]] | None,
+) -> None:
+    """An output with the internal key alone reads as key path only.
+
+    That is what `tr(KEY)` writes, so the output key a reader computes from
+    that key is not the one paid, and the scripts the root commits to are
+    nowhere in the psbt. The input half still writes the root, which is
+    what a key path signer tweaks with.
+    """
+    parsed = parse(f"tr({XONLY_A},{{pk({XONLY_B}),pk({XONLY_C})}})")
+    assert isinstance(parsed, TrDescriptor)
+    descriptor = _RootOnly(
+        **{field.name: getattr(parsed, field.name) for field in fields(parsed)},
+        tree_given=tree,
+    )
+    assert descriptor.expansion().taproot_merkle_root
+    paying = psbt_paying(descriptor.script_pub_key())
+    with pytest.raises(
+        BTClibValueError,
+        match="^output 1: the descriptor gives a taproot merkle root and no script tree$",
+    ):
+        update_psbt_output(descriptor, paying, 1)
+
+    psbt_in = update_psbt_input(descriptor, psbt_spending(descriptor), 0).inputs[0]
+    assert psbt_in.taproot_merkle_root == parsed.taproot_merkle_root()
 
 
 def test_the_output_updater_names_a_musig_group() -> None:

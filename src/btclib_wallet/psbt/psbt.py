@@ -56,7 +56,8 @@ from btclib.script import (
     type_and_payload,
 )
 from btclib.script.engine import verify_transaction
-from btclib.script.limits import MAX_STACK_SIZE
+from btclib.script.limits import MAX_SCRIPT_SIZE, MAX_STACK_SIZE
+from btclib.script.script import op_code_spans
 from btclib.script.sig_hash import (
     ALL,
     ANYONECANPAY,
@@ -80,7 +81,7 @@ from btclib.utils import (
     str_from_string,
 )
 from ecc import dsa, ssa
-from ecc.curves import sec_point
+from ecc.curves import mult, sec_point
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet._refusal import _hex_field, _label, _message_text, _position, _quoted
@@ -93,7 +94,6 @@ from btclib_wallet.bip32 import (
     encode_to_bip32_derivs,
 )
 from btclib_wallet.descriptors import miniscript
-from btclib_wallet.descriptors.miniscript import _lacks_only_keys
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt.psbt_size import (
@@ -4025,7 +4025,7 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
             psbt_in.witness_script, miniscript.P2WSH, key_hashes
         )
     if node is None:
-        if _lacks_only_keys(psbt_in.witness_script, miniscript.P2WSH, key_hashes):
+        if _lacks_only_keys(psbt_in.witness_script, key_hashes):
             err_msg = f"input {_position(vin_i)}: no public key for a hash160 "
             err_msg += "the witness script holds"
             raise BTClibValueError(err_msg)
@@ -4046,6 +4046,59 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     # requires of a native one
     script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []
     return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
+
+
+def _stand_in_key(known: Mapping[Octets, Octets]) -> tuple[bytes, bytes]:
+    """Return the hash160 and the SEC bytes of a key whose hash `known` lacks.
+
+    The first of G, 2G, 3G and on whose hash160 is not a key of `known`, so
+    that a stand-in replaces no entry of the caller's.
+    """
+    multiple = 1
+    while True:
+        key = sec_point.bytes_from_point(mult(multiple))
+        if (key_hash := hash160(key)) not in known:
+            return key_hash, key
+        multiple += 1
+
+
+def _lacks_only_keys(script: bytes, key_hashes: Mapping[Octets, Octets]) -> bool:
+    """Whether a P2WSH script is a miniscript but for a ``pk_h()`` key.
+
+    Asked once `miniscript.from_script` has refused the script with
+    `key_hashes`: True says the refusal is only for a hash160 under which
+    the mapping files no key. The mapping is read as `from_script` reads
+    it, its hashes and keys as octets. Each minimal push of 20 bytes it
+    files nothing under is written over with the hash160 of a stand-in
+    key, one it files nothing under either, and the script is read again
+    with that key added. A decoder decides nothing on a 20-byte push but
+    its size, except where a ``pk_h()`` looks up its key, so writing one
+    over changes the reading only where that key was missing.
+
+    A script longer than consensus allows is no miniscript, and is
+    answered before it is walked.
+    """
+    if len(script) > MAX_SCRIPT_SIZE:
+        return False
+    try:
+        known: dict[Octets, Octets] = {
+            bytes_from_octets(key_hash): bytes_from_octets(key)
+            for key_hash, key in key_hashes.items()
+        }
+    except BTClibValueError:
+        return False
+    stand_in_hash, stand_in_key = _stand_in_key(known)
+    stood_in = bytearray(script)
+    for op_code, start, stop in op_code_spans(script):
+        # op code 20 pushes the 20 bytes after it
+        if op_code == 20 and script[start + 1 : stop] not in known:
+            stood_in[start + 1 : stop] = stand_in_hash
+    known[stand_in_hash] = stand_in_key
+    try:
+        miniscript.from_script(bytes(stood_in), miniscript.P2WSH, known)
+    except BTClibValueError:
+        return False
+    return True
 
 
 def extract_tx(
