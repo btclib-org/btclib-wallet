@@ -131,6 +131,7 @@ not read by the census.
 from __future__ import annotations
 
 import ast
+import io
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -1852,7 +1853,7 @@ def _census(sources: dict[str, str]) -> _Census:
 
 def _library() -> dict[str, str]:
     return {
-        path.relative_to(_LIBRARY.parent).as_posix(): path.read_text()
+        path.relative_to(_LIBRARY.parent).as_posix(): path.read_text(encoding="utf-8")
         for path in sorted(_LIBRARY.rglob("*.py"))
     }
 
@@ -1978,6 +1979,25 @@ def test_no_refusal_formats_a_value() -> None:
     assert set(_kept()) <= census.kept_used, set(_kept()) - census.kept_used
     measured = set(_measured())
     assert measured <= census.measured_used, measured - census.measured_used
+
+
+def test_library_is_read_whatever_the_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sources are read as UTF-8, whatever the locale's encoding.
+
+    The patch makes a `Path` read that names no encoding decode as cp1252
+    on every platform, as CPython does on the Windows runners outside UTF-8
+    mode.
+    """
+    expected = _library()
+    monkeypatch.setattr(io, "text_encoding", lambda encoding, *_: encoding or "cp1252")
+    # the control: the patch reaches a read that names no encoding
+    control = tmp_path / "control.py"
+    control.write_text("# \N{RIGHT DOUBLE QUOTATION MARK}\n", encoding="utf-8")
+    with pytest.raises(UnicodeDecodeError):
+        control.read_text()
+    assert _library() == expected
 
 
 def test_cleanups_hide_their_own_entries_alone() -> None:
