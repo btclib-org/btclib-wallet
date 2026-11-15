@@ -644,11 +644,16 @@ def test_a_key_origin_is_checked_against_the_key_it_belongs_to() -> None:
     length, or another index at the right depth. A master key is the one
     whose fingerprint is checkable, and it is checked.
     """
-    with pytest.raises(BTClibValueError, match="2 levels for a key at depth 3"):
+    with pytest.raises(
+        BTClibValueError, match="2 levels for a key at depth an int of 2 bits"
+    ):
         KeyGroup(1, _XPUBS[:1], origins=[BIP32KeyOrigin(_FINGERPRINT, "m/48h/0h")])
     with pytest.raises(
         BTClibValueError,
-        match="invalid key origin: it ends at an int of 32 bits, and the key's own index is 2147483649",
+        match=(
+            "invalid key origin: it ends at an int of 32 bits,"
+            " and the key's own index is an int of 32 bits"
+        ),
     ):
         KeyGroup(1, _XPUBS[:1], origins=[BIP32KeyOrigin(_FINGERPRINT, "m/48h/0h/0h")])
     with pytest.raises(BTClibValueError, match="own fingerprint is"):

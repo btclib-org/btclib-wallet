@@ -294,11 +294,11 @@ def _assert_origin(key: BIP32KeyData, origin: BIP32KeyOrigin) -> None:
     """
     if len(origin.der_path) != key.depth:
         err_msg = f"invalid key origin: {len(origin.der_path)} levels"
-        err_msg += f" for a key at depth {_position(key.depth)}"
+        err_msg += f" for a key at depth {_quoted(key.depth)}"
         raise BTClibValueError(err_msg)
     if key.depth and key.index != origin.der_path[-1]:
         err_msg = f"invalid key origin: it ends at {_quoted(origin.der_path[-1])}"
-        err_msg += f", and the key's own index is {_position(key.index)}"
+        err_msg += f", and the key's own index is {_quoted(key.index)}"
         raise BTClibValueError(err_msg)
     own = fingerprint(key.b58encode())
     if not key.depth and origin.master_fingerprint != own:
