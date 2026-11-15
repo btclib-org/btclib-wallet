@@ -87,6 +87,15 @@ class FetchError(BTClibRuntimeError):
     of its own. Catching it there is enough only where C code that this
     function calls, with no frame of this package between, raised it by
     its class.
+
+    One built with an exception among its args is the caller's wherever it
+    is built. PyPy builds one, holding the exception being handled, in an
+    `except` of this package where the caller's code gave that exception a
+    class that is no subclass of the one it was raised with. A bare `raise`
+    there raises the one built, and anything else raised there takes it as
+    its `__context__`. Where that class cannot be built from the exception
+    alone, as `HttpError` and `RpcError` cannot, PyPy raises a `TypeError`
+    there in place of whatever is raised.
     """
 
     failure_type: type[BaseException] | None = None
@@ -96,7 +105,9 @@ class FetchError(BTClibRuntimeError):
         # `tests/refusal_census_test.py` reads a `super().__init__` as any
         # `__init__` of the package, some of which raise
         self.args = args
-        if _built_by_the_package():
+        if _built_by_the_package() and not any(
+            issubclass(type(arg), BaseException) for arg in args
+        ):
             # named first: the census reads a call in the subscript of an
             # assignment as a binding of the name called
             key = id(self)
@@ -293,19 +304,37 @@ def _forgotten(key: int) -> Callable[[ref[FetchError]], None]:
 def _as_built(error: FetchError) -> bool:
     """Return whether this package built `error`, and nothing changed it since.
 
-    Its class, its args and its attributes are those it was built with, read
-    by identity: code of the caller's that reassigns its args or its
-    `__class__`, sets an attribute or adds a note, which is an attribute,
-    makes it the caller's. The class is read first, so that what is read
-    after is read off a class of this package.
+    Its class, each of its args and its attributes are those it was built
+    with, read by identity: code of the caller's that gives it other args or
+    another `__class__`, sets an attribute or adds a note, which is an
+    attribute, makes it the caller's. The args are read one by one, since
+    PyPy builds a new tuple at each read of `args` where it holds any. The
+    class is read first, so that what is read after is read off a class of
+    this package. The attributes are read only off a `dict` that is no
+    subclass, whose names are each a `str` that is no subclass: a subclass
+    of the caller's, which its code can set as `__dict__`, could answer the
+    reads with other attributes than those it holds, or change them while
+    they are read.
+
+    The args and the attributes are each read once, the attributes as a
+    copy that `dict.copy` makes in one step, and checked on what was read:
+    a thread of the caller's can change them while they are checked. That
+    thread can still change the error once it is checked, before the caller
+    catches it, which no check here can prevent.
     """
     entry = _BUILT.get(id(error))
     if entry is None or entry[0]() is not error or type(error) is not entry[1]:
         return False
+    args = error.args
     fields = vars(error)
+    if type(fields) is not dict:
+        return False
+    fields = dict.copy(fields)
     return (
-        error.args is entry[2]
+        len(args) == len(entry[2])
+        and all(value is built for value, built in zip(args, entry[2], strict=True))
         and len(fields) == len(entry[3])
+        and all(type(name) is str for name in fields)
         and all(fields.get(name, fields) is value for name, value in entry[3])
     )
 
