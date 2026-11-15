@@ -82,7 +82,7 @@ from btclib.script.witness import Witness
 from btclib.utils import assert_type
 from typing_extensions import override
 
-from btclib_wallet._refusal import _exact_int, _label, _quoted
+from btclib_wallet._refusal import _exact_int, _label, _position
 from btclib_wallet.bip32.bip32 import BIP32Key
 from btclib_wallet.bip32.der_path import DerPath
 from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
@@ -141,7 +141,8 @@ def _assert_distinct(
                 found = ranged.index_of(first[fixed], _LAST_INDEX, prv_keys)
                 shared = found is not None
             if shared:
-                err_msg = f"branches {_quoted(branch_a)} and {_quoted(branch_b)} share a script:"
+                err_msg = f"branches {_position(branch_a)} and"
+                err_msg += f" {_position(branch_b)} share a script:"
                 err_msg += " position_of could not tell them apart"
                 raise BTClibValueError(err_msg)
 
@@ -211,7 +212,7 @@ class DescriptorWallet(RangedWallet):
         for branch, descriptor in by_branch.items():
             _assert_no_wif(descriptor)
             if isinstance(descriptor, ComboDescriptor):
-                err_msg = f"combo() at branch {_quoted(branch)}: four scripts at one"
+                err_msg = f"combo() at branch {_position(branch)}: four scripts at one"
                 err_msg += " index are four addresses at one position, so a"
                 err_msg += " wallet cannot hold one -- Descriptor"
                 err_msg += ".script_pub_keys is what answers for it"

@@ -92,7 +92,7 @@ from bitcoin_core_rpc import (
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import is_integer
 
-from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet._refusal import _message_text, _position, _quoted
 from btclib_wallet.electrum import _reply_ids, _request_ids
 from btclib_wallet.exceptions import FetchError as _PackageFetchError
 from btclib_wallet.exceptions import _guarded_methods
@@ -260,7 +260,8 @@ def _read_line(
             del buffer[: end + 1]
             return line
         if len(buffer) > max_line_size:
-            err_msg = f"{where}: line longer than the max_line_size of {_quoted(max_line_size)}"
+            err_msg = f"{where}: line longer than the max_line_size of "
+            err_msg += _position(max_line_size)
             raise _TransportError(err_msg)
         connection.settimeout(_time_left(deadline, timeout, where))
         if chunk := connection.recv(min(_READ_CHUNK, max_line_size + 1 - len(buffer))):
@@ -344,7 +345,7 @@ def _exchange(
     _valid_request(request)
     valid_timeout(timeout)
 
-    where = f"{_quoted(host)}:{_quoted(port)}"
+    where = f"{_quoted(host)}:{_position(port)}"
     deadline = monotonic() + timeout
     failure = ""
     try:
@@ -667,7 +668,7 @@ class PersistentTlsLineTransport:
                 connection.close()
                 return
             raise _TransportError(
-                f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+                f"closing {_quoted(self._host)}:{_position(self._port)}"
             )
 
     def _discard(self) -> None:
@@ -686,7 +687,7 @@ class PersistentTlsLineTransport:
         ids = _request_ids(request)
         valid_timeout(timeout)
 
-        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
+        where = f"{_quoted(self._host)}:{_position(self._port)}"
         deadline = monotonic() + timeout
         if not self._lock.acquire(timeout=timeout):
             raise _TransportError(f"{where}: timeout expired before an answer arrived")

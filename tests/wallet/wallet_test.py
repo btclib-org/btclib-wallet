@@ -234,10 +234,12 @@ def test_a_position_outside_the_wallet_is_refused(
         wallet.witness_script,
     ):
         with pytest.raises(
-            BTClibValueError, match=r"invalid branch: 2 not in \(0, 1\)"
+            BTClibValueError, match=r"invalid branch: an int of 2 bits not in \(0, 1\)"
         ):
             method(2, 0)
-        with pytest.raises(BTClibValueError, match="invalid index: -1"):
+        with pytest.raises(
+            BTClibValueError, match="invalid index: a negative int of 1 bits"
+        ):
             method(0, -1)
 
 

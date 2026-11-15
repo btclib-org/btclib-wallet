@@ -152,7 +152,7 @@ def _input(spk: bytes, **change: Any) -> dlc.FundingInput:
 def test_a_funding_input_is_checked_against_its_output() -> None:
     """Refuse a missing output, a wrong redeem script, a non-SegWit one."""
     p2wpkh = b"\x00\x14" + bytes(20)
-    with pytest.raises(BTClibValueError, match="no output 5"):
+    with pytest.raises(BTClibValueError, match="no output an int of 3 bits"):
         _input(p2wpkh, prev_vout=5)
     with pytest.raises(BTClibValueError, match="not the output's"):
         _input(p2wpkh, redeem_script=b"\x00\x14" + bytes(20))

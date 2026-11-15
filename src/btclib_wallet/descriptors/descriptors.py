@@ -154,7 +154,7 @@ from ecc.hashes import tagged_hash
 from ecc.ssa import point_from_bip340pub_key_var
 from typing_extensions import override
 
-from btclib_wallet._refusal import _label, _quoted
+from btclib_wallet._refusal import _label, _position, _quoted
 from btclib_wallet.bip32.bip32 import (
     _derive,
     _xpub_from_xprv,
@@ -305,7 +305,7 @@ def strip_checksum(descriptor: str) -> str:
     """
     body, separator, given_checksum = descriptor.partition("#")
     if "#" in given_checksum:
-        position = _quoted(len(body) + 1 + given_checksum.index("#"))
+        position = _position(len(body) + 1 + given_checksum.index("#"))
         raise BTClibValueError(
             f"more than one '#' in the descriptor at position {position}"
         )
@@ -1586,7 +1586,7 @@ class MultiDescriptor(Descriptor):
             missing = ", ".join(
                 str(i) for i, (_, sig) in enumerate(offered) if sig is None
             )
-            err_msg = f"{len(found)} signatures of {_quoted(self.threshold)},"
+            err_msg = f"{len(found)} signatures of {_position(self.threshold)},"
             err_msg += f" missing for keys {missing}"
             raise BTClibValueError(err_msg)
         return [b"", *found[: self.threshold]]
@@ -3810,7 +3810,7 @@ def _paired_key(
         raise BTClibValueError(err_msg)
     recv, chg = _paired_chain_digits(recv_key, chg_key)
     index = _placeholder_index(recv_key, pool, key_info)
-    _assert_disjoint_pair(index, recv, chg, written, f"@{_quoted(index)}")
+    _assert_disjoint_pair(index, recv, chg, written, f"@{_position(index)}")
     return f"@{index}/{_pair_suffix(recv, chg)}"
 
 

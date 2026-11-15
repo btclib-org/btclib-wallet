@@ -25,6 +25,7 @@ from btclib.script import ScriptPubKey
 from btclib.tx import Tx, TxOut
 from typing_extensions import override
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.descriptors import parse
 from btclib_wallet.fetch.history import (
     BlockRef,
@@ -95,7 +96,9 @@ def test_load_refuses_what_is_no_ledger_of_this_network(
         Ledger.load(text, "regtest", chain)
     other = tmp_path / "other.sqlite"
     sqlite3.connect(other).close()
-    with pytest.raises(BTClibValueError, match="not a ledger file: application id 0"):
+    with pytest.raises(
+        BTClibValueError, match="not a ledger file: application id an int of 0 bits"
+    ):
         Ledger.load(other, "regtest", chain)
     # this package's header over no table
     headed = tmp_path / "headed.sqlite"
@@ -114,7 +117,7 @@ def test_load_refuses_a_newer_format(chain: FakeChain, path: Path) -> None:
     """A release reads no format written by a later one."""
     Ledger.create(path, "regtest", chain).close()
     _set_pragma(path, "user_version", FORMAT_VERSION + 1)
-    err_msg = f"ledger format {FORMAT_VERSION + 1} is newer"
+    err_msg = f"ledger format {_quoted(FORMAT_VERSION + 1)} is newer"
     with pytest.raises(BTClibValueError, match=err_msg):
         Ledger.load(path, "regtest", chain)
 
@@ -137,7 +140,9 @@ def test_an_older_format_is_migrated_one_version_at_a_time(
     assert ran == [FORMAT_VERSION, FORMAT_VERSION + 1]
     assert _pragma(path, "user_version") == FORMAT_VERSION + 2
     _set_pragma(path, "user_version", 0)
-    with pytest.raises(BTClibValueError, match="no migration from ledger format 0"):
+    with pytest.raises(
+        BTClibValueError, match="no migration from ledger format an int of 0 bits"
+    ):
         Ledger.load(path, "regtest", chain)
 
 
@@ -643,7 +648,7 @@ def test_v2026_11_11_refuses_a_file_of_this_release(
     Ledger.create(path, "regtest", chain).close()
     monkeypatch.setattr(store, "FORMAT_VERSION", 1)
     monkeypatch.setattr(store, "_MIGRATIONS", {})
-    err_msg = "ledger format 2 is newer than this release's 1"
+    err_msg = "ledger format an int of 2 bits is newer than this release's 1"
     with pytest.raises(BTClibValueError, match=err_msg):
         Ledger.load(path, "regtest", chain)
 

@@ -75,7 +75,7 @@ from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_integer
 from typing_extensions import override
 
-from btclib_wallet._refusal import _code, _label, _message_text, _quoted
+from btclib_wallet._refusal import _code, _label, _message_text, _position, _quoted
 from btclib_wallet.exceptions import (
     FetchError,
     HttpError,
@@ -709,9 +709,9 @@ class EsploraFetcher(NetworkVerifyingFetcher):
         positions: dict[str, int] = {}
         for ref in sorted(set(blocks.values()), key=lambda ref: ref.height):
             if self._block_id_at(ref.height) != ref.block_id:
-                err_msg = f"a block that is not at height {_quoted(ref.height)}"
+                err_msg = f"a block that is not at height {_position(ref.height)}"
                 raise FetchError(err_msg)
-            source = f"txids of block {_quoted(ref.height)}"
+            source = f"txids of block {_position(ref.height)}"
             with _fetch_errors(source):
                 reply = self._json(
                     f"/block/{ref.block_id.hex()}/txids", _MAX_TXIDS_BODY
@@ -745,7 +745,7 @@ class EsploraFetcher(NetworkVerifyingFetcher):
                 raise BTClibTypeError(f"not an array: {type(page).__name__}")
             tx_ids = [tx_id_hex(_member(entry, "txid")) for entry in page]
         if len(tx_ids) < cast(int, count):
-            err_msg = f"{source}: {len(tx_ids)} of {_quoted(count)}"
+            err_msg = f"{source}: {len(tx_ids)} of {_position(count)}"
             err_msg += " mempool transactions listed"
             raise FetchError(err_msg)
         return tx_ids

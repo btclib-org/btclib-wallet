@@ -7,7 +7,8 @@
 Section 7 of the btclib-org standard, *A refusal carries no secret*, says
 an argument in the wrong place may be a key. A refusal describes such a
 value with `_message_text`, and quotes a value refused where a name
-belongs only up to `_QUOTED_MAX` characters, too short for a key.
+belongs only up to `_QUOTED_MAX` characters, too short for a key. It
+says where an item is, or how many there are, with `_position`.
 """
 
 from collections.abc import Collection
@@ -48,55 +49,68 @@ def _code(value: object) -> int:
     return 0
 
 
-def _hex_field(value: object) -> str:
+def _hex_field(value: object, defined: Collection[int]) -> str:
     """Return a field a format defines, such as a sig_hash type, in hex.
 
-    Section 7 lets a refusal print a field of at most 4 bytes: an int that
-    fits in 32 unsigned bits, a bool excepted, is written as `hex` writes
-    it. Anything else has not the field's length, so it may hold key
-    bytes, and is described as `_message_text` describes it.
+    Section 7 lets a refusal print a field of at most 4 bytes where it
+    holds one of the values its format defines: an int that fits in 32
+    unsigned bits and is one of `defined`, a bool excepted, is written as
+    `hex` writes it. Anything else may hold key bytes, and is described
+    as `_message_text` describes it.
     """
     kind = type(value)
     if issubclass(kind, int) and kind is not bool and isinstance(value, int):
         number = _exact_int(value)
-        if 0 <= number < 2**32:
+        if 0 <= number < 2**32 and number in defined:
             return hex(number)
+    return _message_text(value)
+
+
+def _position(value: object) -> str:
+    """Return where an item is, or how many there are, for a refusal.
+
+    An index, a height or a port says where; a count, a size, an amount or
+    a limit says how many. Section 7 lets a refusal say which item failed
+    by where it is. A value refused for what it is goes to `_quoted`
+    instead, which describes an int. An int of at most `_QUOTED_MAX`
+    digits, a bool excepted, is written in decimal, so that a key handed
+    here by mistake is not; anything else is described as `_message_text`
+    describes it.
+    """
+    kind = type(value)
+    if issubclass(kind, int) and kind is not bool and isinstance(value, int):
+        number = _exact_int(value)
+        if -(10**_QUOTED_MAX) < number < 10**_QUOTED_MAX:
+            return repr(number)
     return _message_text(value)
 
 
 def _quoted(value: object) -> str:
     """Return a refused parameter as a refusal may print it.
 
-    An int or a str is quoted up to `_QUOTED_MAX` characters, and
-    described by its length past them. Anything else is described as
-    `_message_text` describes it.
+    A str is quoted up to `_QUOTED_MAX` characters, and described by its
+    length past them: section 7 lets a refusal quote a name that short. A
+    bool is written as True or False. Anything else, an int included, is
+    described as `_message_text` describes it: an int refused for what it
+    is may be a key in the wrong place.
     """
     # issubclass on the type decides. isinstance asks a value of another
     # type for its `__class__`, which can claim bool, int or str, or raise,
     # so it runs only where the type already decided, to narrow it for
-    # mypy. An exact int or str copied from the value is what is then
-    # measured and written: a subclass can override the comparison, the
-    # length and the formatting
+    # mypy. An exact str copied from the value is what is then measured
+    # and written: a subclass can override the length and the formatting
     kind = type(value)
     if kind is bool:
-        # bool's own repr, True or False, where int's writes a digit
+        # bool's own repr, True or False, which holds no key
         return repr(value)
-    if issubclass(kind, int) and isinstance(value, int):
-        number = _exact_int(value)
-        # an int past the interpreter's digit limit has no str
-        if not -(10**_QUOTED_MAX) < number < 10**_QUOTED_MAX:
-            return f"a value of more than {_QUOTED_MAX} digits"
-        quoted = repr(number)
-        length = len(quoted)
-    elif issubclass(kind, str) and isinstance(value, str):
+    if issubclass(kind, str) and isinstance(value, str):
         # concatenation with "" returns an exact str, on CPython and on PyPy,
         # and reads none of the value's methods
         text = str.__add__(value, "")
-        quoted = repr(text)
-        length = len(text)
-    else:
-        return _message_text(value)
-    return f"a value of {length} characters" if length > _QUOTED_MAX else quoted
+        if len(text) > _QUOTED_MAX:
+            return f"a value of {len(text)} characters"
+        return repr(text)
+    return _message_text(value)
 
 
 def _label(value: object, known: Collection[str]) -> str:
@@ -138,7 +152,7 @@ def _message_text(value: object) -> str:
     """
     kind = type(value)
     if issubclass(kind, int) and kind is not bool and isinstance(value, int):
-        # the type as `_quoted` reads it, and the value as `_exact_int`
+        # the type as `_position` reads it, and the value as `_exact_int`
         # returns it: a subclass can override the comparison and bit_length
         number = _exact_int(value)
         sign = "a negative" if number < 0 else "an"

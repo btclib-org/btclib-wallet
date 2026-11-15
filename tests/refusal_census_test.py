@@ -31,9 +31,15 @@ print, and what the census cannot trace is a finding. It traces
   attribute named in capitals;
 - what `_code`, `_message_text`, `_quoted`, `len`, `type` and `bool`
   answer, and a `__name__` or a `__qualname__`;
-- what `_hex_field` answers: a field of at most 4 bytes, which section 7
-  lets a refusal print, and for anything else what `_message_text`
-  answers;
+- what `_hex_field` answers: a field of at most 4 bytes holding one of
+  the values it is handed second, which section 7 lets a refusal print,
+  where it traces those values, and for anything else what
+  `_message_text` answers;
+- what `_position` answers: an index or a count, and for anything else
+  what `_message_text` answers. Where an `if` or an `if` expression
+  around it, in the same function, compares what it is handed with a
+  constant other than by `is`, that is a finding: the `if` refuses the
+  value for what it is, and `_quoted` describes it;
 - what the methods `bit_length`, `count`, `find` and `index` answer,
   where it traces what they are called on;
 - what `_label` answers, where it traces the labels it is handed;
@@ -68,11 +74,14 @@ parameter of a public function or of a lambda, a method's `self`, a
 function read as a value rather than called, the exception an `except`
 binds, or what `_PROCESS_INPUT` names. Each of these holds what a caller,
 a server or another program handed over, and reaches a refusal only
-through `_code`, `_message_text` or `_quoted`, or not at all.
+through `_code`, `_message_text`, `_position` or `_quoted`, or not at all.
 
 What a refusal still raises that the census does not trace is in `KEPT`,
 an exception one function raises by name, each entry with its reason. An
-entry no refusal uses fails the census.
+entry no refusal uses fails the census. A `_position` the census finds
+compared with a constant, and that writes a size or an amount rather
+than the value refused, is in `MEASURED`, each entry with its reason, and
+an entry no finding uses fails the census too.
 
 It takes three things on trust. A callable of `_OUTSIDE_CALLS` or
 `_OUTSIDE_METHODS` answers a part of what it is handed and of what it is
@@ -219,6 +228,8 @@ _PLAIN_BASES = frozenset(
 _INTERRUPTS = frozenset({"KeyboardInterrupt", "SystemExit"})
 # a call whose answer is a field of at most 4 bytes, in hex
 _FIELDS = frozenset({"_hex_field"})
+# a call whose answer is an index or a count, in decimal
+_POSITIONS = frozenset({"_position"})
 # the methods that put values into a list, a set, a dict or a deque
 _MUTATORS = frozenset(
     {
@@ -242,6 +253,7 @@ _READERS = frozenset(
     {
         *_DESCRIBING,
         *_FIELDS,
+        *_POSITIONS,
         "_label",
         "all",
         "any",
@@ -353,6 +365,54 @@ def _function_name(module: _Module, node: ast.AST) -> str:
         ),
         "<module>",
     )
+
+
+def _enclosing_tests(module: _Module, node: ast.AST) -> list[ast.expr]:
+    """Return the test of each `if` whose body or `else` holds the node.
+
+    Up to the function the node is in, and an `if` expression's too.
+    """
+    found: list[ast.expr] = []
+    child, current = node, module.parents.get(node)
+    while current is not None and not isinstance(current, _FUNCTION):
+        if isinstance(current, (ast.If, ast.IfExp)) and child is not current.test:
+            found.append(current.test)
+        child, current = current, module.parents.get(current)
+    return found
+
+
+def _constant(expr: ast.expr) -> bool:
+    """Return whether an expression is made of literals and capitals alone."""
+    if isinstance(expr, ast.Constant):
+        return expr.value is not None
+    if isinstance(expr, (ast.Name, ast.Attribute)):
+        name = expr.id if isinstance(expr, ast.Name) else expr.attr
+        return _CONSTANT.fullmatch(name) is not None
+    parts: list[ast.expr] = []
+    if isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
+        parts = expr.elts
+    elif isinstance(expr, ast.BinOp):
+        parts = [expr.left, expr.right]
+    elif isinstance(expr, ast.UnaryOp):
+        parts = [expr.operand]
+    return bool(parts) and all(_constant(part) for part in parts)
+
+
+def _compares_with_a_constant(test: ast.expr, value: ast.expr) -> bool:
+    """Return whether a test compares the value with a constant, not by `is`."""
+    shape = ast.dump(value)
+    for node in ast.walk(test):
+        if not isinstance(node, ast.Compare):
+            continue
+        operands = [node.left, *node.comparators]
+        for op, left, right in zip(node.ops, operands[:-1], operands[1:], strict=True):
+            if isinstance(op, (ast.Is, ast.IsNot)):
+                continue
+            if (ast.dump(left) == shape and _constant(right)) or (
+                ast.dump(right) == shape and _constant(left)
+            ):
+                return True
+    return False
 
 
 def _names(target: ast.AST) -> list[str]:
@@ -514,6 +574,7 @@ class _Census:
     # the entries of `CLEANUPS` and of `KEPT` a finding was hidden by
     used: set[tuple[str, str, str]] = field(default_factory=set)
     kept_used: set[tuple[str, str, str]] = field(default_factory=set)
+    measured_used: set[tuple[str, str, str]] = field(default_factory=set)
 
     def __post_init__(self) -> None:  # noqa: C901
         for module in self.modules:
@@ -741,17 +802,22 @@ class _Census:
         self,
         cleanups: Mapping[tuple[str, str, str], str] | None = None,
         kept: Mapping[tuple[str, str, str], str] | None = None,
+        measured: Mapping[tuple[str, str, str], str] | None = None,
     ) -> list[str]:
         """Return each exception built from a value the census cannot trace.
 
         And each `raise` that chains, or leaves as context, an exception
-        that can hold the input, and each call that may raise from the
-        package while handling one. A call `cleanups` names is not one, nor
-        an exception `kept` names a `raise` of by its module, its function
-        and its source; each entry that hides one is recorded as used.
+        that can hold the input, each call that may raise from the
+        package while handling one, and each `_position` of a value an
+        `if` refuses. A call `cleanups` names is not one, nor an exception
+        `kept` names a `raise` of by its module, its function and its
+        source, nor a `_position` `measured` names by its module, its
+        function and its source; each entry that hides one is recorded as
+        used.
         """
         cleanups = cleanups or {}
         found = self._untraced_sites(kept or {})
+        found.extend(self._refused_positions(measured or {}))
         for module in self.modules:
             for node in ast.walk(module.tree):
                 if isinstance(node, ast.Raise) and node.exc is not None:
@@ -776,6 +842,48 @@ class _Census:
                             cleanups,
                         )
                     )
+        return found
+
+    def _refused_positions(
+        self, measured: Mapping[tuple[str, str, str], str]
+    ) -> list[str]:
+        """Return each `_position` of a value an `if` around it refuses.
+
+        The `if` is one whose body or `else` holds the call, in the same
+        function, and whose test compares what the call is handed with a
+        constant, other than by `is`: `index > MAX_INDEX`, `not 0 <= index
+        < n`, `version not in {0, 2}`. A call `measured` names by its
+        module, its function and its source is not one, and is recorded
+        as used.
+        """
+        found: list[str] = []
+        for module in self.modules:
+            for node in ast.walk(module.tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in _POSITIONS
+                ):
+                    continue
+                handed = [*node.args[:1]]
+                handed += [k.value for k in node.keywords if k.arg == "value"]
+                tests = [
+                    test
+                    for test in _enclosing_tests(module, node)
+                    for value in handed
+                    if _compares_with_a_constant(test, value)
+                ]
+                if not tests:
+                    continue
+                key = (module.name, _function_name(module, node), ast.unparse(node))
+                if key in measured:
+                    self.measured_used.add(key)
+                    continue
+                lines = ", ".join(str(test.lineno) for test in tests)
+                found.append(
+                    f"{module.where(node)}: {ast.unparse(node)} writes what the"
+                    f" `if` at line {lines} refuses, which `_quoted` describes"
+                )
         return found
 
     def _untraced_sites(self, kept: Mapping[tuple[str, str, str], str]) -> list[str]:
@@ -1214,7 +1322,14 @@ class _Census:
                 for child in [*expr.args[1:], *labels]:
                     self._visit(child, module, leaves, keys)
                 return
-            if isinstance(func, ast.Name) and name in _DESCRIBING | _FIELDS:
+            if isinstance(func, ast.Name) and name in _FIELDS:
+                # a field holding one of the values it is handed second:
+                # those values are what is traced
+                defined = [k.value for k in expr.keywords if k.arg != "value"]
+                for child in [*expr.args[1:], *defined]:
+                    self._visit(child, module, leaves, keys)
+                return
+            if isinstance(func, ast.Name) and name in _DESCRIBING | _POSITIONS:
                 return
             if isinstance(func, ast.Attribute) and name in _DESCRIBING_METHODS:
                 self._visit(func.value, module, leaves, keys)
@@ -1783,6 +1898,28 @@ KEPT = {
 }
 
 
+#: A `_position` of a value an `if` compares with a constant, keyed by
+#: module, function and the call's source, each with its reason: the value
+#: is a size or an amount the package measures, which the refusal may
+#: print, and not the value it refuses.
+MEASURED = {
+    ("bip322.py", "_assert_weight", "_position(weight)"): (
+        "the weight of to_sign, which `Tx.weight` measures: its size"
+    ),
+    ("bip322.py", "_assert_sig_op_cost", "_position(cost)"): (
+        "the sigop cost `sig_op_cost` counts in to_sign and to_spend"
+    ),
+    ("dlc/transactions.py", "_change", "_position(change)"): (
+        "the change the inputs leave once the collateral and the fees are"
+        " paid, an amount the function computes"
+    ),
+    ("silent_payments.py", "_assert_labels", "_position(tweak.itemsize)"): (
+        "the item size of a memoryview, a part of its type, which section 7"
+        " lets a refusal print as it does a type name"
+    ),
+}
+
+
 def _cleanups() -> dict[tuple[str, str, str], str]:
     """Return `CLEANUPS` keyed by the module's name as the census names it."""
     return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in CLEANUPS.items()}
@@ -1793,14 +1930,21 @@ def _kept() -> dict[tuple[str, str, str], str]:
     return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in KEPT.items()}
 
 
+def _measured() -> dict[tuple[str, str, str], str]:
+    """Return `MEASURED` keyed by the module's name as the census names it."""
+    return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in MEASURED.items()}
+
+
 def test_no_refusal_formats_a_value() -> None:
     """Each exception the package builds formats only what the census traces."""
     census = _census(_library())
-    findings = census.findings(_cleanups(), _kept())
+    findings = census.findings(_cleanups(), _kept(), _measured())
     assert not findings, "\n".join(findings)
     # an entry no finding uses is one a change made stale
     assert set(_cleanups()) <= census.used, set(_cleanups()) - census.used
     assert set(_kept()) <= census.kept_used, set(_kept()) - census.kept_used
+    measured = set(_measured())
+    assert measured <= census.measured_used, measured - census.measured_used
 
 
 def test_cleanups_hide_their_own_entries_alone() -> None:
@@ -1826,6 +1970,15 @@ def test_cleanups_hide_their_own_entries_alone() -> None:
     assert census.used == {("m.py", "<module>", "_g")}
 
 
+def test_measured_hides_its_own_entry_alone() -> None:
+    """An entry hides one `_position` in one function, and no other."""
+    refusal = "    if key > LIMIT:\n        raise ValueError(_position(key))\n"
+    census = _census({"m.py": f"def f(key):\n{refusal}def g(key):\n{refusal}"})
+    assert len(census.findings()) == 2
+    assert len(census.findings(measured={("m.py", "f", "_position(key)"): ""})) == 1
+    assert census.measured_used == {("m.py", "f", "_position(key)")}
+
+
 # one module per shape the docstring claims, each refusing `key`, a public
 # function's parameter, or a value made from it: the census traces the
 # first of each pair and flags the second
@@ -1845,9 +1998,80 @@ _SHAPES = {
     "describing call": (
         (
             "def f(key):\n"
-            "    raise ValueError(_quoted(key), len(key), _code(key), _hex_field(key))"
+            "    raise ValueError(_quoted(key), len(key), _code(key), _position(key))"
         ),
         "def f(key):\n    raise ValueError(str(key))",
+    ),
+    "field": (
+        "import m\ndef f(key):\n    raise ValueError(_hex_field(key, m.TYPES))",
+        "def f(key):\n    raise ValueError(_hex_field(key, {key}))",
+    ),
+    "position compared": (
+        "def f(key, n):\n    if key > n:\n        raise ValueError(_position(key))",
+        "def f(key):\n    if key > LIMIT:\n        raise ValueError(_position(key))",
+    ),
+    "position in a range": (
+        "def f(key, n):\n    if not key < n:\n        raise ValueError(_position(key))",
+        (
+            "def f(key, n):\n    if not 0 <= key < n:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position past a constant expression": (
+        (
+            "def f(key, n):\n    if key >= n + 1:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        ("def f(key):\n    if key >= 2**32:\n        raise ValueError(_position(key))"),
+    ),
+    "position below a negative constant": (
+        "def f(key, n):\n    if key < -n:\n        raise ValueError(_position(key))",
+        "def f(key):\n    if key < -1:\n        raise ValueError(_position(key))",
+    ),
+    "position in a set": (
+        (
+            "def f(key, keys):\n    if key not in keys:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        (
+            "def f(key):\n    if key not in {0, 2}:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position by identity": (
+        (
+            "def f(key):\n    if key is not LIMIT:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        "def f(key):\n    if key != LIMIT:\n        raise ValueError(_position(key))",
+    ),
+    "position in an else": (
+        (
+            "def f(key, n):\n    if key < n:\n        pass\n    else:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        (
+            "def f(key):\n    if key < LIMIT:\n        pass\n    else:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position in an if expression": (
+        "def f(key):\n    raise ValueError(_position(key) if key else 'a')",
+        "def f(key):\n    raise ValueError(_position(key) if key > LIMIT else 'a')",
+    ),
+    "position by keyword": (
+        (
+            "def f(key, i):\n    if key > LIMIT:\n"
+            "        raise ValueError(_position(value=i))"
+        ),
+        (
+            "def f(key):\n    if key > LIMIT:\n"
+            "        raise ValueError(_position(value=key))"
+        ),
+    ),
+    "position of another value": (
+        ("def f(key, i):\n    if key > LIMIT:\n        raise ValueError(_position(i))"),
+        "def f(key, i):\n    if i > LIMIT:\n        raise ValueError(_position(i))",
     ),
     "describing method": (
         "def f(key):\n    raise ValueError('a;b'.count(key), len(key).bit_length())",

@@ -66,7 +66,7 @@ from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet import electrum
-from btclib_wallet._refusal import _label, _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _position
 from btclib_wallet.exceptions import FetchError, _caller_errors, _guarded_methods
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
@@ -528,7 +528,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
                 proof = self.get_tx_merkle(tx_id, height)
             if not electrum.verify_merkle_proof(tx_id, proof, chain[height]):
                 err_msg = (
-                    f"a transaction with no proof it is in block {_quoted(height)}"
+                    f"a transaction with no proof it is in block {_position(height)}"
                 )
                 raise FetchError(err_msg)
             confirmed.append((height, proof.pos, tx_id))
@@ -589,11 +589,11 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             with _caller_errors("get_block_headers"):
                 chunk = self.get_block_headers(height, end.height - height + 1)
             if not chunk:
-                err_msg = f"block headers: none from {_quoted(height)}"
-                err_msg += f" up to {_quoted(end.height)}"
+                err_msg = f"block headers: none from {_position(height)}"
+                err_msg += f" up to {_position(end.height)}"
                 raise FetchError(err_msg)
             if last is not None and chunk[0].previous_block_hash != last.hash:
-                err_msg = f"block headers: header {_quoted(height)} does not follow"
+                err_msg = f"block headers: header {_position(height)} does not follow"
                 err_msg += " the one before it"
                 raise FetchError(err_msg)
             for header in chunk:
@@ -602,7 +602,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
                 height += 1
             last = chunk[-1]
         if last is None or last.hash != end.block_id:
-            err_msg = f"block headers: the headers from {_quoted(low)}"
+            err_msg = f"block headers: the headers from {_position(low)}"
             err_msg += " do not reach the tip"
             raise FetchError(err_msg)
         return kept

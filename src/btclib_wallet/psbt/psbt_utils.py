@@ -31,7 +31,7 @@ from btclib.utils import (
 )
 from ecc.curves import sec_point
 
-from btclib_wallet._refusal import _hex_field, _label, _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
 
@@ -274,7 +274,7 @@ def deserialize_map(data: BinaryData, which: str) -> dict[bytes, bytes]:
         value = read_exactly(stream, var_int.parse(stream), "psbt map value")
         if key in partial_map:
             err_msg = f"duplicated key in psbt map: {_label(which, _LABELS)}, "
-            err_msg += f"type byte {_quoted(key[0])}, {len(key)} bytes"
+            err_msg += f"type byte {_position(key[0])}, {len(key)} bytes"
             raise BTClibValueError(err_msg)
         partial_map[key] = value
 
@@ -333,7 +333,8 @@ def deserialize_sized_int(
         err_msg = f"invalid {_label(type_, _LABELS)} key length: {len(k)}"
         raise BTClibValueError(err_msg)
     if len(v) != size:
-        err_msg = f"invalid {_label(type_, _LABELS)} length: {len(v)} bytes instead of {_quoted(size)}"
+        err_msg = f"invalid {_label(type_, _LABELS)} length: {len(v)} bytes"
+        err_msg += f" instead of {_position(size)}"
         raise BTClibValueError(err_msg)
     return int.from_bytes(v, byteorder="little", signed=signed)
 
@@ -758,7 +759,7 @@ def assert_valid_sp_scan_key_map(
         assert_valid_musig2_pub_key(scan_key, f"{what} scan key", f"entry {i}")
         if len(value) != value_size:
             err_msg = f"invalid {_label(what, _LABELS)} length: {len(value)} bytes "
-            err_msg += f"instead of {_quoted(value_size)}"
+            err_msg += f"instead of {_position(value_size)}"
             raise BTClibValueError(err_msg)
 
 
@@ -803,7 +804,7 @@ def assert_valid_musig2_session_data(
         )
         if len(value) != value_size:
             err_msg = f"invalid {_label(what, _LABELS)} length: {len(value)} bytes "
-            err_msg += f"instead of {_quoted(value_size)}"
+            err_msg += f"instead of {_position(value_size)}"
             raise BTClibValueError(err_msg)
 
 
@@ -950,7 +951,7 @@ def assert_valid_taproot_signatures(signatures: list[bytes], what: str) -> None:
             # is a signature nothing can spend with
             if sig_hash_type not in SIG_HASH_TYPES:
                 err_msg = f"invalid {_label(what, _LABELS)} sig_hash type: "
-                err_msg += _hex_field(sig_hash_type)
+                err_msg += _quoted(sig_hash_type)
                 raise BTClibValueError(err_msg)
 
 

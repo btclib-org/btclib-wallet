@@ -860,7 +860,7 @@ REFUSED_SCRIPTS = [
     # what no fragment writes
     ("75", "closes no fragment"),
     ("", "expression is expected"),
-    ("6b5168", "not a miniscript: op code 107 before an OP_ENDIF"),
+    ("6b5168", "not a miniscript: op code an int of 7 bits before an OP_ENDIF"),
     ("635168", "an OP_IF wrapping nothing known"),
     ("5168", "the script ends inside an OP_IF"),
     ("51ac", "ill-typed miniscript"),
@@ -885,7 +885,7 @@ REFUSED_SCRIPTS = [
     ("515287", "invalid thresh.. threshold: 2 of 1"),
     ("645168", "ends inside an OP_NOTIF"),
     ("51675168", "ends inside an OP_ELSE"),
-    ("7c51675168", "not a miniscript: op code 124 before OP_ELSE"),
+    ("7c51675168", "not a miniscript: op code an int of 7 bits before OP_ELSE"),
     ("6b51", "more than one expression"),
     (f"21{KEY}ad", "not a miniscript script: a 'V', not a B"),
     ("6b9a", "closes no fragment"),
@@ -973,7 +973,9 @@ def test_a_multi_count_out_of_bounds_is_refused_before_a_key_is_read() -> None:
     for prefix in ("5101e4ae", "5100ae"):
         script = bytes.fromhex(prefix) + pkh
         for mapping in (None, key_hashes):
-            with pytest.raises(BTClibValueError, match=r"not a multi\(\): -?\d+ keys"):
+            with pytest.raises(
+                BTClibValueError, match=r"not a multi\(\): invalid number of keys:"
+            ):
                 from_script(script, P2WSH, mapping)
 
 

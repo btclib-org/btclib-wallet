@@ -2,7 +2,7 @@
     "invalid psbts": [
         {
             "description": "PSBT with a global version of 1, and only version 0 is handled",
-            "error message": "invalid psbt version: 1",
+            "error message": "invalid psbt version: an int of 1 bits",
             "encoded psbt": "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAfsEAQAAAAAAAAAA"
         },
         {

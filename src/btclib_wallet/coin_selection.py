@@ -109,7 +109,7 @@ from btclib.fee import DUST_RELAY_FEE_RATE, FeeRate, dust_threshold, fee_from_vs
 from btclib.tx import OutPoint, TxOut
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position, _quoted
 from btclib_wallet.tx_builder import _target_overhead_vsize
 
 __all__ = [
@@ -495,7 +495,8 @@ def branch_and_bound(
         eligible, target, cost_of_change, fee_rate, long_term_fee_rate
     )
     if selected is None:
-        err_msg = f"branch and bound: no changeless selection reaches {_quoted(target)} satoshi"
+        err_msg = "branch and bound: no changeless selection reaches "
+        err_msg += f"{_position(target)} satoshi"
         raise BTClibValueError(err_msg)
     return _score(
         selected,
@@ -671,7 +672,8 @@ def knapsack(
     engine = random.Random() if rng is None else rng  # noqa: S311
     selected = _knapsack(eligible, target, change_target, fee_rate, engine)
     if selected is None:
-        err_msg = f"knapsack: no selection of the candidates reaches {_quoted(target)} satoshi"
+        err_msg = "knapsack: no selection of the candidates reaches "
+        err_msg += f"{_position(target)} satoshi"
         raise BTClibValueError(err_msg)
     return _score(
         selected,
@@ -831,7 +833,7 @@ def single_random_draw(
     selected = _single_random_draw(eligible, srd_target, fee_rate, engine)
     if selected is None:
         err_msg = (
-            f"single random draw: no shuffle reaches {_quoted(srd_target)} satoshi"
+            f"single random draw: no shuffle reaches {_position(srd_target)} satoshi"
         )
         raise BTClibValueError(err_msg)
     return _score(

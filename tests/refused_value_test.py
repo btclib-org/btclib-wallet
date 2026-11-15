@@ -30,7 +30,7 @@ from typing_extensions import override
 
 import btclib_wallet
 from btclib_wallet import electrum, silent_payments
-from btclib_wallet._refusal import _hex_field, _label
+from btclib_wallet._refusal import _hex_field, _label, _position, _quoted
 from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.bip85 import nsec_from_root_key
@@ -574,35 +574,101 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
     [
         (0x81, "0x81"),
         (2**32 - 1, "0xffffffff"),
+        (0x82, "an int of 8 bits"),
         (2**32, "an int of 33 bits"),
-        (2**40, "an int of 41 bits"),
         (-1, "a negative int of 1 bits"),
         ("0x81", "a str of length 4"),
         (True, "a bool"),
         (KEY, "a bytes of length 32"),
         (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+        (_EqualToAll(SCALAR), f"an int of {SCALAR.bit_length()} bits"),
     ],
     ids=[
         "byte",
         "4 bytes",
+        "undefined",
         "past 4 bytes",
-        "past 5 bytes",
         "negative",
         "str",
         "bool",
         "no int",
         "scalar",
+        "int equal to all",
     ],
 )
-def test_a_field_is_written_in_hex_up_to_4_bytes(value: object, shown: str) -> None:
-    """Section 7 lets a refusal print a field of at most 4 bytes.
+def test_a_field_is_written_in_hex_where_its_format_defines_it(
+    value: object, shown: str
+) -> None:
+    """Section 7 lets a refusal print a field of at most 4 bytes it defines.
 
-    Anything else, an int past them included, is described by its type
-    and its length: it has not the field's length, so it may hold key
-    bytes.
+    Anything else, a value the format does not define or an int past 4
+    bytes, is described by its type and its length: it may hold key
+    bytes. `defined` holds 2**32 so that the bound holds whatever it
+    holds.
     """
-    assert _hex_field(value) == shown
-    assert_secret_free(BTClibValueError(_hex_field(value)), SPELLINGS)
+    defined = {0x81, 2**32 - 1, 2**32}
+    assert _hex_field(value, defined) == shown
+    assert_secret_free(BTClibValueError(_hex_field(value, defined)), SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        (0, "0"),
+        (3, "3"),
+        (-1, "-1"),
+        (10**16 - 1, "9999999999999999"),
+        (10**16, "an int of 54 bits"),
+        (-(10**16), "a negative int of 54 bits"),
+        (True, "a bool"),
+        ("3", "a str of length 1"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+        (_EqualToAll(SCALAR), f"an int of {SCALAR.bit_length()} bits"),
+    ],
+    ids=[
+        "zero",
+        "index",
+        "negative",
+        "16 digits",
+        "17 digits",
+        "17 negative digits",
+        "bool",
+        "str",
+        "scalar",
+        "int equal to all",
+    ],
+)
+def test_a_position_is_written_in_decimal_up_to_16_digits(
+    value: object, shown: str
+) -> None:
+    """An index or a count is printed, and a key handed in its place is not."""
+    assert _position(value) == shown
+    assert_secret_free(BTClibValueError(_position(value)), SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        ("mainnet", "'mainnet'"),
+        ("m" * 17, "a value of 17 characters"),
+        (True, "True"),
+        (3, "an int of 2 bits"),
+        (-1, "a negative int of 1 bits"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+        (KEY, "a bytes of length 32"),
+    ],
+    ids=["name", "long str", "bool", "int", "negative", "scalar", "bytes"],
+)
+def test_a_refused_int_is_described_and_a_name_quoted(
+    value: object, shown: str
+) -> None:
+    """Section 7 lets a refusal quote a short name, and no int it refuses.
+
+    An int refused for what it is may be a key in the wrong place,
+    whatever its size (issue #951).
+    """
+    assert _quoted(value) == shown
+    assert_secret_free(BTClibValueError(_quoted(value)), SPELLINGS)
 
 
 @pytest.mark.parametrize(
@@ -611,7 +677,7 @@ def test_a_field_is_written_in_hex_up_to_4_bytes(value: object, shown: str) -> N
         ("mainnet", "mainnet"),
         (HEX, "a value of 64 characters"),
         (KEY, "a bytes of length 32"),
-        (SCALAR, "a value of more than 16 digits"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
     ],
     ids=["label", "hex", "bytes", "scalar"],
 )
@@ -943,17 +1009,17 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
             lambda: BIP32KeyData(
                 b"\x04\x88\xad\xe4", 1, b"\x01" * 4, SCALAR, b"\x00" * 32, b"\x00" + KEY
             ),
-            "^invalid index: a value of more than 16 digits$",
+            f"^invalid index: an int of {SCALAR.bit_length()} bits$",
         ),
         (
             lambda: nsec_from_root_key("", -SCALAR, 1),
-            "^invalid nostr identity: a value of more than 16 digits$",
+            f"^invalid nostr identity: a negative int of {SCALAR.bit_length()} bits$",
         ),
         (
             lambda: Bolt11Invoice(
                 "mainnet", SCALAR, [], DsaSig(1, 1, check_validity=False), 0
             ),
-            "^timestamp does not fit 35 bits: a value of more than 16 digits$",
+            f"^timestamp does not fit 35 bits: an int of {SCALAR.bit_length()} bits$",
         ),
     ],
     ids=[

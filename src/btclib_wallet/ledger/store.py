@@ -93,7 +93,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
 from btclib.tx import Tx
 
-from btclib_wallet._refusal import _label, _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger.crypto import _assert_cost, _MasterKey
@@ -315,7 +315,7 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
     except ValueError:
         decoded = None
     if not isinstance(decoded, dict):
-        err_msg = f"not a ledger file: source {_quoted(source_id)}'s {column}"
+        err_msg = f"not a ledger file: source {_position(source_id)}'s {column}"
         err_msg += " is not a JSON object"
         raise BTClibValueError(err_msg)
     return decoded
@@ -360,7 +360,7 @@ def _branches(value: object, source_id: int) -> dict[int, str]:
     source alone, before `int` reads it (issue #900).
     """
     if not isinstance(value, dict) or not all(_is_branch(b) for b in value):
-        err_msg = f"not a ledger file: source {_quoted(source_id)}'s descriptors"
+        err_msg = f"not a ledger file: source {_position(source_id)}'s descriptors"
         err_msg += " are not keyed by branch"
         raise BTClibValueError(err_msg)
     return {int(b): text for b, text in value.items()}
@@ -408,7 +408,7 @@ def _tx_state(value: object) -> TxState:
 def _encrypted(value: object, source_id: int) -> bytes | None:
     """Return a source's ciphertext, None where it has none."""
     if value is not None and not isinstance(value, bytes):
-        err_msg = f"not a ledger file: source {_quoted(source_id)}'s encrypted keys"
+        err_msg = f"not a ledger file: source {_position(source_id)}'s encrypted keys"
         err_msg += " are no blob"
         raise BTClibValueError(err_msg)
     return value

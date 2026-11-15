@@ -101,7 +101,7 @@ from ecc.curves import (
 from ecc.hashes import tagged_hash
 from ecc.ssa import point_from_bip340pub_key_var
 
-from btclib_wallet._refusal import _label, _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 
 # the bindings, imported from their own package rather than through
 # btclib's private re-export of it; None where they are not installed,
@@ -353,7 +353,7 @@ def _decode_address(address: String) -> tuple[Point, Point, str]:
             err_msg += f" instead of {_PAYLOAD_SIZE} bytes"
             raise BTClibValueError(err_msg)
     elif len(payload) < _PAYLOAD_SIZE:
-        err_msg = f"invalid v{_quoted(version)} payload length: {len(payload)}"
+        err_msg = f"invalid payload length: {len(payload)}"
         err_msg += f" is less than the {_PAYLOAD_SIZE} bytes v0 reads"
         raise BTClibValueError(err_msg)
 
@@ -992,7 +992,7 @@ def _assert_labels(labels: object) -> None:
         if isinstance(tweak, memoryview) and tweak.itemsize != 1:
             raise BTClibTypeError(
                 "the label tweak must be a memoryview of bytes, "
-                f"not of {_quoted(tweak.itemsize)}-byte items"
+                f"not of {_position(tweak.itemsize)}-byte items"
             )
         # `int.from_bytes` refuses a memoryview that is not contiguous,
         # which the bindings accept: `bytes` copies it

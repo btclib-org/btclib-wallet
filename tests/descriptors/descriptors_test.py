@@ -729,7 +729,7 @@ def test_multipath_refuses_a_fingerprint_before_the_origin_path(origin: str) -> 
         ("pkh({xpub}/<0>/<1;2>)", "a multipath step takes at least two elements"),
         (
             "pkh({xpub}/<0;0>/<1;2>)",
-            "Duplicated key path value 0 in multipath specifier",
+            "Duplicated key path value an int of 0 bits in multipath specifier",
         ),
         ("pkh({xpub}/<0;x>/<1;2>)", "invalid derivation index"),
         (
@@ -947,7 +947,7 @@ def test_multipath_and_parse_name_the_fault_core_reads_first(
         ),
         (
             "multi(1,{xpub}/<0;1>,{xpub}/<2;2>)",
-            "Duplicated key path value 2 in multipath specifier",
+            "Duplicated key path value an int of 2 bits in multipath specifier",
         ),
         (
             "multi(1,{xpub}/<0;1>,{xpub}/<2>)",
@@ -2767,10 +2767,13 @@ B_KEY = MUSIG_XPUB_B
             "multipath steps of different length: [2, 3]",
         ),
         # what Core reads in the call before it compares the lengths
-        ("wsh(multi(3,{x}/<0;1>,{x}/<0;1;2>))", "invalid k in k-of-n multi: 3"),
+        (
+            "wsh(multi(3,{x}/<0;1>,{x}/<0;1;2>))",
+            "invalid k in k-of-n multi: an int of 2 bits",
+        ),
         (
             "tr({xo},{{sortedmulti_a(3,{x}/<0;1>,{x}/<0;1;2>),pk(x)}})",
-            "invalid k in k-of-n sortedmulti_a: 3",
+            "invalid k in k-of-n sortedmulti_a: an int of 2 bits",
         ),
         ("wsh(multi(1,{x}/<0;1>,{x}/<0;1;2>,x))", "invalid key expression"),
         (
@@ -3364,12 +3367,13 @@ def test_an_impossible_multi_a_threshold_is_refused_at_parse_and_at_build(
     name: str, threshold: int
 ) -> None:
     """BIP387 lists both as invalid; a leaf built by hand is refused too."""
-    err_msg = rf"^invalid k in k-of-n {name}: {threshold}$"
+    bits = threshold.bit_length()
+    err_msg = rf"^invalid k in k-of-n {name}: an int of {bits} bits$"
     with pytest.raises(BTClibValueError, match=err_msg):
         parse(f"tr({XONLY},{name}({threshold},{XONLY},{XONLY}))")
     (key,) = parse(f"tr({XONLY})").key_expressions
     leaf = MultiA(threshold, (key, key), sort=name == "sortedmulti_a")
-    err_msg = rf"^invalid k in k-of-n multi_a: {threshold}$"
+    err_msg = rf"^invalid k in k-of-n multi_a: an int of {bits} bits$"
     with pytest.raises(BTClibValueError, match=err_msg):
         TrDescriptor(key, leaf).script_pub_key()
 
@@ -4780,7 +4784,8 @@ def test_an_impossible_multisig_threshold_is_refused_at_parse(
     threshold: int, name: str, wrap: str
 ) -> None:
     """BIP383 lists a threshold of zero or above the key count as invalid."""
-    err_msg = rf"^invalid k in k-of-n {name}: {threshold}$"
+    bits = threshold.bit_length()
+    err_msg = rf"^invalid k in k-of-n {name}: an int of {bits} bits$"
     with pytest.raises(BTClibValueError, match=err_msg):
         parse(wrap.format(f"{name}({threshold},{KEY})"))
 

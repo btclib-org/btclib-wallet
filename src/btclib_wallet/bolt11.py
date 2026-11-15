@@ -105,7 +105,7 @@ from ecc.dsa import (
     verify_,
 )
 
-from btclib_wallet._refusal import _label, _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 from btclib_wallet.bolt9 import FEATURE_NAMES, unknown_even_bits, unmet_dependencies
 
 __all__ = [
@@ -193,7 +193,7 @@ _HOP_SIZE = 33 + 8 + 4 + 4 + 2  # pubkey, short_channel_id, two fees, cltv delta
 def _int_to_words(value: int, n_words: int) -> tuple[int, ...]:
     """Return `value` as `n_words` 5-bit groups, most significant first."""
     if not 0 <= value < (1 << (5 * n_words)):
-        err_msg = f"{_quoted(value)} does not fit {_quoted(n_words)} 5-bit words"
+        err_msg = f"{_quoted(value)} does not fit {_position(n_words)} 5-bit words"
         raise BTClibValueError(err_msg)
     return tuple((value >> (5 * (n_words - 1 - i))) & 0x1F for i in range(n_words))
 
@@ -309,7 +309,7 @@ def _parse_tagged_fields(
         end = start + data_length
         if end > n:
             raise BTClibValueError(
-                f"tagged field {_quoted(tag)} overruns the data part"
+                f"tagged field {_position(tag)} overruns the data part"
             )
         fields.append((tag, tuple(data[start:end])))
         i = end
@@ -503,7 +503,7 @@ class Bolt11Invoice:
         if self.amount_msat is not None and (
             not is_integer(self.amount_msat) or self.amount_msat <= 0
         ):
-            raise BTClibValueError(f"invalid amount: {_quoted(self.amount_msat)} msat")
+            raise BTClibValueError(f"invalid amount_msat: {_quoted(self.amount_msat)}")
         if not 0 <= self.recovery_id <= 3:
             raise BTClibValueError(f"invalid recovery id: {_quoted(self.recovery_id)}")
         self.signature.assert_valid()
@@ -536,7 +536,7 @@ class Bolt11Invoice:
         # not assign is a requirement no reader has been told how to meet
         features = self.features
         if unknown := unknown_even_bits(features):
-            bits = ", ".join(_quoted(bit) for bit in unknown)
+            bits = ", ".join(_position(bit) for bit in unknown)
             raise BTClibValueError(f"unknown even feature bits: {bits}")
 
         # the other half of a well-formed vector, and BOLT9's own word

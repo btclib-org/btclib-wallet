@@ -27,11 +27,11 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc import frost, ssa
 from ecc.curves import bytes_from_point, mult, secp256k1
 
-from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, join
-
 # the two modules are one name apart and both are in play: the roles
 # under test are the psbt ones, and the key material and the session
 # they are built over are `ecc.frost`'s
+from btclib_wallet._refusal import _quoted
+from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, join
 from btclib_wallet.psbt import frost as psbt_frost
 from btclib_wallet.psbt.psbt import prevouts, taproot_sig_hash
 from tests import load
@@ -569,8 +569,8 @@ def test_two_writers_that_disagree_are_refused() -> None:
             record_key_data(7),
             counts + pair[1] + pair[2],
             (
-                "frost threshold info of participant 7, who is not one of the"
-                " participants the record declares: 3"
+                "frost threshold info of participant an int of 3 bits, who is not"
+                " one of the participants the record declares: 3"
             ),
         ),
     ):
@@ -637,7 +637,7 @@ def test_the_updater_files_key_material_it_has_checked() -> None:
     # a far one all name nobody
     for my_id in (-1, N, 7):
         with pytest.raises(
-            BTClibValueError, match=f"frost participant {my_id} is not one of"
+            BTClibValueError, match=f"frost participant {_quoted(my_id)} is not one of"
         ):
             psbt_frost.add_threshold_info(psbt.inputs[0], my_id, info)
 
@@ -680,7 +680,7 @@ def test_only_the_public_shares_the_psbt_knows_travel() -> None:
 
     for my_id in (-1, N, 7):
         with pytest.raises(
-            BTClibValueError, match=f"frost participant {my_id} is not one of"
+            BTClibValueError, match=f"frost participant {_quoted(my_id)} is not one of"
         ):
             psbt_frost.nonce_gen(psbt, 0, my_id, SEC_SHARES[0], THRESH_PK)
 
@@ -1058,17 +1058,17 @@ def test_assert_valid_records_reads_what_the_codec_cannot() -> None:
         (
             written,
             T.to_bytes(4, "big") + (200).to_bytes(4, "big"),
-            "invalid frost participant count: 200",
+            "invalid frost participant count: an int of 8 bits",
         ),
         (
             written,
             counts + (9).to_bytes(4, "big") + pair_0[4:],
-            "invalid frost participant identifier: 9",
+            "invalid frost participant identifier: an int of 4 bits",
         ),
         (
             written,
             counts + pair_0 + pair_0,
-            "invalid frost participant identifier: 0",
+            "invalid frost participant identifier: an int of 0 bits",
         ),
         (written, counts, "At least t pubshares must be present."),
         (

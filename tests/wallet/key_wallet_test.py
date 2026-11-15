@@ -174,7 +174,7 @@ def test_a_bip32keydata_is_validated_even_when_already_one() -> None:
     unlike the `bip32` functions the same census names as compliant.
     """
     bad = replace_unchecked(bip32.BIP32KeyData.b58decode(_ACCOUNT_44_XPUB), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -187,12 +187,16 @@ def test_the_key_index_must_be_the_path_element_at_its_depth() -> None:
     # names the index the path has at that depth -- which is what says
     # the comparison read the element the key's own depth points at,
     # rather than some other element of the same path
-    err_msg = "key index 2147483648 at depth 3 is not the account path's 2147483649"
+    err_msg = (
+        "key index an int of 32 bits at depth 3 is not the account path's 2147483649"
+    )
     with pytest.raises(BTClibValueError, match=err_msg):
         BIP32KeyWallet(_ACCOUNT_44_XPUB, "m/44h/0h/1h")
     # a key already below the account level
     too_deep = bip32.derive(_ACCOUNT_44_XPUB, "m/0/0")
-    with pytest.raises(BTClibValueError, match="invalid key depth: 5 is past the"):
+    with pytest.raises(
+        BTClibValueError, match="invalid key depth: an int of 3 bits is past the"
+    ):
         BIP32KeyWallet(too_deep, "m/44h/0h/0h")
 
 
@@ -214,7 +218,9 @@ def test_invalid_account_path(der_path: str, err_msg: str) -> None:
 
 def test_an_unknown_purpose_is_refused_and_script_type_is_the_override() -> None:
     """Refuse purpose 45 bare, and let the script type override win."""
-    with pytest.raises(BTClibValueError, match="unknown BIP44 purpose: 45"):
+    with pytest.raises(
+        BTClibValueError, match="unknown BIP44 purpose: an int of 6 bits"
+    ):
         BIP32KeyWallet(_ROOT, "m/45h/0h/0h")
     wallet = BIP32KeyWallet(_ROOT, "m/45h/0h/0h", "p2wpkh")
     assert wallet.script_type == "p2wpkh"

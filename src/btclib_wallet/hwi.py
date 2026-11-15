@@ -149,7 +149,7 @@ from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _code, _label, _message_text, _quoted
+from btclib_wallet._refusal import _code, _label, _message_text, _position, _quoted
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.exceptions import SignerError, SignerNotFoundError
@@ -514,14 +514,14 @@ def _run(
         stderr = _read(err, max_output + 1)
 
     if len(stdout) > max_output:
-        err_msg = f"the hwi command answered more than {_quoted(max_output)} bytes"
+        err_msg = f"the hwi command answered more than {_position(max_output)} bytes"
         raise SignerError(err_msg)
     if len(stderr) > max_output:
         # the same limit and a separate one: stderr is diagnostics, so a
         # backend flooding it says nothing about the answer, and a backend
         # flooding it is still one this process will not hold in memory
         err_msg = "the hwi command wrote more than "
-        err_msg += f"{_quoted(max_output)} bytes to stderr"
+        err_msg += f"{_position(max_output)} bytes to stderr"
         raise SignerError(err_msg)
     if not stdout.strip():
         # a command that printed nothing has failed in its own way, and

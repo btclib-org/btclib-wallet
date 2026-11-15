@@ -599,7 +599,7 @@ def test_derive_validates_before_it_changes_the_depth() -> None:
     raw[9:13] = (7).to_bytes(4, "big")  # a non-zero index at depth zero
     bad = b58encode_check(bytes(raw), in_size=78)
 
-    err_msg = "zero depth with non-zero index: 7"
+    err_msg = "zero depth with non-zero index: an int of 3 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive(bad, "m/0/1")
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -727,11 +727,11 @@ def test_derive_from_account() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account(mxpub, 0x80000000, 0, True)
 
-    err_msg = "invalid branch number: 65536"
+    err_msg = "invalid branch number: an int of 17 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account(mxpub, 0xFFFF + 1, 0, branches_0_1_only=False)
 
-    err_msg = "invalid branch number: 2"
+    err_msg = "invalid branch number: an int of 2 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account(mxpub, 2, 0)
 
@@ -739,7 +739,7 @@ def test_derive_from_account() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account(mxpub, 0, 0x80000000, max_index=0xFFFFFFFF)
 
-    err_msg = "invalid address index: 65536"
+    err_msg = "invalid address index: an int of 17 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account(mxpub, 0, 0xFFFF + 1)
 
@@ -1878,7 +1878,7 @@ def test_derive_from_account_range_refuses_before_it_walks() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account_range_(mxpub, 0x80000000, range(3))
 
-    err_msg = "invalid branch number: 2"
+    err_msg = "invalid branch number: an int of 2 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account_range_(mxpub, 2, range(3))
 
@@ -1886,7 +1886,7 @@ def test_derive_from_account_range_refuses_before_it_walks() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account_range_(mxpub, 0, [0, 0x80000000], max_index=0xFFFFFFFF)
 
-    err_msg = "invalid address index: 65536"
+    err_msg = "invalid address index: an int of 17 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account_range_(mxpub, 0, [0, 1, 0xFFFF + 1])
 

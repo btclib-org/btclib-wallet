@@ -149,11 +149,11 @@ def test_addresses_are_handed_out_in_order(ledger: Ledger) -> None:
     assert ledger.new_address() == wallet.address(0, 0)
     assert ledger.new_address() == wallet.address(0, 1)
     assert ledger.new_change_address() == wallet.address(1, 0)
-    with pytest.raises(BTClibValueError, match="no source 1"):
+    with pytest.raises(BTClibValueError, match="no source an int of 1 bits"):
         ledger.new_address(1)
     with pytest.raises(BTClibTypeError, match="invalid source type"):
         ledger.new_address("0")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+    with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
         ledger.new_address(0, 2)
     with pytest.raises(BTClibTypeError, match="invalid script_pub_key type"):
         ledger.position_of(b"")  # type: ignore[arg-type]
@@ -1001,7 +1001,7 @@ def test_a_source_of_one_branch_takes_its_change_there(
         _funded(ledger, chain)
         spent = ledger.spend([_outside()], FeeRate.from_sats_per_vbyte(1))
         assert ledger.position_of(spent.vout[1].script_pub_key) == (0, 0, 1)
-        with pytest.raises(BTClibValueError, match="invalid branch: 1"):
+        with pytest.raises(BTClibValueError, match="invalid branch: an int of 1 bits"):
             ledger.new_change_address()
 
 

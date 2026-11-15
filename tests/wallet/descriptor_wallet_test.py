@@ -319,7 +319,7 @@ def test_a_wallet_that_is_not_ranged_has_one_position_per_chain() -> None:
     assert not wallet.is_ranged
     assert wallet.address() == address
     assert wallet.position_of(address, 999) == (0, 0)
-    err_msg = "not a ranged descriptor: no script at index 1"
+    err_msg = "not a ranged descriptor: no script at index an int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         wallet.address(0, 1)
 
@@ -413,7 +413,7 @@ def test_satisfy_is_the_descriptors_own_at_the_position() -> None:
     )
     # and a position the wallet has no output at is refused before the
     # signatures are looked up under a key derived from it
-    with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+    with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
         wallet.satisfy({sec: signature}, 2, 2)
 
 
@@ -454,7 +454,7 @@ def test_the_updaters_take_a_position_where_a_descriptor_takes_an_index() -> Non
     ):
         wallet.update_psbt_output(psbt, 0, 1, 3)
     for method in (wallet.update_psbt_input, wallet.update_psbt_output):
-        with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+        with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
             method(psbt, 0, 2, 2)
 
 

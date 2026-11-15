@@ -78,7 +78,7 @@ from typing import Any
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
-from btclib_wallet._refusal import _code, _message_text, _quoted
+from btclib_wallet._refusal import _code, _message_text, _position, _quoted
 from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 
 __all__ = [
@@ -174,7 +174,7 @@ def _assert_key_range(start: int, end: int) -> None:
     if end >> 31:
         raise BTClibValueError(f"end of range is too high: {_quoted(end)}")
     if end - start >= _MAX_RANGE_SPAN:
-        err_msg = f"range is too large: {_quoted(end - start + 1)} indexes, "
+        err_msg = f"range is too large: {_position(end - start + 1)} indexes, "
         err_msg += f"max is {_MAX_RANGE_SPAN}"
         raise BTClibValueError(err_msg)
 
@@ -200,7 +200,7 @@ def _range_fields(
     if next_index is not None:
         if not start <= next_index <= end:
             err_msg = f"next_index {_quoted(next_index)} is not in"
-            err_msg += f" [{_quoted(start)}, {_quoted(end)}]"
+            err_msg += f" [{_position(start)}, {_position(end)}]"
             raise BTClibValueError(err_msg)
         fields["next_index"] = next_index
     return fields

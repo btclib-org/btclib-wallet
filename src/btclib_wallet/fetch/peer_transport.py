@@ -72,7 +72,7 @@ from btclib.utils import assert_type, is_integer
 from ecc import ellswift
 from ecc.curves import secp256k1
 
-from btclib_wallet._refusal import _message_text, _quoted
+from btclib_wallet._refusal import _message_text, _position, _quoted
 from btclib_wallet.exceptions import _guarded_methods
 from btclib_wallet.fetch.transport import (
     _MAX_PORT,
@@ -226,7 +226,7 @@ class TcpPeerTransport:
             self._closing = None
             if not closed:
                 raise _TransportError(
-                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+                    f"closing {_quoted(self._host)}:{_position(self._port)}"
                 )
 
     def _discard(self) -> None:
@@ -240,7 +240,7 @@ class TcpPeerTransport:
             raise BTClibTypeError(f"non-Message message: {_message_text(message)}")
         valid_timeout(timeout)
         deadline = monotonic() + timeout
-        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
+        where = f"{_quoted(self._host)}:{_position(self._port)}"
         try:
             sock = self._socket
             if sock is None:
@@ -268,7 +268,7 @@ class TcpPeerTransport:
     def receive(self, timeout: float) -> Message:
         """Return the next message the peer sends, waiting up to `timeout`."""
         valid_timeout(timeout)
-        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
+        where = f"{_quoted(self._host)}:{_position(self._port)}"
         sock = self._socket
         if sock is None:
             raise _TransportError(f"{where}: not connected")
@@ -405,7 +405,7 @@ class V2PeerTransport:
             self._pending = None
             if not closed:
                 raise _TransportError(
-                    f"closing {_quoted(self._host)}:{_quoted(self._port)}"
+                    f"closing {_quoted(self._host)}:{_position(self._port)}"
                 )
 
     def _discard(self) -> None:
@@ -425,7 +425,7 @@ class V2PeerTransport:
         from btclib.p2p.bip324 import contents_from_message  # noqa: PLC0415
 
         deadline = monotonic() + timeout
-        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
+        where = f"{_quoted(self._host)}:{_position(self._port)}"
         failure: str
         try:
             if self._v1 is not None:
@@ -483,7 +483,7 @@ class V2PeerTransport:
         """Return the socket and the cipher of the open v2 connection."""
         if self._socket is None or self._cipher is None:
             raise _TransportError(
-                f"{_quoted(self._host)}:{_quoted(self._port)}: not connected"
+                f"{_quoted(self._host)}:{_position(self._port)}: not connected"
             )
         return self._socket, self._cipher
 
@@ -532,7 +532,7 @@ class V2PeerTransport:
         valid_timeout(timeout)
         from btclib.p2p.bip324 import message_from_contents  # noqa: PLC0415
 
-        where = f"{_quoted(self._host)}:{_quoted(self._port)}"
+        where = f"{_quoted(self._host)}:{_position(self._port)}"
         deadline = monotonic() + timeout
         failure: str
         try:
@@ -649,7 +649,7 @@ def _packet(
 
     length = cipher.decrypt_length(_read(sock, LENGTH_LEN, deadline, timeout, where))
     if length > _MAX_CONTENTS_LEN:
-        raise _TransportError(f"{where}: packet too large: {_quoted(length)} bytes")
+        raise _TransportError(f"{where}: packet length too large: {_quoted(length)}")
     rest = _read(sock, EXPANSION - LENGTH_LEN + length, deadline, timeout, where)
     return cipher.decrypt(rest, aad)
 

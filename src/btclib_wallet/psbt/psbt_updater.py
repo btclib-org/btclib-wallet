@@ -20,7 +20,7 @@ from copy import deepcopy
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position, _quoted
 from btclib_wallet.descriptors.descriptors import Descriptor, Expansion
 from btclib_wallet.descriptors.key_expression import PrvKeys
 from btclib_wallet.psbt.psbt import Psbt
@@ -167,8 +167,8 @@ def update_psbt_output(
     if all(
         script.script != paid for script in descriptor.script_pub_keys(index, prv_keys)
     ):
-        err_msg = f"output {_quoted(vout_i)} pays to another script than the"
-        err_msg += f" one this descriptor describes at index {_quoted(index)}"
+        err_msg = f"output {_position(vout_i)} pays to another script than the"
+        err_msg += f" one this descriptor describes at index {_position(index)}"
         raise BTClibValueError(err_msg)
     psbt = deepcopy(psbt)
     psbt_out = psbt.outputs[vout_i]

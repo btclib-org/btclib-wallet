@@ -427,7 +427,9 @@ def test_a_restore_is_refused_and_leaves_nothing(
     with db:
         db.execute("CREATE TABLE t(x INTEGER)")
     db.close()
-    with pytest.raises(BTClibValueError, match="not a ledger file: application id 0"):
+    with pytest.raises(
+        BTClibValueError, match="not a ledger file: application id an int of 0 bits"
+    ):
         Ledger.restore(foreign, target, "regtest", chain)
     assert not target.exists()
 

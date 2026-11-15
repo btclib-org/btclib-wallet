@@ -45,7 +45,7 @@ from ecc.curves.sec_point import bytes_from_point
 from ecc.musig2 import key_agg_var, key_sort
 from typing_extensions import override
 
-from btclib_wallet._refusal import _label, _quoted
+from btclib_wallet._refusal import _label, _position, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP328_CHAIN_CODE,
     BIP32KeyData,
@@ -782,7 +782,7 @@ def _assert_same_length(lengths: list[int]) -> None:
     """
     different = sorted({length for length in lengths if length})
     if len(different) > 1:
-        quoted = ", ".join(_quoted(n) for n in different)
+        quoted = ", ".join(_position(n) for n in different)
         raise BTClibValueError(f"multipath steps of different length: [{quoted}]")
 
 

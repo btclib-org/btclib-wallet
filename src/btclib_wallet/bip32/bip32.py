@@ -66,7 +66,7 @@ from ecc.curves import (
 )
 from typing_extensions import override
 
-from btclib_wallet._refusal import _label, _message_text, _quoted
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 from btclib_wallet.bip32.der_path import (
     HARDENED_OFFSET,
     DerPath,
@@ -170,7 +170,7 @@ def _cached_base58_decode(address: String) -> bytes:
     # outside it are characters base58 has not
     if refusal == _NON_ASCII and isinstance(address, str):
         position = next((i for i, c in enumerate(address) if not c.isascii()), None)
-        refusal += "" if position is None else f" at position {_quoted(position)}"
+        refusal += "" if position is None else f" at position {_position(position)}"
     raise BTClibValueError(refusal)
 
 
@@ -819,7 +819,7 @@ def _invalid_child(index: int, reason: str) -> BTClibValueError:
     At odds of about 2^-127 none of the three is reachable, so what this
     buys is a defined answer rather than a key no other wallet derives.
     """
-    err_msg = f"invalid child index {_quoted(index)}: {reason}"
+    err_msg = f"invalid child index {_position(index)}: {reason}"
     err_msg += "; BIP32 mandates deriving the next index instead"
     return BTClibValueError(err_msg)
 
@@ -1281,7 +1281,7 @@ def _assert_valid_branch(
         raise BTClibValueError("invalid private derivation at branch level")
     if branch > max_index:
         err_msg = f"invalid branch number: {_quoted(branch)} is higher than"
-        err_msg += f" {_quoted(max_index)}."
+        err_msg += f" {_position(max_index)}."
         raise BTClibValueError(err_msg)
     if branches_0_1_only and branch not in {0, 1}:
         raise BTClibValueError(
@@ -1303,7 +1303,7 @@ def _assert_valid_address_index(address_index: int, max_index: int) -> None:
         raise BTClibValueError("invalid private derivation at address index level")
     if address_index > max_index:
         err_msg = f"invalid address index: {_quoted(address_index)} is higher"
-        err_msg += f" than {_quoted(max_index)}."
+        err_msg += f" than {_position(max_index)}."
         raise BTClibValueError(err_msg)
 
 

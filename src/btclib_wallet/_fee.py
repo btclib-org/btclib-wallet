@@ -7,7 +7,7 @@
 from btclib.exceptions import BTClibValueError
 from btclib.fee import FeeRate, fee_from_vsize
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position
 
 __all__: list[str] = []
 
@@ -22,6 +22,6 @@ def _assert_max_fee_rate(fee: int, vsize: int, max_fee_rate: FeeRate) -> None:
     """Refuse a fee above the rate ceiling, rounded as CFeeRate::GetFee."""
     ceiling = fee_from_vsize(vsize, max_fee_rate)
     if fee > ceiling:
-        err_msg = f"a fee of {_quoted(fee)} satoshi on {_quoted(vsize)} vbytes"
-        err_msg += f" exceeds max_fee_rate, which allows {_quoted(ceiling)} satoshi"
+        err_msg = f"a fee of {_position(fee)} satoshi on {_position(vsize)} vbytes"
+        err_msg += f" exceeds max_fee_rate, which allows {_position(ceiling)} satoshi"
         raise BTClibValueError(err_msg)

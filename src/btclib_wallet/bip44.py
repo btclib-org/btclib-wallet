@@ -56,7 +56,7 @@ from btclib.network import (
 from btclib.script.taproot import output_pubkey
 from btclib.utils import bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -70,7 +70,6 @@ from btclib_wallet.bip32.der_path import (
     HARDENED_OFFSET,
     DerPath,
     indexes_from_der_path,
-    str_from_index_int,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors.descriptors import (
@@ -245,7 +244,7 @@ def _script_type_from_purpose(purpose: int) -> BIP44ScriptType:
     """
     script_type = SCRIPT_TYPE_FROM_PURPOSE.get(purpose)
     if script_type is None:
-        known = ", ".join(_quoted(each) for each in sorted(SCRIPT_TYPE_FROM_PURPOSE))
+        known = ", ".join(_position(each) for each in sorted(SCRIPT_TYPE_FROM_PURPOSE))
         err_msg = f"unknown BIP44 purpose: {_quoted(purpose)} not in ({known});"
         err_msg += " pass script_type to say what it means"
         raise BTClibValueError(err_msg)
@@ -282,7 +281,7 @@ def _assert_valid_coin_type(coin_type: int, xkey: BIP32KeyData) -> None:
 
     key_network_type = network_type_from_xkeyversion(xkey.version)
     if network_type != key_network_type:
-        err_msg = f"coin type {_quoted(coin_type)} is {_quoted(network_type)},"
+        err_msg = f"coin type {_position(coin_type)} is {_quoted(network_type)},"
         err_msg += f" the extended key is {_quoted(key_network_type)}"
         raise BTClibValueError(err_msg)
 
@@ -313,10 +312,8 @@ def _indexes_left_to_derive(xkey: BIP32KeyData, indexes: list[int]) -> list[int]
         raise BTClibValueError(err_msg)
 
     if xkey.depth and xkey.index != indexes[xkey.depth - 1]:
-        key_index = _quoted(str_from_index_int(xkey.index))
-        err_msg = f"key index {key_index} at depth {_quoted(xkey.depth)}"
-        path_index = _quoted(str_from_index_int(indexes[xkey.depth - 1]))
-        err_msg += f" is not the path's {path_index}"
+        err_msg = f"key index {_quoted(xkey.index)} at depth {_position(xkey.depth)}"
+        err_msg += f" is not the path's {_position(indexes[xkey.depth - 1])}"
         raise BTClibValueError(err_msg)
 
     return indexes[xkey.depth :]
@@ -718,7 +715,7 @@ def _account_branches(
     """
     key = key_data_from_bip32_key(xkey)
     if key.is_private:
-        err_msg = f"purpose {_quoted(purpose)}, account {_quoted(account)}:"
+        err_msg = f"purpose {_position(purpose)}, account {_position(account)}:"
         err_msg += " an extended private key: pass its xpub"
         raise BTClibValueError(err_msg)
     coin_type = _COIN_TYPE_FROM_NETWORK_TYPE[network_type_from_xkeyversion(key.version)]
@@ -741,11 +738,11 @@ def _accounts(
             raise BTClibTypeError(f"invalid purpose type: {type(purpose).__name__}")
         # a str is a Sequence too, of one-character keys
         if not isinstance(xpubs, Sequence) or isinstance(xpubs, (str, bytes)):
-            err_msg = f"purpose {_quoted(purpose)}: invalid xpubs type:"
+            err_msg = f"purpose {_position(purpose)}: invalid xpubs type:"
             err_msg += f" {type(xpubs).__name__}"
             raise BTClibTypeError(err_msg)
         if not xpubs:
-            raise BTClibValueError(f"purpose {_quoted(purpose)}: no account xpub")
+            raise BTClibValueError(f"purpose {_position(purpose)}: no account xpub")
         accounts[purpose] = [
             _account_branches(xpub, purpose, account, master_fingerprint)
             for account, xpub in enumerate(xpubs)
@@ -795,9 +792,9 @@ def discover_accounts(
         account = 0
         while unused < account_gap:
             if account == len(branches):
-                err_msg = f"purpose {_quoted(purpose)}: no xpub for account"
-                err_msg += f" {_quoted(account)}, and {_quoted(unused)} of"
-                err_msg += f" {_quoted(account_gap)} unused accounts in a row"
+                err_msg = f"purpose {_position(purpose)}: no xpub for account"
+                err_msg += f" {_position(account)}, and {_position(unused)} of"
+                err_msg += f" {_position(account_gap)} unused accounts in a row"
                 raise BTClibValueError(err_msg)
             use = _discover_account(branches[account], reader, gap_limit)
             if use is None:

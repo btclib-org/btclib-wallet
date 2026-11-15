@@ -96,7 +96,7 @@ from btclib.var_int import serialize as var_int_serialize
 from ecc.curves import bytes_from_point, secp256k1
 from typing_extensions import override
 
-from btclib_wallet._refusal import _label, _quoted
+from btclib_wallet._refusal import _label, _position, _quoted
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.der_path import _MAX_DIGITS, _int_from_digits
 from btclib_wallet.descriptors.key_expression import (
@@ -1141,7 +1141,8 @@ class Miniscript:
         if len(self.data) != _DATA_SIZE.get(fragment, 0):
             expected = _DATA_SIZE.get(fragment, 0)
             err_msg = (
-                f"{_label(fragment, _NAMES)} takes {_quoted(expected)} bytes of data, "
+                f"{_label(fragment, _NAMES)} takes {_position(expected)} bytes"
+                " of data, "
                 f"{len(self.data)} given"
             )
             raise BTClibValueError(err_msg)
@@ -1958,7 +1959,7 @@ class _Built(list[Miniscript]):
         if self._total > self._limit:
             err_msg = (
                 f"miniscript too large for {_label(self._context, _CONTEXTS)}: "
-                f"at least {_quoted(self._total)} bytes of script"
+                f"at least {_position(self._total)} bytes of script"
             )
             raise BTClibValueError(err_msg)
         super().append(node)
@@ -1997,7 +1998,7 @@ def _assert_typed(node: Miniscript) -> Miniscript:
     if node.script_size > _max_script_size(node.context):
         err_msg = (
             f"miniscript too large for {_label(node.context, _CONTEXTS)}: "
-            f"{_quoted(node.script_size)} bytes of script"
+            f"{_position(node.script_size)} bytes of script"
         )
         raise BTClibValueError(err_msg)
     return node
@@ -2698,7 +2699,9 @@ class _Decoder:
         # the count is an offset into the entries, so a negative one reads
         # them from the other end
         if not 1 <= count <= MAX_PUBKEYS_PER_MULTISIG:
-            raise BTClibValueError(f"not a multi(): {_quoted(count)} keys")
+            raise BTClibValueError(
+                f"not a multi(): invalid number of keys: {_quoted(count)}"
+            )
         keys = []
         for i in range(count):
             sec = self._data(2 + i)

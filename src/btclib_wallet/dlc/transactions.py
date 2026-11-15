@@ -73,7 +73,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.utils import assert_type, is_integer
 from ecc.curves import point_from_pub_key
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position, _quoted
 
 __all__ = [
     "CET_SEQUENCE",
@@ -383,7 +383,8 @@ def _change(party: DlcParty, fee_rate: int) -> int:
     change = sum(i.value for i in party.inputs) - party.collateral - fees
     if change < DUST_LIMIT:
         raise BTClibValueError(
-            f"the inputs leave {_quoted(change)} satoshis of change, under {DUST_LIMIT}"
+            f"the inputs leave {_position(change)} satoshis of change, "
+            f"under {DUST_LIMIT}"
         )
     return change
 

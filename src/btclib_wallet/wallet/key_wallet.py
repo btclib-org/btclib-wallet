@@ -52,7 +52,7 @@ from btclib.script.script_pub_key import ScriptPubKey
 from btclib.utils import assert_type
 from typing_extensions import override
 
-from btclib_wallet._refusal import _label, _quoted
+from btclib_wallet._refusal import _label, _position, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -317,8 +317,12 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
             err_msg += f" {_ACCOUNT_LEVELS} levels of an account path"
             raise BTClibValueError(err_msg)
         if xkey.depth and xkey.index != indexes[xkey.depth - 1]:
-            err_msg = f"key index {_quoted(xkey.index)} at depth {_quoted(xkey.depth)}"
-            err_msg += f" is not the account path's {_quoted(indexes[xkey.depth - 1])}"
+            err_msg = (
+                f"key index {_quoted(xkey.index)} at depth {_position(xkey.depth)}"
+            )
+            err_msg += (
+                f" is not the account path's {_position(indexes[xkey.depth - 1])}"
+            )
             raise BTClibValueError(err_msg)
 
         # `derive_` rather than bip32's private `_derive`: the public

@@ -1212,7 +1212,7 @@ def test_a_v2_packet_announcing_too_much_is_refused_before_it_is_read(
     transport = v2_peer()
     transport.send(MESSAGE, 5)
     monkeypatch.setattr(peer_transport, "_MAX_CONTENTS_LEN", 20)
-    with pytest.raises(FetchError, match="packet too large: 21 bytes"):
+    with pytest.raises(FetchError, match="packet length too large: an int of 5 bits"):
         transport.receive(5)
     assert not transport.is_open
     assert len(fake.chunks[0]) == 21 + 17

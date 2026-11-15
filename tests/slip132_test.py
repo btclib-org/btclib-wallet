@@ -92,7 +92,7 @@ def test_an_already_built_key_is_validated_too() -> None:
     assert slip132.address_from_xpub(good) == slip132.address_from_xpub(xpub)
 
     bad = replace_unchecked(bip32.BIP32KeyData.b58decode(xpub), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):

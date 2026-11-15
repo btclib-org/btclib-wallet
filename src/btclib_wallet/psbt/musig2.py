@@ -71,7 +71,7 @@ from ecc.curves import scalar_from_prv_key, secp256k1
 from ecc.curves.sec_point import bytes_from_point
 from ecc.hashes import tagged_hash
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position
 from btclib_wallet.bip32 import BIP328_CHAIN_CODE, pub_key_derivation_tweaks
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -147,7 +147,7 @@ def _participant(participants: list[bytes], pub_key: bytes) -> str:
     private one.
     """
     if pub_key in participants:
-        return f"participant {_quoted(participants.index(pub_key))}"
+        return f"participant {_position(participants.index(pub_key))}"
     return "a key that is no participant"
 
 
@@ -469,7 +469,7 @@ def partial_sign(
     key_data = _key_data(pub_key, parts.tweaked_pub_key, leaf_hash)
     pub_nonce = psbt_in.musig2_pub_nonces.get(key_data)
     if pub_nonce is None:
-        err_msg = f"input {_quoted(vin_i)}: no musig2 public nonce of "
+        err_msg = f"input {_position(vin_i)}: no musig2 public nonce of "
         err_msg += f"{_participant(parts.participants, pub_key)} for the aggregate key"
         raise BTClibValueError(err_msg)
 
@@ -514,7 +514,7 @@ def partial_sig_verify(
     pub_nonce = psbt_in.musig2_pub_nonces.get(key_data)
     if psig is None or pub_nonce is None:
         participant = _participant(parts.participants, participant_pub_key)
-        err_msg = f"input {_quoted(vin_i)}: no musig2 partial signature of "
+        err_msg = f"input {_position(vin_i)}: no musig2 partial signature of "
         err_msg += f"{participant} for the aggregate key"
         raise BTClibValueError(err_msg)
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
@@ -554,7 +554,7 @@ def partial_sigs_agg(
     ]:
         # by position in aggregation order, printing no byte of the key
         err_msg = "missing musig2 partial signature of participant " + ", ".join(
-            _quoted(i) for i in missing
+            _position(i) for i in missing
         )
         raise BTClibValueError(err_msg)
 

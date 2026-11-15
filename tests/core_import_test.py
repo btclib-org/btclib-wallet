@@ -217,7 +217,9 @@ def test_next_index_is_inside_the_range() -> None:
     assert import_request(receive, key_range=(0, 20), next_index=5)["next_index"] == 5
     assert "next_index" not in import_request(receive, key_range=(0, 20))
 
-    with pytest.raises(BTClibValueError, match=r"next_index 21 is not in \[0, 20\]"):
+    with pytest.raises(
+        BTClibValueError, match=r"next_index an int of 5 bits is not in \[0, 20\]"
+    ):
         import_request(receive, key_range=(0, 20), next_index=21)
     with pytest.raises(BTClibValueError, match="next_index without a range"):
         import_request(
@@ -394,7 +396,9 @@ def test_the_range_wanted_is_the_one_a_request_would_be_refused_for() -> None:
     one asked for, which is a caller's arithmetic gone wrong reported as a
     successful import of something else.
     """
-    with pytest.raises(BTClibValueError, match=r"invalid range: \[20, 5\]"):
+    with pytest.raises(
+        BTClibValueError, match=r"invalid range: \[an int of 5 bits, an int of 3 bits\]"
+    ):
         widened_range((20, 5))
     with pytest.raises(BTClibValueError, match="end of range is too high"):
         widened_range((0, 2**31))

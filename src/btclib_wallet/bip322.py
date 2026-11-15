@@ -128,7 +128,7 @@ from btclib.script.engine import (
     verify_transaction,
 )
 from btclib.script.script_pub_key import ScriptPubKey, is_segwit, type_and_payload
-from btclib.script.sig_hash import ALL, DEFAULT, from_tx
+from btclib.script.sig_hash import ALL, DEFAULT, SIG_HASH_TYPES, from_tx
 from btclib.script.sig_hash import taproot as taproot_sig_hash
 from btclib.script.taproot import output_prvkey_from_merkle_root, output_pubkey
 from btclib.script.witness import Witness
@@ -139,7 +139,7 @@ from ecc.curves import bytes_from_prv_key_int
 from ecc.exceptions import EccRuntimeError
 from ecc.hashes import tagged_hash
 
-from btclib_wallet._refusal import _hex_field, _quoted
+from btclib_wallet._refusal import _hex_field, _position, _quoted
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx
 from btclib_wallet.psbt.psbt import _MAX_PSBT_SIZE, _ascii_text, _b64_size, _b64decode
@@ -608,7 +608,8 @@ def _assert_hash_types(hash_types: list[int]) -> None:
     for hash_type in hash_types:
         if hash_type not in (ALL, DEFAULT):
             # a field of the signature, which the script engine reads
-            err_msg = f"hash type {_hex_field(hash_type)}: BIP322 requires SIGHASH_ALL"
+            err_msg = f"hash type {_hex_field(hash_type, SIG_HASH_TYPES)}: "
+            err_msg += "BIP322 requires SIGHASH_ALL"
             raise BTClibValueError(err_msg)
 
 
@@ -622,7 +623,8 @@ def _assert_weight(tx: Tx) -> None:
     """
     weight = tx.weight
     if weight > MAX_BLOCK_WEIGHT:
-        err_msg = f"to_sign weight {_quoted(weight)}: over the block limit of {MAX_BLOCK_WEIGHT}"
+        err_msg = f"to_sign weight {_position(weight)}: "
+        err_msg += f"over the block limit of {MAX_BLOCK_WEIGHT}"
         raise BTClibValueError(err_msg)
 
 
@@ -637,7 +639,7 @@ def _assert_sig_op_cost(spend: Tx, prevouts: list[TxOut], tx: Tx) -> None:
     """
     cost = sig_op_cost([], spend) + sig_op_cost(prevouts, tx)
     if cost > MAX_BLOCK_SIGOPS_COST:
-        err_msg = f"sigop cost {_quoted(cost)}: over the block limit"
+        err_msg = f"sigop cost {_position(cost)}: over the block limit"
         err_msg += f" of {MAX_BLOCK_SIGOPS_COST}"
         raise BTClibValueError(err_msg)
 

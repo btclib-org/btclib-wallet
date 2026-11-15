@@ -272,7 +272,9 @@ def test_the_change_index_names_the_output_taking_the_change(
     foreign = ledger.bump_psbt(spent.id, original_change_index=0)
     assert foreign.psbt.outputs[2].amount == 30_000 - (foreign.fee - foreign.old_fee)
     assert not foreign.psbt.outputs[2].hd_key_paths
-    with pytest.raises(BTClibValueError, match="change index 3 is out of range"):
+    with pytest.raises(
+        BTClibValueError, match="change index an int of 2 bits is out of range"
+    ):
         ledger.bump_psbt(spent.id, original_change_index=3)
     with pytest.raises(BTClibValueError, match="incompatible"):
         ledger.bump_psbt(spent.id, outputs=[_outside()], original_change_index=0)

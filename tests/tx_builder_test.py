@@ -155,7 +155,7 @@ def test_a_lock_time_every_final_sequence_voids_is_refused() -> None:
     final = spendable(100_000)
     explicit = spendable(100_000, tx_id=b"\x07" * 32)
     explicit.sequence = 0xFFFFFFFF
-    with pytest.raises(BTClibValueError, match="lock_time 800000 is void"):
+    with pytest.raises(BTClibValueError, match="lock_time an int of 20 bits is void"):
         build_psbt(
             [final, explicit],
             [TxOut(60_000, PAY_SCRIPT)],

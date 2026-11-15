@@ -36,6 +36,7 @@ from ecc import dsa, ssa
 from ecc.curves import sec_point
 from ecc.hashes import tagged_hash
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import (
     Psbt,
@@ -539,7 +540,10 @@ def test_the_identifier_of_a_v2_psbt_ignores_the_sequences() -> None:
 
     # and the two versions are not combined into each other: which of
     # them the result would be is the caller's to say, with to_v0/to_v2
-    with pytest.raises(BTClibValueError, match="mismatched psbt version: 0 vs 2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="mismatched psbt version: an int of 0 bits vs an int of 2 bits",
+    ):
         combine([psbt, psbt.to_v0()])
 
 
@@ -714,7 +718,10 @@ def test_joining_asks_every_psbt_whether_it_may_grow() -> None:
     with pytest.raises(BTClibValueError, match="Version numbers are not the same"):
         join([first, other_tx_version], True, True, False, False)
 
-    with pytest.raises(BTClibValueError, match="mismatched psbt version: 0 vs 2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="mismatched psbt version: an int of 0 bits vs an int of 2 bits",
+    ):
         join([first, second.to_v0()], True, True, False, False)
 
 
@@ -887,7 +894,9 @@ def test_the_v2_fields_are_valid_at_both_ends_of_their_range() -> None:
     psbt_in.required_height_lock_time = 1
     psbt_in.assert_valid()
     psbt_in.required_height_lock_time = 0
-    with pytest.raises(BTClibValueError, match="invalid required height locktime: 0"):
+    with pytest.raises(
+        BTClibValueError, match="invalid required height locktime: an int of 0 bits"
+    ):
         psbt_in.assert_valid()
     psbt_in.required_height_lock_time = None
 
@@ -1100,7 +1109,7 @@ def test_taproot_signature_carries_its_sig_hash_type() -> None:
 
     # not one of the seven values SIG_HASH_TYPES holds
     psbt.inputs[0].taproot_key_spend_signature = signature + b"\x04"
-    err_msg = "invalid taproot key path signature sig_hash type: 0x4"
+    err_msg = "invalid taproot key path signature sig_hash type: an int of 3 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -1128,7 +1137,7 @@ def test_taproot_signature_carries_its_sig_hash_type() -> None:
 
     # 0x80 is ANYONECANPAY with DEFAULT, which BIP341 does not define
     signatures[key] = signature + b"\x80"
-    err_msg = "invalid taproot script path signature sig_hash type: 0x80"
+    err_msg = "invalid taproot script path signature sig_hash type: an int of 8 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -1493,7 +1502,7 @@ def test_explicit_version() -> None:
     # way in, check_validity or not: which fields a psbt is written and
     # read as *is* its version, so there is nothing to defer
     psbt.version = 10
-    err_msg = "invalid psbt version: 10"
+    err_msg = "invalid psbt version: an int of 4 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.b64encode(check_validity=False)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -1869,7 +1878,9 @@ def test_exceptions() -> None:
         psbt.serialize()
     # in range, and not one of the two versions there are
     psbt.version = 3
-    with pytest.raises(BTClibValueError, match="invalid psbt version: 3"):
+    with pytest.raises(
+        BTClibValueError, match="invalid psbt version: an int of 2 bits"
+    ):
         psbt.serialize()
 
     psbt_str = "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAAiAgKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgf0cwRAIgdAGK1BgAl7hzMjwAFXILNoTMgSOJEEjn282bVa1nnJkCIHPTabdA4+tT3O+jOCPIBwUUylWn3ZVE8VfBZ5EyYRGMASICAtq2H/SaFNtqfQKwzR+7ePxLGDErW05U2uTbovv+9TbXSDBFAiEA9hA4swjcHahlo0hSdG8BV3KTQgjG0kRUOTzZm98iF3cCIAVuZ1pnWm0KArhbFOXikHTYolqbV2C+ooFvZhkQoAbqAQEDBAEAAAABBEdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSriIGApWDvzmuCmCXR60Zmt3WNPphCFWdbFzTm0whg/GrluB/ENkMak8AAACAAAAAgAAAAIAiBgLath/0mhTban0CsM0fu3j8SxgxK1tOVNrk26L7/vU21xDZDGpPAAAAgAAAAIABAACAAAEBIADC6wsAAAAAF6kUt/X69A49QKWkWbHbNTXyty+pIeiHIgIDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtxHMEQCIGLrelVhB6fHP0WsSrWh3d9vcHX7EnWWmn84Pv/3hLyyAiAMBdu3Rw2/LwhVfdNWxzJcHtMJE+mWzThAlF2xIijaXwEiAgI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc0cwRAIgZfRbpZmLWaJ//hp77QFq8fH5DVSzqo90UKpfVqJRA70CIH9yRwOtHtuWaAsoS1bU/8uI9/t1nqu+CKow8puFE4PSAQEDBAEAAAABBCIAIIwjUxc3Q7WV37Sge3K6jkLjeX2nTof+fZ10l+OyAokDAQVHUiEDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwhAjrdkE89bc9Z3bkGsN7iNSm3/7ntUOXoYVGSaGAiHw5zUq4iBgI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8OcxDZDGpPAAAAgAAAAIADAACAIgYDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwQ2QxqTwAAAIAAAACAAgAAgAAiAgOppMN/WZbTqiXbrGtXCvBlA5RJKUJGCzVHU+2e7KWHcRDZDGpPAAAAgAAAAIAEAACAACICAn9jmXV9Lv9VoTatAsaEsYOLZVbl8bazQoKpS2tQBRCWENkMak8AAACAAAAAgAUAAIAA"
@@ -6508,7 +6519,7 @@ def test_a_taproot_all_signature_is_refused_with_an_explicit_default(
     answer, _ = sign(asking_all, key_manager)
     answer.inputs[0].sig_hash_type = 0  # an explicit DEFAULT is a field
 
-    err_msg = "invalid sig_hash type 1, the input asks for 0"
+    err_msg = "invalid sig_hash type 0x1, the input asks for 0x0"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signed(answer)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -6531,7 +6542,7 @@ def test_a_taproot_signature_of_another_type_is_refused_without_the_field(
     answer, _ = sign(asking, key_manager, allowed_sig_hash_types={hash_type})
     answer.inputs[0].sig_hash_type = None
 
-    err_msg = f"invalid sig_hash type {hash_type}, the input asks for None"
+    err_msg = f"invalid sig_hash type {hash_type:#x}, the input asks for None"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, answer)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -6781,7 +6792,7 @@ def test_a_witness_program_of_no_known_rule_has_no_ecdsa_sig_hash(
     psbt.inputs[0].redeem_script = program if wrapped else b""
     psbt.inputs[0].non_witness_utxo = prev_tx
 
-    err_msg = f"input 0: no sig_hash rule for witness version {version}$"
+    err_msg = f"input 0: no sig_hash rule for witness version {_quoted(version)}$"
     with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         ecdsa_sig_hash(psbt, 0, hash_type=1)
     assert program[2:].hex() not in str(excinfo.value)
@@ -6964,7 +6975,7 @@ def test_a_p2sh_wrapped_taproot_program_has_no_signature_rule() -> None:
     one for no taproot output.
     """
     psbt = _p2sh_wrapped_taproot_psbt()
-    err_msg = "input 0: no sig_hash rule for witness version 1$"
+    err_msg = "input 0: no sig_hash rule for witness version an int of 1 bits$"
     with pytest.raises(BTClibValueError, match=err_msg):
         ecdsa_sig_hash(psbt, 0, hash_type=1)
 

@@ -141,7 +141,7 @@ from btclib.script.script_pub_key import ScriptPubKey
 from btclib.utils import assert_type, is_integer
 from typing_extensions import override
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _position, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -294,11 +294,11 @@ def _assert_origin(key: BIP32KeyData, origin: BIP32KeyOrigin) -> None:
     """
     if len(origin.der_path) != key.depth:
         err_msg = f"invalid key origin: {len(origin.der_path)} levels"
-        err_msg += f" for a key at depth {_quoted(key.depth)}"
+        err_msg += f" for a key at depth {_position(key.depth)}"
         raise BTClibValueError(err_msg)
     if key.depth and key.index != origin.der_path[-1]:
         err_msg = f"invalid key origin: it ends at {_quoted(origin.der_path[-1])}"
-        err_msg += f", and the key's own index is {_quoted(key.index)}"
+        err_msg += f", and the key's own index is {_position(key.index)}"
         raise BTClibValueError(err_msg)
     own = fingerprint(key.b58encode())
     if not key.depth and origin.master_fingerprint != own:
@@ -422,11 +422,11 @@ class KeyGroup:
                 _assert_origin(key, origin)
         n = len(self.keys)
         if not 0 < n <= _MAX_KEYS:
-            err_msg = f"invalid n in {_quoted(threshold)}-of-{n}:"
+            err_msg = f"invalid n in {_position(threshold)}-of-{n}:"
             err_msg += f" 1 to {_MAX_KEYS} keys, which is what op_int spells"
             raise BTClibValueError(err_msg)
         if not 0 < threshold <= n:
-            err_msg = f"invalid threshold in {_quoted(threshold)}-of-{_quoted(n)}"
+            err_msg = f"invalid threshold of {_position(n)} keys: {_quoted(threshold)}"
             raise BTClibValueError(err_msg)
         self.threshold = threshold
         self.verify = verify
@@ -712,9 +712,9 @@ class ScriptWallet(RangedWallet):
             raise BTClibValueError(f"invalid output index: {_quoted(vout_i)}")
         paid = psbt.tx.vout[vout_i].script_pub_key.script
         if self._script_pub_key(branch, index).script != paid:
-            err_msg = f"output {_quoted(vout_i)} pays to another script than"
-            err_msg += f" the one this wallet derives at {_quoted(branch)}/"
-            err_msg += _quoted(index)
+            err_msg = f"output {_position(vout_i)} pays to another script than"
+            err_msg += f" the one this wallet derives at {_position(branch)}/"
+            err_msg += _position(index)
             raise BTClibValueError(err_msg)
         psbt = deepcopy(psbt)
         self._update(psbt.outputs[vout_i], branch, index)
@@ -902,7 +902,7 @@ class ScriptWallet(RangedWallet):
             own = self._script_pub_key(branch, index).script
             if lifted != own:
                 err_msg = "the lifted descriptor pays to another script at"
-                err_msg += f" {_quoted(branch)}/{_quoted(index)} than this wallet"
+                err_msg += f" {_position(branch)}/{_position(index)} than this wallet"
                 raise BTClibRuntimeError(err_msg)
 
     def descriptor(

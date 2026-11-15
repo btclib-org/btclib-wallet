@@ -71,7 +71,6 @@ from btclib_wallet.bip32.der_path import (
     HARDENED_OFFSET,
     DerPath,
     indexes_from_der_path,
-    str_from_index_int,
 )
 
 __all__ = [
@@ -174,12 +173,7 @@ def _assert_valid_der_path(indexes: list[int]) -> None:
         err_msg += f" instead of {_MIN_INDEXES} or more"
         raise BTClibValueError(err_msg)
     if indexes[0] != _PURPOSE + HARDENED_OFFSET:
-        # the level as a path step and not as the index it is: an
-        # unhardened 83696968 and a hardened one are 2**31 apart as
-        # numbers and one apostrophe apart in what the caller wrote
-        err_msg = (
-            f"not a bip85 derivation path: {_quoted(str_from_index_int(indexes[0]))}"
-        )
+        err_msg = f"not a bip85 derivation path: {_quoted(indexes[0])}"
         raise BTClibValueError(err_msg)
     if any(index < HARDENED_OFFSET for index in indexes):
         raise BTClibValueError("unhardened bip85 derivation path")

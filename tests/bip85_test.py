@@ -347,9 +347,13 @@ def test_nostr_application(vector: dict[str, Any]) -> None:
 
 def test_nostr_identity_and_account_index_are_reserved_at_zero() -> None:
     """0' of either level is the BIP's reserved key-management slot."""
-    with pytest.raises(BTClibValueError, match="invalid nostr identity: 0"):
+    with pytest.raises(
+        BTClibValueError, match="invalid nostr identity: an int of 0 bits"
+    ):
         nsec_from_root_key(_ROOT, 0, 1)
-    with pytest.raises(BTClibValueError, match="invalid nostr account index: 0"):
+    with pytest.raises(
+        BTClibValueError, match="invalid nostr account index: an int of 0 bits"
+    ):
         nsec_from_root_key(_ROOT, 1, 0)
 
 
@@ -435,7 +439,9 @@ def test_the_drng_seed_is_exactly_64_bytes() -> None:
     with pytest.raises(BTClibValueError, match="invalid size: 32 bytes"):
         BIP85DRNG(bytes(32))
 
-    with pytest.raises(BTClibValueError, match="invalid number of bytes: -1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid number of bytes: a negative int of 1 bits"
+    ):
         BIP85DRNG(bytes(64)).read(-1)
 
 
@@ -451,9 +457,9 @@ def test_a_public_root_key_is_refused() -> None:
     [
         ("m/83696968h/0h", "too few bip85 path levels: 2"),
         ("m", "too few bip85 path levels: 0"),
-        ("m/44h/0h/0h", "not a bip85 derivation path: '44h'"),
+        ("m/44h/0h/0h", "not a bip85 derivation path: an int of 32 bits"),
         ("m/83696968h/0h/0", "unhardened bip85 derivation path"),
-        ("m/83696968/0h/0h", "not a bip85 derivation path: '83696968'"),
+        ("m/83696968/0h/0h", "not a bip85 derivation path: an int of 27 bits"),
     ],
 )
 def test_a_path_bip85_defines_no_entropy_for(der_path: str, err_msg: str) -> None:
@@ -464,7 +470,9 @@ def test_a_path_bip85_defines_no_entropy_for(der_path: str, err_msg: str) -> Non
 
 def test_an_application_parameter_outside_its_table() -> None:
     """Each application refuses what its own section bounds."""
-    with pytest.raises(BTClibValueError, match="invalid number of words: 13"):
+    with pytest.raises(
+        BTClibValueError, match="invalid number of words: an int of 4 bits"
+    ):
         mnemonic_from_root_key(_ROOT, 13)
 
     with pytest.raises(BTClibValueError, match="unnumbered bip85 language: 'ru'"):
@@ -479,28 +487,44 @@ def test_an_application_parameter_outside_its_table() -> None:
         with pytest.raises(BTClibTypeError, match=f"^invalid lang type: {name}$"):
             mnemonic_from_root_key(_ROOT, 12, lang)  # type: ignore[arg-type]
 
-    with pytest.raises(BTClibValueError, match="invalid number of bytes: 15"):
+    with pytest.raises(
+        BTClibValueError, match="invalid number of bytes: an int of 4 bits"
+    ):
         bytes_entropy_from_root_key(_ROOT, 15)
 
-    with pytest.raises(BTClibValueError, match="invalid number of bytes: 65"):
+    with pytest.raises(
+        BTClibValueError, match="invalid number of bytes: an int of 7 bits"
+    ):
         bytes_entropy_from_root_key(_ROOT, 65)
 
-    with pytest.raises(BTClibValueError, match="invalid password length: 19"):
+    with pytest.raises(
+        BTClibValueError, match="invalid password length: an int of 5 bits"
+    ):
         base64_password_from_root_key(_ROOT, 19)
 
-    with pytest.raises(BTClibValueError, match="invalid password length: 87"):
+    with pytest.raises(
+        BTClibValueError, match="invalid password length: an int of 7 bits"
+    ):
         base64_password_from_root_key(_ROOT, 87)
 
-    with pytest.raises(BTClibValueError, match="invalid password length: 9"):
+    with pytest.raises(
+        BTClibValueError, match="invalid password length: an int of 4 bits"
+    ):
         base85_password_from_root_key(_ROOT, 9)
 
-    with pytest.raises(BTClibValueError, match="invalid password length: 81"):
+    with pytest.raises(
+        BTClibValueError, match="invalid password length: an int of 7 bits"
+    ):
         base85_password_from_root_key(_ROOT, 81)
 
-    with pytest.raises(BTClibValueError, match="invalid number of rolls: 0"):
+    with pytest.raises(
+        BTClibValueError, match="invalid number of rolls: an int of 0 bits"
+    ):
         rolls_from_root_key(_ROOT, 0)
 
-    with pytest.raises(BTClibValueError, match="invalid number of sides: 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid number of sides: an int of 1 bits"
+    ):
         rolls_from_root_key(_ROOT, 10, 1)
 
 
@@ -543,7 +567,7 @@ def test_a_key_passed_as_a_parameter_is_not_echoed() -> None:
     assert_secret_free(lang_e.value, secrets)
 
     scalar = int.from_bytes(shake_256(b"btclib-wallet issue 351").digest(32))
-    err_msg = "^invalid number of words: a value of"
+    err_msg = f"^invalid number of words: an int of {scalar.bit_length()} bits;"
     with pytest.raises(BTClibValueError, match=err_msg) as words_e:
         mnemonic_from_root_key(_ROOT, scalar)
     assert_secret_free(words_e.value, [str(scalar), str(scalar)[:-1]])
@@ -551,9 +575,11 @@ def test_a_key_passed_as_a_parameter_is_not_echoed() -> None:
 
 def test_a_huge_integer_for_the_number_of_words_is_a_refusal() -> None:
     """An integer past the digit limit has no `str`, and no builtin leaks."""
-    with pytest.raises(BTClibValueError, match="^invalid number of words: a value"):
+    err_msg = f"^invalid number of words: an int of {(10**5000).bit_length()} bits;"
+    with pytest.raises(BTClibValueError, match=err_msg):
         mnemonic_from_root_key(_ROOT, 10**5000)
-    with pytest.raises(BTClibValueError, match="^invalid number of words: 1000000"):
+    err_msg = "^invalid number of words: an int of 20 bits;"
+    with pytest.raises(BTClibValueError, match=err_msg):
         mnemonic_from_root_key(_ROOT, 1_000_000)
 
 
@@ -618,7 +644,7 @@ def test_a_subclass_does_not_shorten_what_is_quoted() -> None:
     assert words < 0
     assert words > 0
     assert str(words) == "1"
-    err_msg = "^invalid number of words: a value of more than 16 digits;"
+    err_msg = f"^invalid number of words: an int of {scalar.bit_length()} bits;"
     with pytest.raises(BTClibValueError, match=err_msg) as words_e:
         mnemonic_from_root_key(_ROOT, words)
     assert_secret_free(words_e.value, secrets)
@@ -650,11 +676,11 @@ class _LyingInt(int):
         return 1
 
 
-def test_an_int_is_measured_by_its_digits_not_its_int() -> None:
+def test_an_int_is_described_by_its_value_not_its_int() -> None:
     """On PyPy, `int.__abs__` calls the value's `__int__`, which can lie."""
     words = _LyingInt(10**17)
     assert (int(words), words.__index__()) == (1, 1)
-    err_msg = "^invalid number of words: a value of more than 16 digits;"
+    err_msg = f"^invalid number of words: an int of {(10**17).bit_length()} bits;"
     with pytest.raises(BTClibValueError, match=err_msg):
         mnemonic_from_root_key(_ROOT, words)
     assert _message_text(_LyingInt(-5)) == "a negative int of 3 bits"

@@ -202,7 +202,7 @@ def test_unknown_purpose() -> None:
     """Refuse purpose 48 bare, and let the script type override win."""
     # 48 is BIP48, multi-signature: a real purpose, and one whose script
     # type an account key does not determine
-    err_msg = "unknown BIP44 purpose: 48 not in "
+    err_msg = "unknown BIP44 purpose: an int of 6 bits not in "
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(_XPRV_ROOT, "m/48h/0h/0h/0/0")
 
@@ -253,7 +253,7 @@ def test_coin_type() -> None:
 
     # 2 is Litecoin: another chain, and no bitcoin address to give it
     with pytest.raises(
-        BTClibValueError, match="unregistered BIP44 coin type: 2 not in"
+        BTClibValueError, match="unregistered BIP44 coin type: an int of 2 bits not in"
     ):
         address_from_der_path(_XPRV_ROOT, "m/44h/2h/0h/0/0")
 
@@ -283,14 +283,14 @@ def test_key_depth() -> None:
     # the account xpub of another account: the depth says which index of
     # the path the key must be, and it is not that one
     xpub = bip32.xpub_from_xprv(bip32.derive(_ZPRV_ROOT, "m/84h/0h/1h"))
-    err_msg = "key index '1h' at depth 3 is not the path's '0h'"
+    err_msg = "key index an int of 32 bits at depth 3 is not the path's 2147483648"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xpub, der_path)
 
     # a key deeper than the path itself has no tail left to walk, and the
     # bound is the path's own length: an account path is three levels
     xkey = bip32.derive(_ZPRV_ROOT, "m/84h/0h/0h/0/0/0")
-    err_msg = "invalid key depth: 6 is past the 5 levels of the path"
+    err_msg = "invalid key depth: an int of 3 bits is past the 5 levels of the path"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xkey, der_path)
 
@@ -407,7 +407,9 @@ def test_the_account_descriptors_of_each_purpose() -> None:
     # a purpose the mapping does not name is refused, and script_type is
     # the override -- BIP48 multisig, whose script type an account key does
     # not determine
-    with pytest.raises(BTClibValueError, match="unknown BIP44 purpose: 48"):
+    with pytest.raises(
+        BTClibValueError, match="unknown BIP44 purpose: an int of 6 bits"
+    ):
         account_descriptors(_XPRV_ROOT, "m/48h/0h/0h")
     overridden = account_descriptors(_XPRV_ROOT, "m/48h/0h/0h", None, "p2wpkh")[0]
     assert str(overridden).startswith("wpkh(")
@@ -453,7 +455,7 @@ def test_account_descriptors_validates_an_already_built_key_too() -> None:
     assert str(receive) == str(account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")[0])
 
     bad = replace_unchecked(bip32.BIP32KeyData.b58decode(_XPRV_ROOT), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -503,7 +505,9 @@ def test_an_account_path_is_three_hardened_levels() -> None:
         match="coin type 1 is 'test', the extended key is 'main'",
     ):
         account_descriptors(_XPRV_ROOT, "m/84h/1h/0h")
-    with pytest.raises(BTClibValueError, match="unregistered BIP44 coin type: 2"):
+    with pytest.raises(
+        BTClibValueError, match="unregistered BIP44 coin type: an int of 2 bits"
+    ):
         account_descriptors(_XPRV_ROOT, "m/84h/2h/0h")
 
     # a key below the account level has walked past the path
@@ -514,7 +518,7 @@ def test_an_account_path_is_three_hardened_levels() -> None:
     other = bip32.xpub_from_xprv(bip32.derive(_XPRV_ROOT, "m/84h/0h/1h"))
     with pytest.raises(
         BTClibValueError,
-        match="key index '1h' at depth 3 is not the path's '0h'",
+        match="key index an int of 32 bits at depth 3 is not the path's 2147483648",
     ):
         account_descriptors(other, "m/84h/0h/0h", "deadbeef")
 
@@ -741,7 +745,9 @@ def test_discover_account_refuses_a_reader_and_a_limit() -> None:
         discover_account(pair, object())  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid gap_limit type: bool"):
         discover_account(pair, _Chain(), gap_limit=True)
-    with pytest.raises(BTClibValueError, match="invalid gap_limit: 0 is below 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid gap_limit: an int of 0 bits is below 1"
+    ):
         discover_account(pair, _Chain(), gap_limit=0)
     with pytest.raises(BTClibValueError, match="is above the 2147483648 indexes"):
         discover_account(pair, _Chain(), gap_limit=2**31 + 1)
@@ -836,14 +842,18 @@ def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
         (
             {84: [_account_xpub("m/84h/0h/1h")]},
             BTClibValueError,
-            "key index '1h' at depth 3 is not the path's '0h'",
+            "key index an int of 32 bits at depth 3 is not the path's 2147483648",
         ),
         (
             {84: [bip32.xpub_from_xprv(_XPRV_ROOT)]},
             BTClibValueError,
             "invalid hardened derivation from public key",
         ),
-        ({48: [_account_xpub("m/48h/0h/0h")]}, BTClibValueError, "purpose: 48"),
+        (
+            {48: [_account_xpub("m/48h/0h/0h")]},
+            BTClibValueError,
+            "purpose: an int of 6 bits",
+        ),
     ],
 )
 def test_discover_accounts_checks_every_argument_before_reading(
@@ -862,7 +872,9 @@ def test_discover_accounts_refuses_a_reader_and_the_limits() -> None:
     chain = _Chain()
     with pytest.raises(BTClibTypeError, match="not a HistoryReader: NoneType"):
         discover_accounts(xpubs, None, _FINGERPRINT)  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="invalid account_gap: 0 is below 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid account_gap: an int of 0 bits is below 1"
+    ):
         discover_accounts(xpubs, chain, _FINGERPRINT, account_gap=0)
     with pytest.raises(BTClibTypeError, match="invalid gap_limit type: float"):
         discover_accounts(xpubs, chain, _FINGERPRINT, gap_limit=1.5)  # type: ignore[arg-type]

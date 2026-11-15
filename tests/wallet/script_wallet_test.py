@@ -314,13 +314,19 @@ def test_a_quorum_is_bounded_by_what_op_int_spells() -> None:
         KeyGroup(1, [])
     with pytest.raises(BTClibValueError, match="invalid n in 1-of-17"):
         KeyGroup(1, _XPUBS[:1] * 17)
-    with pytest.raises(BTClibValueError, match="invalid threshold in 4-of-3"):
+    with pytest.raises(
+        BTClibValueError, match="invalid threshold of 3 keys: an int of 3 bits"
+    ):
         KeyGroup(4, _XPUBS)
-    with pytest.raises(BTClibValueError, match="invalid threshold in 0-of-3"):
+    with pytest.raises(
+        BTClibValueError, match="invalid threshold of 3 keys: an int of 0 bits"
+    ):
         KeyGroup(0, _XPUBS)
     # and below zero, which a window asserted at 0 alone lets through: the
     # floor is a quorum of one and not "not zero"
-    with pytest.raises(BTClibValueError, match="invalid threshold in -1-of-3"):
+    with pytest.raises(
+        BTClibValueError, match="invalid threshold of 3 keys: a negative int of 1 bits"
+    ):
         KeyGroup(-1, _XPUBS)
     # a group takes any spelling of an extended key, decoded or not
     assert (
@@ -338,7 +344,7 @@ def test_a_decoded_key_is_validated_too() -> None:
     `BIP32KeyData` in `keys` unasked.
     """
     bad = replace_unchecked(BIP32KeyData.b58decode(_XPUBS[0]), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -639,7 +645,7 @@ def test_a_key_origin_is_checked_against_the_key_it_belongs_to() -> None:
         KeyGroup(1, _XPUBS[:1], origins=[BIP32KeyOrigin(_FINGERPRINT, "m/48h/0h")])
     with pytest.raises(
         BTClibValueError,
-        match="invalid key origin: it ends at 2147483648, and the key's own index is 2147483649",
+        match="invalid key origin: it ends at an int of 32 bits, and the key's own index is 2147483649",
     ):
         KeyGroup(1, _XPUBS[:1], origins=[BIP32KeyOrigin(_FINGERPRINT, "m/48h/0h/0h")])
     with pytest.raises(BTClibValueError, match="own fingerprint is"):
@@ -663,16 +669,22 @@ def test_the_updaters_refuse_a_position_or_a_psbt_index_they_have_not() -> None:
     wallet = ScriptWallet([KeyGroup(2, _XPUBS, origins=_ORIGINS)], "p2wsh", "derived")
     psbt = _psbt_spending(wallet.script_pub_key())
 
-    with pytest.raises(BTClibValueError, match="invalid input index: 1"):
+    with pytest.raises(BTClibValueError, match="invalid input index: an int of 1 bits"):
         wallet.update_psbt_input(psbt, 1)
-    with pytest.raises(BTClibValueError, match="invalid input index: -1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid input index: a negative int of 1 bits"
+    ):
         wallet.update_psbt_input(psbt, -1)
-    with pytest.raises(BTClibValueError, match="invalid output index: 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid output index: an int of 1 bits"
+    ):
         wallet.update_psbt_output(psbt, 1)
-    with pytest.raises(BTClibValueError, match="invalid output index: -1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid output index: a negative int of 1 bits"
+    ):
         wallet.update_psbt_output(psbt, -1)
     for method in (wallet.update_psbt_input, wallet.update_psbt_output):
-        with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+        with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
             method(psbt, 0, 2, 0)
 
 
@@ -973,9 +985,11 @@ def test_a_lift_that_derives_something_else_is_not_handed_back(
 def test_a_lift_is_confirmed_at_two_positions_or_the_call_is_refused() -> None:
     """One is index 0, which is where the expression was read: no evidence."""
     wallet = ScriptWallet([KeyGroup(2, _XPUBS)], "p2wsh")
-    with pytest.raises(BTClibValueError, match="invalid checked_indexes: 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid checked_indexes: an int of 1 bits"
+    ):
         wallet.descriptor(0, 1)
     # and a branch this wallet has no chain at is refused as everywhere
     # else, the position being checked before anything is derived
-    with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+    with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
         wallet.descriptor(2)
