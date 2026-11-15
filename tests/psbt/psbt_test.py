@@ -4589,7 +4589,7 @@ def test_finalizing_keeps_the_silent_payment_input_fields() -> None:
     """
     signed, _ = _single_key_psbt("p2wsh")
     signed.version = PSBT_V2  # BIP375's fields are refused in a v0 psbt
-    share = b"\x02" + b"\x11" * 32
+    share = _PUB_KEY  # a point, which BIP375 asks a share to be
     proof = b"\x22" * 64
     signed.inputs[0].sp_ecdh_shares = {_PUB_KEY: share}
     signed.inputs[0].sp_dleq_proofs = {_PUB_KEY: proof}

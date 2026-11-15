@@ -27,6 +27,7 @@ that case.
 from __future__ import annotations
 
 from copy import deepcopy
+from hashlib import sha256
 from typing import Any
 
 import pytest
@@ -61,6 +62,7 @@ from btclib_wallet.psbt import (
 from btclib_wallet.psbt import silent_payments as role
 from btclib_wallet.psbt_signer import SoftwareSigner
 from tests import load, vector_id
+from tests.secret_free import assert_secret_free
 
 _VECTORS = load("psbt", "_data", "bip375_test_vectors.json", encoding="utf-8")
 
@@ -867,6 +869,48 @@ def test_sign_refuses_a_script_or_a_share_that_does_not_verify() -> None:
     forged.inputs[0].sp_ecdh_shares[scan_key] = bytes_from_point(mult(2))
     with pytest.raises(BTClibValueError, match="invalid DLEQ proof"):
         sign(forged, _SIGNER)
+
+
+# a compressed point's prefix before a fixed random x-coordinate that is on
+# no point of the curve: x**3 + 7 is not a square modulo p
+_NOT_A_SHARE = b"\x02" + sha256(b"issue 979 share 1").digest()
+
+
+@pytest.mark.parametrize(
+    "field, prefix",
+    [
+        ("global", "can finalize: two inputs single-signer using global"),
+        ("input", "can finalize: two inputs single-signer using per"),
+    ],
+)
+def test_a_share_that_is_no_point_is_refused_as_its_field(
+    field: str, prefix: str
+) -> None:
+    """A share that is no point is refused when the psbt is read.
+
+    Its length alone does not say so: such a share would reach
+    `ecc.dleq.verify_proof`, whose refusal names no field. The refusal
+    names the field and the entry, and none of the share's bytes past its
+    prefix.
+    """
+    psbt = _decoded(_vector("valid", prefix)["psbt"])
+    holder = psbt if field == "global" else psbt.inputs[0]
+    scan_key, share = next(iter(holder.sp_ecdh_shares.items()))
+    # the share swapped in the bytes, since `serialize` refuses to write it
+    psbt_bin = psbt.serialize()
+    assert psbt_bin.count(share) == 1
+    psbt_bin = psbt_bin.replace(share, _NOT_A_SHARE)
+    holder.sp_ecdh_shares[scan_key] = _NOT_A_SHARE
+
+    err_msg = f"^invalid silent payment {field} ecdh share: not a point, "
+    err_msg += "33 bytes, prefix 0x02, 'entry 0'$"
+    with pytest.raises(BTClibValueError, match=err_msg) as parsed:
+        Psbt.parse(psbt_bin)
+    assert_secret_free(parsed.value, [_NOT_A_SHARE, _NOT_A_SHARE[1:]])
+    with pytest.raises(BTClibValueError, match=err_msg):
+        role.assert_as_valid(psbt)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        sign(psbt, _SIGNER)
 
 
 def test_extract_tx_checks_the_silent_payment_outputs() -> None:
