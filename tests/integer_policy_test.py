@@ -289,8 +289,8 @@ def test_a_branch_is_an_int_by_its_type_whatever_its_class_claims() -> None:
     """The type decides, as `_quoted` does, and `__class__` is never read.
 
     An int subclass is a label whether its `__class__` claims bool or
-    raises; `isinstance`, which reads `__class__`, would refuse the first
-    and raise from the second.
+    raises; `isinstance`, which reads `__class__`, calls the first a bool
+    and raises from the second.
     """
 
     def no_class(_self: object) -> type:
