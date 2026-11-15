@@ -37,10 +37,10 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import cast
 
-from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _quoted, _refused_type
 from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.descriptors import (
     Descriptor,
@@ -65,26 +65,6 @@ _MAX_DEPTH = 0xFF - 2
 # Every type is decided by `type(x) is` a built-in, an identity: `in`,
 # `==`, `hash`, `isinstance` and `issubclass` can each call a method of
 # the caller's class or of its metaclass, which can answer anything
-
-# the name a class holds, read by `type`'s own descriptor: a metaclass of
-# the caller's can define a `__name__` of its own, which would run
-_NAME = vars(type)["__name__"]
-
-
-def _refused_type(value: object, name: str) -> BTClibTypeError:
-    """Return the refusal of a value of a type other than exactly its own.
-
-    It names where the value is and its type, as `_quoted` quotes a name,
-    and nothing of the value: none of its methods is called, and the type
-    is read by `type()`, not by `isinstance`, which asks the value for
-    its `__class__`.
-    """
-    # a class's name is a str, or a subclass of str a caller assigned,
-    # whose metaclass's `mro` can leave str out: `str.__add__` then
-    # refuses it, and `_quoted` asks its metaclass for its name. `join`
-    # copies any str, by the flag CPython keeps, into an exact str
-    kind = "".join((_NAME.__get__(type(value), type),))
-    return BTClibTypeError(f"invalid {name} type: {_quoted(kind)}")
 
 
 def _items(value: object, name: str) -> list[object]:
