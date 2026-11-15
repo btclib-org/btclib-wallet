@@ -103,6 +103,10 @@ submodule loads on first attribute access through the package's own
   BIP44's account discovery over those descriptors, read through a
   `fetch.HistoryReader` the caller passes. `bip44` imports `fetch` for
   its annotations alone, so importing `bip44` loads no client.
+- `recovery_paths.py` returns the receive and change descriptors of a
+  wallet whose recovery quorums spend after a relative timelock:
+  `recovery_descriptors` writes the miniscript and hands it to
+  `descriptors.parse`, so `recovery_paths` imports `descriptors`.
 - `bip38.py` and `minikey.py` spell a single private key that no seed
   derives: BIP38 encrypts it under a password with scrypt and AES, and a
   Casascius minikey is a short string whose `sha256` is the key itself.
