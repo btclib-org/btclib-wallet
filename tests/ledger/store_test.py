@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import functools
 import json
 import os
@@ -195,6 +196,48 @@ def test_a_create_that_cannot_open_its_file_leaves_none(
     with pytest.raises(BTClibValueError, match="cannot open the ledger file"):
         Ledger.create(path, "regtest", chain)
     assert not path.exists()
+
+
+def refuse_removal(monkeypatch: pytest.MonkeyPatch, folder: Path) -> None:
+    """Refuse to remove a file in `folder`, as where it has no write permission.
+
+    The error is the one the system raises there, its text and `filename`
+    the file's path. A removal of a file elsewhere fails the test.
+    """
+
+    def refused(self: Path, missing_ok: bool = False) -> None:
+        assert self.parent == folder
+        raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(self))
+
+    monkeypatch.setattr(Path, "unlink", refused)
+
+
+def test_a_create_whose_file_cannot_be_removed_raises_its_failure(
+    chain: FakeChain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key's hex in the path is in no error (issue #907).
+
+    The create is interrupted after making its file, and the system
+    refuses to remove that file: the interrupt is raised as it was, and
+    the file is left.
+    """
+    folder = tmp_path / HEX
+    folder.mkdir()
+    target = folder / "ledger.sqlite"
+    interrupt = KeyboardInterrupt()
+
+    def interrupted(path: Path, mode: str) -> sqlite3.Connection:
+        raise interrupt
+
+    monkeypatch.setattr(store, "_connect", interrupted)
+    refuse_removal(monkeypatch, folder)
+    with pytest.raises(KeyboardInterrupt) as e:
+        Ledger.create(target, "regtest", chain)
+    raised = e.value
+    assert id(raised) == id(interrupt)
+    assert raised.__context__ is None
+    assert_secret_free(raised, SPELLINGS)
+    assert target.exists()
 
 
 def test_a_file_that_names_no_network_is_refused(chain: FakeChain, path: Path) -> None:

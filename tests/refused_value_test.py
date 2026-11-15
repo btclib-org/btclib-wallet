@@ -535,10 +535,30 @@ def test_an_int_equal_to_all_is_in_any_range() -> None:
     assert _EqualToAll(SCALAR) in range(-(2**15), 2**15)
 
 
+class _ItsOwnInt(_EqualToAll):
+    """An int equal to every value, whose `__int__` answers itself.
+
+    On PyPy `int.__int__` calls the value's own `__int__`, so a code read
+    through it keeps this class, and its comparison passes any bound
+    (issue #889).
+    """
+
+    @override
+    def __int__(self) -> int:
+        return self
+
+
+def test_an_int_that_is_its_own_int_is_in_any_range() -> None:
+    """Read through its own `__int__`, as PyPy's `int.__int__` reads it."""
+    code = _ItsOwnInt(SCALAR)
+    assert code.__int__() is code
+    assert code.__int__() in range(-(2**15), 2**15)
+
+
 @pytest.mark.parametrize(
     "code",
-    [SCALAR, -SCALAR, _EqualToAll(SCALAR), HEX],
-    ids=["scalar", "negative scalar", "int equal to all", "hex"],
+    [SCALAR, -SCALAR, _EqualToAll(SCALAR), _ItsOwnInt(SCALAR), HEX],
+    ids=["scalar", "negative scalar", "int equal to all", "its own int", "hex"],
 )
 def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None:
     """JSON bounds no integer, so a code can hold a key (issue #836)."""
