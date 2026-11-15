@@ -93,7 +93,10 @@ def test_the_server_serves_this_chain(kind: str, stack: Stack) -> None:
     """`assert_network` passes for regtest and refuses a mainnet label."""
     make_fetcher(kind, stack).assert_network()
     wrong = make_fetcher(kind, stack, "mainnet")
-    with pytest.raises(BTClibValueError, match="genesis"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the regtest chain, and this fetcher was built for mainnet$",
+    ):
         wrong.assert_network()
 
 
