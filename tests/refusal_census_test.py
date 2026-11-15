@@ -79,9 +79,10 @@ through `_code`, `_message_text`, `_position` or `_quoted`, or not at all.
 What a refusal still raises that the census does not trace is in `KEPT`,
 an exception one function raises by name, each entry with its reason. An
 entry no refusal uses fails the census. A `_position` the census finds
-compared with a constant, and that writes a size or an amount rather
-than the value refused, is in `MEASURED`, each entry with its reason, and
-an entry no finding uses fails the census too.
+compared with a constant, and that writes what section 7 lets a refusal
+print, such as a size the package measures, rather than a value a caller
+handed over, is in `MEASURED`, each entry with its reason, and an entry
+no finding uses fails the census too.
 
 It takes three things on trust. A callable of `_OUTSIDE_CALLS` or
 `_OUTSIDE_METHODS` answers a part of what it is handed and of what it is
@@ -1900,8 +1901,8 @@ KEPT = {
 
 #: A `_position` of a value an `if` compares with a constant, keyed by
 #: module, function and the call's source, each with its reason: the value
-#: is a size or an amount the package measures, which the refusal may
-#: print, and not the value it refuses.
+#: is one section 7 lets a refusal print, such as a size the package
+#: measures, and not one a caller handed over.
 MEASURED = {
     ("bip322.py", "_assert_weight", "_position(weight)"): (
         "the weight of to_sign, which `Tx.weight` measures: its size"
@@ -1909,9 +1910,9 @@ MEASURED = {
     ("bip322.py", "_assert_sig_op_cost", "_position(cost)"): (
         "the sigop cost `sig_op_cost` counts in to_sign and to_spend"
     ),
-    ("dlc/transactions.py", "_change", "_position(change)"): (
-        "the change the inputs leave once the collateral and the fees are"
-        " paid, an amount the function computes"
+    ("wallet/key_wallet.py", "_account_xkey", "_position(xkey.depth)"): (
+        "the depth of an extended key that parsed: a byte BIP32 defines for"
+        " each of its values, read from the key and not handed by the caller"
     ),
     ("silent_payments.py", "_assert_labels", "_position(tweak.itemsize)"): (
         "the item size of a memoryview, a part of its type, which section 7"

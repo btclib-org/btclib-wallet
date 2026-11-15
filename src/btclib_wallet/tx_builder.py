@@ -241,7 +241,7 @@ def _assert_fee_within(
     where it signs, and this estimate bounds the signed one from above.
     """
     if fee > max_fee:
-        err_msg = f"a fee of {_position(fee)} satoshi exceeds max_fee, "
+        err_msg = f"a fee of {_quoted(fee)} exceeds max_fee, "
         err_msg += f"{_position(max_fee)} satoshi"
         raise BTClibValueError(err_msg)
     _assert_max_fee_rate(fee, vsize, max_fee_rate)
@@ -356,10 +356,9 @@ def build_psbt(
     for i, tx_out in enumerate(outputs):
         threshold = dust_threshold(tx_out.script_pub_key.script, dust_fee_rate)
         if tx_out.value < threshold:
-            err_msg = (
-                f"output {_position(i)} of {_position(tx_out.value)} satoshi is dust: "
-            )
-            err_msg += f"its script's threshold is {_position(threshold)} satoshi"
+            err_msg = f"output {_position(i)} is dust: its value, "
+            err_msg += f"{_quoted(tx_out.value)}, is below its script's threshold"
+            err_msg += f" of {_position(threshold)} satoshi"
             raise BTClibValueError(err_msg)
     if lock_time != 0 and all(
         tx_in.sequence == SEQUENCE_FINAL for tx_in in psbt.tx.vin

@@ -40,7 +40,8 @@ def test_slip132() -> None:
     address = slip132.address_from_xpub(xpub)
     assert slip132.address_from_xkey(xprv) == address
     assert address == "1DjfiAgNyvRXhYXiDgE9K7bfB82hVUPTm1"
-    with pytest.raises(BTClibValueError, match="not a root key: "):
+    # the depth of a key that parsed says where it is, and is written
+    with pytest.raises(BTClibValueError, match=r"^not a root key: depth \d+$"):
         slip132.p2pkh_xkey(xprv)
 
     yprv = slip132.p2wpkh_p2sh_xkey(mxprv)

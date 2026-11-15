@@ -36,6 +36,7 @@ from btclib.script import ScriptPubKey
 from btclib.script.engine import verify_transaction
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.descriptors import Descriptor
 from btclib_wallet.psbt.psbt import extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
@@ -479,7 +480,7 @@ def test_an_output_below_its_dust_threshold_is_refused() -> None:
     so an `OP_RETURN` carrying no value is paid.
     """
     threshold = dust_threshold(PAY_SCRIPT.script)
-    with pytest.raises(BTClibValueError, match=f"output 1 of {threshold - 1} "):
+    with pytest.raises(BTClibValueError, match=f"output 1 is dust: its value, {_quoted(threshold - 1)}, "):
         build_psbt(
             [spendable(100_000)],
             [TxOut(threshold, PAY_SCRIPT), TxOut(threshold - 1, PAY_SCRIPT)],
@@ -526,7 +527,7 @@ def test_a_fee_above_max_fee_is_refused() -> None:
         max_fee_rate=NO_RATE_CEILING,
     )
     assert built.fee == DEFAULT_MAX_FEE
-    with pytest.raises(BTClibValueError, match="a fee of 10000001 satoshi exceeds"):
+    with pytest.raises(BTClibValueError, match=f"a fee of {_quoted(10000001)} exceeds"):
         build_psbt(
             [spendable(value)],
             [TxOut(value - DEFAULT_MAX_FEE - 1, PAY_SCRIPT)],

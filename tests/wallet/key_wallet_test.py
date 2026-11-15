@@ -195,7 +195,7 @@ def test_the_key_index_must_be_the_path_element_at_its_depth() -> None:
     # a key already below the account level
     too_deep = bip32.derive(_ACCOUNT_44_XPUB, "m/0/0")
     with pytest.raises(
-        BTClibValueError, match="invalid key depth: an int of 3 bits is past the"
+        BTClibValueError, match="invalid key depth: 5 is past the"
     ):
         BIP32KeyWallet(too_deep, "m/44h/0h/0h")
 

@@ -424,11 +424,14 @@ class RangedWallet(Wallet, ABC):
         nothing downstream would either.
 
         An empty span is refused too: there is nothing to be right about,
-        and a caller that has written an empty file has not written a
-        span. Outputs are named however the caller holds them, as in
-        `position_of`, and the wallet's record is left alone -- checking
-        what was handed out is not handing it out again.
+        and a caller that has written an empty file has not written a span.
+        The branch and the first index are checked before it, as
+        `script_pub_key` checks them, so that no refusal names a position
+        nothing has checked. Outputs are named however the caller holds
+        them, as in `position_of`, and the wallet's record is left alone --
+        checking what was handed out is not handing it out again.
         """
+        self._assert_position(branch, first_index)
         if not addresses:
             err_msg = f"no addresses to check against branch {_position(branch)}"
             raise BTClibValueError(err_msg)

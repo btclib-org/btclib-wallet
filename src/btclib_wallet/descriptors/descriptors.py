@@ -935,7 +935,7 @@ class Descriptor(ABC):
         """
         _assert_index_range(index)
         if index and not self.is_ranged:
-            err_msg = f"not a ranged descriptor: no script at index {_quoted(index)}"
+            err_msg = f"not a ranged descriptor: no script at index {_position(index)}"
             raise BTClibValueError(err_msg)
 
     def script_pub_keys(

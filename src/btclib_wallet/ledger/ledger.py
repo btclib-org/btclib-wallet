@@ -1649,11 +1649,9 @@ class Ledger:
         relay = self._relay_fees()
         if fee_rate is not None:
             if relay is not None and fee_rate < relay.min_relay:
-                err_msg = (
-                    f"fee rate {_position(fee_rate.sats_per_kvbyte)} sat/kvB is below"
-                )
+                err_msg = f"fee rate {_quoted(fee_rate.sats_per_kvbyte)} is below"
                 err_msg += " the minimum relay rate "
-                err_msg += _position(relay.min_relay.sats_per_kvbyte)
+                err_msg += f"{_position(relay.min_relay.sats_per_kvbyte)} sat/kvB"
                 raise BTClibValueError(err_msg)
             return fee_rate
         rate = self._estimated(_CONFIRMATION_TARGET, relay)
@@ -2228,11 +2226,9 @@ class Ledger:
         """
         if fee_rate is not None:
             if relay is not None and fee_rate < relay.mempool_min:
-                err_msg = (
-                    f"fee rate {_position(fee_rate.sats_per_kvbyte)} sat/kvB is below"
-                )
+                err_msg = f"fee rate {_quoted(fee_rate.sats_per_kvbyte)} is below"
                 err_msg += " the mempool's minimum"
-                err_msg += f" {_position(relay.mempool_min.sats_per_kvbyte)}"
+                err_msg += f" {_position(relay.mempool_min.sats_per_kvbyte)} sat/kvB"
                 raise BTClibValueError(err_msg)
             return fee_rate
         incremental = (
@@ -2675,8 +2671,8 @@ def _fee_from_change(
     amount = value - (fee - probe.fee)
     if amount < dust_threshold(_script(change)):
         reason = "to pay the fee" if amount < 0 else "to send after the fee"
-        err_msg = f"the amount, {_position(value)} satoshi, is too small {reason}, "
-        err_msg += _position(fee)
+        err_msg = f"the amount, {_quoted(value)}, is too small {reason}, "
+        err_msg += f"{_position(fee)} satoshi"
         raise BTClibValueError(err_msg)
     _assert_fee_within(fee, vsize, DEFAULT_MAX_FEE, DEFAULT_MAX_FEE_RATE)
     psbt.outputs[0].amount = amount
@@ -2714,11 +2710,9 @@ def _assert_replaces(old_fee: int, fee: int, vsize: int, incremental: FeeRate) -
     """
     least = old_fee + fee_from_vsize(vsize, incremental)
     if fee < least:
-        err_msg = f"insufficient total fee {_position(fee)} satoshi, must be at least "
-        err_msg += (
-            f"{_position(least)} (old fee {_position(old_fee)} + incremental fee "
-        )
-        err_msg += f"{_position(least - old_fee)})"
+        err_msg = f"insufficient total fee {_quoted(fee)}, must be at least "
+        err_msg += f"{_position(least)} satoshi (old fee {_position(old_fee)}"
+        err_msg += f" + incremental fee {_position(least - old_fee)})"
         raise BTClibValueError(err_msg)
 
 

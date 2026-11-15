@@ -124,7 +124,7 @@ from btclib.tx import Tx
 from btclib.utils import is_integer
 from typing_extensions import override
 
-from btclib_wallet._refusal import _label, _message_text, _position
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 from btclib_wallet.exceptions import FetchError, _guarded_methods
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
@@ -558,7 +558,7 @@ class CompactFilterFetcher(NetworkVerifyingFetcher):
             past = median_time_past(parent, parent_height, self._parent_of)
             timestamp = int(header.time.timestamp())
             if timestamp <= past:
-                err_msg = f"time {_position(timestamp)} is not after"
+                err_msg = f"time {_quoted(timestamp)} is not after"
                 err_msg += f" the median time past {_position(past)}"
                 raise BTClibValueError(err_msg)
             assert_not_timewarp(header, parent, parent_height, self._consensus)

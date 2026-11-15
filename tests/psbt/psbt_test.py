@@ -5972,7 +5972,7 @@ def test_join_of_version_2_refuses_a_lock_time_raised_by_an_unsigned_psbt() -> N
     unsigned, _ = _v2_psbt(2, fallback=500)
 
     for pair in ([signed, unsigned], [unsigned, signed]):
-        with pytest.raises(BTClibValueError, match="0 to 500"):
+        with pytest.raises(BTClibValueError, match=f"{_quoted(0)} to {_quoted(500)}"):
             join(pair, False, False, False, False)
 
 
@@ -5982,7 +5982,7 @@ def test_join_of_version_2_refuses_a_required_lock_time_the_fallback_hides() -> 
     requiring, _ = _v2_psbt(2, height=500)
     assert requiring.lock_time == 500
 
-    with pytest.raises(BTClibValueError, match="0 to 500"):
+    with pytest.raises(BTClibValueError, match=f"{_quoted(0)} to {_quoted(500)}"):
         join([signed, requiring], False, False, False, False)
 
 
@@ -6059,7 +6059,7 @@ def test_join_of_version_2_refuses_a_finalized_signed_psbt() -> None:
     assert finalized.inputs[0].final_script_witness
     unsigned, _ = _v2_psbt(2, fallback=500)
 
-    with pytest.raises(BTClibValueError, match="0 to 500"):
+    with pytest.raises(BTClibValueError, match=f"{_quoted(0)} to {_quoted(500)}"):
         join([finalized, unsigned], False, False, False, False)
 
 

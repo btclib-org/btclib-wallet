@@ -4233,7 +4233,7 @@ def _assert_signatures_kept(psbts: Sequence[Psbt], joined: Psbt) -> None:
             continue
         if psbt.lock_time != joined.lock_time:
             err_msg = "the join changes the lock time of a signed psbt: "
-            err_msg += f"{_position(psbt.lock_time)} to {_position(joined.lock_time)}"
+            err_msg += f"{_quoted(psbt.lock_time)} to {_quoted(joined.lock_time)}"
             raise BTClibValueError(err_msg)
         if psbt.tx_version != joined.tx_version:
             err_msg = "the join changes the tx version of a signed psbt: "

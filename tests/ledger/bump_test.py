@@ -197,13 +197,15 @@ def test_a_named_rate_pays_the_incremental_rate_over_the_replacement(
     _funded(ledger, chain)
     # the spend paid 2 sat/vB, and the node's incremental rate is 1
     spent = ledger.spend([_outside()])
-    with pytest.raises(BTClibValueError, match="insufficient total fee"):
+    # the fee refused is described, and the least it must be is written
+    err_msg = r"^insufficient total fee an int of \d+ bits, must be at least \d+ "
+    with pytest.raises(BTClibValueError, match=err_msg):
         ledger.bump_psbt(spent.id, _rate(2))
     bumped = ledger.bump_psbt(spent.id, _rate(3))
     vsize = bumped.psbt.vsize_estimate(miniscript_sizer)
     assert bumped.fee == bumped.old_fee + vsize
     chain.relay = RelayFees(ONE_SAT, _rate(5), ONE_SAT)
-    with pytest.raises(BTClibValueError, match="below the mempool's minimum 5000"):
+    with pytest.raises(BTClibValueError, match="^fee rate an int of 12 bits is below the mempool's minimum 5000 sat/kvB$"):
         ledger.bump_psbt(spent.id, _rate(4))
 
 
@@ -381,7 +383,8 @@ def test_every_output_change_pays_the_fee(ledger: Ledger, chain: FakeChain) -> N
         [TxOut(99_800, receive)],
     )
     assert single.vin[0].sequence == 0xFFFFFFFF
-    with pytest.raises(BTClibValueError, match="too small to pay the fee"):
+    err_msg = r"^the amount, an int of \d+ bits, is too small to pay the fee, \d+ "
+    with pytest.raises(BTClibValueError, match=err_msg):
         ledger.bump_psbt(single.id, _rate(1_100), original_change_index=0)
     bumped = ledger.bump(single.id, _rate(10), original_change_index=0)
     assert len(bumped.vin) == len(bumped.vout) == 1

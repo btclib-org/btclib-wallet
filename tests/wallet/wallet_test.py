@@ -402,6 +402,9 @@ def test_a_span_filed_at_the_wrong_position_is_refused(
 
     with pytest.raises(BTClibValueError, match="no addresses to check"):
         wallet.assert_derives([], 1, 3)
+    # the branch is checked first, so that it is written only once checked
+    with pytest.raises(BTClibValueError, match="invalid branch: an int of 27 bits"):
+        wallet.assert_derives([], 123456789)
     with pytest.raises(BTClibValueError, match="not what 1/2 derives"):
         wallet.assert_derives(span, 1, 2)
     with pytest.raises(BTClibValueError, match="not what 0/3 derives"):

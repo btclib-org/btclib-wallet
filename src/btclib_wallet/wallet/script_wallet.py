@@ -422,8 +422,8 @@ class KeyGroup:
                 _assert_origin(key, origin)
         n = len(self.keys)
         if not 0 < n <= _MAX_KEYS:
-            err_msg = f"invalid n in {_position(threshold)}-of-{n}:"
-            err_msg += f" 1 to {_MAX_KEYS} keys, which is what op_int spells"
+            err_msg = f"invalid n in k-of-n: {n} keys, where 1 to {_MAX_KEYS} is"
+            err_msg += " what op_int spells"
             raise BTClibValueError(err_msg)
         if not 0 < threshold <= n:
             err_msg = f"invalid threshold of {_position(n)} keys: {_quoted(threshold)}"

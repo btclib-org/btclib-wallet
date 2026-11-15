@@ -310,10 +310,13 @@ def test_a_template_with_no_key_group_is_not_a_wallet() -> None:
 
 def test_a_quorum_is_bounded_by_what_op_int_spells() -> None:
     """1 to 16 keys, and a threshold no larger than the count."""
-    with pytest.raises(BTClibValueError, match="invalid n in 1-of-0"):
+    with pytest.raises(BTClibValueError, match="invalid n in k-of-n: 0 keys"):
         KeyGroup(1, [])
-    with pytest.raises(BTClibValueError, match="invalid n in 1-of-17"):
+    with pytest.raises(BTClibValueError, match="invalid n in k-of-n: 17 keys"):
         KeyGroup(1, _XPUBS[:1] * 17)
+    # the threshold is not checked yet, so it is not written
+    with pytest.raises(BTClibValueError, match="^invalid n in k-of-n: 0 keys,"):
+        KeyGroup(123456789, [])
     with pytest.raises(
         BTClibValueError, match="invalid threshold of 3 keys: an int of 3 bits"
     ):

@@ -383,8 +383,8 @@ def _change(party: DlcParty, fee_rate: int) -> int:
     change = sum(i.value for i in party.inputs) - party.collateral - fees
     if change < DUST_LIMIT:
         raise BTClibValueError(
-            f"the inputs leave {_position(change)} satoshis of change, "
-            f"under {DUST_LIMIT}"
+            f"the inputs leave {_quoted(change)} of change, "
+            f"under {DUST_LIMIT} satoshis"
         )
     return change
 
