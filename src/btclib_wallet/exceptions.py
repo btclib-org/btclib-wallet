@@ -347,7 +347,7 @@ def _caller_errors(request: str) -> Iterator[None]:
     what the caller's code gave it, which the census does not read. Its
     text is not relayed, and nothing is chained to the refusal, which
     `_failed` reads: an `RpcError` keeps its code and an `HttpError` its
-    status, as `_code` bounds them, and any other names its class. An
+    status, as `_code` bounds them, and any other names its class. A
     group of exceptions is refused as `_GROUPS` says, and any other exception
     passes as it is. `request` names the call, empty for none.
     """
@@ -456,9 +456,10 @@ def _interrupt(leaf: BaseException) -> BaseException:
         return _GeneratorExitException()
     if issubclass(kind, SystemExit):
         code = _EXIT_CODE.__get__(leaf, SystemExit)
-        return _SystemExitException(
-            code is not None and (type(code) is not int or code != 0)
-        )
+        # an int, a bool or an `IntEnum` among them, by its value, read by
+        # `int`'s own `__eq__`, so that no method of the caller's runs
+        success = code is None or (issubclass(type(code), int) and int.__eq__(code, 0))
+        return _SystemExitException(success is False)
     return BaseException()
 
 

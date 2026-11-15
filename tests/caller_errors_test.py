@@ -33,7 +33,7 @@ import inspect
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import is_dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 from types import FunctionType
 from typing import Any, TypeVar, get_origin
 
@@ -542,6 +542,22 @@ class _CallerGroup(BaseExceptionGroup[BaseException]):
     """A group class of the caller's, kept even where every leaf is one."""
 
 
+class _Status(IntEnum):
+    """Exit codes of the caller's, one of which `sys.exit` reads as success."""
+
+    OK = 0
+    FAILED = 1
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        """Raise, as a method of the caller's can."""
+        raise FetchError(  # pragma: no cover -- int's own __eq__ is called
+            f"no comparison for {HEX}"
+        )
+
+    __hash__ = IntEnum.__hash__
+
+
 class _Cancelled(BaseException):
     """An interrupt of the caller's own, such as a framework's cancel."""
 
@@ -570,10 +586,24 @@ def test_a_base_group_holding_a_fetch_error_is_refused_by_its_class() -> None:
         (SystemExit(2), SystemExit, True),
         (SystemExit(HEX), SystemExit, True),
         (SystemExit(0), SystemExit, False),
+        (SystemExit(False), SystemExit, False),
+        (SystemExit(_Status.OK), SystemExit, False),
+        (SystemExit(_Status.FAILED), SystemExit, True),
         (SystemExit(), SystemExit, False),
         (_Cancelled(HEX), BaseException, None),
     ],
-    ids=["interrupt", "exit", "exit 2", "exit text", "exit 0", "exit none", "other"],
+    ids=[
+        "interrupt",
+        "exit",
+        "exit 2",
+        "exit text",
+        "exit 0",
+        "exit false",
+        "exit enum 0",
+        "exit enum 1",
+        "exit none",
+        "other",
+    ],
 )
 def test_a_group_holding_an_interrupt_and_a_fetch_error_raises_the_interrupt(
     leaf: BaseException, kind: type[BaseException], code: object
