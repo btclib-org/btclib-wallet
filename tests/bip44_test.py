@@ -777,29 +777,43 @@ def test_discover_accounts_finds_an_account_past_an_unused_one() -> None:
     chain.pay(change_86.script_pub_key(4))
 
     found = discover_accounts(xpubs, chain, _FINGERPRINT, gap_limit=5)
-    assert list(found) == [(84, 0)]
-    assert found[84, 0].used == ((0,), ())
+    assert list(found.accounts) == [(84, 0)]
+    assert found.accounts[84, 0].used == ((0,), ())
+    assert found.cut_short == ()
 
     found = discover_accounts(xpubs, chain, _FINGERPRINT, account_gap=2, gap_limit=5)
-    assert list(found) == [(84, 0), (86, 1)]
-    assert found[86, 1].used == ((), (4,))
-    assert found[86, 1].descriptors == account_descriptors(
+    assert list(found.accounts) == [(84, 0), (86, 1)]
+    assert found.accounts[86, 1].used == ((), (4,))
+    assert found.accounts[86, 1].descriptors == account_descriptors(
         xpubs[86][1], "m/86h/0h/1h", _FINGERPRINT
     )
 
 
-def test_discover_accounts_refuses_to_stop_short_of_its_gap() -> None:
-    """Xpubs that end before `account_gap` unused accounts end nothing.
+def test_discover_accounts_cuts_short_a_purpose_whose_xpubs_end_first() -> None:
+    """A purpose whose every xpub is used keeps its accounts, and is cut short.
 
-    An account after them may be used, and the answer would not say so.
+    Purpose 84 is that purpose. An account after its xpubs may be used,
+    so the answer says so, and purpose 86 is read after it. Under 86
+    account 0 is used and account 1 is not: that ends the default gap of
+    1, and not a gap of 2.
     """
-    xpubs = {84: [_account_xpub("m/84h/0h/0h")]}
+    xpubs = {
+        84: [_account_xpub(f"m/84h/0h/{account}h") for account in range(2)],
+        86: [_account_xpub(f"m/86h/0h/{account}h") for account in range(2)],
+    }
     chain = _Chain()
-    receive, _ = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
-    chain.pay(receive.script_pub_key(0))
-    err_msg = "purpose 84: no xpub for account 1, and 0 of 1 unused accounts in a row"
-    with pytest.raises(BTClibValueError, match=err_msg):
-        discover_accounts(xpubs, chain, _FINGERPRINT)
+    for der_path in ("m/84h/0h/0h", "m/84h/0h/1h", "m/86h/0h/0h"):
+        receive, _ = account_descriptors(_XPRV_ROOT, der_path)
+        chain.pay(receive.script_pub_key(0))
+
+    found = discover_accounts(xpubs, chain, _FINGERPRINT, gap_limit=2)
+    assert list(found.accounts) == [(84, 0), (84, 1), (86, 0)]
+    assert all(use.used == ((0,), ()) for use in found.accounts.values())
+    assert found.cut_short == (84,)
+
+    found = discover_accounts(xpubs, chain, _FINGERPRINT, account_gap=2, gap_limit=2)
+    assert list(found.accounts) == [(84, 0), (84, 1), (86, 0)]
+    assert found.cut_short == (84, 86)
 
 
 def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
@@ -813,8 +827,8 @@ def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
     receive, _ = account_descriptors(tprv, "m/84h/1h/0h")
     chain.pay(receive.script_pub_key(1))
     found = discover_accounts({84: tpubs}, chain, fingerprint(tprv), gap_limit=2)
-    assert list(found) == [(84, 0)]
-    assert found[84, 0].descriptors[0] == receive
+    assert list(found.accounts) == [(84, 0)]
+    assert found.accounts[84, 0].descriptors[0] == receive
 
 
 @pytest.mark.parametrize(

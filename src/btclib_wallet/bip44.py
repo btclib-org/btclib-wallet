@@ -90,6 +90,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SCRIPT_TYPE_FROM_PURPOSE",
+    "AccountDiscovery",
     "AccountUse",
     "BIP44ScriptType",
     "account_descriptors",
@@ -551,6 +552,20 @@ class AccountUse:
     history: ScriptHistory
 
 
+@dataclass(frozen=True)
+class AccountDiscovery:
+    """The used accounts of a key, and the purposes whose xpubs ended first.
+
+    `accounts` holds the used accounts alone, in the order read, keyed by
+    (purpose, account). `cut_short` holds the purposes whose xpubs ended
+    before the account gap was reached, in the order read, as
+    `discover_accounts` says.
+    """
+
+    accounts: dict[tuple[int, int], AccountUse]
+    cut_short: tuple[int, ...]
+
+
 def _assert_limit(value: int, name: str) -> None:
     """Refuse a limit that is no integer, or that is below one."""
     if not is_integer(value):
@@ -758,8 +773,8 @@ def discover_accounts(
     *,
     account_gap: int = 1,
     gap_limit: int = _GAP_LIMIT,
-) -> dict[tuple[int, int], AccountUse]:
-    """Return the used accounts of a key, by purpose and account.
+) -> AccountDiscovery:
+    """Return the used accounts of a key, and the purposes cut short.
 
     BIP44's *Account discovery*, from the account xpubs alone.
     `account_xpubs` maps each purpose to its account xpubs, account 0
@@ -770,12 +785,12 @@ def discover_accounts(
     The accounts of each purpose are read in order with
     `discover_account`, until `account_gap` accounts in a row have no
     history. BIP44 stops at the first one, which is the default. A wider
-    gap finds a key whose wallet skipped an account. Where the xpubs of a
-    purpose end before the gap is reached, the discovery is refused, since
-    an account after them may be used: pass more xpubs.
+    gap finds a key whose wallet skipped an account.
 
-    The answer holds the used accounts alone, in the order read, keyed by
-    (purpose, account).
+    Where the xpubs of a purpose end before the gap is reached, the
+    purpose is cut short: an account after them may be used, and more
+    xpubs would read it. Its used accounts are in the answer all the
+    same, and the next purpose is read.
 
     An extended private key is refused: the account levels are hardened,
     so an xpub per account is what a scan needs, and the private key stays
@@ -787,20 +802,18 @@ def discover_accounts(
     accounts = _accounts(account_xpubs, master_fingerprint)
 
     found: dict[tuple[int, int], AccountUse] = {}
+    cut_short: list[int] = []
     for purpose, branches in accounts.items():
         unused = 0
-        account = 0
-        while unused < account_gap:
-            if account == len(branches):
-                err_msg = f"purpose {_position(purpose)}: no xpub for account"
-                err_msg += f" {_position(account)}, and {_position(unused)} of"
-                err_msg += f" {_position(account_gap)} unused accounts in a row"
-                raise BTClibValueError(err_msg)
-            use = _discover_account(branches[account], reader, gap_limit)
+        for account, account_branches in enumerate(branches):
+            use = _discover_account(account_branches, reader, gap_limit)
             if use is None:
                 unused += 1
+                if unused == account_gap:
+                    break
             else:
                 unused = 0
                 found[purpose, account] = use
-            account += 1
-    return found
+        else:
+            cut_short.append(purpose)
+    return AccountDiscovery(found, tuple(cut_short))
