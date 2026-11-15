@@ -450,12 +450,16 @@ class _HidingGroup(ExceptionGroup[Exception]):
     @override
     def exceptions(self) -> tuple[Exception, ...]:
         """Raise a refusal holding the key."""
-        raise FetchError(f"no members for {HEX}")
+        raise FetchError(  # pragma: no cover -- the walk reads the base's own
+            f"no members for {HEX}"
+        )
 
     @override
     def derive(self, excs: Any) -> ExceptionGroup[Exception]:  # type: ignore[override]
         """Raise a refusal holding the key."""
-        raise FetchError(f"no group for {HEX}")
+        raise FetchError(  # pragma: no cover -- split and subgroup are not called
+            f"no group for {HEX}"
+        )
 
 
 @pytest.mark.parametrize(
@@ -488,9 +492,24 @@ def test_a_group_holding_a_fetch_error_is_refused_by_its_class(
     assert_secret_free(e.value, SPELLINGS)
 
 
-def test_a_group_holding_no_fetch_error_passes_as_it_is() -> None:
-    """A group of the caller's bugs stays one, as a bare `TypeError` does."""
-    group = ExceptionGroup("failures", [TypeError("a bug")])
+_BUG = ExceptionGroup("inner", [TypeError("a bug")])
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        ExceptionGroup("failures", [TypeError("a bug")]),
+        ExceptionGroup("failures", [_BUG, _BUG]),
+    ],
+    ids=["leaf", "twice"],
+)
+def test_a_group_holding_no_fetch_error_passes_as_it_is(
+    group: ExceptionGroup[Exception],
+) -> None:
+    """A group of the caller's bugs stays one, as a bare `TypeError` does.
+
+    A group held twice is read once.
+    """
 
     def grouped() -> None:
         raise group
