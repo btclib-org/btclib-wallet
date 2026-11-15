@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from bitcoin_core_rpc import FetchError
 from btclib.p2p import Ping
+from typing_extensions import override
 
 from btclib_wallet.fetch import peer_transport
 from btclib_wallet.fetch import transport as transport_module
@@ -287,6 +288,36 @@ def test_an_interrupted_connect_leaves_no_socket_open(
         _open_connection((HOST, PORT), net.now + TIMEOUT, TIMEOUT, "here")
     (interrupted,) = net.attempts
     assert interrupted.closed
+
+
+class FailingCloseSocket(FakeSocket):
+    """A socket whose close fails, once it has closed."""
+
+    @override
+    def close(self) -> None:
+        """Close, then fail."""
+        super().close()
+        raise OSError("close failed")
+
+
+def test_a_close_that_fails_after_a_refused_connect_raises_alone(
+    network: Callable[..., Network], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The close runs after the connect's handler: its error has no context."""
+    net = network(1.0, "connect")
+
+    def failing_socket(*args: Any) -> FakeSocket:
+        sock = FailingCloseSocket(net, args)
+        net.attempts.append(sock)
+        return sock
+
+    monkeypatch.setattr(socket, "socket", failing_socket)
+    with pytest.raises(OSError, match="^close failed$") as e:
+        _open_connection((HOST, PORT), net.now + TIMEOUT, TIMEOUT, "here")
+    assert e.value.__context__ is None
+    assert e.value.__cause__ is None
+    (refused,) = net.attempts
+    assert refused.closed
 
 
 @pytest.mark.skipif(
