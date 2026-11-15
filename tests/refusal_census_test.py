@@ -1316,6 +1316,11 @@ class _Census:
                 # what a file or a socket holds, whoever defines the call
                 leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, read")
                 return
+            if isinstance(func, ast.Name) and name in {"_label", *_FIELDS}:
+                if _unpacks(expr):
+                    # which argument is which is not in the source
+                    leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, unpacked")
+                    return
             if isinstance(func, ast.Name) and name == "_label":
                 # an element of the labels it is handed second, or what
                 # `_quoted` answers: the labels are what is traced
@@ -1794,9 +1799,7 @@ class _Census:
         if not calls and default is None:
             leaves.append(f"{origin}, never called")
         for caller, call in calls:
-            if any(isinstance(a, ast.Starred) for a in call.args) or any(
-                k.arg is None for k in call.keywords
-            ):
+            if _unpacks(call):
                 leaves.append(f"{origin}, unpacked at {caller.where(call)}")
                 continue
             passed = [k.value for k in call.keywords if k.arg == name]
@@ -1808,6 +1811,13 @@ class _Census:
                     passed.append(call.args[position])
             for value in passed:
                 self._visit(value, caller, leaves, keys)
+
+
+def _unpacks(call: ast.Call) -> bool:
+    """Answer whether a call hands an argument with `*` or `**`."""
+    return any(isinstance(a, ast.Starred) for a in call.args) or any(
+        k.arg is None for k in call.keywords
+    )
 
 
 def _census(sources: dict[str, str]) -> _Census:
@@ -2006,6 +2016,18 @@ _SHAPES = {
     "field": (
         "import m\ndef f(key):\n    raise ValueError(_hex_field(key, m.TYPES))",
         "def f(key):\n    raise ValueError(_hex_field(key, {key}))",
+    ),
+    "field unpacked": (
+        "import m\ndef f(key):\n    raise ValueError(_hex_field(key, m.TYPES))",
+        "def f(key):\n    raise ValueError(_hex_field(*(key, {key})))",
+    ),
+    "field unpacked by name": (
+        "import m\ndef f(key):\n    raise ValueError(_hex_field(key, defined=m.TYPES))",
+        "def f(key, kw):\n    raise ValueError(_hex_field(key, **kw))",
+    ),
+    "label unpacked": (
+        "import m\ndef f(key):\n    raise ValueError(_label(key, m.NAMES))",
+        "def f(key):\n    raise ValueError(_label(*(key, {key})))",
     ),
     "position compared": (
         "def f(key, n):\n    if key > n:\n        raise ValueError(_position(key))",
