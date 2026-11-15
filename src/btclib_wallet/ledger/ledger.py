@@ -3003,9 +3003,12 @@ def _first_selection(
     Where it can from none, the last pass's refusal is raised, unless it
     can from all the coins: then it needs a coin no pass admits, and the
     refusal says so, as Core's does (src/wallet/spend.cpp:932-944 at
-    bitcoin/bitcoin@f0de87f040, the v32.1 tag).
+    bitcoin/bitcoin@f0de87f040, the v32.1 tag). That refusal chains none
+    of `select`'s. Where `select` cannot from all the coins either, the
+    last pass is asked again, so that its refusal is raised as `select`
+    raises it, with no other as its context.
     """
-    *earlier, last = [
+    pools = [
         [
             candidate
             for candidate, standing in standings
@@ -3013,16 +3016,12 @@ def _first_selection(
         ]
         for eligibility in _FILTERS
     ]
-    for pool in earlier:
+    for pool in pools:
         if (selected := _attempt(select, pool)) is not None:
             return selected
-    try:
-        return select(last)
-    except BTClibValueError as err:
-        refusal = err
-    if _attempt(select, [candidate for candidate, _ in standings]) is None:
-        raise refusal
-    raise BTClibValueError(_LONG_CHAINS) from refusal
+    if _attempt(select, [candidate for candidate, _ in standings]) is not None:
+        raise BTClibValueError(_LONG_CHAINS)
+    return select(pools[-1])
 
 
 def _attempt(

@@ -185,12 +185,15 @@ def test_a_chain_past_the_package_limits_is_not_spent(
     # pass admits, and its change one more
     for _ in range(25):
         ledger.spend([_outside()])
-    with pytest.raises(BTClibValueError, match="unconfirmed coins are available"):
+    with pytest.raises(BTClibValueError, match="unconfirmed coins are available") as e:
         ledger.spend([_outside()])
+    # neither refusal chains another (issue #821)
+    assert (e.value.__cause__, e.value.__context__) == (None, None)
     # a payment the coin could not fund either is refused as such
     (coin,) = ledger.utxos(0)
-    with pytest.raises(BTClibValueError, match="no selection"):
+    with pytest.raises(BTClibValueError, match="no selection") as e:
         ledger.fund([_outside(coin.tx_out.value * 2)])
+    assert (e.value.__cause__, e.value.__context__) == (None, None)
     # once confirmed, it is spent
     chain.mine(list(chain.mempool.values()))
     ledger.sync()
