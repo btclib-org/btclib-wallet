@@ -11,6 +11,7 @@ src/btclib_wallet/bolt9.py -text
 tests/strategies/__init__.py -text
 tests/_data/basic-test-vectors.json -text
 tests/_data/bip85_test_vectors.json -text
+tests/_data/bip329_test_vectors.jsonl -text
 tests/_data/bolt11_test_vectors.json -text
 tests/_data/descriptor_checksums.json -text
 tests/_data/generated-test-vectors.json -text

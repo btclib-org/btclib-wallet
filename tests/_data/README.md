@@ -31,8 +31,9 @@ file whose name they could take, or because the upstream name is taken:
 
 - `bip32_test_vectors.json`, `bip32_invalid_keys.json`,
   `bip174_test_vectors.json`, `bip370_test_vectors.json`,
-  `bip371_test_vectors.json`, `bip373_test_vectors.json` and
-  `bip85_test_vectors.json` are transcribed from mediawiki prose.
+  `bip371_test_vectors.json`, `bip373_test_vectors.json`,
+  `bip85_test_vectors.json` and `bip329_test_vectors.jsonl` are
+  transcribed from mediawiki prose.
   `bip375_test_vectors.json` beside them is the exception that shows the
   rule holds: BIP375 does publish a file, and its name is that one.
 - `bip39_test_vectors.json` is trezor's `vectors.json` byte for byte, and
@@ -547,6 +548,25 @@ Two of the BIP's fields are not what their name reads as, and
 the name reads: the DERIVED ENTROPY of application 32' is the second half
 of the 64 bytes, the private key of the xprv, and that of 39' is already
 truncated to what the sentence encodes.
+
+### `tests/_data/bip329_test_vectors.jsonl`
+
+```text
+repo    bitcoin/bips
+path    bip-0329.mediawiki
+commit  5253e9a294cd46bd94b505ec544992dacc0f2b98  2026-04-27
+ours    e2fbdcf3c61420eaf4a64db4c0f36df54471cf2d
+pulled  2026-11-15
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, complete. The file is the fragment of the
+BIP's Test Vectors section, the lines inside its `<pre>` block copied
+byte for byte, each ending in a newline. `tests/bip329_test.py` reads all
+of it, and asserts that `bip329.parse` skips the `spscan` record, as that
+module's docstring says.
+
+License: BSD-2-Clause, as the BIP's header says.
 
 ### Not vendored as a file: BIP386's `tr()` vectors
 
@@ -2122,8 +2142,9 @@ Not checked byte for byte against one:
   `bip32_test_vectors.json`, `bip32_invalid_keys.json`,
   `bip174_test_vectors.json`, `bip370_test_vectors.json`,
   `bip371_test_vectors.json`, `bip373_test_vectors.json`,
-  `bip85_test_vectors.json`, `miniscript_fixed_tests.json`,
-  `bolt11_test_vectors.json`, `bolt9.py`, `bitcoin_s_oracle_vectors.json`.
+  `bip85_test_vectors.json`, `bip329_test_vectors.jsonl`,
+  `miniscript_fixed_tests.json`, `bolt11_test_vectors.json`, `bolt9.py`,
+  `bitcoin_s_oracle_vectors.json`.
 - recorded from btcd's MuSig2 code, pinned to the commit that ran:
   `signed_psbts.json`.
 - chain data, identified by block hash: the blocks under
