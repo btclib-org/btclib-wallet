@@ -674,8 +674,8 @@ class Ledger:
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
-            _assert_height(birth_height, "birth_height")
-        _assert_height(lookahead, "lookahead")
+            _assert_height(birth_height, "birth_height", _SQLITE_INT_MAX)
+        _assert_height(lookahead, "lookahead", _SQLITE_INT_MAX)
         if wallet.network != self.network:
             err_msg = f"a {wallet.network} wallet in a {self.network} ledger"
             raise BTClibValueError(err_msg)
@@ -2596,12 +2596,17 @@ def _assert_label(label: str) -> None:
         raise BTClibValueError("invalid label name: *")
 
 
-def _assert_height(value: int, name: str) -> None:
-    """Refuse what is not a non-negative integer."""
+_SQLITE_INT_MAX = 2**63 - 1  # the largest SQLite INTEGER
+
+
+def _assert_height(value: int, name: str, largest: int | None = None) -> None:
+    """Refuse what is not a non-negative integer, or above `largest`."""
     if not is_integer(value):
         raise BTClibTypeError(f"invalid {name} type: {type(value).__name__}")
     if value < 0:
         raise BTClibValueError(f"negative {name}: {value}")
+    if largest is not None and value > largest:
+        raise BTClibValueError(f"{name} too large: {value}")
 
 
 def _next_index(handed: set[_Position], source: int, branch: int) -> int:

@@ -227,6 +227,15 @@ def test_a_new_source_paid_at_the_tip_still_reads_its_history(
     assert ledger.balances().untrusted_pending == 30_000
 
 
+def test_a_source_height_too_large_for_the_file_is_refused(ledger: Ledger) -> None:
+    """A birth_height or lookahead the SQLite INTEGER column cannot hold."""
+    with pytest.raises(BTClibValueError, match="birth_height too large"):
+        ledger.add_source(source(), 2**63)
+    with pytest.raises(BTClibValueError, match="lookahead too large"):
+        ledger.add_source(source(), lookahead=2**63)
+    assert ledger.add_source(source(), 2**63 - 1, lookahead=SMALL_LOOKAHEAD) >= 0
+
+
 def test_a_source_is_checked(ledger: Ledger) -> None:
     """A wallet of descriptors, of the ledger's network."""
     with pytest.raises(BTClibTypeError, match="invalid wallet type"):
