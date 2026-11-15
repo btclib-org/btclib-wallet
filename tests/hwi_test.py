@@ -777,13 +777,18 @@ def test_a_nul_character_is_refused_before_anything_runs(
         b'{"key": "' + HEX.encode() + b'\\xff"}',
         b'"' + HEX.encode() + b'\xff"',
         b"[" * 200_000,
+        b'{"key": ' + b"1" * 5000 + b"}",
     ],
-    ids=["escaped", "no-utf-8", "nested-past-the-parser"],
+    ids=["escaped", "no-utf-8", "nested-past-the-parser", "int-past-the-digit-limit"],
 )
 def test_an_answer_json_cannot_read_is_a_signer_error(
     tmp_path: Path, answer: bytes
 ) -> None:
-    """Bytes that are no UTF-8, or nest too deep, are no json (issue #821).
+    """Bytes json cannot read are no json (issue #821).
+
+    Bytes that are no UTF-8, nest too deep, or hold an int of more digits
+    than `sys.get_int_max_str_digits()` allows, which `json.loads`
+    refuses with a plain ValueError.
 
     The decode error of bytes that are no UTF-8 holds them whole, so the
     refusal holds no piece of the answer and chains nothing.
