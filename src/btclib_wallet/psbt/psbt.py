@@ -93,7 +93,7 @@ from btclib_wallet.bip32 import (
     encode_to_bip32_derivs,
 )
 from btclib_wallet.descriptors import miniscript
-from btclib_wallet.descriptors.miniscript import _lacks_only_keys
+from btclib_wallet.descriptors.miniscript import _pushed_fault, _signer_read
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt.psbt_size import (
@@ -3996,6 +3996,23 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     ``finalizepsbt`` leaves such an input unfinalized, and its
     ``analyzepsbt`` names the missing key's hash.
 
+    So is a script that is a miniscript but for a key it holds in a form
+    no P2WSH holds, an x-only key or 33 bytes of no SEC prefix, which
+    `from_script` refuses and Bitcoin Core's ``finalizepsbt`` leaves
+    unfinalized. A key the input names for a ``pk_h()`` uncompressed or
+    hybrid is read, which `from_script` does not do: Core's signer reads
+    whatever key a signing provider answers for a hash, where its
+    descriptor inference, `InferPubkey`, refuses the same key. Core then
+    verifies the witness under the standard flags, whose
+    WITNESS_PUBKEYTYPE refuses that key to a P2WSH CHECKSIG, and leaves
+    the input unfinalized wherever the witness pushes it, satisfying the
+    ``pk_h()`` or not: the solver refuses that input by name, and spends
+    the others as Core does. The witness is chosen before it is checked,
+    as Core chooses it, so where the smallest one the signatures open
+    pushes such a key the input is refused, though a larger one they open
+    would not push it; without that key's signature in `partial_sigs`,
+    the solver builds the larger one.
+
     None where the input is not this solver's business: no witness script,
     or one that is not a miniscript, both of which `finalize` then answers
     for as it did before. Where the script *is* a miniscript and the
@@ -4018,17 +4035,10 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     # the ones an origin names
     known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
     key_hashes: dict[Octets, Octets] = {hash160(key): key for key in known}
-    # refused after `suppress`, so that it chains nothing
-    node = None
-    with suppress(BTClibValueError):
-        node = miniscript.from_script(
-            psbt_in.witness_script, miniscript.P2WSH, key_hashes
-        )
+    node, fault = _signer_read(psbt_in.witness_script, key_hashes)
+    if fault:
+        raise BTClibValueError(f"input {_position(vin_i)}: {fault}")
     if node is None:
-        if _lacks_only_keys(psbt_in.witness_script, miniscript.P2WSH, key_hashes):
-            err_msg = f"input {_position(vin_i)}: no public key for a hash160 "
-            err_msg += "the witness script holds"
-            raise BTClibValueError(err_msg)
         # not a miniscript, which is not an error: it is the answer "not mine"
         return None
     tx = psbt.tx
@@ -4042,6 +4052,14 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
         version=tx.version,
     )
     stack = node.satisfy(cast("Mapping[Octets, Octets]", psbt_in.partial_sigs), spend)
+    # a witness Bitcoin Core leaves unfinalized, which is refused rather
+    # than built
+    if key_fault := _pushed_fault(stack, known):
+        err_msg = (
+            f"input {_position(vin_i)}: not a P2WSH public key "
+            f"for a hash160 the script holds: {key_fault}"
+        )
+        raise BTClibValueError(err_msg)
     # the redeem script of a wrapped p2wsh, and the empty script_sig BIP141
     # requires of a native one
     script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []

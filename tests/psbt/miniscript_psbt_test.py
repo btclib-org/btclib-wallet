@@ -12,9 +12,13 @@ miniscript descriptor.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
+
 import pytest
+from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
-from btclib.hashes import sha256
+from btclib.hashes import hash160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import sig_hash
 from btclib.script.engine import verify_transaction
@@ -26,19 +30,23 @@ from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
+from ecc.curves import bytes_from_point, point_from_pub_key
 
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import WshDescriptor
 from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.descriptors.miniscript import (
+    P2WSH,
     TAPSCRIPT,
     Miniscript,
     SpendContext,
+    from_script,
     parse,
 )
 from btclib_wallet.psbt.psbt import Psbt, finalize, miniscript_solver, taproot_sig_hash
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import (
+    SIG_SIZE,
     estimated_input_sizes,
     miniscript_sizer,
     satisfaction_sizer,
@@ -111,14 +119,14 @@ SOLVER_EXPRESSIONS = [
 
 
 def signed_psbt(
-    node: Miniscript, keys: list[str], locktime: int, sequence: int
+    node: Miniscript | bytes, keys: list[str], locktime: int, sequence: int
 ) -> tuple[Psbt, list[TxOut]]:
-    """Return a psbt spending a p2wsh miniscript, signed by `keys`.
+    """Return a psbt spending a p2wsh miniscript, or a script, signed by `keys`.
 
     What an Updater would write is set by hand: the witness script and the
     preimages, which the solver reads from the input.
     """
-    script = node.script()
+    script = node if isinstance(node, bytes) else node.script()
     prevout = TxOut(50_000, ScriptPubKey.p2wsh(script))
     tx = Tx(
         version=2,
@@ -230,7 +238,7 @@ def test_the_solver_reads_a_key_the_input_knows_by_its_hash() -> None:
     assert miniscript_solver(psbt, 0) is not None
 
 
-UNKNOWN_KEY = "input 0: no public key for a hash160 the witness script holds"
+UNKNOWN_KEY = "input 0: no public key for a hash160 the script holds"
 
 
 def test_no_witness_is_guessed_for_a_key_hash_the_input_does_not_name() -> None:
@@ -270,6 +278,262 @@ def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> No
     for prefix in (serialize(["OP_DROP"]), bytes.fromhex("5101e4ae")):
         psbt.inputs[0].witness_script = prefix + pkh
         assert miniscript_solver(psbt, 0) is None
+
+
+def exactly(message: str) -> str:
+    """Return the pattern `pytest.raises` matches against this message alone."""
+    return f"^{re.escape(message)}$"
+
+
+def named_in_another_form(
+    expression: str, field: str, key: bytes
+) -> tuple[Psbt, list[TxOut]]:
+    """Return a psbt of the expression, its pk_h() of `KEYS[1]` hashing `key`.
+
+    `key` is the point of `KEYS[1]` in a form no P2WSH holds, and the input
+    names it in `field`: in hd_key_paths, or in partial_sigs with its
+    signature. `KEYS[0]` signs.
+    """
+    script = parse(expression).script()
+    script = script.replace(hash160(bytes.fromhex(KEYS[1])), hash160(key))
+    psbt, prevouts = signed_psbt(script, [KEYS[0]], 499999999, 0x0000FFFF)
+    psbt_in = psbt.inputs[0]
+    if field == "hd_key_paths":
+        psbt_in.hd_key_paths = {key: BIP32KeyOrigin("deadbeef", [0])}
+    else:
+        msg_hash = sig_hash.segwit_v0(script, psbt.tx, 0, 1, prevouts[0].value)
+        signature = dsa.sign_(msg_hash, PRV_KEYS[1]).serialize() + b"\x01"
+        psbt_in.partial_sigs[key] = signature
+    return psbt, prevouts
+
+
+UNCOMPRESSED = bytes_from_point(point_from_pub_key(KEYS[1]), compressed=False)
+# the same point in the hybrid encoding, whose prefix gives the parity of y
+HYBRID = bytes([6 + UNCOMPRESSED[64] % 2]) + UNCOMPRESSED[1:]
+# a hybrid key is no key of partial_sigs, which `Psbt.assert_valid` refuses
+OTHER_FORMS = [
+    pytest.param("hd_key_paths", UNCOMPRESSED, "uncompressed", id="paths-uncompressed"),
+    pytest.param("partial_sigs", UNCOMPRESSED, "uncompressed", id="sigs-uncompressed"),
+    pytest.param("hd_key_paths", HYBRID, "65 bytes", id="paths-hybrid"),
+]
+
+
+@pytest.mark.parametrize("field, key, fault", OTHER_FORMS)
+def test_a_key_the_input_names_in_another_form_is_read_as_core_signs(
+    field: str, key: bytes, fault: str
+) -> None:
+    """Finalize a spend that runs no pk_h() of a key the input names so.
+
+    Bitcoin Core's signer reads whatever key a signing provider answers
+    for a hash, as the solver does, and finalizes this pk() branch, whose
+    witness pushes nothing of the pk_h() key. `from_script` refuses the
+    same script read with the same key, as Core's descriptor inference
+    does.
+    """
+    expression = f"or_d(pk({KEYS[0]}),and_v(v:pkh({KEYS[1]}),older(1008)))"
+    psbt, prevouts = named_in_another_form(expression, field, key)
+    final = finalize(psbt, solver=miniscript_solver)
+    witness = final.inputs[0].final_script_witness
+    assert key not in witness.stack
+    spending = final.tx
+    spending.vin[0].script_witness = witness
+    verify_transaction(prevouts, spending)
+    message = f"not a P2WSH public key for a hash160 the script holds: {fault}"
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        from_script(witness.stack[-1], P2WSH, {hash160(key): key})
+
+
+@pytest.mark.parametrize("field, key, fault", OTHER_FORMS)
+def test_a_witness_pushing_a_key_named_in_another_form_is_refused(
+    field: str, key: bytes, fault: str
+) -> None:
+    """Refuse a spend that runs the pk_h() of a key the input names so.
+
+    Bitcoin Core verifies the witness it built under the standard flags,
+    whose WITNESS_PUBKEYTYPE refuses that key to a P2WSH CHECKSIG, and
+    leaves the input unfinalized; the solver refuses it by name. The
+    pk_h() is dissatisfied here, which pushes its key too.
+    """
+    expression = f"or_d(pkh({KEYS[1]}),pk({KEYS[0]}))"
+    psbt, _ = named_in_another_form(expression, field, key)
+    message = f"input 0: not a P2WSH public key for a hash160 the script holds: {fault}"
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        finalize(psbt, solver=miniscript_solver)
+
+
+@pytest.mark.parametrize("field, key, fault", OTHER_FORMS)
+def test_the_sizers_read_a_key_named_in_another_form_as_the_solver(
+    field: str, key: bytes, fault: str
+) -> None:
+    """Size the spend the solver builds, and none of the one it refuses.
+
+    `miniscript_sizer` sizes every branch, the pk_h() one that pushes the
+    key included; `satisfaction_sizer` sizes the branch the signers open,
+    and answers None where that pushes the key.
+    """
+    spent, _ = named_in_another_form(
+        f"or_d(pk({KEYS[0]}),and_v(v:pkh({KEYS[1]}),older(1008)))", field, key
+    )
+    psbt_in, tx_in = spent.inputs[0], spent.tx.vin[0]
+    stack = (
+        finalize(spent, solver=miniscript_solver).inputs[0].final_script_witness.stack
+    )
+    # the pk() branch: a signature of the allowance a sizer assumes, then
+    # the script
+    script = stack[-1]
+    assert len(stack) == 2
+    assert satisfaction_sizer([KEYS[0]])(psbt_in, tx_in) == [SIG_SIZE, len(script)]
+    # the largest is the pk_h() branch: its signature and key, the empty
+    # push dissatisfying the pk(), then the script
+    largest = [SIG_SIZE, len(key), 0, len(script)]
+    assert miniscript_sizer(psbt_in, tx_in) == largest
+    refused, _ = named_in_another_form(
+        f"or_d(pkh({KEYS[1]}),pk({KEYS[0]}))", field, key
+    )
+    assert satisfaction_sizer([KEYS[0]])(refused.inputs[0], refused.tx.vin[0]) is None
+
+
+def near_tie(wrappers: int, lengths: tuple[int, int, int], signed: bool) -> Psbt:
+    """Return a psbt of A and B, or U behind `wrappers` or_i(...,0).
+
+    The script is ``or_i(and_v(v:pk(A),pk(B)),pkh(U))``, the ``pkh()``
+    under the wrappers and its key U the uncompressed point of `KEYS[1]`.
+    The signatures of A, B and U have `lengths`, U's left out where
+    `signed` is False, U then being named by its origin: the satisfier
+    reads their lengths alone, which is what chooses between the two
+    branches, so filler bytes stand in for them.
+    """
+    right = f"pkh({KEYS[1]})"
+    for _ in range(wrappers):
+        right = f"or_i({right},0)"
+    expression = f"or_i(and_v(v:pk({KEYS[0]}),pk({KEYS[2]})),{right})"
+    script = parse(expression).script()
+    script = script.replace(hash160(bytes.fromhex(KEYS[1])), hash160(UNCOMPRESSED))
+    psbt, _ = signed_psbt(script, [], 499999999, 0x0000FFFF)
+    psbt_in = psbt.inputs[0]
+    signers = [bytes.fromhex(KEYS[0]), bytes.fromhex(KEYS[2]), UNCOMPRESSED]
+    psbt_in.partial_sigs = {
+        key: b"\x30" * (length - 1) + b"\x01"
+        for key, length in zip(signers, lengths, strict=True)
+        if signed or key != UNCOMPRESSED
+    }
+    if not signed:
+        psbt_in.hd_key_paths = {UNCOMPRESSED: BIP32KeyOrigin("deadbeef", [0])}
+    return psbt
+
+
+def assert_bounds(sizes: list[int] | None, stack: Sequence[bytes]) -> None:
+    """Assert an estimate of the same elements, none smaller than built."""
+    assert sizes is not None
+    assert len(sizes) == len(stack)
+    assert all(len(element) <= size for element, size in zip(stack, sizes, strict=True))
+
+
+def test_the_sizer_sizes_the_spend_the_solver_builds_on_a_near_tie() -> None:
+    """Size the A and B branch the solver takes where the fillers choose U's.
+
+    The signatures of A, B and U are 71, 70 and 71 bytes long: with them
+    the solver, as Bitcoin Core, takes the A and B branch, while the
+    `SIG_SIZE` fillers make U's the smaller. The sizer then sizes the
+    spend built without U's signature, which is the solver's.
+    """
+    keys: list[Octets] = [KEYS[0], KEYS[2], UNCOMPRESSED]
+    psbt = near_tie(3, (71, 70, 71), signed=True)
+    solved = miniscript_solver(psbt, 0)
+    assert solved is not None
+    stack = solved[1].stack
+    assert UNCOMPRESSED not in stack
+    sizes = satisfaction_sizer(keys)(psbt.inputs[0], psbt.tx.vin[0])
+    assert sizes == [SIG_SIZE, SIG_SIZE, 1, len(stack[-1])]
+    assert_bounds(sizes, stack)
+
+
+def test_the_sizer_sizes_the_spend_without_the_key_the_solver_refuses() -> None:
+    """Size the A and B branch where the real lengths make U's the smaller.
+
+    The signatures of A, B and U are 71, 72 and 70 bytes long: the solver,
+    as Bitcoin Core, takes U's branch and refuses it, while the fillers
+    choose the A and B branch. That is the spend the solver builds once
+    U's signature is withheld, and the one the sizer sizes.
+    """
+    keys: list[Octets] = [KEYS[0], KEYS[2], UNCOMPRESSED]
+    psbt = near_tie(4, (71, 72, 70), signed=True)
+    message = (
+        "input 0: not a P2WSH public key for a hash160 the script holds: uncompressed"
+    )
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        miniscript_solver(psbt, 0)
+    sizes = satisfaction_sizer(keys)(psbt.inputs[0], psbt.tx.vin[0])
+    withheld = miniscript_solver(near_tie(4, (71, 72, 70), signed=False), 0)
+    assert withheld is not None
+    assert_bounds(sizes, withheld[1].stack)
+
+
+def test_a_witness_satisfying_a_key_named_uncompressed_is_refused() -> None:
+    """Refuse a spend whose signature is the one of the uncompressed key."""
+    expression = f"and_v(v:pk({KEYS[0]}),pkh({KEYS[1]}))"
+    psbt, _ = named_in_another_form(expression, "partial_sigs", UNCOMPRESSED)
+    message = (
+        "input 0: not a P2WSH public key for a hash160 the script holds: uncompressed"
+    )
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        finalize(psbt, solver=miniscript_solver)
+
+
+def test_a_key_of_no_sec_form_set_after_the_psbt_is_built_is_refused() -> None:
+    """Refuse a pk_h() key of 65 bytes and no SEC prefix the input names.
+
+    `miniscript_solver` reads the psbt it is handed without validating it,
+    which `finalize` does first: a key assigned to hd_key_paths after the
+    input was built reaches it. The solver reads an uncompressed or a
+    hybrid key as Core's signer does, and no other 65 bytes, which Core's
+    psbt parser refuses as a key.
+    """
+    expression = f"or_d(pk({KEYS[0]}),and_v(v:pkh({KEYS[1]}),older(1008)))"
+    no_key = b"\x05" + UNCOMPRESSED[1:]
+    psbt, _ = named_in_another_form(expression, "hd_key_paths", no_key)
+    message = "input 0: not a P2WSH public key for a hash160 the script holds: 65 bytes"
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        miniscript_solver(psbt, 0)
+    with pytest.raises(
+        BTClibValueError, match=exactly("invalid public key: not a point")
+    ):
+        finalize(psbt, solver=miniscript_solver)
+
+
+# 5**3 + 7 is no square modulo p, so no point of the curve has 5 as its x
+OFF_CURVE = b"\x02" + (5).to_bytes(32, "big")
+
+
+def test_a_key_of_the_p2wsh_form_that_is_no_point_is_spent_around() -> None:
+    """Finalize a branch that needs nothing of a pushed key that is no point.
+
+    Bitcoin Core's decoder reads the key, as `from_script` does, and its
+    ``finalizepsbt`` completes both spends signed by A; whether decoding
+    should refuse such a key is ISS btclib-org/btclib-wallet#977.
+    """
+    key = bytes.fromhex(KEYS[0])
+    for script in (
+        serialize(["OP_1", key, OFF_CURVE, "OP_2", "OP_CHECKMULTISIG"]),
+        serialize(
+            [
+                key,
+                "OP_CHECKSIG",
+                "OP_IFDUP",
+                "OP_NOTIF",
+                OFF_CURVE,
+                "OP_CHECKSIG",
+                "OP_ENDIF",
+            ]
+        ),
+    ):
+        psbt, prevouts = signed_psbt(script, [KEYS[0]], 0, 0xFFFFFFFF)
+        # the solver's spend, and not a guess `finalize` builds after a None
+        assert miniscript_solver(psbt, 0) is not None
+        final = finalize(psbt, solver=miniscript_solver)
+        spending = final.tx
+        spending.vin[0].script_witness = final.inputs[0].final_script_witness
+        verify_transaction(prevouts, spending)
 
 
 # a tr() whose script tree holds a miniscript leaf beside a key one: the

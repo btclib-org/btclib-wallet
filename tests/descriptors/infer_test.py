@@ -464,6 +464,23 @@ def test_a_tree_core_cannot_infer_is_a_rawtr() -> None:
         assert inferred.startswith("rawtr(")
 
 
+def test_a_tapscript_pkh_whose_key_is_filed_as_no_key_is_a_rawtr() -> None:
+    """A pkh() leaf whose key the provider holds in 33 bytes of no SEC form.
+
+    The leaf holds the hash of the 32 bytes after the first, which are a
+    point, so it reads as a miniscript; the whole key it is filed under is
+    what a tapscript ``pkh()`` writes, and `InferPubkey` reads no such key.
+    """
+    x_only = bytes.fromhex(K34[2:])
+    leaf = ["OP_DUP", "OP_HASH160", hash160(x_only), "OP_EQUALVERIFY", "OP_CHECKSIG"]
+    script, provider = _tr([(0xC0, leaf)])
+    provider = replace(provider, keys={**provider.keys, b"\x04" + x_only: None})
+    inferred = infer_descriptor(script, provider, "regtest")
+    # the output key the script pays to, with the checksum Bitcoin Core's
+    # getdescriptorinfo gives that rawtr()
+    assert inferred == f"rawtr({script[2:].hex()})#p50lv36n"
+
+
 def test_a_tree_the_output_key_does_not_commit_to_is_a_rawtr() -> None:
     """Another output's tree, a wrong merkle root, an internal key no point."""
     script, provider = _tr([(0xC0, [bytes.fromhex(K1[2:]), "OP_CHECKSIG"])])

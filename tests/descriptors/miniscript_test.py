@@ -38,6 +38,7 @@ and `deriveaddresses` gives the address of the script computed here.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -56,6 +57,7 @@ from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
+from ecc.curves import bytes_from_point, point_from_pub_key
 
 from btclib_wallet.bip32.bip32 import (
     derive,
@@ -999,6 +1001,202 @@ def test_a_key_answered_for_a_hash_that_is_not_its_own_is_refused() -> None:
         from_script(script, P2WSH, lying)
     assert not reads_back(script, P2WSH, lying)
     assert reads_back(script, P2WSH, {key_hash: KEY})
+
+
+UNCOMPRESSED = bytes_from_point(point_from_pub_key(KEY), compressed=False).hex()
+# the same point in the hybrid encoding, whose prefix gives the parity of y
+HYBRID = f"{6 + int(UNCOMPRESSED[-1], 16) % 2:02x}{UNCOMPRESSED[2:]}"
+# 33 bytes no SEC prefix begins: no key, though it is a key's length
+PREFIX_05 = f"05{XONLY}"
+
+
+def exactly(message: str) -> str:
+    """Return the pattern `pytest.raises` matches against this message alone."""
+    return f"^{re.escape(message)}$"
+
+
+def parsed_script(expression: str, context: str) -> bytes:
+    """Return the script `parse` writes, empty where it refuses it."""
+    try:
+        return parse(expression, context).script()
+    except BTClibValueError:
+        return b""
+
+
+@pytest.mark.parametrize(
+    "context, key, fault",
+    [
+        pytest.param(P2WSH, UNCOMPRESSED, "uncompressed", id="P2WSH-uncompressed"),
+        pytest.param(P2WSH, HYBRID, "65 bytes", id="P2WSH-hybrid"),
+        pytest.param(P2WSH, XONLY, "32 bytes", id="P2WSH-x-only"),
+        pytest.param(P2WSH, PREFIX_05, "invalid prefix", id="P2WSH-prefix-05"),
+        pytest.param(P2WSH, "02", "1 byte", id="P2WSH-one-byte"),
+        pytest.param(TAPSCRIPT, KEY, "33 bytes", id="tapscript-compressed"),
+        pytest.param(
+            TAPSCRIPT, UNCOMPRESSED, "uncompressed", id="tapscript-uncompressed"
+        ),
+    ],
+)
+def test_a_key_answered_for_a_hash_is_one_parse_writes(
+    context: str, key: str, fault: str
+) -> None:
+    """Refuse a pk_h() key supplied in a form the context does not hold.
+
+    The key is believed for its hash, so it is held to what `parse` writes
+    into a script of the context, as the key a script holds is. `parse`
+    writes no such script from ``pkh()`` of the key: it refuses the key,
+    or writes it in the form the context holds.
+    """
+    key_hash = hash160(bytes.fromhex(key))
+    script = serialize(
+        ["OP_DUP", "OP_HASH160", key_hash, "OP_EQUALVERIFY", "OP_CHECKSIG"]
+    )
+    message = f"not a {context} public key for a hash160 the script holds: {fault}"
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        from_script(script, context, {key_hash: key})
+    assert parsed_script(f"pkh({key})", context) != script
+
+
+def test_a_key_the_script_holds_is_one_parse_writes() -> None:
+    """Refuse a pushed key of no SEC prefix, in pk_k() and in multi().
+
+    The push has the length of a P2WSH key and begins with no prefix of
+    one, so it is no key there, which Bitcoin Core's decoder says too:
+    `parse` refuses it in ``pk()`` and in ``multi()``.
+    """
+    key = bytes.fromhex(PREFIX_05)
+    for script, expression in (
+        (serialize([key, "OP_CHECKSIG"]), f"pk({PREFIX_05})"),
+        (
+            serialize(["OP_1", key, "OP_1", "OP_CHECKMULTISIG"]),
+            f"multi(1,{PREFIX_05})",
+        ),
+    ):
+        with pytest.raises(
+            BTClibValueError, match=exactly("not a P2WSH public key: invalid prefix")
+        ):
+            from_script(script)
+        assert not parsed_script(expression, P2WSH)
+
+
+# 5**3 + 7 is no square modulo p, so no point of the curve has 5 as its x
+OFF_CURVE_X = f"{5:064x}"
+
+
+@pytest.mark.parametrize(
+    "context, key",
+    [
+        pytest.param(P2WSH, f"02{OFF_CURVE_X}", id="P2WSH"),
+        pytest.param(TAPSCRIPT, OFF_CURVE_X, id="tapscript"),
+    ],
+)
+def test_a_key_of_the_context_s_form_is_read_though_no_point(
+    context: str, key: str
+) -> None:
+    """Read a key of the context's form that is no point, as Core reads it.
+
+    Pushed in a pk_k() and in a multisig, or supplied for a pk_h(): the
+    script reads back, and `parse` refuses the key. Whether the decoder
+    should refuse it too is ISS btclib-org/btclib-wallet#977.
+    """
+    sec = bytes.fromhex(key)
+    multisig: ScriptList = (
+        ["OP_1", sec, "OP_1", "OP_CHECKMULTISIG"]
+        if context == P2WSH
+        else [sec, "OP_CHECKSIG", "OP_1", "OP_NUMEQUAL"]
+    )
+    name = "multi" if context == P2WSH else "multi_a"
+    pkh: ScriptList = [
+        "OP_DUP",
+        "OP_HASH160",
+        hash160(sec),
+        "OP_EQUALVERIFY",
+        "OP_CHECKSIG",
+    ]
+    supplied: dict[Octets, Octets] = {hash160(sec): sec}
+    cases: list[tuple[bytes, str, dict[Octets, Octets]]] = [
+        (serialize([sec, "OP_CHECKSIG"]), f"pk({key})", {}),
+        (serialize(multisig), f"{name}(1,{key})", {}),
+        (serialize(pkh), f"pkh({key})", supplied),
+    ]
+    for script, expression, key_hashes in cases:
+        assert str(from_script(script, context, key_hashes)) == expression
+        assert reads_back(script, context, key_hashes)
+        # ValueError: ecc's EccValueError, which refuses a key no point
+        with pytest.raises(ValueError, match=exactly("not a public key")):
+            parse(expression, context)
+
+
+def test_the_last_key_of_the_script_that_cannot_be_read_is_named() -> None:
+    """Name one key the script cannot be read with: the first the walk meets.
+
+    The script is read from its end, so that is the last key it holds,
+    whether it is a pk_h() key `key_hashes` lacks or a pushed key no key.
+    """
+    no_key = bytes.fromhex(PREFIX_05)
+    pkh: ScriptList = [
+        "OP_DUP",
+        "OP_HASH160",
+        hash160(bytes.fromhex(KEY)),
+        "OP_EQUALVERIFY",
+    ]
+    # and_v(v:pkh(KEY),pk(no_key)) and and_v(v:pk(no_key),pkh(KEY))
+    for script, message in (
+        (
+            serialize([*pkh, "OP_CHECKSIGVERIFY", no_key, "OP_CHECKSIG"]),
+            "not a P2WSH public key: invalid prefix",
+        ),
+        (
+            serialize([no_key, "OP_CHECKSIGVERIFY", *pkh, "OP_CHECKSIG"]),
+            "no public key for a hash160 the script holds",
+        ),
+    ):
+        with pytest.raises(BTClibValueError, match=exactly(message)):
+            from_script(script)
+
+
+def test_a_key_of_another_context_is_named_after_the_rest_of_the_script() -> None:
+    """Name a key the context does not hold only where nothing else is wrong.
+
+    The key is read as a stand-in, so the rest of the script is read too:
+    an x-only key in a P2WSH pk_k() is named alone, and behind an OP_1 the
+    script is ill-typed, which no key could change.
+    """
+    script = serialize([bytes.fromhex(XONLY), "OP_CHECKSIG"])
+    with pytest.raises(
+        BTClibValueError, match=exactly("not a P2WSH public key: 32 bytes")
+    ):
+        from_script(script)
+    ill_typed = "ill-typed miniscript: and_v over 'Bfkmuxz', 'Bdekmnosu'"
+    with pytest.raises(BTClibValueError, match=exactly(ill_typed)):
+        from_script(serialize(["OP_1"]) + script)
+
+
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_a_key_of_another_context_is_named_in_a_script_of_the_largest_size(
+    count: int,
+) -> None:
+    """Name the x-only keys of a P2WSH script as large as the context allows.
+
+    Each is read as a key of the context, which a P2WSH script holds in a
+    byte more, so the expression read is larger than the script: the size
+    checked is the script's own, which is within the limit.
+    """
+    keys: ScriptList = []
+    for _ in range(count):
+        keys += [bytes.fromhex(XONLY), "OP_CHECKSIGVERIFY"]
+    # OP_1 ends the and_v() chain; each v:pk() of KEY is 35 bytes, and each
+    # v:older(17) 4, which make up the rest
+    rest = 3600 - 34 * count - 1
+    pks = next(n for n in range(rest // 35, 0, -1) if (rest - 35 * n) % 4 == 0)
+    olders: ScriptList = [17, "OP_CHECKSEQUENCEVERIFY", "OP_VERIFY"]
+    pk: ScriptList = [bytes.fromhex(KEY), "OP_CHECKSIGVERIFY"]
+    script = serialize(olders * ((rest - 35 * pks) // 4) + pk * pks + [*keys, "OP_1"])
+    assert len(script) == 3600
+    with pytest.raises(
+        BTClibValueError, match=exactly("not a P2WSH public key: 32 bytes")
+    ):
+        from_script(script)
 
 
 def test_a_script_says_whether_it_is_the_expression_it_reads_as() -> None:

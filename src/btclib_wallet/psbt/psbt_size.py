@@ -57,6 +57,11 @@ from btclib.utils import assert_type, bytes_from_octets, is_octets
 
 from btclib_wallet._refusal import _quoted
 from btclib_wallet.descriptors import miniscript
+from btclib_wallet.descriptors.miniscript import (
+    _pushed_fault,
+    _sec_fault,
+    _signer_read,
+)
 from btclib_wallet.psbt.psbt_in import PsbtIn
 
 __all__ = [
@@ -385,14 +390,12 @@ def miniscript_sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
     if not psbt_in.witness_script:
         return None
     known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
-    try:
-        node = miniscript.from_script(
-            psbt_in.witness_script,
-            miniscript.P2WSH,
-            {hash160(key): key for key in known},
-        )
-    # not a miniscript, which is the answer "not mine" and not an error
-    except BTClibValueError:
+    # read as `miniscript_solver` reads it
+    node, _fault = _signer_read(
+        psbt_in.witness_script, {hash160(key): key for key in known}
+    )
+    # not a miniscript, or one but for a key: the answer "not mine"
+    if node is None:
         return None
     stack = node.max_witness_stack
     return None if stack is None else [*stack, len(psbt_in.witness_script)]
@@ -419,19 +422,31 @@ def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
         )
 
     `satisfy` never checks a signature against anything, so a filler one of
-    `SIG_SIZE` bytes for each key does exactly what a real one would for
-    sizing, and none of them has to exist yet, any more than the ones
-    `miniscript_sizer` assumes do. The preimages are the psbt input's own,
-    and the sequence is the input being sized, so an ``older()`` branch is
-    measured against what this spend actually carries. An ``after()`` branch
-    is not, `locktime` being the transaction's and not this call's to read
-    -- it is answered as unmet, and a script whose only open branch needs
-    one refuses rather than guesses.
+    `SIG_SIZE` bytes, the largest a P2WSH CHECKSIG takes, stands for each
+    key's, and none of them has to exist yet, any more than the ones
+    `miniscript_sizer` assumes do. The branch is chosen with those fillers:
+    a real signature can be shorter, and where two branches are close in
+    size the solver, which chooses with the real lengths, can take the
+    other. The preimages are the psbt input's own, and the sequence is the
+    input being sized, so an ``older()`` branch is measured against what
+    this spend actually carries. An ``after()`` branch is not, `locktime`
+    being the transaction's and not this call's to read -- it is answered
+    as unmet, and a script whose only open branch needs one refuses rather
+    than guesses.
 
     None for that refusal and the two `miniscript_sizer` already answers
     with it: no witness script, or one that is no miniscript. A caller
     then falls back exactly as it would for any other sizer answering
     "not mine".
+
+    Where the satisfaction chosen pushes a key the input names for a
+    ``pk_h()`` uncompressed or hybrid, a witness `miniscript_solver`
+    refuses, the spend sized is the one built without that key's
+    signature: the solver builds that spend once the signature is
+    withheld, choosing with the real lengths as above. None where that
+    spend pushes the key too. Either is the smallest satisfaction of its
+    signatures, as the solver and Bitcoin Core choose it, so a larger one
+    that pushes no such key is not sized.
     """
     # an Octets is itself iterable, so `Iterable[Octets]` accepts one as
     # far as the annotation goes: one key handed where the list was meant
@@ -447,14 +462,12 @@ def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
         if not psbt_in.witness_script:
             return None
         known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths, *signer_keys)
-        try:
-            node = miniscript.from_script(
-                psbt_in.witness_script,
-                miniscript.P2WSH,
-                {hash160(key): key for key in known},
-            )
-        # not a miniscript, which is the answer "not mine" and not an error
-        except BTClibValueError:
+        # read as `miniscript_solver` reads it
+        node, _fault = _signer_read(
+            psbt_in.witness_script, {hash160(key): key for key in known}
+        )
+        # not a miniscript, or one but for a key: the answer "not mine"
+        if node is None:
             return None
         signatures = dict.fromkeys(signer_keys, bytes(SIG_SIZE))
         spend = miniscript.SpendContext(
@@ -466,8 +479,20 @@ def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
         )
         try:
             stack = node.satisfy(cast("Mapping[Octets, Octets]", signatures), spend)
+            # a witness the solver refuses: the spend sized instead is the one
+            # built without the signatures of the keys it pushes
+            if _pushed_fault(stack, known):
+                withheld = {
+                    key: signature
+                    for key, signature in signatures.items()
+                    if not _sec_fault(key, miniscript.P2WSH)
+                }
+                stack = node.satisfy(cast("Mapping[Octets, Octets]", withheld), spend)
         # these keys build no satisfaction, or only a malleable one
         except BTClibValueError:
+            return None
+        # a spend that pushes such a key even without its signature
+        if _pushed_fault(stack, known):
             return None
         return [*(len(element) for element in stack), len(psbt_in.witness_script)]
 
