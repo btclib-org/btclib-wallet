@@ -536,3 +536,84 @@ def test_a_chain_looping_through_the_packages_refusals_is_walked_once() -> None:
 
 def _raise(error: Exception) -> None:
     raise error
+
+
+class _CallerGroup(BaseExceptionGroup[BaseException]):
+    """A group class of the caller's, kept even where every leaf is one."""
+
+
+class _Cancelled(BaseException):
+    """An interrupt of the caller's own, such as a framework's cancel."""
+
+
+def test_a_base_group_holding_a_fetch_error_is_refused_by_its_class() -> None:
+    """A `BaseExceptionGroup` subclass of the caller's is a group too."""
+    group = _CallerGroup("failures", [FetchError(f"no answer for {HEX}")])
+
+    def grouped() -> None:
+        raise group
+
+    err_msg = "^no usable answer from the server: _CallerGroup$"
+    with pytest.raises(FetchError, match=err_msg) as e:
+        _through(grouped)
+    assert type(e.value) is FetchError
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "leaf, kind, code",
+    [
+        (KeyboardInterrupt(HEX), KeyboardInterrupt, None),
+        (GeneratorExit(HEX), GeneratorExit, None),
+        (SystemExit(2), SystemExit, True),
+        (SystemExit(HEX), SystemExit, True),
+        (SystemExit(0), SystemExit, False),
+        (SystemExit(), SystemExit, False),
+        (_Cancelled(HEX), BaseException, None),
+    ],
+    ids=["interrupt", "exit", "exit 2", "exit text", "exit 0", "exit none", "other"],
+)
+def test_a_group_holding_an_interrupt_and_a_fetch_error_raises_the_interrupt(
+    leaf: BaseException, kind: type[BaseException], code: object
+) -> None:
+    """The interrupt is not lost, and holds nothing of the caller's (#935).
+
+    It is the first leaf that is no `Exception`, in the group's order: the
+    one inside a group ahead of a `KeyboardInterrupt` ahead of the rest.
+    """
+    group = BaseExceptionGroup(
+        "failures",
+        [
+            FetchError(f"no answer for {HEX}"),
+            BaseExceptionGroup("inner", [leaf]),
+            KeyboardInterrupt(),
+        ],
+    )
+
+    def grouped() -> None:
+        raise group
+
+    with pytest.raises(BaseException) as e:
+        _through(grouped)
+    # a new one, of the leaf's kind, or a bare `BaseException`
+    assert e.value is not leaf
+    assert isinstance(e.value, kind)
+    assert not isinstance(e.value, (Exception, _Cancelled))
+    assert e.value.args == (() if code is None else (code,))
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_base_group_holding_no_fetch_error_passes_as_it_is() -> None:
+    """An interrupt in a group of the caller's stays where it was."""
+    group = BaseExceptionGroup("failures", [KeyboardInterrupt(), TypeError("a bug")])
+
+    def grouped() -> None:
+        raise group
+
+    with pytest.raises(BaseExceptionGroup) as e:
+        _through(grouped)
+    assert e.value is group

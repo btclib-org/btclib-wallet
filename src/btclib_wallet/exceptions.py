@@ -348,7 +348,7 @@ def _caller_errors(request: str) -> Iterator[None]:
     text is not relayed, and nothing is chained to the refusal, which
     `_failed` reads: an `RpcError` keeps its code and an `HttpError` its
     status, as `_code` bounds them, and any other names its class. An
-    `ExceptionGroup` is refused as `_GROUPS` says, and any other exception
+    group of exceptions is refused as `_GROUPS` says, and any other exception
     passes as it is. `request` names the call, empty for none.
     """
     head = f"{request}: " if request else ""
@@ -381,15 +381,21 @@ def _caller_errors(request: str) -> Iterator[None]:
 
 
 class _CallersGroups:
-    """Refuse by its class an `ExceptionGroup` holding a `FetchError`.
+    """Refuse by its class a group of exceptions holding a `FetchError`.
 
-    This package raises no group, so each is the caller's code's, and
-    `except* FetchError` would hand the caller a `FetchError` it holds,
-    which `_holds_a_fetch_error` looks for. Any other group passes as it
-    is, as any exception that is no `FetchError` does. A context manager
-    and not an `except`: one lets an exception through by returning
-    False, where an `except` would have to raise it again. The refusal is
-    a `FetchError` that `_caller_errors` passes, without its `request`.
+    A group is a `BaseExceptionGroup`, read by its type. This package
+    raises none, so each is the caller's code's, and `except* FetchError`
+    would hand the caller a `FetchError` it holds, among the leaves that
+    `_leaves` reads. Any other group passes as it is, as any exception that
+    is no `FetchError` does. A group holding a leaf that is no `Exception`,
+    such as a `KeyboardInterrupt`, raises a new one of the kind of the
+    first such leaf in place of the refusal, as `_interrupt` builds it,
+    so that no interrupt is lost. Not the leaf itself, which is the
+    caller's, and which the census of `tests/refusal_census_test.py`
+    refuses to see raised again. A context manager and not
+    an `except`: one lets an exception through by returning False, where
+    an `except` would have to raise it again. The refusal is a `FetchError`
+    that `_caller_errors` passes, without its `request`.
     """
 
     def __enter__(self) -> None:
@@ -405,47 +411,88 @@ class _CallersGroups:
 
         What `error` is, is read off its type and not off its `__class__`.
         """
-        if not issubclass(type(error), ExceptionGroup):
+        if not issubclass(type(error), BaseExceptionGroup):
             return False
-        if not _holds_a_fetch_error(cast("ExceptionGroup[Exception]", error)):
+        leaves = _leaves(cast("BaseExceptionGroup[BaseException]", error))
+        if not any(issubclass(type(leaf), FetchError) for leaf in leaves):
             return False
-        refusal = FetchError(f"no usable answer from the server: {_class_name(error)}")
+        raised: BaseException = FetchError(
+            f"no usable answer from the server: {_class_name(error)}"
+        )
+        for leaf in leaves:
+            if not issubclass(type(leaf), Exception):
+                raised = _interrupt(leaf)
+                break
         try:
-            raise refusal
+            raise raised
         finally:
             # raised while the `with` statement handles the group, which
-            # Python sets as the refusal's `__context__`
-            refusal.__context__ = None
+            # Python sets as its `__context__`
+            raised.__cause__ = None
+            raised.__context__ = None
 
 
 _GROUPS = _CallersGroups()
 
 
-# the descriptor answering `exceptions`, which a subclass can override
+# the descriptors answering `exceptions` and `code`, which a subclass can
+# override
 _MEMBERS = vars(BaseExceptionGroup)["exceptions"]
+_EXIT_CODE = vars(SystemExit)["code"]
 
 
-def _holds_a_fetch_error(group: ExceptionGroup[Exception]) -> bool:
-    """Return whether a `FetchError` is among the leaves of `group`.
+def _interrupt(leaf: BaseException) -> BaseException:
+    """Return a new exception of the kind of `leaf`, holding nothing of it.
+
+    A `KeyboardInterrupt`, a `GeneratorExit` or a `SystemExit`, read by
+    the type of `leaf`; a `SystemExit` says only whether its code is a
+    failure, as `sys.exit` reads it. Any other is a `BaseException`, which
+    no `except Exception` catches either.
+    """
+    kind = type(leaf)
+    if issubclass(kind, KeyboardInterrupt):
+        return _KeyboardInterruptException()
+    if issubclass(kind, GeneratorExit):
+        return _GeneratorExitException()
+    if issubclass(kind, SystemExit):
+        code = _EXIT_CODE.__get__(leaf, SystemExit)
+        return _SystemExitException(
+            code is not None and not (type(code) is int and code == 0)
+        )
+    return BaseException()
+
+
+class _KeyboardInterruptException(KeyboardInterrupt):
+    """A `KeyboardInterrupt` this package raises for one a group held."""
+
+
+class _GeneratorExitException(GeneratorExit):
+    """A `GeneratorExit` this package raises for one a group held."""
+
+
+class _SystemExitException(SystemExit):
+    """A `SystemExit` this package raises for one a group held."""
+
+
+def _leaves(group: BaseExceptionGroup[BaseException]) -> list[BaseException]:
+    """Return the leaves of `group`, in order, each group read once.
 
     Each group is read through `BaseExceptionGroup`'s own `exceptions`,
     and each member by its type: a subclass of the caller's can answer
     `exceptions`, `__class__` or `derive`, which `split` and `subgroup`
     call, otherwise.
     """
-    todo: list[BaseExceptionGroup[BaseException]] = [group]
+    leaves: list[BaseException] = []
+    todo: list[BaseException] = [group]
     seen: set[int] = set()
     while todo:
         each = todo.pop()
-        if id(each) in seen:
-            continue
-        seen.add(id(each))
-        for member in _MEMBERS.__get__(each, BaseExceptionGroup):
-            if issubclass(type(member), FetchError):
-                return True
-            if issubclass(type(member), BaseExceptionGroup):
-                todo.append(member)
-    return False
+        if not issubclass(type(each), BaseExceptionGroup):
+            leaves.append(each)
+        elif id(each) not in seen:
+            seen.add(id(each))
+            todo += reversed(_MEMBERS.__get__(each, BaseExceptionGroup))
+    return leaves
 
 
 def _class_name(value: object) -> str:
