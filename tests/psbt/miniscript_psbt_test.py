@@ -236,9 +236,9 @@ UNKNOWN_KEY = "input 0: no public key for a hash160 the witness script holds"
 def test_no_witness_is_guessed_for_a_key_hash_the_input_does_not_name() -> None:
     """Refuse a miniscript whose pk_h() key the input names nowhere.
 
-    Answered None, `finalize` built its guess for a script of no standard
-    kind: the two signatures and the script, without the empty element
-    OP_CHECKMULTISIG pops, which the engine refuses. The key's origin
+    Answered None, `finalize` would build its guess for a script of no
+    standard kind: the two signatures and the script, without the empty
+    element OP_CHECKMULTISIG pops, which the engine refuses. The key's origin
     makes the script readable, and the witness is then the one that
     verifies.
     """
@@ -262,11 +262,14 @@ def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> No
 
     The pk_h() at its end is read with a stand-in key, and what is left
     before it is no expression: the input is not this solver's business.
+    The second script's CHECKMULTISIG counts -100 keys, which the walk
+    past the missing key reaches.
     """
     pkh = parse(f"pkh({KEYS[2]})").script()
     psbt, _ = signed_psbt(parse(f"pk({KEYS[0]})"), [KEYS[0]], 499999999, 0)
-    psbt.inputs[0].witness_script = serialize(["OP_DROP"]) + pkh
-    assert miniscript_solver(psbt, 0) is None
+    for prefix in (serialize(["OP_DROP"]), bytes.fromhex("5101e4ae")):
+        psbt.inputs[0].witness_script = prefix + pkh
+        assert miniscript_solver(psbt, 0) is None
 
 
 # a tr() whose script tree holds a miniscript leaf beside a key one: the
