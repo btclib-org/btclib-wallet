@@ -69,13 +69,14 @@ class FetchError(BTClibRuntimeError):
     built in C code that a module of this package calls counts as the
     package's: a transport of the caller's written in C is such code.
     Under CPython 3.11, C code that raises one by its class, as
-    `PyErr_SetString` does, leaves it to be built in the first frame that
-    handles it, with an `except`, a `finally` or a `with`. Once built, one
-    that counts as the package's stays so however it is raised again. The
-    caller's code makes such an error its own by building a new one in a
-    Python function of its own. Catching it there is enough only where C
-    code that this function calls, with no frame of this package between,
-    raised it by its class.
+    `PyErr_SetString` does, while no other exception is being handled,
+    leaves it to be built in the first frame that handles it, with an
+    `except`, a `finally` or a `with`. Once built, one that counts as the
+    package's stays so however it is raised again. The caller's code makes
+    such an error its own by building a new one in a Python function of
+    its own. Catching it there is enough only where C code that this
+    function calls, with no frame of this package between, raised it by
+    its class.
     """
 
     def __init__(self, *args: object) -> None:
