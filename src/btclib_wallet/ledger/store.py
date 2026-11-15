@@ -429,18 +429,26 @@ def _new_file(path: str | PathLike[str]) -> None:
     raised after the `except` block: the error's own text and `filename`
     are the caller's path, which can hold anything.
     """
-    failure = None
+    failure = ""
+    exists = False
     try:
         Path(path).touch(mode=0o600, exist_ok=False)
     except OSError as e:
+        failure = type(e).__name__
+        exists = isinstance(e, FileExistsError)
+    if not failure:
+        return
+    if not exists:
         # Windows refuses to make a file over a directory as a
-        # PermissionError, not a FileExistsError
-        if isinstance(e, FileExistsError) or Path(path).exists():
-            failure = "the ledger file exists"
-        else:
-            failure = f"cannot make the ledger file: {type(e).__name__}"
-    if failure is not None:
-        raise BTClibValueError(failure)
+        # PermissionError, not a FileExistsError. Asked after the `except`
+        # block, and a question the system refuses -- as Python before
+        # 3.14 raises for a parent this process may not search -- is no
+        # file found: its error names the path too
+        with contextlib.suppress(OSError):
+            exists = Path(path).exists()
+    if exists:
+        raise BTClibValueError("the ledger file exists")
+    raise BTClibValueError(f"cannot make the ledger file: {failure}")
 
 
 def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:

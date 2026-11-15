@@ -161,6 +161,37 @@ def test_a_file_the_system_cannot_make_is_refused_by_its_class(
         assert not target.exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0,
+    reason="a directory's search permission binds a POSIX user who is not root",
+)
+def test_a_parent_that_cannot_be_searched_is_in_no_refusal(
+    ledger: Ledger, chain: FakeChain, tmp_path: Path
+) -> None:
+    """Where the parent cannot be searched, no question asked of it leaks.
+
+    Python before 3.14 raises the `PermissionError` of asking whether the
+    file exists, which names the path, where 3.14 answers False (issue
+    #821).
+    """
+    parent = tmp_path / KEY.hex()
+    parent.mkdir()
+    target = parent / "ledger.sqlite"
+    parent.chmod(0)
+    try:
+        for call in (
+            lambda: ledger.backup(target),
+            lambda: Ledger.create(target, "regtest", chain),
+        ):
+            with raises_alone(
+                BTClibValueError, r"^cannot make the ledger file: PermissionError$"
+            ) as e:
+                call()
+            assert_secret_free(e.value, SPELLINGS)
+    finally:
+        parent.chmod(stat.S_IRWXU)
+
+
 def test_a_backup_that_cannot_open_its_file_leaves_none(
     ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
