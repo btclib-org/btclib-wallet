@@ -457,7 +457,7 @@ def _interrupt(leaf: BaseException) -> BaseException:
     if issubclass(kind, SystemExit):
         code = _EXIT_CODE.__get__(leaf, SystemExit)
         return _SystemExitException(
-            code is not None and not (type(code) is int and code == 0)
+            code is not None and (type(code) is not int or code != 0)
         )
     return BaseException()
 
