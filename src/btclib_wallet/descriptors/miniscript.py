@@ -2986,6 +2986,7 @@ def from_script(
     `reads_back` is this question asked without the refusal, for a caller
     that holds a script and wants to know whether any language reads it.
     """
+    _assert_valid_context(context)
     node, lacks_keys = _decoded(bytes_from_octets(script), context, key_hashes)
     if lacks_keys:
         raise BTClibValueError("no public key for a hash160 the script holds")

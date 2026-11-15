@@ -42,7 +42,7 @@ from typing import Any
 
 import pytest
 from btclib.alias import Octets, ScriptList
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.network import NETWORKS
@@ -1010,6 +1010,17 @@ def test_a_script_says_whether_it_is_the_expression_it_reads_as() -> None:
     assert reads_back(parse(f"and_v(v:pk({KEY}),older(36))").script())
     assert not reads_back(serialize(["OP_DROP", "OP_1"]))
     assert not reads_back(f"21{KEY[:-2]}")
+
+
+def test_from_script_and_reads_back_refuse_an_unknown_context() -> None:
+    """Refuse a context that is neither P2WSH nor TAPSCRIPT, as `parse` does."""
+    with pytest.raises(BTClibValueError, match="unknown spend context: 'foo'"):
+        from_script("51", "foo")
+    with pytest.raises(BTClibTypeError, match="context"):
+        from_script("51", 7)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match="context"):
+        reads_back("51", 7)  # type: ignore[arg-type]
+    assert not reads_back("51", "foo")
 
 
 def test_a_script_too_large_for_its_context_is_refused() -> None:
