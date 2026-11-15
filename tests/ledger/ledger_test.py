@@ -583,6 +583,43 @@ def test_a_reorganization_at_the_deepest_block_kept_near_the_tip(
     )
 
 
+def test_a_backend_that_pruned_the_block_held_fails_each_sync(
+    ledger: Ledger, chain: FakeChain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fork below the blocks near the tip reads from the next block held.
+
+    `BitcoinCoreFetcher` raises `FetchError` on a block a pruned node no
+    longer has. Where that block is the one held, the sync fails before
+    it writes anything, so the next sync walks down to it again and fails
+    too. A span of 4 keeps 9 to 12 near the tip 12, and 8, 4 and 0 below.
+    """
+    monkeypatch.setattr("btclib_wallet.ledger.ledger._KEEP_SPAN", 4)
+    ledger.sync()
+    while chain.tip.height < 12:
+        chain.mine()
+        ledger.sync()
+    tip = ledger.tip
+    read = chain.get_history
+
+    def pruned(
+        scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        if start_height < 5:
+            raise FetchError("the node pruned the block")
+        return read(scripts, start_height)
+
+    monkeypatch.setattr(chain, "get_history", pruned)
+    # the fork is at 6, which the node still has
+    chain.invalidate(7)
+    chain.mine(count=8)
+    for _ in range(2):
+        chain.reads.clear()
+        with pytest.raises(FetchError, match="pruned"):
+            ledger.sync()
+        assert chain.reads == [12, 11, 10, 9, 8]
+        assert ledger.tip == tip
+
+
 def test_a_coinbase_matures_after_100_blocks(ledger: Ledger, chain: FakeChain) -> None:
     """Immature until COINBASE_MATURITY blocks are built on it."""
     coinbase = chain.coinbase(script_of(ledger.new_address()), 5_000_000)
