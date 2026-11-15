@@ -954,6 +954,12 @@ def test_a_host_that_passed_construction_is_described_where_it_fails(
     assert_secret_free(e.value, SPELLINGS)
 
 
+def _v2_peer(host: str) -> None:
+    """Send one message over a `V2PeerTransport`, where it can be built."""
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+    V2PeerTransport(host, 1).send(_PING, 1.0)
+
+
 @pytest.mark.parametrize(
     "call",
     [
@@ -961,7 +967,7 @@ def test_a_host_that_passed_construction_is_described_where_it_fails(
         lambda host: TlsLineTransport(host, 1)(b"{}\n", 1.0),
         lambda host: PersistentTlsLineTransport(host, 1)(b'{"id": 1}\n', 1.0),
         lambda host: TcpPeerTransport(host, 1).send(_PING, 1.0),
-        lambda host: V2PeerTransport(host, 1).send(_PING, 1.0),
+        _v2_peer,
     ],
     ids=["tcp line", "tls line", "persistent tls", "tcp peer", "v2 peer"],
 )
