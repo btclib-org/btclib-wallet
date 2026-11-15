@@ -48,10 +48,11 @@ delimiter consumed rather than included -- bytes on both sides, the shape
 boundary needs no encoding step of its own, the same reason `HttpTransport` is
 bytes in and bytes out. A transport that cannot answer raises
 `bitcoin_core_rpc`'s own `FetchError` or a subclass of it,
-the vocabulary `HttpTransport` already raises through this same package;
-`btclib_wallet.fetch.fetcher.client_errors` is what refuses it as this
-package's `FetchError`, its text not relayed, at every `ElectrumFetcher`
-call the way it is at every other backend's.
+the vocabulary `HttpTransport` already raises through this same package.
+The transports this module ships raise `_TransportError`, which is this
+package's `FetchError` too. `ElectrumFetcher` makes every call under
+`btclib_wallet.fetch.fetcher.client_errors`, whose docstring says what of
+each reaches its caller.
 
 **`LineTransport` carries no host, so each implementation is an object
 that does.** One constructed with a host and a port is the callable
@@ -412,9 +413,10 @@ class TlsLineTransport:
 
     Everything that goes wrong below the answer -- an unresolvable host, a
     refused connection, a handshake the certificate fails, a timeout, a
-    connection closed before a whole line, a line over the limit -- is
-    `bitcoin_core_rpc`'s `FetchError`, the contract `LineTransport` states,
-    which `ElectrumFetcher` translates into this package's own.
+    connection closed before a whole line, a line over the limit -- is a
+    `_TransportError`: `bitcoin_core_rpc`'s `FetchError`, the contract
+    `LineTransport` states, and this package's own, which `ElectrumFetcher`
+    lets through as it is.
     """
 
     def __init__(
