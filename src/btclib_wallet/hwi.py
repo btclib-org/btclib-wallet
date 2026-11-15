@@ -532,9 +532,11 @@ def _run(
         err_msg += f"{len(stderr.strip())} bytes on stderr"
         raise SignerError(err_msg)
 
-    # raised after the block: a JSONDecodeError holds the whole answer
+    # raised after the block: a JSONDecodeError holds the whole answer,
+    # and so does the UnicodeDecodeError of bytes that are no UTF-8; an
+    # answer nested past the parser's depth is no json this reads either
     answer: Any = _NOT_JSON
-    with suppress(json.JSONDecodeError):
+    with suppress(json.JSONDecodeError, UnicodeDecodeError, RecursionError):
         answer = json.loads(stdout)
     if answer is _NOT_JSON:
         raise SignerError("the hwi command did not answer json")

@@ -771,6 +771,33 @@ def test_a_nul_character_is_refused_before_anything_runs(
     assert not Path(hwi[-1]).with_suffix(".argv.json").exists()
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [
+        b'{"key": "' + HEX.encode() + b'\\xff"}',
+        b'"' + HEX.encode() + b'\xff"',
+        b"[" * 200_000,
+    ],
+    ids=["escaped", "no-utf-8", "nested-past-the-parser"],
+)
+def test_an_answer_json_cannot_read_is_a_signer_error(
+    tmp_path: Path, answer: bytes
+) -> None:
+    """Bytes that are no UTF-8, or nest too deep, are no json (issue #821).
+
+    The decode error of bytes that are no UTF-8 holds them whole, so the
+    refusal holds no piece of the answer and chains nothing.
+    """
+    script = tmp_path / "answers.py"
+    script.write_text(
+        f"import sys; sys.stdout.buffer.write({answer!r})\n", encoding="ascii"
+    )
+    with pytest.raises(SignerError, match="^the hwi command did not answer json$") as e:
+        enumerate_devices(executable=[sys.executable, str(script)])
+    assert (e.value.__cause__, e.value.__context__) == (None, None)
+    assert_secret_free(e.value, SPELLINGS)
+
+
 def test_what_the_subprocess_can_do_wrong(tmp_path: Path) -> None:
     """Every failure is a SignerError, with HWI's code where there is one.
 
