@@ -24,6 +24,7 @@ repeated: what a recorded reply looks like is that module's business.
 from __future__ import annotations
 
 import ast
+import traceback
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -193,6 +194,25 @@ def test_no_question_is_answered_by_a_host_on_another_chain(
     endpoint, asked = _BACKENDS[backend].build()
     with pytest.raises(BTClibValueError, match=_BACKENDS[backend].refusal):
         _QUESTIONS[question](endpoint)
+    assert len(asked) == 1
+
+
+@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def test_a_disagreement_raised_again_carries_one_calls_traceback(
+    backend: str,
+) -> None:
+    """The refusal a later call raises again holds that call's frames alone.
+
+    The one exception is remembered: raised as it is, its traceback would
+    gather the frames of every call that raised it.
+    """
+    endpoint, asked = _BACKENDS[backend].build()
+    depths = []
+    for _ in range(3):
+        with pytest.raises(BTClibValueError) as e:
+            endpoint.get_block_count()
+        depths.append(len(traceback.extract_tb(e.value.__traceback__)))
+    assert depths[1] == depths[2]
     assert len(asked) == 1
 
 

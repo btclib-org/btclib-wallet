@@ -417,6 +417,9 @@ class NetworkVerifyingFetcher(Fetcher):
         if not self.verify_network or self._agreed:
             return
         if self._disagreement is not None:
+            # raised with the traceback of this call alone: the one
+            # exception raised again would gather the frames of every call
+            self._disagreement.__traceback__ = None
             raise self._disagreement
         try:
             self.assert_network()
