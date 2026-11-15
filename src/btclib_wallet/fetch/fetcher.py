@@ -407,9 +407,10 @@ class NetworkVerifyingFetcher(Fetcher):
         `assert_network` itself goes through -- a check there would ask
         the host about the host, from inside the question.
 
-        A disagreement is remembered and raised again, as a copy, for every
-        later call, because it is a settled fact about a configuration rather
-        than a request that failed -- and a fetcher that asked once, was
+        A disagreement is remembered and raised again, as a copy of its
+        args alone, for every later call, because it is a settled fact
+        about a configuration rather than a request that failed -- and a
+        fetcher that asked once, was
         refused once and then served an address would be the silent
         failure this exists to stop. A `FetchError` is not an answer and
         is remembered as nothing: the host was unreachable or spoke
@@ -418,10 +419,12 @@ class NetworkVerifyingFetcher(Fetcher):
         if not self.verify_network or self._agreed:
             return
         if self._disagreement is not None:
-            # a copy for each call, which holds no traceback, cause or
-            # context of the first: the one exception raised again would
-            # gather the frames of every call, under each caller holding it
+            # a copy for each call, which carries the first's args and
+            # nothing else: the one exception raised again would gather the
+            # frames of every call, under each caller holding it, and a
+            # shallow copy would share the notes a caller adds to any one
             refusal = copy.copy(self._disagreement)
+            refusal.__dict__.clear()
             raise refusal
         try:
             self.assert_network()

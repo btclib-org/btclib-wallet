@@ -1772,8 +1772,9 @@ KEPT = {
         " `test_a_failed_connect_names_no_address` holds them to it"
     ),
     ("fetch/fetcher.py", "_verify_once", "refusal"): (
-        "a `copy.copy` of `_disagreement`, which is assigned `None` in"
-        " `__init__` and, in `_verify_once`, the exception"
+        "a `copy.copy` of `_disagreement` whose `__dict__` is cleared, so"
+        " that only its args carry over; `_disagreement` is assigned `None`"
+        " in `__init__` and, in `_verify_once`, the exception"
         " `except _WrongChainError` binds alone: a class of the package,"
         " built at sites the census reads"
     ),

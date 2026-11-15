@@ -223,6 +223,30 @@ def test_a_disagreement_raised_again_carries_one_calls_traceback(
     assert len(asked) == 1
 
 
+@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def test_a_note_on_one_refusal_is_on_no_other(backend: str) -> None:
+    """A note a caller adds to its refusal stays on that refusal.
+
+    Only the args of the remembered refusal carry over to a later one: a
+    shallow copy would share its `__notes__` list, and any attribute a
+    caller set on it, with every refusal raised after.
+    """
+    endpoint, asked = _BACKENDS[backend].build()
+    with pytest.raises(BTClibValueError) as first:
+        endpoint.get_block_count()
+    first.value.add_note("added by the first caller")
+    with pytest.raises(BTClibValueError) as second:
+        endpoint.get_block_count()
+    assert not hasattr(second.value, "__notes__")
+    second.value.add_note("added by the second caller")
+    assert first.value.__notes__ == ["added by the first caller"]
+    with pytest.raises(BTClibValueError) as third:
+        endpoint.get_block_count()
+    assert not hasattr(third.value, "__notes__")
+    assert second.value.args == first.value.args == third.value.args
+    assert len(asked) == 1
+
+
 def test_every_call_site_is_pinned() -> None:
     """The census, and the reason this file is not a list kept by hand.
 
