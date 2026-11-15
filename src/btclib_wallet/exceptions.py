@@ -70,9 +70,11 @@ class FetchError(BTClibRuntimeError):
     package's: a transport of the caller's written in C is such code.
     Under CPython 3.11, C code that raises one by its class, as
     `PyErr_SetString` does, leaves it to be built in the first frame that
-    handles it, with an `except`, a `finally` or a `with`. The caller's
-    code makes such an error its own by catching it, or building it, in a
-    Python function of its own.
+    handles it, with an `except`, a `finally` or a `with`. Once built, one
+    that counts as the package's stays so however it is raised again. The
+    caller's code makes such an error its own by building a new one in a
+    Python function of its own. Catching it there is enough only where C
+    code raised it by its class under that function.
     """
 
     def __init__(self, *args: object) -> None:
