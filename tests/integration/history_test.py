@@ -150,7 +150,6 @@ def test_a_block_of_large_witnesses_renders_within_the_bound(
     """
     miner = wallets[0]
     address = miner.call("getnewaddress")
-    miner.call("generatetoaddress", [101, address])
     script = serialize(["OP_2DROP"] * 49 + ["OP_DROP", "OP_1"])
     p2wsh = ScriptPubKey.p2wsh(script, "regtest")
     funding = []
@@ -233,7 +232,6 @@ def test_a_block_of_bare_multisig_spends_renders_within_the_bound(
     """
     miner = wallets[0]
     address = miner.call("getnewaddress")
-    miner.call("generatetoaddress", [101, address])
     prv_key = 0x1234567
     keys = [bytes_from_point(mult(prv_key + i), compressed=False) for i in range(3)]
     bare = serialize(["OP_1", *keys, "OP_3", "OP_CHECKMULTISIG"])
@@ -283,7 +281,6 @@ def test_a_mempool_entry_costs_the_node_at_least_the_floor(
     `getmempoolinfo` reports is held equal to `_DEFAULT_MAX_MEMPOOL`.
     """
     miner = wallets[0]
-    miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
     (root,) = _fund(miner, [_P2SH_TRUE], 100_000)
     before = node.call("getmempoolinfo")
 
@@ -320,7 +317,6 @@ def test_a_scan_reports_a_p2wpkh_output_in_under_400_octets(
 ) -> None:
     """What `scantxoutset` answers per P2WPKH unspent, envelope included."""
     miner = wallets[0]
-    miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
     address = miner.call("getnewaddress", ["", "bech32"])
     script = bytes.fromhex(miner.call("getaddressinfo", [address])["scriptPubKey"])
     _fund(miner, [script] * 200, 5_000)

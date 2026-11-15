@@ -153,9 +153,9 @@ def test_a_wallet_has_at_least_one_chain() -> None:
 
 
 def test_a_branch_is_a_label_and_labels_are_not_negative() -> None:
-    """The one thing a chain label has to be, `position_of` walking them."""
-    with pytest.raises(BTClibValueError, match="invalid branch: -1"):
-        DescriptorWallet({-1: parse(_descriptor(f"wpkh({_XPUB}/0/*)"))})
+    """A negative label is refused, `position_of` walking labels in order."""
+    with pytest.raises(BTClibValueError, match="invalid branch: negative"):
+        DescriptorWallet({-(10**5000): parse(_descriptor(f"wpkh({_XPUB}/0/*)"))})
 
 
 def test_the_chains_must_be_of_one_network() -> None:

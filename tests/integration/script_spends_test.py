@@ -42,10 +42,8 @@ pytestmark = pytest.mark.integration
 def funded_miner(
     wallets: tuple[BitcoinCoreRpcClient, BitcoinCoreRpcClient],
 ) -> BitcoinCoreRpcClient:
-    """Return a miner with mature coins before a lock height is chosen."""
-    miner = wallets[0]
-    miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
-    return miner
+    """Return the miner, its coin confirmed before a lock height is chosen."""
+    return wallets[0]
 
 
 def _signer_and_key(account: int) -> tuple[SoftwareSigner, str]:
