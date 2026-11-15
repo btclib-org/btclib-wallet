@@ -249,7 +249,7 @@ def test_a_note_on_one_refusal_is_on_no_other(backend: str) -> None:
 
 @pytest.mark.parametrize("backend", sorted(_BACKENDS))
 def test_a_caller_rewriting_its_refusal_rewrites_no_other(backend: str) -> None:
-    """The refusal remembered is a copy no caller is raised.
+    """The refusal remembered is a copy raised to no caller.
 
     The first caller is raised the refusal `assert_network` raised. Were
     that the one remembered, a caller rewriting its args would put its

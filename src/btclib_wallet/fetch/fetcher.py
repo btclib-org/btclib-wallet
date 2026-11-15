@@ -408,7 +408,7 @@ class NetworkVerifyingFetcher(Fetcher):
         the host about the host, from inside the question.
 
         A disagreement is remembered as a copy of its args alone, which
-        no caller is raised, and a copy of that is raised for every
+        is raised to no caller, and a copy of that is raised for every
         later call, because it is a settled fact about a configuration
         rather than a request that failed -- and a fetcher that asked
         once, was refused once and then served an address would be the
@@ -428,9 +428,9 @@ class NetworkVerifyingFetcher(Fetcher):
         try:
             self.assert_network()
         except _WrongChainError as e:
-            # a copy of its args alone, which no caller is raised: a caller
-            # rewriting the args, notes or attributes of the refusal it
-            # holds would otherwise put them into every refusal raised after
+            # a copy of its args alone, which is raised to no caller: a caller
+            # rewriting the args, notes or attributes of the refusal it holds
+            # would otherwise put them into every refusal raised after
             remembered = copy.copy(e)
             remembered.__dict__.clear()
             self._disagreement = remembered
