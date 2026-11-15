@@ -74,7 +74,8 @@ class FetchError(BTClibRuntimeError):
     that counts as the package's stays so however it is raised again. The
     caller's code makes such an error its own by building a new one in a
     Python function of its own. Catching it there is enough only where C
-    code raised it by its class under that function.
+    code that this function calls, with no frame of this package between,
+    raised it by its class.
     """
 
     def __init__(self, *args: object) -> None:
