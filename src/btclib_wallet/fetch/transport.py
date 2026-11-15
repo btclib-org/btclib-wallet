@@ -49,8 +49,8 @@ boundary needs no encoding step of its own, the same reason `HttpTransport` is
 bytes in and bytes out. A transport that cannot answer raises
 `bitcoin_core_rpc`'s own `FetchError` or a subclass of it,
 the vocabulary `HttpTransport` already raises through this same package.
-The transports this module ships raise `_TransportError`, which is this
-package's `FetchError` too. `ElectrumFetcher` makes every call under
+The line transports this module ships raise `_TransportError`, which is
+this package's `FetchError` too. `ElectrumFetcher` makes every call under
 `btclib_wallet.fetch.fetcher.client_errors`, whose docstring says what of
 each reaches its caller.
 
