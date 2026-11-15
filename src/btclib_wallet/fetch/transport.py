@@ -355,6 +355,7 @@ def _exchange(
     deadline = monotonic() + timeout
     failure = ""
     failure_type: type[BaseException] | None = None
+    line: bytes | None = None
     try:
         with _open_connection((host, port), deadline, timeout, where) as sock:
             connection = sock
@@ -364,7 +365,7 @@ def _exchange(
             with connection:
                 connection.settimeout(_time_left(deadline, timeout, where))
                 connection.sendall(request)
-                return _read_line(
+                line = _read_line(
                     connection, bytearray(), max_line_size, where, deadline, timeout
                 )
     except OSError as e:
@@ -373,7 +374,15 @@ def _exchange(
         # Named by its class and raised after the block, so it is not
         # chained: a certificate that does not match names the host
         failure = type(e).__name__
-        failure_type = _failure_class(type(e))
+        # a close that fails once the line is read is refused all the
+        # same, but its class says nothing of the answer: `failure_type`
+        # stays None, as `TlsLineTransport` says
+        if line is None:
+            failure_type = _failure_class(type(e))
+    else:
+        # returned once both blocks closed, so that a close that fails
+        # refuses the call
+        return line
     err_msg = f"no answer from {where}: {failure}"
     raise _failed_exchange(_TransportError(err_msg), failure_type)
 

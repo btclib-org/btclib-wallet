@@ -65,7 +65,8 @@ class FakeConnection:
     Stands in for both the TCP socket `_open_connection` returns and the
     TLS one `wrap_socket` returns: each chunk is consumed in order, an
     `Exception` among them is raised in its place, and an exhausted
-    script reads as the peer closing the connection.
+    script reads as the peer closing the connection. `close_failure`,
+    where set, is what leaving its block raises, once it is closed.
     """
 
     def __init__(self, *chunks: bytes | Exception) -> None:
@@ -74,6 +75,7 @@ class FakeConnection:
         self.timeouts: list[float] = []
         self.asked: list[int] = []
         self.closed = False
+        self.close_failure: Exception | None = None
 
     def settimeout(self, timeout: float) -> None:
         """Record the timeout each operation was given."""
@@ -99,6 +101,8 @@ class FakeConnection:
 
     def __exit__(self, *exc_info: object) -> None:
         self.closed = True
+        if self.close_failure is not None:
+            raise self.close_failure
 
 
 class FakeContext(ssl.SSLContext):
@@ -437,6 +441,31 @@ def test_a_failed_read_is_a_fetch_error(kind: str, tcp: Calls) -> None:
     assert e.value.__cause__ is None
     assert e.value.failure_type is ConnectionResetError
     assert connection.closed
+
+
+@pytest.mark.parametrize(
+    "kind, layer", [("tls", "tls"), ("tls", "tcp"), ("tcp", "tcp")]
+)
+def test_a_close_failing_after_the_line_is_read_holds_no_failure_type(
+    kind: str, layer: str, tcp: Calls
+) -> None:
+    """The call is refused, but by no class: the close failed, not the answer.
+
+    The line is read whole, and the connection, or the socket under the
+    TLS one, raises as its block is left.
+    """
+    transport, connection = line_transport(kind, tcp, b"{}\n")
+    closing = connection if layer == "tls" else tcp.socket
+    closing.close_failure = ConnectionResetError("reset")
+    with pytest.raises(
+        RpcFetchError,
+        match=r"^no answer from 'electrum\.example':50002: ConnectionResetError$",
+    ) as e:
+        transport(REQUEST, 1.0)
+    assert e.value.__cause__ is None
+    assert e.value.failure_type is None
+    assert connection.closed
+    assert tcp[0][2].closed
 
 
 @pytest.mark.parametrize("kind", KINDS)
