@@ -32,7 +32,8 @@ print, and what the census cannot trace is a finding. It traces
 - what `_code`, `_message_text`, `_quoted`, `len`, `type` and `bool`
   answer, and a `__name__` or a `__qualname__`;
 - what `_hex_field` answers: a field of at most 4 bytes, which section 7
-  lets a refusal print;
+  lets a refusal print, and for anything else what `_message_text`
+  answers;
 - what the methods `bit_length`, `count`, `find` and `index` answer,
   where it traces what they are called on;
 - what `_label` answers, where it traces the labels it is handed;

@@ -53,14 +53,15 @@ def _hex_field(value: object) -> str:
 
     Section 7 lets a refusal print a field of at most 4 bytes: an int that
     fits in 32 unsigned bits, a bool excepted, is written as `hex` writes
-    it, and anything else as `_quoted` shows it.
+    it. Anything else has not the field's length, so it may hold key
+    bytes, and is described as `_message_text` describes it.
     """
     kind = type(value)
     if issubclass(kind, int) and kind is not bool and isinstance(value, int):
         number = _exact_int(value)
         if 0 <= number < 2**32:
             return hex(number)
-    return _quoted(value)
+    return _message_text(value)
 
 
 def _quoted(value: object) -> str:

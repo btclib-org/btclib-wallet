@@ -547,16 +547,35 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
     [
         (0x81, "0x81"),
         (2**32 - 1, "0xffffffff"),
-        (2**32, "4294967296"),
+        (2**32, "an int of 33 bits"),
+        (2**40, "an int of 41 bits"),
+        (-1, "a negative int of 1 bits"),
+        ("0x81", "a str of length 4"),
+        (True, "a bool"),
         (KEY, "a bytes of length 32"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
     ],
-    ids=["byte", "4 bytes", "past 4 bytes", "no int"],
+    ids=[
+        "byte",
+        "4 bytes",
+        "past 4 bytes",
+        "past 5 bytes",
+        "negative",
+        "str",
+        "bool",
+        "no int",
+        "scalar",
+    ],
 )
 def test_a_field_is_written_in_hex_up_to_4_bytes(value: object, shown: str) -> None:
-    """Section 7 lets a refusal print a field of at most 4 bytes."""
+    """Section 7 lets a refusal print a field of at most 4 bytes.
+
+    Anything else, an int past them included, is described by its type
+    and its length: it has not the field's length, so it may hold key
+    bytes.
+    """
     assert _hex_field(value) == shown
-    assert _hex_field(SCALAR) == "a value of more than 16 digits"
-    assert_secret_free(BTClibValueError(_hex_field(SCALAR)), SPELLINGS)
+    assert_secret_free(BTClibValueError(_hex_field(value)), SPELLINGS)
 
 
 @pytest.mark.parametrize(
