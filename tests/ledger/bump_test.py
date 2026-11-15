@@ -205,7 +205,10 @@ def test_a_named_rate_pays_the_incremental_rate_over_the_replacement(
     vsize = bumped.psbt.vsize_estimate(miniscript_sizer)
     assert bumped.fee == bumped.old_fee + vsize
     chain.relay = RelayFees(ONE_SAT, _rate(5), ONE_SAT)
-    with pytest.raises(BTClibValueError, match="^fee rate an int of 12 bits is below the mempool's minimum 5000 sat/kvB$"):
+    with pytest.raises(
+        BTClibValueError,
+        match="^fee rate an int of 12 bits is below the mempool's minimum 5000 sat/kvB$",
+    ):
         ledger.bump_psbt(spent.id, _rate(4))
 
 

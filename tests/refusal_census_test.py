@@ -1316,11 +1316,14 @@ class _Census:
                 # what a file or a socket holds, whoever defines the call
                 leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, read")
                 return
-            if isinstance(func, ast.Name) and name in {"_label", *_FIELDS}:
-                if _unpacks(expr):
-                    # which argument is which is not in the source
-                    leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, unpacked")
-                    return
+            if (
+                isinstance(func, ast.Name)
+                and name in {"_label", *_FIELDS}
+                and _unpacks(expr)
+            ):
+                # which argument is which is not in the source
+                leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, unpacked")
+                return
             if isinstance(func, ast.Name) and name == "_label":
                 # an element of the labels it is handed second, or what
                 # `_quoted` answers: the labels are what is traced

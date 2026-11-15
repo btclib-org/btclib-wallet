@@ -480,7 +480,10 @@ def test_an_output_below_its_dust_threshold_is_refused() -> None:
     so an `OP_RETURN` carrying no value is paid.
     """
     threshold = dust_threshold(PAY_SCRIPT.script)
-    with pytest.raises(BTClibValueError, match=f"output 1 is dust: its value, {_quoted(threshold - 1)}, "):
+    with pytest.raises(
+        BTClibValueError,
+        match=f"output 1 is dust: its value, {_quoted(threshold - 1)}, ",
+    ):
         build_psbt(
             [spendable(100_000)],
             [TxOut(threshold, PAY_SCRIPT), TxOut(threshold - 1, PAY_SCRIPT)],

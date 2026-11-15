@@ -943,7 +943,9 @@ def test_the_fee_rate_is_the_callers_the_estimate_or_the_fallback(
     # the caller's, refused below the relay minimum
     funded = ledger.fund([_outside()], FeeRate.from_sats_per_vbyte(2))
     assert funded.fee == funded.psbt.vsize_estimate() * 2
-    err_msg = "^fee rate an int of 10 bits is below the minimum relay rate 2000 sat/kvB$"
+    err_msg = (
+        "^fee rate an int of 10 bits is below the minimum relay rate 2000 sat/kvB$"
+    )
     with pytest.raises(BTClibValueError, match=err_msg):
         ledger.fund([_outside()], FeeRate.from_sats_per_vbyte(1))
     with pytest.raises(BTClibTypeError, match="invalid fee_rate type"):
