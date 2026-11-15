@@ -31,7 +31,7 @@ from btclib.utils import (
 )
 from ecc.curves import sec_point
 
-from btclib_wallet._refusal import _hex_field, _label, _quoted
+from btclib_wallet._refusal import _hex_field, _label, _message_text, _quoted
 from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
 
@@ -865,7 +865,7 @@ def assert_valid_psbt_version(version: Any) -> None:
         raise BTClibTypeError(f"invalid version type: {type(version).__name__}")
     # must be a 4-bytes int
     if not 0 <= version <= 0xFFFFFFFF:
-        raise BTClibValueError(f"invalid version: {_quoted(version)}")
+        raise BTClibValueError(f"invalid version: {_message_text(version)}")
     if version not in {PSBT_V0, PSBT_V2}:
         raise BTClibValueError(f"invalid psbt version: {_quoted(version)}")
 

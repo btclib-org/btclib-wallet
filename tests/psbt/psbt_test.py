@@ -1864,7 +1864,8 @@ def test_exceptions() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.serialize()
     psbt.version = 0xFFFFFFFF + 1
-    with pytest.raises(BTClibValueError, match=err_msg):
+    # past 4 bytes it is no version field, so it is described, not printed
+    with pytest.raises(BTClibValueError, match="^invalid version: an int of 33 bits$"):
         psbt.serialize()
     # in range, and not one of the two versions there are
     psbt.version = 3
