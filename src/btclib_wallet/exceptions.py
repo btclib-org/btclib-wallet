@@ -72,9 +72,10 @@ class FetchError(BTClibRuntimeError):
     `PyErr_SetString` does, while no other exception is being handled,
     leaves it to be built in the first frame that handles it, with an
     `except`, a `finally` or a `with`. Once built, one that counts as the
-    package's stays so however it is raised again. The caller's code makes
-    such an error its own by building a new one in a Python function of
-    its own. Catching it there is enough only where C code that this
+    package's stays so however it is raised again, while its class, args
+    and attributes are as built, as `_as_built` says. The caller's code
+    makes such an error its own by building a new one in a Python function
+    of its own. Catching it there is enough only where C code that this
     function calls, with no frame of this package between, raised it by
     its class.
     """
