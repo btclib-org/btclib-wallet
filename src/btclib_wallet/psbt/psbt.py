@@ -4006,13 +4006,14 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     each read as a `TAPSCRIPT` miniscript and satisfied with the
     signatures made for it, keyed by x-only key. A ``pk_h()`` is read
     with the x-only keys that signed and those `taproot_hd_key_paths`
-    names. Where several leaves are satisfied, the witness is the smallest
-    serialized one, control block included, and on a tie the one of the
-    smaller leaf script, then of the smaller control block: Bitcoin Core's
-    choice in ``SignTaproot`` (``src/script/sign.cpp``), which keeps the
+    names. Where several leaves are satisfied and the script engine takes
+    their witnesses (below), the witness is the smallest serialized one,
+    control block included, and on a tie the one of the smaller leaf
+    script, then of the smaller control block: the order of Bitcoin
+    Core's ``SignTaproot`` (``src/script/sign.cpp``), which keeps the
     first smallest witness over leaves ordered by script, each with its
-    shortest control block. So signatures that satisfy two leaves spend
-    the cheaper one, where `finalize` alone refuses them.
+    shortest control block. So signatures that satisfy two such leaves
+    spend the cheaper one, where `finalize` alone refuses them.
 
     Once a signed leaf at BIP342's leaf version reads as a miniscript, or
     would but for a ``pk_h()`` key, and before any is satisfied, the
@@ -4029,13 +4030,17 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
 
     A leaf's witness is a candidate once the script engine has run it on
     the transaction the psbt is building, with
-    `btclib.script.engine.verify_input`: a satisfied leaf can still be
-    one consensus refuses, a leaf of two 1-of-500 ``multi_a()`` quorums
-    among them, whose stack passes the thousand elements BIP342 allows.
-    Such a leaf is passed over, as one the signatures do not satisfy is.
-    Where no leaf is left, a leaf whose ``pk_h()`` key the input does not
-    name is the refusal, and otherwise the first leaf's in the order
-    above, the satisfier's or the engine's.
+    `btclib.script.engine.verify_input` and its default rules, the
+    consensus ones: a satisfied leaf can still be one consensus refuses,
+    a leaf of two 1-of-500 ``multi_a()`` quorums among them, whose stack
+    passes the thousand elements BIP342 allows. Such a leaf is passed
+    over, as one the signatures do not satisfy is. Where no leaf is left,
+    a leaf whose ``pk_h()`` key the input does not name is the refusal,
+    and otherwise the first leaf's in the order above, the satisfier's or
+    the engine's. Bitcoin Core runs its check, with its standard script
+    flags, on the smallest witness alone, once ``SignTaproot`` has chosen
+    it: where that one is refused, Core leaves the input unfinalized,
+    and this spends the smallest witness the engine takes.
 
     None where the input is not this solver's business: a p2wsh script
     that is not a miniscript, an input with no witness script that spends
@@ -4185,12 +4190,12 @@ def _leaf_witness(
     by a thousand elements, and the first key the script pushes on them
     is the thousand and first, where BIP342 keeps a limit of a thousand
     on the stack and the altstack together. So the witness is run on the
-    transaction the psbt is building, which is what Bitcoin Core's
-    ``ProduceSignature`` (``src/script/sign.cpp``) does before it calls an
-    input complete. `Miniscript.is_within_resource_limits` would answer
-    before the satisfaction, and for its worst case: it answers False for
-    an ``or_d()`` whose ``pk()`` branch spends with one signature beside
-    two such quorums.
+    transaction the psbt is building; `miniscript_solver`'s docstring
+    says how this differs from Bitcoin Core's check.
+    `Miniscript.is_within_resource_limits` would answer before the
+    satisfaction, and for its worst case: it answers False for an
+    ``or_d()`` whose ``pk()`` branch spends with one signature beside two
+    such quorums.
     """
     script, control_block, leaf_hash, node = leaf
     signatures = psbt.inputs[vin_i].taproot_script_spend_signatures
