@@ -1317,7 +1317,12 @@ def _derive_from_account(
     _assert_valid_branch(mxkey, branch, branches_0_1_only, max_index)
     _assert_valid_address_index(address_index, max_index)
 
-    return _derive(mxkey, f"m/{branch}/{address_index}", None)
+    # int() of an int, because a subclass of int may define a str() that
+    # is not the number -- its *name*, "Index.ONE" where a path step
+    # wants "1": the checks above accept a deliberate integer subclass,
+    # which is what `is_integer` is for, so the path is built from the
+    # number it is (issue #1012)
+    return _derive(mxkey, f"m/{int(branch)}/{int(address_index)}", None)
 
 
 def derive_from_account_(

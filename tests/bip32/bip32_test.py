@@ -10,6 +10,7 @@ import re
 import string
 import sys
 from dataclasses import FrozenInstanceError, fields, replace
+from enum import Enum, IntEnum
 from hashlib import shake_256
 from typing import Any
 
@@ -764,6 +765,20 @@ def test_derive_from_account() -> None:
     err_msg = "unhardened account/master key"
     with pytest.raises(BTClibValueError, match=err_msg):
         derive_from_account(mxpub, 0, 0)
+
+
+def test_derive_from_account_accepts_an_int_enum_branch_or_index() -> None:
+    """An IntEnum branch or index whose str() is its name derives as the int."""
+    account = derive(rootxprv_from_seed("00" * 32), "m/44h/0h/0h")
+
+    class Index(IntEnum):
+        ONE = 1
+        __str__ = Enum.__str__
+
+    plain = derive_from_account_(account, 1, 0).b58encode()
+    assert derive_from_account_(account, Index.ONE, 0).b58encode() == plain
+    plain = derive_from_account_(account, 0, 1).b58encode()
+    assert derive_from_account_(account, 0, Index.ONE).b58encode() == plain
 
 
 def test_crack() -> None:
