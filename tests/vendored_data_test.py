@@ -120,6 +120,7 @@ _EXEMPT: dict[str, str] = {
     "BIP328's, and a `key_sort` applied here reaches none of the three": _UPSTREAM_FACT,
     "BIP85-DRNG read, the three BIP39 mnemonics, the hdseed WIF, the xprv,": _UPSTREAM_FACT,
     "Four of the calls are not here, being loops rather than literals: the": _UPSTREAM_FACT,
+    "License: BSD-2-Clause, as the BIP's header says.": _UPSTREAM_FACT,
     "Not in a release: `INVALID_POLICY` (-19). The rest of the table is in": _UPSTREAM_FACT,
     "RSA (828365') is the one application with no vector here, because the": _UPSTREAM_FACT,
     "Re-checked again on 2026-09-29: still the same 17, byte for byte. The": _UPSTREAM_FACT,

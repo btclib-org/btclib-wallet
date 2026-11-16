@@ -60,7 +60,7 @@ import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData
 
-from btclib_wallet import bip322
+from btclib_wallet import bip139, bip322, bip329
 from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
@@ -176,20 +176,34 @@ _WRITERS = ("serialize", "to_dict", "b64encode", "b58encode")
 _FAMILY = (*_READERS, *_WRITERS)
 
 # and the same family where it is a module function rather than a method:
-# the two text parsers with no class between them and the encoding, each
-# driven on what it converts, which is its first argument
+# the text codecs with no class between them and the encoding, each driven
+# on its first argument, the text a parser converts or the records a
+# writer writes. A list of the wrong items is refused by its first item
 _MODULE_READERS = (
     ("descriptors.parse", descriptors.parse, "invalid descriptor type"),
     ("miniscript.parse", miniscript.parse, "invalid miniscript type"),
+    ("bip139.parse", bip139.parse, "invalid export type"),
+    (
+        "bip139.serialize",
+        bip139.serialize,
+        r"^invalid accounts type: |^accounts\[0\]: not a mapping: int$",
+    ),
+    ("bip329.parse", bip329.parse, "invalid labels type"),
+    (
+        "bip329.serialize",
+        bip329.serialize,
+        r"^invalid labels type: |^labels\[0\]: not a mapping: int$",
+    ),
 )
 
 _MODULE_READER_IDS = tuple(label for label, _, _ in _MODULE_READERS)
 
-# what those two take besides the text they convert, each driven by a
-# test of its own below
+# what those take besides their first argument, each driven by a test of
+# its own below
 _MODULE_EXTRA_ARGUMENTS = {
     ("btclib_wallet.descriptors.descriptors", "parse"): ["network", "prv_keys"],
     ("btclib_wallet.descriptors.miniscript", "parse"): ["context", "prv_keys"],
+    ("btclib_wallet.bip139", "serialize"): ["network"],
 }
 
 
@@ -359,6 +373,17 @@ def test_a_map_is_written_and_read_as_a_version_that_exists(cls: type[Any]) -> N
             map_.serialize(psbt_version=wrong_value)
         with pytest.raises(BTClibValueError, match="invalid psbt version"):
             cls.parse(map_.serialize(), psbt_version=wrong_value)
+
+
+def test_an_export_is_written_for_a_network_that_exists() -> None:
+    """The argument `bip139.serialize` takes besides the accounts."""
+    account = {"descriptor": f"pk({PrvKeyData(1).pub.sec.hex()})"}
+    assert json.loads(bip139.serialize([account], " TestNet "))["network"] == (
+        "testnet3"
+    )
+    for wrong in _WRONG_TYPES:
+        with pytest.raises(BTClibTypeError, match="not a network name"):
+            bip139.serialize([account], wrong)
 
 
 def test_a_descriptor_is_parsed_for_a_network_that_exists() -> None:

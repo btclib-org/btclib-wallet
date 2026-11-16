@@ -32,7 +32,16 @@ from btclib.exceptions import BTClibValueError
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from btclib_wallet import bip38, bip322, descriptors, electrum, minikey, silent_payments
+from btclib_wallet import (
+    bip38,
+    bip139,
+    bip322,
+    bip329,
+    descriptors,
+    electrum,
+    minikey,
+    silent_payments,
+)
 from btclib_wallet.bip21 import Bip21
 from btclib_wallet.bip32.bip32 import BIP32KeyData
 from btclib_wallet.bip32.der_path import indexes_from_der_path
@@ -107,6 +116,8 @@ def _bip38_decrypt(encrypted_key: str) -> Any:
 # the binary entry point never sees
 TEXT_PARSERS: dict[str, Callable[[str], Any]] = {
     "Bip21.parse": Bip21.parse,
+    "bip139.parse": bip139.parse,
+    "bip329.parse": bip329.parse,
     "BIP32KeyData.b58decode": BIP32KeyData.b58decode,
     "bip322.Sig.b64decode": bip322.Sig.b64decode,
     "Psbt.b64decode": Psbt.b64decode,
@@ -269,6 +280,14 @@ LONG_NUMBER_TEXTS = [(miniscript.parse, text) for text in _MINISCRIPT_TEXTS] + [
     (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[1]})"),
     (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[2]})"),
     (descriptors.parse, f"wpkh({_XPUB}/{{n}})"),
+    (bip329.parse, f'{{{{"type": "output", "ref": "{"00" * 32}:{{n}}"}}}}'),
+    (
+        bip139.parse,
+        (
+            '{{"version": "BIP139-1", "network": "bitcoin",'
+            ' "accounts": [{{"type": "bip380", "birth_block": {n}}}]}}'
+        ),
+    ),
 ]
 
 

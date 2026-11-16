@@ -22,6 +22,11 @@ from typing import Any
 
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
+from btclib.script.script_pub_key import ScriptPubKey
+from btclib.tx.out_point import OutPoint
+from btclib.tx.tx import Tx
+from btclib.tx.tx_in import TxIn
+from btclib.tx.tx_out import TxOut
 from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData
@@ -37,11 +42,11 @@ from btclib_wallet.bip32.der_path import (
     str_from_der_path,
     str_from_index_int,
 )
-from btclib_wallet.descriptors import parse
+from btclib_wallet.descriptors import Descriptor, parse
 from btclib_wallet.ledger import Ledger
 from btclib_wallet.psbt.psbt import PSBT_V2, Psbt
-from btclib_wallet.wallet import DescriptorWallet
-from btclib_wallet.wallet.script_wallet import KeyGroup
+from btclib_wallet.wallet import BIP32KeyWallet, DescriptorWallet, RangedWallet
+from btclib_wallet.wallet.script_wallet import KeyGroup, ScriptWallet
 from tests.ledger.conftest import FakeChain, source
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed("00" * 32))
@@ -49,7 +54,8 @@ _XPUB = xpub_from_xprv(rootxprv_from_seed("00" * 32))
 # check wants
 _ACCOUNT_XPRV = derive(rootxprv_from_seed("00" * 32), "m/44h/0h/0h")
 _DESCRIPTOR = parse(f"wpkh({_XPUB}/*)")
-_WALLET = DescriptorWallet([_DESCRIPTOR])
+_CHANGE_DESCRIPTOR = parse(f"wpkh({_XPUB}/1/*)")
+_WALLET = DescriptorWallet([_DESCRIPTOR, _CHANGE_DESCRIPTOR])
 
 
 def _psbt(**field: Any) -> Psbt:
@@ -142,6 +148,9 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
     ),
     # a ledger writes the label's str(), and cannot read "True" back
     ("descriptor wallet branch", lambda v: DescriptorWallet({v: _DESCRIPTOR})),
+    # `_branch_held` checks membership in `branches`, which `False == 0`
+    # and `True == 1` pass (issue #923)
+    ("wallet position branch", lambda v: _WALLET.address(v, 0)),
 ]
 
 _IDS = [case[0] for case in _CASES]
@@ -215,6 +224,7 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     assert _DESCRIPTOR.index_of(_DESCRIPTOR.script_pub_key(1), 1) == 1
     assert _WALLET.position_of(_DESCRIPTOR.script_pub_key(1), 1) == (0, 1)
     assert DescriptorWallet({1: _DESCRIPTOR}).branches == (1,)
+    assert _WALLET.address(1, 0) == _CHANGE_DESCRIPTOR.script_pub_key(0).address
 
     # the str and bytes spellings of a path are untouched by any of it
     assert indexes_from_der_path("m/44h/0h") == [2147483692, 2147483648]
@@ -235,6 +245,10 @@ def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
         DescriptorWallet({1.0: _DESCRIPTOR})  # type: ignore[dict-item]
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
         DescriptorWallet({"0": _DESCRIPTOR})  # type: ignore[dict-item]
+    with pytest.raises(BTClibTypeError, match="invalid branch type: float"):
+        _WALLET.address(1.0, 0)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
+        _WALLET.address("0", 0)  # type: ignore[arg-type]
 
     claims_int: Any = property(lambda _self: int)
 
@@ -332,10 +346,189 @@ def test_a_branch_is_an_int_by_its_type_whatever_its_class_claims() -> None:
     with pytest.raises(RuntimeError, match="no __class__"):
         isinstance(RaisesClass(5), bool)
     assert isinstance(ClaimsBool(5), bool)
-    assert DescriptorWallet({RaisesClass(5): _DESCRIPTOR}).branches == (5,)
-    assert DescriptorWallet({ClaimsBool(7): _DESCRIPTOR}).branches == (7,)
+    raising = DescriptorWallet({RaisesClass(5): _DESCRIPTOR})
+    assert raising.branches == (5,)
+    assert raising.address(RaisesClass(5), 0) == raising.address(5, 0)
+    claiming = DescriptorWallet({ClaimsBool(7): _DESCRIPTOR})
+    assert claiming.branches == (7,)
+    assert claiming.address(ClaimsBool(7), 0) == claiming.address(7, 0)
     wallet = source()
     assert _new_address(0, RaisesClass(0)) == wallet.address(0, 0)
     assert _new_address(0, ClaimsBool(1)) == wallet.address(1, 0)
     assert _new_address(RaisesClass(0), 0) == wallet.address(0, 0)
     assert _new_address(ClaimsBool(0), 1) == wallet.address(1, 0)
+
+
+class _Liar(int):
+    """An int whose `==` holds for anything, so any branch is "in" a tuple."""
+
+    __hash__ = int.__hash__
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        return True
+
+
+class _Unhashable(int):
+    """An int that cannot be a dict key."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+def _no_class(_self: object) -> type:
+    raise RuntimeError("no __class__")
+
+
+_raises_class: Any = property(_no_class)
+_claims_bool: Any = property(lambda _self: bool)
+
+
+class _RaisesClass(int):
+    """An int whose `__class__` raises, as bip32's `is_integer` reads it."""
+
+    __class__ = _raises_class
+
+
+class _ClaimsBool(int):
+    """An int whose `__class__` claims bool."""
+
+    __class__ = _claims_bool
+
+
+class _Index(IntEnum):
+    """An int whose str() is its name, which a derivation path would read."""
+
+    HELD = 1
+    NOT_HELD = 99
+
+    __str__ = Enum.__str__
+
+
+def test_each_branch_shape_is_what_it_claims() -> None:
+    """What each subclass below answers when its own methods are asked.
+
+    The wallet must ask none of them, so this is where they run.
+    """
+    assert _Liar(99) in (0, 1)
+    with pytest.raises(TypeError, match="unhashable"):
+        hash(_Unhashable(1))
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(_RaisesClass(1), bool)
+    assert isinstance(_ClaimsBool(1), bool)
+    assert str(_Index.HELD) == "_Index.HELD"
+
+
+_SUBCLASSES: list[tuple[str, Callable[[int], int]]] = [
+    ("liar", _Liar),
+    ("unhashable", _Unhashable),
+    ("raises class", _RaisesClass),
+    ("claims bool", _ClaimsBool),
+    ("int enum", _Index),
+]
+
+_ACCOUNT_XPUB = xpub_from_xprv(_ACCOUNT_XPRV)
+_WALLETS: dict[str, Callable[[], RangedWallet]] = {
+    "descriptor": lambda: DescriptorWallet([_DESCRIPTOR, _CHANGE_DESCRIPTOR]),
+    "key": lambda: BIP32KeyWallet(rootxprv_from_seed("00" * 32), "m/49h/0h/0h"),
+    "script": lambda: ScriptWallet([KeyGroup(1, [_ACCOUNT_XPUB])], "p2sh-p2wsh"),
+}
+
+
+def _spending(wallet: RangedWallet) -> Psbt:
+    """Return a psbt whose one input and one output are the wallet's 1/0."""
+    script_pub_key = wallet.script_pub_key(1, 0)
+    prev_tx = Tx(
+        vin=[TxIn(OutPoint(b"\x02" * 32, 0))], vout=[TxOut(1000, script_pub_key)]
+    )
+    psbt = Psbt.from_tx(
+        Tx(vin=[TxIn(OutPoint(prev_tx.id, 0))], vout=[TxOut(900, script_pub_key)])
+    )
+    psbt.inputs[0].non_witness_utxo = prev_tx
+    return psbt
+
+
+# every public method of the three wallets that takes a branch, and the
+# wallets that have it
+_METHODS: list[tuple[str, tuple[str, ...], Callable[[Any, Any], object]]] = [
+    ("address", ("descriptor", "key", "script"), lambda w, b: w.address(b, 0)),
+    (
+        "assert_derives",
+        ("descriptor", "key", "script"),
+        lambda w, b: w.assert_derives([w.script_pub_key(1, 0)], b),
+    ),
+    ("next_address", ("descriptor", "key", "script"), lambda w, b: w.next_address(b)),
+    (
+        "redeem_script",
+        ("descriptor", "key", "script"),
+        lambda w, b: w.redeem_script(b, 0),
+    ),
+    (
+        "script_pub_key",
+        ("descriptor", "key", "script"),
+        lambda w, b: w.script_pub_key(b, 0),
+    ),
+    (
+        "witness_script",
+        ("descriptor", "key", "script"),
+        lambda w, b: w.witness_script(b, 0),
+    ),
+    ("descriptor", ("descriptor", "script"), lambda w, b: w.descriptor(b)),
+    ("satisfy", ("descriptor",), lambda w, b: w.satisfy({}, b, 0)),
+    (
+        "update_psbt_input",
+        ("descriptor", "script"),
+        lambda w, b: w.update_psbt_input(_spending(w), 0, b, 0),
+    ),
+    (
+        "update_psbt_output",
+        ("descriptor", "script"),
+        lambda w, b: w.update_psbt_output(_spending(w), 0, b, 0),
+    ),
+]
+
+_BRANCH_CASES = [
+    pytest.param(kind, call, subclass, id=f"{kind}-{method}-{name}")
+    for method, kinds, call in _METHODS
+    for kind in kinds
+    for name, subclass in _SUBCLASSES
+]
+
+
+def _outcome(kind: str, call: Callable[[Any, Any], object], branch: int) -> object:
+    """Return what a new wallet answers, or raises, and what it then holds.
+
+    What it holds is each address handed out, with the type of the
+    branch it is recorded under: a subclass's `==` would pass a
+    comparison of the records themselves.
+    """
+    wallet = _WALLETS[kind]()
+    try:
+        answer = call(wallet, branch)
+    except Exception as exc:  # noqa: BLE001 -- the plain int's refusal is compared
+        return type(exc), str(exc)
+    if isinstance(answer, Psbt):
+        answer = answer.b64encode()
+    elif isinstance(answer, Descriptor):
+        answer = str(answer)
+    elif isinstance(answer, ScriptPubKey):
+        answer = answer.script
+    infos = [wallet.address_info(address) for address in wallet.addresses]
+    held = [(i.address, i.der_path, type(i.branch), i.branch) for i in infos]
+    return answer, held
+
+
+@pytest.mark.parametrize("value", [1, 99])
+@pytest.mark.parametrize("kind, call, subclass", _BRANCH_CASES)
+def test_a_branch_past_its_type_check_answers_as_the_int_it_holds(
+    kind: str,
+    call: Callable[[Any, Any], object],
+    subclass: Callable[[int], int],
+    value: int,
+) -> None:
+    """Every wallet method uses the exact int `_branch_held` returns.
+
+    So an int subclass's own `__eq__`, `__hash__`, `__class__` or `str()`
+    decides no lookup and no derivation, for a branch the wallet has (1)
+    and one it has not (99).
+    """
+    assert _outcome(kind, call, subclass(value)) == _outcome(kind, call, value)

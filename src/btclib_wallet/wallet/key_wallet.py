@@ -422,7 +422,7 @@ class BIP32KeyWallet(KeyWallet, RangedWallet):
         """
         if self.script_type != "p2wpkh-p2sh":
             return super().redeem_script(branch, index)
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return ScriptPubKey.p2wpkh(self._derived_pub_key(branch, index)).script
 
     @override

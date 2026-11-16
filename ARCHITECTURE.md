@@ -97,16 +97,19 @@ submodule loads on first attribute access through the package's own
   prefix names, BIP44's `m/purpose'/coin_type'/account'/change/index`
   for which key a path derives. `bip44.account_descriptors` builds the
   receive and change descriptors of an account from that purpose, out of
-  `descriptors`' fragments, so `bip44` imports `descriptors`.
-  `descriptors` imports nothing of `bip44`: what a path means under BIP44
-  is no part of the descriptor language. `bip44.discover_accounts` is
-  BIP44's account discovery over those descriptors, read through a
-  `fetch.HistoryReader` the caller passes. `bip44` imports `fetch` for
-  its annotations alone, so importing `bip44` loads no client.
-- `recovery_paths.py` returns the receive and change descriptors of a
-  wallet whose recovery quorums spend after a relative timelock:
-  `recovery_descriptors` writes the miniscript and hands it to
-  `descriptors.parse`, so `recovery_paths` imports `descriptors`.
+  `descriptors`' fragments, and `bip44.discover_account` reads the text
+  of a descriptor with `descriptors.parse`, so `bip44` imports
+  `descriptors`. `descriptors` imports nothing of `bip44`: what a path
+  means under BIP44 is no part of the descriptor language.
+  `bip44.discover_accounts` is BIP44's account discovery over those
+  descriptors, read through a `fetch.HistoryReader` the caller passes.
+  `bip44` imports `fetch` for its annotations alone, so importing
+  `bip44` loads no client.
+- `recovery_paths.py` returns the receive and change descriptors, under
+  `wsh()` or `tr()`, of a wallet whose recovery quorums spend after a
+  relative timelock: `recovery_descriptors` writes the miniscript and
+  hands it to `descriptors.parse`, so `recovery_paths` imports
+  `descriptors`, and takes BIP341's NUMS point from `silent_payments`.
 - `bip38.py` and `minikey.py` spell a single private key that no seed
   derives: BIP38 encrypts it under a password with scrypt and AES, and a
   Casascius minikey is a short string whose `sha256` is the key itself.
@@ -144,6 +147,11 @@ submodule loads on first attribute access through the package's own
   takes, built and validated here so that a wrong field is caught before
   it reaches a node — no RPC call and no client of its own, the caller
   already holding one.
+- `bip139.py` reads and writes the backup of a wallet's policy as
+  BIP139 defines it: one JSON text holding each account's descriptors,
+  the names of its keys, its birth height and its labels, which
+  `bip329.py` reads and writes as BIP329 defines them. Both read and
+  write text, and the caller opens the file.
 
 ## The wallets, and the state they remember
 

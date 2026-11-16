@@ -1933,6 +1933,14 @@ KEPT = {
         " so that only its args carry over: a class of the package, built"
         " at sites the census reads"
     ),
+    ("bip44.py", "_branch", "refusal"): (
+        "the refusal of `descriptors.parse` that `_parsed` returns, a"
+        " `BTClibValueError` or an `EccValueError`, built again as its class"
+        " with its text after the branch's position and nothing of its own"
+        " chained."
+        " `parse` quotes no key, as `test_a_refusal_echoes_no_private_key`"
+        " holds, and `tests/bip44_test.py` holds the refusal built here"
+    ),
 }
 
 
