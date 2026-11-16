@@ -25,7 +25,7 @@ from btclib.tx import TxOut
 from btclib_wallet import bip139
 from btclib_wallet.bip32 import fingerprint
 from btclib_wallet.descriptors import add_checksum, normalized, parse
-from btclib_wallet.ledger import Ledger, TxState
+from btclib_wallet.ledger import MAX_LOOKAHEAD, Ledger, TxState
 from btclib_wallet.ledger import ledger as ledger_module
 from btclib_wallet.wallet import DescriptorWallet
 from tests.ledger import (
@@ -201,9 +201,10 @@ def test_the_export_holds_each_source_as_an_account(
     assert third["descriptor"] == _public(FIXED_TEMPLATE)
     assert third["receive_index"] == 0
     assert "labels" not in third
-    # each label on the account of the source that watches it, and the
-    # foreign address's on the first; the "" of an address handed out
-    # with no label set is not written
+    # each label on the account that handed out its address, and the
+    # foreign address's on the first; the "" `new_address` set on index 1
+    # is written, and the index the payment past the window reached,
+    # whose "" no call set, has no record
     assert first["labels"] == sorted(
         (
             {"type": "addr", "ref": address, "label": label}
@@ -218,6 +219,171 @@ def test_the_export_holds_each_source_as_an_account(
     assert second["labels"] == [
         {"type": "addr", "ref": sources[1].address(0, 0), "label": "tr"}
     ]
+
+
+def _records(*labelled: tuple[str, str]) -> list[dict[str, str]]:
+    """Return address and label pairs as records, in an export's order."""
+    return sorted(
+        (_label(address, label) for address, label in labelled),
+        key=lambda record: script_of(record["ref"]).script,
+    )
+
+
+def test_a_label_set_is_written_and_the_one_none_set_gives_is_not(
+    chain: FakeChain, path: Path, tmp_path: Path
+) -> None:
+    """A label "" a call set is written; the "" *Labels* gives is not.
+
+    `new_address` sets "" on index 0, and `set_label` on a change address
+    and on a foreign one. A payment to index 3 hands out indexes 2 and 3
+    with no label set. The restored ledger answers each address as the
+    original does.
+    """
+    with _new(chain, path) as ledger:
+        ledger.add_source(source(), lookahead=LOOKAHEAD)
+        wallet = ledger.sources[0]
+        ledger.new_address()
+        ledger.new_address(label="kept")
+        written = [wallet.address(0, 0), ledger.new_change_address(), _foreign()]
+        for address in written[1:]:
+            ledger.set_label(address, "")
+        _pay(chain, ledger, wallet.address(0, 3))
+        assert ledger.label_of(wallet.address(0, 2)) == ""
+        text = ledger.export_policy()
+        assert bip139.parse(text)["accounts"][0]["labels"] == _records(
+            (wallet.address(0, 1), "kept"), *((address, "") for address in written)
+        )
+        with _restored(chain, text, tmp_path / "r.sqlite") as restored:
+            assert restored.export_policy() == text
+            for index in range(4):
+                address = wallet.address(0, index)
+                assert restored.label_of(address) == ledger.label_of(address)
+            for address in written:
+                assert restored.label_of(address) == ledger.label_of(address)
+            for purpose in (None, "receive", "send"):
+                assert restored.labels(purpose) == ledger.labels(purpose)
+
+
+def _shared_sources(chain: FakeChain, path: Path, first: int, second: int) -> Ledger:
+    """Return a ledger of two sources sharing branch 0's scripts.
+
+    Source 0 watches `first` indexes and source 1 `second`, and source 1
+    hands out eight addresses with no label given, so `new_address` sets
+    "" on each.
+    """
+    ledger = _new(chain, path)
+    ledger.add_source(source(), lookahead=first)
+    ledger.add_source(source(TEMPLATE, (0,)), lookahead=second)
+    for _ in range(8):
+        ledger.new_address(1)
+    return ledger
+
+
+@pytest.mark.parametrize("first, second, restored_lookahead", [(5, 5, 20), (20, 5, 5)])
+def test_the_label_new_address_sets_survives_any_lookahead(
+    chain: FakeChain,
+    path: Path,
+    tmp_path: Path,
+    first: int,
+    second: int,
+    restored_lookahead: int,
+) -> None:
+    """Whatever the lookahead of each source, and of the restore.
+
+    Which source the ledger reads a shared script as depends on the
+    lookahead, and so does whether *Labels* gives it "" with none set:
+    each "" `new_address` set is written, on account 1, which handed the
+    addresses out.
+    """
+    with _shared_sources(chain, path, first, second) as ledger:
+        text = ledger.export_policy()
+        addresses = [ledger.sources[1].address(0, index) for index in range(8)]
+        accounts = bip139.parse(text)["accounts"]
+        assert "labels" not in accounts[0]
+        assert accounts[1]["labels"] == _records(*((a, "") for a in addresses))
+        restored, _ = Ledger.restore_policy(
+            text,
+            tmp_path / "r.sqlite",
+            "regtest",
+            chain,
+            lookahead=restored_lookahead,
+        )
+        with restored:
+            assert restored.export_policy() == text
+            for address in addresses:
+                assert restored.label_of(address) == ledger.label_of(address) == ""
+
+
+def test_the_export_derives_no_script_for_a_label_nobody_watches(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A foreign label is on the first account with no script derived.
+
+    Every index handed out is watched, so the export does not look for a
+    script it does not watch, and its own read of the text takes the
+    accounts it computed: it derives a handful of scripts, not one for
+    each index handed out.
+    """
+    account = {
+        "descriptor": _public(TEMPLATE),
+        "change_descriptor": _public(TEMPLATE, 1),
+        "birth_block": 0,
+        "receive_index": 200,
+        "change_index": 200,
+        "labels": [_label(_foreign(), "friend")],
+    }
+    text = _policy([account])
+    derived: list[int] = []
+    script_pub_key = DescriptorWallet.script_pub_key
+
+    def counted(wallet: DescriptorWallet, branch: int = 0, index: int = 0) -> Any:
+        derived.append(index)
+        return script_pub_key(wallet, branch, index)
+
+    with _restored(chain, text, path) as restored:
+        monkeypatch.setattr(DescriptorWallet, "script_pub_key", counted)
+        assert restored.export_policy() == text
+    assert len(derived) < 10
+
+
+def test_each_label_is_on_the_first_account_that_handed_out_its_address(
+    chain: FakeChain, path: Path, tmp_path: Path
+) -> None:
+    """Whatever each source watches: a restore watching less exports the same.
+
+    Sources 0 and 1 share the scripts of branch 0. A label of an address
+    only source 1 handed out is on account 1, and on account 0 once source
+    0 hands it out too. The one address of a branch that is not ranged
+    counts as handed out. A label of an address watched and not handed
+    out, the one after the last that source 2 handed out, is on account 0.
+    """
+    with _new(chain, path) as ledger:
+        ledger.add_source(source(), lookahead=LOOKAHEAD)
+        ledger.add_source(source(TEMPLATE, (0,)), lookahead=LOOKAHEAD)
+        ledger.add_source(source(TR_TEMPLATE, (0,)), lookahead=LOOKAHEAD)
+        ledger.add_source(source(FIXED_TEMPLATE, (0,)), lookahead=LOOKAHEAD)
+        shared = ledger.new_address(1, label="shared")
+        tr = ledger.new_address(2, label="tr")
+        far = ledger.sources[2].address(0, 1)
+        fixed = ledger.sources[3].address(0, 0)
+        ledger.set_label(far, "far")
+        ledger.set_label(fixed, "fixed")
+        text = ledger.export_policy()
+        accounts = bip139.parse(text)["accounts"]
+        assert accounts[0]["labels"] == _records((far, "far"))
+        assert accounts[1]["labels"] == _records((shared, "shared"))
+        assert accounts[2]["labels"] == _records((tr, "tr"))
+        assert accounts[3]["labels"] == _records((fixed, "fixed"))
+        restored, _ = Ledger.restore_policy(
+            text, tmp_path / "r.sqlite", "regtest", chain, lookahead=0
+        )
+        with restored:
+            assert restored.position_of(script_of(far)) is None
+            assert restored.export_policy() == text
+        assert ledger.new_address(label="shared") == shared
+        accounts = bip139.parse(ledger.export_policy())["accounts"]
+        assert accounts[0]["labels"] == _records((far, "far"), (shared, "shared"))
+        assert "labels" not in accounts[1]
 
 
 def test_a_restored_ledger_finds_the_funds_and_the_next_addresses(
@@ -561,6 +727,7 @@ def test_a_text_another_wallet_wrote_restores(chain: FakeChain, tmp_path: Path) 
 
 
 _ADDRESS = source(TEMPLATE, (0,)).address(0, 0)
+_TR_ADDRESS = source(TR_TEMPLATE, (0,)).address(0, 0)
 
 
 def _label(ref: str, label: str = SECRET, kind: str = "addr") -> dict[str, Any]:
@@ -683,6 +850,40 @@ _REFUSED: list[tuple[Callable[[], str], str]] = [
             ]
         ),
         r"^accounts\[1\]\.labels\[0\]\.label: the name \*, which a ledger refuses$",
+    ),
+    (
+        lambda: _policy(
+            [
+                {"descriptor": _public(TEMPLATE)},
+                {"descriptor": _public(TR_TEMPLATE), "labels": [_label(_foreign())]},
+            ]
+        ),
+        (
+            r"^accounts\[1\]\.labels\[0\]: on another account than accounts\[0\],"
+            " where an export writes it$"
+        ),
+    ),
+    (
+        lambda: _policy(
+            [
+                {"descriptor": _public(TEMPLATE), "labels": [_label(_TR_ADDRESS)]},
+                {"descriptor": _public(TR_TEMPLATE), "receive_index": 0},
+            ]
+        ),
+        r"^accounts\[0\]\.labels\[0\]: on another account than accounts\[1\],",
+    ),
+    (
+        lambda: _policy(
+            [
+                {"descriptor": _public(TEMPLATE), "receive_index": 0},
+                {
+                    "descriptor": _public(TR_TEMPLATE),
+                    "receive_index": 2,
+                    "labels": [_label(source(TR_TEMPLATE, (0,)).address(0, 3))],
+                },
+            ]
+        ),
+        r"^accounts\[1\]\.labels\[0\]: on another account than accounts\[0\],",
     ),
     (
         lambda: _policy([{"descriptor": _public(TEMPLATE)}]).replace(
@@ -865,6 +1066,13 @@ def test_a_restore_refuses_a_wrong_argument_and_a_file_at_its_path(
             lambda: Ledger.restore_policy(unread, path, "regtest", chain, lookahead=-1),
             BTClibValueError,
             "^negative lookahead: ",
+        ),
+        (
+            lambda: Ledger.restore_policy(
+                unread, path, "regtest", chain, lookahead=MAX_LOOKAHEAD + 1
+            ),
+            BTClibValueError,
+            "^lookahead above MAX_LOOKAHEAD, 100000: ",
         ),
     ]
     for call, kind, err_msg in refused:

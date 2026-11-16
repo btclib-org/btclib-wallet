@@ -266,10 +266,14 @@ is branch 0's and its `change_descriptor` branch 1's, each as
 private key. Its `birth_block` is the source's birth height, and its
 `receive_index` and `change_index` the highest index handed out on each
 branch. Its `keys` are the key names the caller passes. Its `labels` are
-the labels set on addresses, each on the account of the source that
-watches its script, or on the first account where none does; the label
-"" that *Labels* gives an address with none set is not written, and a
-restore gives it again. The export holds no private key.
+the labels set on addresses, each on the first account that handed out
+its address, or on the first account where none did. An account hands
+out each index up to its `receive_index` and its `change_index`, and the
+one address of a branch that is not ranged counts as handed out. A label
+"" set, as `new_address` sets it, is written as any other: whether a
+restore gives it again depends on the lookahead each restored source
+watches. The label "" that *Labels* gives an address with none set is
+not written. The export holds no private key.
 
 The export refuses a source it cannot write: one with no branch 0, or
 with a branch other than 0 and 1, which BIP139 has no field for, and one
@@ -296,12 +300,9 @@ set with the purpose `set_label` gives them. The key names come back
 beside the ledger. The restore reads no backend: the next `sync` reads
 each source from its birth height.
 
-The restore reads the text with `bip139.parse` first, which discards
-what its docstring and `bip329`'s say they discard. Among that are a
-field BIP139 says to discard, a label record of a type BIP329 does not
-define or of type ``spscan``, whatever label it holds, and a record left
-with a `type` and a `ref` alone. The restore never sees them, and the
-next export does not write them.
+The restore reads the text with `bip139.parse` first. What its docstring
+says it discards, and what `bip329`'s says it skips, drops or does not
+keep, the restore never sees, and the next export does not write.
 
 Of what `bip139.parse` returns, what the ledger cannot hold is refused
 before the file is made, so that a restore holds all of it or nothing: a
@@ -310,7 +311,9 @@ whose descriptor expands to more than two paths; an index on a branch
 the account does not have, past the one address of a branch that is not
 ranged, or of a million or more, which Core's `importdescriptors`
 refuses; a label record of another type than ``addr``, or with an
-``origin``; two records of one address; and the label ``*``.
+``origin``; two records of one address; the label ``*``; and a label on
+another account than the one the export writes it on, since a ledger
+does not hold which account a label is on.
 """
 
 from __future__ import annotations
@@ -815,10 +818,11 @@ class Ledger:
         `policy` is the BIP139 text `export_policy` writes, which
         `bip139.parse` reads. The module docstring's *The policy backup*
         says what becomes of it, and what is refused. Each source watches
-        `lookahead` indexes, as `add_source` takes it. Beside the ledger
-        is returned the `keys` of each account that has them, by source
-        id, as `export_policy` takes them. A file already at `path` is
-        refused, as `create` refuses it, and a restore that fails after
+        `lookahead` indexes, as `add_source` takes it, and one above
+        `MAX_LOOKAHEAD` is refused before the text is read. Beside the
+        ledger is returned the `keys` of each account that has them, by
+        source id, as `export_policy` takes them. A file already at `path`
+        is refused, as `create` refuses it, and a restore that fails after
         making the file removes it, as `store`'s `_remove_new_file` says.
         """
         kind = type(policy)
@@ -828,7 +832,8 @@ class Ledger:
         assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
         network = validated_network_name(network)
         lookahead = _checked_height(lookahead, "lookahead")
-        accounts, labels = _restored_policy(_exact(policy), network)
+        _assert_lookahead(lookahead)
+        accounts, labels = _restored_policy(_exact(policy), network, None)
         ledger = cls.create(
             path,
             network,
@@ -877,7 +882,6 @@ class Ledger:
         if not self._sources:
             raise BTClibValueError("no source: add one before the export")
         names = self._checked_key_names(key_names)
-        labels = self._policy_labels()
         accounts = []
         for source_id in sorted(self._sources):
             wallet = self._sources[source_id]
@@ -897,13 +901,14 @@ class Ledger:
                     account[field] = end - 1
             if source_id in names:
                 account["keys"] = names[source_id]
-            if source_id in labels:
-                account["labels"] = labels[source_id]
             accounts.append(account)
+        labels, homes = self._policy_labels()
+        for position, records in labels.items():
+            accounts[position]["labels"] = records
         policy = _serialize_policy(accounts, self.network)
         # read as a restore reads it, so that no backup is written that its
-        # restore refuses
-        _restored_policy(policy, self.network)
+        # restore refuses; the accounts of the labels are the ones above
+        _restored_policy(policy, self.network, homes)
         return policy
 
     def _checked_key_names(
@@ -945,20 +950,34 @@ class Ledger:
             names[source_id] = copied
         return names
 
-    def _policy_labels(self) -> dict[int, list[dict[str, str]]]:
-        """Return the address book's labels as BIP329 records, by source id.
+    def _policy_labels(
+        self,
+    ) -> tuple[dict[int, list[dict[str, str]]], dict[bytes, int]]:
+        """Return the address book's labels as BIP329 records, by account.
 
-        Each on the source that watches its script, or on source 0, in
-        the order of the scripts. A label is set on an address only, so
-        each script has one.
+        An account is a source's position in source id order. Each record
+        is on the account `_label_homes` gives it, in the order of the
+        scripts, and what `_label_homes` returns is returned beside them.
+        A label is set on an address only, so each script has one. A
+        script the ledger does not watch is not looked for: every index
+        handed out is watched, so no source handed it out.
         """
+        held = {script: label for script, (label, _) in self._labels.items()}
+        handed = []
+        for source_id in sorted(self._sources):
+            wallet = self._sources[source_id]
+            indexes = {
+                branch: end - 1
+                for branch in wallet.branches
+                if (end := self._next_index(source_id, branch)) > 0
+            }
+            handed.append((wallet, indexes))
+        homes = _label_homes(handed, held.keys() & self._scripts.keys())
         labels: dict[int, list[dict[str, str]]] = {}
-        for script, (label, _) in sorted(self._labels.items()):
-            position = self._scripts.get(script)
-            source_id = 0 if position is None else position[0]
+        for script, label in sorted(held.items()):
             record = {"type": "addr", "ref": self._address(script), "label": label}
-            labels.setdefault(source_id, []).append(record)
-        return labels
+            labels.setdefault(homes.get(script, 0), []).append(record)
+        return labels, homes
 
     @_relocking
     def backup(self, path: str | PathLike[str]) -> None:
@@ -3031,13 +3050,17 @@ class _PolicyAccount:
 
 
 def _restored_policy(
-    policy: str, network: str
+    policy: str, network: str, homes: Mapping[bytes, int] | None
 ) -> tuple[list[_PolicyAccount], dict[bytes, str]]:
     """Return the sources and the labels of a policy backup, or refuse it.
 
-    The labels are by script. What is refused is the module docstring's
-    *The policy backup*. A refusal of this module's names the account or
-    the label by its position; one of `DescriptorWallet`'s is its own.
+    The labels are by script, each checked to be on the account
+    `_label_homes` gives it. `homes` is what `_label_homes` returned of
+    the policy's labels, which the export passes, or None, where it is
+    computed from the policy's accounts. What is refused is the module
+    docstring's *The policy backup*. A refusal of this module's names
+    the account or the label by its position; one of
+    `DescriptorWallet`'s is its own.
     """
     parsed = _parse_policy(policy)
     if parsed["network"] != network:
@@ -3046,6 +3069,7 @@ def _restored_policy(
         raise BTClibValueError(err_msg)
     accounts = []
     labels: dict[bytes, str] = {}
+    placed: dict[bytes, tuple[int, str]] = {}
     for position, account in enumerate(parsed["accounts"]):
         at = f"accounts[{_position(position)}]"
         accounts.append(_policy_account(account, at, network))
@@ -3055,7 +3079,47 @@ def _restored_policy(
             if script in labels:
                 raise BTClibValueError(f"{where}: an address labelled twice")
             labels[script] = label
+            placed[script] = (position, where)
+    if homes is None:
+        handed = [(account.wallet, account.indexes) for account in accounts]
+        homes = _label_homes(handed, labels.keys())
+    for script, (position, where) in placed.items():
+        if (home := homes.get(script, 0)) != position:
+            err_msg = f"{where}: on another account than accounts[{_position(home)}],"
+            raise BTClibValueError(f"{err_msg} where an export writes it")
     return accounts, labels
+
+
+def _label_homes(
+    accounts: Sequence[tuple[DescriptorWallet, Mapping[int, int]]],
+    scripts: Iterable[bytes],
+) -> dict[bytes, int]:
+    """Return the account a label of each script is written on.
+
+    `accounts` holds, for each account in order, its wallet and the
+    highest index handed out on each branch that has one. A script's
+    account is the first that handed out its address, an index up to
+    that highest one; the one address of a branch that is not ranged
+    counts as handed out. A script no account handed out is not
+    returned: its label is on the first account. Each position is
+    derived at most once, and none after every one of `scripts` is
+    found.
+    """
+    homes: dict[bytes, int] = {}
+    wanted = set(scripts)
+    for position, (wallet, indexes) in enumerate(accounts):
+        for branch in wallet.branches:
+            end = 1
+            if wallet.descriptor(branch).is_ranged:
+                end = indexes.get(branch, -1) + 1
+            for index in range(end):
+                if not wanted:
+                    return homes
+                script = wallet.script_pub_key(branch, index).script
+                if script in wanted:
+                    wanted.remove(script)
+                    homes[script] = position
+    return homes
 
 
 def _policy_account(
