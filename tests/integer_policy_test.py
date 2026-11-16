@@ -151,6 +151,8 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
     # `_branch_held` checks membership in `branches`, which `False == 0`
     # and `True == 1` pass (issue #923)
     ("wallet position branch", lambda v: _WALLET.address(v, 0)),
+    # `_branch_held` refuses it before the descriptor does (issue #1011)
+    ("wallet position index", lambda v: _WALLET.address(0, v)),
 ]
 
 _IDS = [case[0] for case in _CASES]
@@ -225,6 +227,7 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     assert _WALLET.position_of(_DESCRIPTOR.script_pub_key(1), 1) == (0, 1)
     assert DescriptorWallet({1: _DESCRIPTOR}).branches == (1,)
     assert _WALLET.address(1, 0) == _CHANGE_DESCRIPTOR.script_pub_key(0).address
+    assert _WALLET.address(0, 1) == _DESCRIPTOR.script_pub_key(1).address
 
     # the str and bytes spellings of a path are untouched by any of it
     assert indexes_from_der_path("m/44h/0h") == [2147483692, 2147483648]
@@ -233,9 +236,9 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
 def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
     """The policy is about integers, and a bool is only its sharpest case.
 
-    A derivation index, a wallet's or a ledger's branch, or a ledger's
-    source id that is no integer at all is refused as a type, and not
-    converted through `int()`.
+    A derivation index, a wallet position's branch or index, a ledger's
+    branch, or a ledger's source id that is no integer at all is refused
+    as a type, and not converted through `int()`.
     """
     with pytest.raises(BTClibTypeError, match="invalid derivation index type"):
         indexes_from_der_path([2.0])  # type: ignore[list-item]
@@ -249,6 +252,10 @@ def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
         _WALLET.address(1.0, 0)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
         _WALLET.address("0", 0)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match="invalid index type: float"):
+        _WALLET.address(0, 1.0)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match="invalid index type: str"):
+        _WALLET.address(0, "0")  # type: ignore[arg-type]
 
     claims_int: Any = property(lambda _self: int)
 
@@ -259,6 +266,8 @@ def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
     assert isinstance(Claims(), int)
     with pytest.raises(BTClibTypeError, match="invalid branch type: Claims"):
         DescriptorWallet({Claims(): _DESCRIPTOR})  # type: ignore[dict-item]
+    with pytest.raises(BTClibTypeError, match="invalid index type: Claims"):
+        _WALLET.address(0, Claims())  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid branch type: Claims"):
         _new_address(0, Claims())
     with pytest.raises(BTClibTypeError, match="invalid source type: Claims"):
@@ -404,6 +413,14 @@ class _Index(IntEnum):
     __str__ = Enum.__str__
 
 
+class _Plus(int):
+    """An int whose `+` answers a str, so the index after it is no int."""
+
+    @override
+    def __add__(self, _other: int) -> Any:
+        return "x"
+
+
 def test_each_branch_shape_is_what_it_claims() -> None:
     """What each subclass below answers when its own methods are asked.
 
@@ -416,6 +433,7 @@ def test_each_branch_shape_is_what_it_claims() -> None:
         isinstance(_RaisesClass(1), bool)
     assert isinstance(_ClaimsBool(1), bool)
     assert str(_Index.HELD) == "_Index.HELD"
+    assert _Plus(1) + 1 == "x"
 
 
 _SUBCLASSES: list[tuple[str, Callable[[int], int]]] = [
@@ -424,6 +442,7 @@ _SUBCLASSES: list[tuple[str, Callable[[int], int]]] = [
     ("raises class", _RaisesClass),
     ("claims bool", _ClaimsBool),
     ("int enum", _Index),
+    ("plus", _Plus),
 ]
 
 _ACCOUNT_XPUB = xpub_from_xprv(_ACCOUNT_XPRV)
@@ -494,16 +513,16 @@ _BRANCH_CASES = [
 ]
 
 
-def _outcome(kind: str, call: Callable[[Any, Any], object], branch: int) -> object:
+def _outcome(kind: str, call: Callable[[Any, Any], object], value: int) -> object:
     """Return what a new wallet answers, or raises, and what it then holds.
 
-    What it holds is each address handed out, with the type of the
-    branch it is recorded under: a subclass's `==` would pass a
-    comparison of the records themselves.
+    What it holds is each address handed out, with the types of the
+    branch and the index it is recorded under: a subclass's `==` would
+    pass a comparison of the records themselves.
     """
     wallet = _WALLETS[kind]()
     try:
-        answer = call(wallet, branch)
+        answer = call(wallet, value)
     except Exception as exc:  # noqa: BLE001 -- the plain int's refusal is compared
         return type(exc), str(exc)
     if isinstance(answer, Psbt):
@@ -513,7 +532,10 @@ def _outcome(kind: str, call: Callable[[Any, Any], object], branch: int) -> obje
     elif isinstance(answer, ScriptPubKey):
         answer = answer.script
     infos = [wallet.address_info(address) for address in wallet.addresses]
-    held = [(i.address, i.der_path, type(i.branch), i.branch) for i in infos]
+    held = [
+        (i.address, i.der_path, type(i.branch), i.branch, type(i.index), i.index)
+        for i in infos
+    ]
     return answer, held
 
 
@@ -530,5 +552,69 @@ def test_a_branch_past_its_type_check_answers_as_the_int_it_holds(
     So an int subclass's own `__eq__`, `__hash__`, `__class__` or `str()`
     decides no lookup and no derivation, for a branch the wallet has (1)
     and one it has not (99).
+    """
+    assert _outcome(kind, call, subclass(value)) == _outcome(kind, call, value)
+
+
+# every public method of the three wallets that takes a position's index,
+# called at branch 1, and the wallets that have it
+_INDEX_METHODS: list[tuple[str, tuple[str, ...], Callable[[Any, Any], object]]] = [
+    ("address", ("descriptor", "key", "script"), lambda w, i: w.address(1, i)),
+    (
+        "assert_derives",
+        ("descriptor", "key", "script"),
+        lambda w, i: w.assert_derives(
+            [w.script_pub_key(1, 1), w.script_pub_key(1, 2)], 1, i
+        ),
+    ),
+    (
+        "redeem_script",
+        ("descriptor", "key", "script"),
+        lambda w, i: w.redeem_script(1, i),
+    ),
+    (
+        "script_pub_key",
+        ("descriptor", "key", "script"),
+        lambda w, i: w.script_pub_key(1, i),
+    ),
+    (
+        "witness_script",
+        ("descriptor", "key", "script"),
+        lambda w, i: w.witness_script(1, i),
+    ),
+    ("satisfy", ("descriptor",), lambda w, i: w.satisfy({}, 1, i)),
+    (
+        "update_psbt_input",
+        ("descriptor", "script"),
+        lambda w, i: w.update_psbt_input(_spending(w), 0, 1, i),
+    ),
+    (
+        "update_psbt_output",
+        ("descriptor", "script"),
+        lambda w, i: w.update_psbt_output(_spending(w), 0, 1, i),
+    ),
+]
+
+_INDEX_CASES = [
+    pytest.param(kind, call, subclass, id=f"{kind}-{method}-{name}")
+    for method, kinds, call in _INDEX_METHODS
+    for kind in kinds
+    for name, subclass in _SUBCLASSES
+]
+
+
+@pytest.mark.parametrize("value", [1, 99])
+@pytest.mark.parametrize("kind, call, subclass", _INDEX_CASES)
+def test_an_index_past_its_type_check_answers_as_the_int_it_holds(
+    kind: str,
+    call: Callable[[Any, Any], object],
+    subclass: Callable[[int], int],
+    value: int,
+) -> None:
+    """Every wallet method uses the exact int `_position_held` returns.
+
+    So an int subclass's own `__add__`, `__class__` or `str()` decides no
+    derivation, no record and no next index: each method answers as it
+    does for the plain int.
     """
     assert _outcome(kind, call, subclass(value)) == _outcome(kind, call, value)
