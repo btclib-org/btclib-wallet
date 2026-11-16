@@ -37,6 +37,7 @@ from btclib_wallet.fetch.history import (
 from btclib_wallet.ledger import (
     APPLICATION_ID,
     FORMAT_VERSION,
+    MAX_LOOKAHEAD,
     Ledger,
     TxState,
     WalletTx,
@@ -725,6 +726,13 @@ def test_every_statement_of_the_store_is_read_to_its_end(
     assert not unread
 
 
+# what a load says of a lookahead `Ledger.add_source` refuses
+_NO_LOOKAHEAD = (
+    "^not a ledger file: source 0's lookahead is no int from 0 to MAX_LOOKAHEAD,"
+    f" {MAX_LOOKAHEAD}$"
+)
+
+
 @pytest.mark.parametrize(
     "statement, value, err_msg",
     [
@@ -805,6 +813,26 @@ def test_every_statement_of_the_store_is_read_to_its_end(
             HEX[:-1],
             "^not a ledger file: a malformed tip$",
         ),
+        (
+            "UPDATE sources SET lookahead = ?",
+            HEX,
+            _NO_LOOKAHEAD,
+        ),
+        (
+            "UPDATE sources SET lookahead = ?",
+            "1.5",
+            _NO_LOOKAHEAD,
+        ),
+        (
+            "UPDATE sources SET lookahead = ?",
+            "-3",
+            _NO_LOOKAHEAD,
+        ),
+        (
+            "UPDATE sources SET lookahead = ?",
+            str(MAX_LOOKAHEAD + 1),
+            _NO_LOOKAHEAD,
+        ),
     ],
     ids=[
         "network",
@@ -822,6 +850,10 @@ def test_every_statement_of_the_store_is_read_to_its_end(
         "tx height below -2**63",
         "negative tx seq",
         "tip id of odd length",
+        "lookahead of text",
+        "lookahead of a real",
+        "negative lookahead",
+        "lookahead above MAX_LOOKAHEAD",
     ],
 )
 def test_a_key_in_a_damaged_file_is_in_no_refusal(
@@ -843,6 +875,22 @@ def test_a_key_in_a_damaged_file_is_in_no_refusal(
     with raises_alone(BTClibValueError, err_msg) as e:
         Ledger.load(path, "regtest", chain)
     assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize("lookahead", [0, MAX_LOOKAHEAD], ids=["least", "largest"])
+def test_a_lookahead_add_source_takes_loads(
+    chain: FakeChain, path: Path, lookahead: int
+) -> None:
+    """The least and the largest lookahead `Ledger.add_source` takes load.
+
+    The source has no ranged branch, so it watches one script whatever
+    its lookahead.
+    """
+    single = source("wpkh({}/84h/1h/0h/{}/0)", (0,))
+    with Ledger.create(path, "regtest", chain) as ledger:
+        source_id = ledger.add_source(single, lookahead=lookahead)
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again._lookahead == {source_id: lookahead}
 
 
 @pytest.mark.parametrize("height", [2**63 - 1, -(2**63)], ids=["largest", "least"])
