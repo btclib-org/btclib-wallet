@@ -46,9 +46,9 @@ def _exact(value: _T) -> _T:
 
     Its type decides, a bool being an int. The int is the one `_exact_int`
     reads, the str a concatenation with an empty one, as `_quoted` copies
-    a str, and the bytes a slice of them all: none of the three reads any
-    method of the value, on CPython and on PyPy. A value of any other type
-    is returned as it is.
+    a str, and the bytes a slice of them all: none of these copies reads
+    any method of the value, on CPython and on PyPy. A value of any other
+    type is returned as it is.
     """
     kind = type(value)
     exact: object = value

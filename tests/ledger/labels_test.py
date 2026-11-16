@@ -199,8 +199,7 @@ def test_a_label_is_a_str_by_its_type_whatever_its_class_claims(
 ) -> None:
     """An object that claims str is refused, a str whose class raises is not.
 
-    `isinstance` reads `__class__`, at each of the five places a label
-    goes in.
+    `isinstance` reads `__class__`, at each place a label goes in.
     """
     claimant = ObjectClaimingStr()
     for call in (
