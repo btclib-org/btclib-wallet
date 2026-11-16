@@ -270,10 +270,11 @@ the labels set on addresses, each on the first account that handed out
 its address, or on the first account where none did. An account hands
 out each index up to its `receive_index` and its `change_index`, and the
 one address of a branch that is not ranged counts as handed out. A label
-"" set, as `new_address` sets it, is written as any other: whether a
-restore gives it again depends on the lookahead each restored source
-watches. The label "" that *Labels* gives an address with none set is
-not written. The export holds no private key.
+"" set, as `new_address` sets it, is written as any other, and a restore
+gives it again: left out, whether a restored ledger answers "" for it
+would depend on the lookahead each restored source watches. The label ""
+that *Labels* gives an address with none set is not written. The export
+holds no private key.
 
 The export refuses a source it cannot write: one with no branch 0, or
 with a branch other than 0 and 1, which BIP139 has no field for, and one
