@@ -16,7 +16,12 @@ one layer above them and above `fetch`:
 - `crypto` is what its private keys are encrypted with.
 """
 
-from btclib_wallet.ledger.ledger import LOOKAHEAD, MAX_UNLOCK_TIME, Ledger
+from btclib_wallet.ledger.ledger import (
+    LOOKAHEAD,
+    MAX_LOOKAHEAD,
+    MAX_UNLOCK_TIME,
+    Ledger,
+)
 from btclib_wallet.ledger.records import (
     Balances,
     BumpedPsbt,
@@ -34,6 +39,7 @@ __all__ = [
     "APPLICATION_ID",
     "FORMAT_VERSION",
     "LOOKAHEAD",
+    "MAX_LOOKAHEAD",
     "MAX_UNLOCK_TIME",
     "Balances",
     "BumpedPsbt",

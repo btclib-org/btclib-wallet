@@ -38,6 +38,7 @@ from btclib_wallet.fetch.history import BlockRef, ScriptHistory
 from btclib_wallet.fetch.relay_fees import RelayFees
 from btclib_wallet.ledger import (
     LOOKAHEAD,
+    MAX_LOOKAHEAD,
     Balances,
     Ledger,
     TxDetail,
@@ -295,6 +296,23 @@ def test_a_source_is_checked(ledger: Ledger) -> None:
     assert_secret_free(e.value, SPELLINGS)
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
         ledger.new_address(0, "0")  # type: ignore[arg-type]
+
+
+def test_a_lookahead_above_the_limit_is_refused(ledger: Ledger) -> None:
+    """`MAX_LOOKAHEAD` is taken, and a larger lookahead adds no source.
+
+    The source taken has no ranged branch, so it watches one script
+    whatever its lookahead.
+    """
+    before = ledger.sources
+    err_msg = "^lookahead above MAX_LOOKAHEAD, 100000: an int of [0-9]+ bits$"
+    for lookahead in (MAX_LOOKAHEAD + 1, 10**5000):
+        with pytest.raises(BTClibValueError, match=err_msg):
+            ledger.add_source(source(), lookahead=lookahead)
+    assert ledger.sources == before
+    single = source("wpkh({}/84h/1h/0h/{}/0)", (0,))
+    assert ledger.add_source(single, lookahead=MAX_LOOKAHEAD) == len(before)
+    assert ledger.sources == (*before, single)
 
 
 def test_a_source_and_a_branch_are_the_ints_they_hold(
