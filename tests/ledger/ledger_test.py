@@ -270,6 +270,11 @@ def test_a_new_source_paid_at_the_tip_still_reads_its_history(
 
 def test_a_source_height_too_large_for_the_file_is_refused(ledger: Ledger) -> None:
     """A birth_height or lookahead the SQLite INTEGER column cannot hold."""
+    too_large_to_format = 10**5000
+    with pytest.raises(BTClibValueError, match="birth_height too large"):
+        ledger.add_source(source(), too_large_to_format)
+    with pytest.raises(BTClibValueError, match="lookahead too large"):
+        ledger.add_source(source(), lookahead=too_large_to_format)
     with pytest.raises(BTClibValueError, match="birth_height too large"):
         ledger.add_source(source(), 2**63)
     with pytest.raises(BTClibValueError, match="lookahead too large"):
