@@ -7010,3 +7010,22 @@ def test_finalize_spends_a_pay_to_anchor_input_with_nothing() -> None:
     assert finalized.inputs[0].final_script_sig == b""
     assert finalized.inputs[0].final_script_witness.stack == ()
     verify_transaction([TxOut(240, spk)], extract_tx(finalized, check_validity=False))
+
+
+def test_finalize_verifies_a_signature_a_pay_to_anchor_input_carries() -> None:
+    """A signature on a pay-to-anchor input is verified, and refused.
+
+    No sighash rule covers the anchor's witness program, so the signature
+    cannot be checked: finalize refuses it, with a solver's spend or
+    without one.
+    """
+    spk = ScriptPubKey(PAY_TO_ANCHOR, "regtest")
+    psbt = Psbt.from_tx(Tx(2, 0, [TxIn(OutPoint(b"\x02" * 32, 0))], [TxOut(0, spk)]))
+    psbt.inputs[0].witness_utxo = TxOut(240, spk)
+    sig = dsa.sign_(b"\x01" * 32, _PRV_KEY).serialize() + b"\x01"
+    psbt.inputs[0].partial_sigs = {_PUB_KEY: sig}
+    err_msg = "input 0: no sig_hash rule for witness version an int of 1 bits$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt)
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt, solver=lambda _psbt, _vin_i: (b"", Witness()))

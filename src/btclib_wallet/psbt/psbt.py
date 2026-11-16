@@ -3920,7 +3920,10 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     src/script/interpreter.cpp:2000-2001 at bitcoin/bitcoin@f0de87f040,
     the v32.1 tag). `PsbtIn.serialize` writes neither empty field, and
     so drops nothing from that input, as Core's `PSBTInput::Serialize`
-    does (src/psbt.h:371 and 509-517).
+    does (src/psbt.h:371 and 509-517). A signature such an input
+    carries is verified as any other is, and refused, since no sighash
+    rule covers its witness program; Core's `SignPSBTInput` leaves it
+    unread (src/psbt.cpp:652 at bitcoin/bitcoin@a527a00).
 
     For any other input, deciding that it has enough data is three
     checks beyond the presence of a signature, all per input: the
@@ -3979,9 +3982,13 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
             script_sig, witness = _finalized_taproot_input(psbt, vin_i)
         # a pay-to-anchor output is spent by nothing at all: Bitcoin Core's
         # SignStep solves it with no signature, and the spend is empty
-        # (src/script/sign.cpp:722-723 at bitcoin/bitcoin@f0de87f040)
+        # (src/script/sign.cpp:722-723 at bitcoin/bitcoin@f0de87f040).
+        # Whatever signatures the input carries are still verified, as
+        # they are under a solver's spend
         elif _spends_anchor(psbt_in):
-            script_sig, witness = b"", Witness()
+            script_sig, witness = _finalized_by_caller(
+                psbt, vin_i, (b"", Witness())
+            )
         else:
             if not psbt_in.partial_sigs:
                 raise BTClibValueError("missing signatures")
