@@ -316,7 +316,7 @@ class DescriptorWallet(RangedWallet):
 
     def descriptor(self, branch: int = 0) -> Descriptor:
         """Return the descriptor of a chain."""
-        self._assert_position(branch, 0)
+        branch = self._branch_held(branch, 0)
         return self._descriptors[branch]
 
     @override
@@ -332,7 +332,7 @@ class DescriptorWallet(RangedWallet):
         the two wrapped segwit forms, that program being what a p2sh
         input pushes either way.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         descriptor = self._descriptors[branch]
         if not isinstance(descriptor, ShDescriptor):
             return b""
@@ -346,7 +346,7 @@ class DescriptorWallet(RangedWallet):
         in the same psbt field: the wrapping shows up in the redeem
         script and nowhere else.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         descriptor = self._descriptors[branch]
         if isinstance(descriptor, ShDescriptor):
             descriptor = descriptor.inner
@@ -387,7 +387,7 @@ class DescriptorWallet(RangedWallet):
         pops is an error rather than a shorter answer, and `spend` is
         what a miniscript branch reads beside the signatures.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return self._descriptors[branch].satisfy(
             signatures, index, self.prv_keys, spend
         )
@@ -401,7 +401,7 @@ class DescriptorWallet(RangedWallet):
         and the key origins of the position, for signers to fill in and
         `psbt.finalize` to assemble.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return update_psbt_input(
             self._descriptors[branch], psbt, vin_i, index, self.prv_keys
         )
@@ -421,7 +421,7 @@ class DescriptorWallet(RangedWallet):
         merkle root and no tree, for the reason `psbt.update_psbt_output`
         gives.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return update_psbt_output(
             self._descriptors[branch], psbt, vout_i, index, self.prv_keys
         )
