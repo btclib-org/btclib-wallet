@@ -142,14 +142,22 @@ import time
 from collections.abc import Collection, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import IO, Any
+from typing import IO, Any, cast
 
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
 from btclib.utils import assert_type, bytes_from_octets, is_integer
 
-from btclib_wallet._refusal import _code, _label, _message_text, _position, _quoted
+from btclib_wallet._refusal import (
+    _code,
+    _exact,
+    _label,
+    _message_text,
+    _position,
+    _quoted,
+    _refused_type,
+)
 from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
 from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.exceptions import SignerError, SignerNotFoundError
@@ -281,8 +289,23 @@ def _executable(executable: str | Sequence[str]) -> list[str]:
     executable on the PATH -- `python -m hwilib`, an interpreter and a
     script, a wrapper with flags of its own -- and it is what the tests
     use to run a stand-in with no HWI installed.
+
+    Each item is the exact str it holds, as `_exact` copies it. `os.path`
+    and `subprocess` call a str subclass's own methods, so a subclass
+    could otherwise make the program looked for and the program run two
+    different files. The types decide, as `_quoted` says: a value that is
+    neither a str nor a sequence, or an item that is no str, is refused.
     """
-    return [executable] if isinstance(executable, str) else list(executable)
+    kind = type(executable)
+    if issubclass(kind, str):
+        return [_exact(cast("str", executable))]
+    if not issubclass(kind, Sequence):
+        raise _refused_type(executable, "executable")
+    argv = list(executable)
+    for item in argv:
+        if not issubclass(type(item), str):
+            raise _refused_type(item, "executable item")
+    return [_exact(item) for item in argv]
 
 
 def _is_bare(name: str) -> bool:
@@ -755,7 +778,9 @@ class HwiSigner:
             err_msg = f"hwi {_label(args[0], _COMMANDS)} takes no NUL character on a command line"
             raise BTClibValueError(err_msg)
         argv = [
-            *self.executable,
+            # a public attribute: a value assigned after construction is
+            # read as `__init__` reads its argument
+            *_executable(self.executable),
             *_chain_args(self.network),
             "--fingerprint",
             self._fingerprint.hex(),
