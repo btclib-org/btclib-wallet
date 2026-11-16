@@ -3986,9 +3986,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
         # Whatever partial signatures the input carries are still
         # verified, as they are under a solver's spend
         elif _spends_anchor(psbt_in):
-            script_sig, witness = _finalized_by_caller(
-                psbt, vin_i, (b"", Witness())
-            )
+            script_sig, witness = _finalized_by_caller(psbt, vin_i, (b"", Witness()))
         else:
             if not psbt_in.partial_sigs:
                 raise BTClibValueError("missing signatures")
