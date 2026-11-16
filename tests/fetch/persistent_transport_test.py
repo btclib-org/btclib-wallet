@@ -21,6 +21,7 @@ import select
 import socket
 import ssl
 import threading
+from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -196,12 +197,30 @@ class Peer:
 
 
 Handler = Callable[[Peer], None]
+# what a handler built by `answering` does with each request line
+Respond = Callable[[Peer, bytes], None]
 
 
-def numbered(peer: Peer) -> None:
+def answering(respond: Respond) -> Handler:
+    """Return a handler calling `respond` on each line, until the client closes.
+
+    This is the one loop over a connection's lines. A loop exits only
+    where its handler reads a clean end, which a connection its client
+    resets does not give. `test_closing_ends_the_connection` waits for a
+    clean end, so it reaches this loop's exit on every run.
+    """
+
+    def handler(peer: Peer) -> None:
+        while (line := peer.read()) is not None:
+            respond(peer, line)
+
+    return handler
+
+
+@answering
+def numbered(peer: Peer, line: bytes) -> None:
     """Answer each request with the number of the connection it came over."""
-    while (line := peer.read()) is not None:
-        peer.send(answer(json.loads(line)["id"], peer.number))
+    peer.send(answer(json.loads(line)["id"], peer.number))
 
 
 class Server:
@@ -342,11 +361,11 @@ def test_a_notification_before_the_answer_is_set_aside(
 ) -> None:
     """What the server pushes is not the answer, and keeps the connection."""
 
-    def notifying(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            request_id = json.loads(line)["id"]
-            peer.send(NOTIFICATION)
-            peer.send(NOTIFICATION, answer(request_id, peer.number))
+    @answering
+    def notifying(peer: Peer, line: bytes) -> None:
+        request_id = json.loads(line)["id"]
+        peer.send(NOTIFICATION)
+        peer.send(NOTIFICATION, answer(request_id, peer.number))
 
     server = serve(notifying)
     with client(server, authority) as transport:
@@ -360,13 +379,13 @@ def test_a_batch_is_answered_by_one_line(
 ) -> None:
     """A batch's ids are what its answer is matched to, in any order."""
 
-    def batching(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            balances = [
-                {"id": member["id"], "result": {"confirmed": i, "unconfirmed": 0}}
-                for i, member in enumerate(reversed(json.loads(line)))
-            ]
-            peer.send(NOTIFICATION, json.dumps(balances).encode())
+    @answering
+    def batching(peer: Peer, line: bytes) -> None:
+        balances = [
+            {"id": member["id"], "result": {"confirmed": i, "unconfirmed": 0}}
+            for i, member in enumerate(reversed(json.loads(line)))
+        ]
+        peer.send(NOTIFICATION, json.dumps(balances).encode())
 
     server = serve(batching)
     batch = scripthash_get_balance_batch_request({7: "00" * 32, 8: "11" * 32})
@@ -384,9 +403,9 @@ def test_a_notification_with_or_without_a_null_id_is_set_aside(
 ) -> None:
     """A `null` id with a `method` is a notification, not an answer."""
 
-    def notifying(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            peer.send(notification, answer(json.loads(line)["id"], peer.number))
+    @answering
+    def notifying(peer: Peer, line: bytes) -> None:
+        peer.send(notification, answer(json.loads(line)["id"], peer.number))
 
     server = serve(notifying)
     with client(server, authority) as transport:
@@ -405,17 +424,18 @@ def test_a_reused_id_opens_a_new_connection(
     answer names its connection and its place there. The ids a connection
     carried go with it, so the new one carries the other id again.
     """
+    # the answers sent, by connection and request id
+    sent: dict[tuple[int, int], list[bytes]] = {}
+    # the requests read, by connection
+    places: Counter[int] = Counter()
 
-    def repeating(peer: Peer) -> None:
-        # the answers sent on this connection, by request id
-        sent: dict[int, list[bytes]] = {}
-        place = 0
-        while (line := peer.read()) is not None:
-            place += 1
-            request_id = json.loads(line)["id"]
-            copies = sent.setdefault(request_id, [])
-            copies.append(answer(request_id, f"{peer.number}.{place}"))
-            peer.send(*copies)
+    @answering
+    def repeating(peer: Peer, line: bytes) -> None:
+        places[peer.number] += 1
+        request_id = json.loads(line)["id"]
+        copies = sent.setdefault((peer.number, request_id), [])
+        copies.append(answer(request_id, f"{peer.number}.{places[peer.number]}"))
+        peer.send(*copies)
 
     server = serve(repeating)
     with client(server, authority) as transport:
@@ -473,9 +493,9 @@ def test_the_deadline_holds_over_each_line_read(
 
     monkeypatch.setattr(transport_module, "_reply_ids", slow_reply_ids)
 
-    def notifying(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            peer.send(*before, answer(json.loads(line)["id"], peer.number))
+    @answering
+    def notifying(peer: Peer, line: bytes) -> None:
+        peer.send(*before, answer(json.loads(line)["id"], peer.number))
 
     server = serve(notifying)
     with client(server, authority) as transport:
@@ -491,9 +511,9 @@ def test_a_null_id_answers_the_request(
     """A server that could not parse a request answers it with no id."""
     error = b'{"id": null, "error": {"code": -32700, "message": "parse error"}}'
 
-    def unparsed(peer: Peer) -> None:
-        while peer.read() is not None:
-            peer.send(error)
+    @answering
+    def unparsed(peer: Peer, _line: bytes) -> None:
+        peer.send(error)
 
     server = serve(unparsed)
     with client(server, authority) as transport:
@@ -521,11 +541,11 @@ def test_a_line_answering_no_request_closes_the_connection(
 ) -> None:
     """Refused, and the next call opens a new connection."""
 
-    def stale(peer: Peer) -> None:
-        while (asked := peer.read()) is not None:
-            if peer.number == 1:
-                peer.send(line)
-            peer.send(answer(json.loads(asked)["id"], peer.number))
+    @answering
+    def stale(peer: Peer, asked: bytes) -> None:
+        if peer.number == 1:
+            peer.send(line)
+        peer.send(answer(json.loads(asked)["id"], peer.number))
 
     server = serve(stale)
     with client(server, authority) as transport:
@@ -540,9 +560,9 @@ def test_no_error_quotes_the_server(
 ) -> None:
     """A line the server sends is described, never written out."""
 
-    def quoting(peer: Peer) -> None:
-        while peer.read() is not None:
-            peer.send(json.dumps({"id": MARKER, "result": MARKER}).encode())
+    @answering
+    def quoting(peer: Peer, _line: bytes) -> None:
+        peer.send(json.dumps({"id": MARKER, "result": MARKER}).encode())
 
     server = serve(quoting)
     with client(server, authority) as transport, pytest.raises(RpcFetchError) as e:
@@ -559,10 +579,10 @@ def test_a_line_over_the_limit_closes_the_connection(
     next call reads its answer whole.
     """
 
-    def long(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            result = "x" * 64 if peer.number == 1 else peer.number
-            peer.send(answer(json.loads(line)["id"], result))
+    @answering
+    def long(peer: Peer, line: bytes) -> None:
+        result = "x" * 64 if peer.number == 1 else peer.number
+        peer.send(answer(json.loads(line)["id"], result))
 
     server = serve(long)
     with client(server, authority, max_line_size=32) as transport:
@@ -579,14 +599,14 @@ def test_a_late_answer_is_never_read(
     asked = threading.Event()
     release = threading.Event()
 
-    def late(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            if peer.number == 1:
-                asked.set()
-                release.wait(TIMEOUT)
-            # the connection may be gone by now
-            with suppress(OSError):
-                peer.send(answer(json.loads(line)["id"], peer.number))
+    @answering
+    def late(peer: Peer, line: bytes) -> None:
+        if peer.number == 1:
+            asked.set()
+            release.wait(TIMEOUT)
+        # the connection may be gone by now
+        with suppress(OSError):
+            peer.send(answer(json.loads(line)["id"], peer.number))
 
     server = serve(late)
     with client(server, authority) as transport:
@@ -634,11 +654,11 @@ def test_a_notification_between_calls_is_not_read(
 ) -> None:
     """Data on the kept connection before a call sends is a new connection."""
 
-    def pushing(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            peer.send(answer(json.loads(line)["id"], peer.number))
-            if peer.number == 1:
-                peer.send(NOTIFICATION)
+    @answering
+    def pushing(peer: Peer, line: bytes) -> None:
+        peer.send(answer(json.loads(line)["id"], peer.number))
+        if peer.number == 1:
+            peer.send(NOTIFICATION)
 
     server = serve(pushing)
     with client(server, authority) as transport:
@@ -662,9 +682,9 @@ def test_what_is_left_of_a_read_is_a_new_connection(
     # the first read asks for one octet past the limit
     limit = len(first) if held == "tls" else 1 << 10
 
-    def trailing(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            peer.send(answer(json.loads(line)["id"], peer.number), NOTIFICATION)
+    @answering
+    def trailing(peer: Peer, line: bytes) -> None:
+        peer.send(answer(json.loads(line)["id"], peer.number), NOTIFICATION)
 
     server = serve(trailing)
     with client(server, authority, max_line_size=limit) as transport:
@@ -706,10 +726,10 @@ def test_a_close_that_fails_is_a_fetch_error(
 ) -> None:
     """Raised by `close`, and set aside for the failure that closes it."""
 
-    def second_stale(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            request_id = json.loads(line)["id"]
-            peer.send(answer(request_id if peer.number == 1 else 99, peer.number))
+    @answering
+    def second_stale(peer: Peer, line: bytes) -> None:
+        request_id = json.loads(line)["id"]
+        peer.send(answer(request_id if peer.number == 1 else 99, peer.number))
 
     server = serve(second_stale)
     transport = client(server, authority)
@@ -791,10 +811,10 @@ def test_calls_from_several_threads_take_turns(
 ) -> None:
     """Each call reads its own answer, over the one connection."""
 
-    def echoing(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            request_id = json.loads(line)["id"]
-            peer.send(answer(request_id, request_id))
+    @answering
+    def echoing(peer: Peer, line: bytes) -> None:
+        request_id = json.loads(line)["id"]
+        peer.send(answer(request_id, request_id))
 
     server = serve(echoing)
     ids = range(1, 33)
@@ -811,11 +831,11 @@ def test_the_wait_for_the_connection_counts_against_the_deadline(
     asked = threading.Event()
     release = threading.Event()
 
-    def slow(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            asked.set()
-            release.wait(TIMEOUT)
-            peer.send(answer(json.loads(line)["id"], peer.number))
+    @answering
+    def slow(peer: Peer, line: bytes) -> None:
+        asked.set()
+        release.wait(TIMEOUT)
+        peer.send(answer(json.loads(line)["id"], peer.number))
 
     server = serve(slow)
     with client(server, authority) as transport, ThreadPoolExecutor(1) as pool:
@@ -840,9 +860,9 @@ def test_electrum_fetcher_reads_a_history_over_it(
     """
     chain = _chain()
 
-    def history(peer: Peer) -> None:
-        while (line := peer.read()) is not None:
-            peer.send(NOTIFICATION, chain(line, TIMEOUT))
+    @answering
+    def history(peer: Peer, line: bytes) -> None:
+        peer.send(NOTIFICATION, chain(line, TIMEOUT))
 
     expected = ElectrumFetcher("regtest", transport=chain, verify_network=False)
     server = serve(history)
