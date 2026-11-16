@@ -51,10 +51,13 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
+
+from btclib_wallet._refusal import _quoted
 
 if TYPE_CHECKING:
     from cryptography.exceptions import InvalidTag
@@ -122,7 +125,8 @@ def _assert_cost(n: int, r: int, p: int) -> None:
         and 1 <= r <= _SCRYPT_R
         and 1 <= p <= _SCRYPT_P
     ):
-        err_msg = f"not a ledger file: scrypt's cost N={n}, r={r}, p={p}"
+        err_msg = "not a ledger file: scrypt's cost "
+        err_msg += f"N={_quoted(n)}, r={_quoted(r)}, p={_quoted(p)}"
         raise BTClibValueError(f"{err_msg} is outside what this release writes")
 
 
@@ -133,14 +137,15 @@ def _cipher() -> tuple[type[AESGCM], type[InvalidTag]]:
     Windows arm64 leaves `cryptography` out, and a ledger never encrypted
     runs without it. Where it is missing, the call is refused.
     """
-    try:
+    # refused after `suppress`, so that it chains nothing
+    with suppress(ImportError):
         from cryptography.exceptions import InvalidTag  # noqa: PLC0415
         from cryptography.hazmat.primitives.ciphers.aead import (  # noqa: PLC0415
             AESGCM,
         )
-    except ImportError:
-        raise BTClibRuntimeError(_NO_CRYPTOGRAPHY) from None
-    return AESGCM, InvalidTag
+
+        return AESGCM, InvalidTag
+    raise BTClibRuntimeError(_NO_CRYPTOGRAPHY)
 
 
 def _wipe(buffer: bytearray) -> None:
@@ -220,13 +225,17 @@ def _opened(key: bytearray, sealed: bytes, aad: bytes) -> bytearray:
     if size < 0:
         raise _WrongKeyError
     plaintext = bytearray(size)
+    # refused after the `except` block, so that it chains nothing
+    opened = False
     try:
         aesgcm(key).decrypt_into(
             sealed[:_NONCE_SIZE], sealed[_NONCE_SIZE:], aad, plaintext
         )
+        opened = True
     except invalid_tag:
         _wipe(plaintext)
-        raise _WrongKeyError from None
+    if not opened:
+        raise _WrongKeyError
     return plaintext
 
 

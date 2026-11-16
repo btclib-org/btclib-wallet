@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 from urllib.request import Request
 
+import pytest
 from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
 from btclib.tx import Tx
@@ -90,14 +92,35 @@ LATER_TX_ID = "dfcec48bb8491856c353306ab5febeb7e99e4d783eedf3de98f3ee0812b92bad"
 def chain_mismatch(reported: str, expected: str) -> str:
     """Return a pattern for a backend's refusal of a node on the wrong chain.
 
-    The releases of `bitcoin-core-rpc` that `pyproject.toml` admits name
-    the expected chain quoted, unquoted, or name neither chain, so every
-    form is matched. The pattern ends at "this" so that it also matches the
-    REST fetcher's own message, which keeps the quotes.
+    The REST fetcher names both chains, quoted. The RPC fetcher names
+    neither: `client_errors` relays none of the client's text, and does
+    not read the `expected` and `reported` its `ChainMismatchError`
+    carries.
     """
     r, e = re.escape(reported), re.escape(expected)
-    named = rf"chain '{r}', not the (?:'{e}'|{e})"
-    return rf"reports (?:{named}|another chain than the one) this"
+    rest = rf"the node reports chain '{r}', not the '{e}' this fetcher was built for"
+    return rf"^(?:{rest}|the node is on another chain than this fetcher,)"
+
+
+def bounds_handed(
+    monkeypatch: pytest.MonkeyPatch, owner: object, name: str
+) -> list[int | None]:
+    """Record the `max_body_size` each call of `owner.name` is handed.
+
+    A refusal of an answer past its bound names no number, so a test
+    reads the bound where the fetcher hands it to its client, against the
+    literal it writes: that is what pins each bound to its value. None is
+    a call that leaves the client's default.
+    """
+    handed: list[int | None] = []
+    original = getattr(owner, name)
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        handed.append(kwargs.get("max_body_size"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(owner, name, recording)
+    return handed
 
 
 def recorded_body(name: str) -> bytes:

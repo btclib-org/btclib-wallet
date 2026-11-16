@@ -24,7 +24,6 @@ test about the id.
 from __future__ import annotations
 
 import json
-import re
 from urllib.request import Request
 
 import bitcoin_core_rpc as rpc
@@ -49,6 +48,7 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError, HttpError, RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.transport import DEFAULT_MAX_BODY_SIZE
+from tests import raises_alone
 from tests.fetch import (
     LATER_TX_ID,
     REGTEST_GENESIS_HEADER_RAW,
@@ -57,6 +57,7 @@ from tests.fetch import (
     TIP_ID,
     TX_ID,
     Recorded,
+    bounds_handed,
     chain_mismatch,
     recorded_body,
 )
@@ -72,9 +73,9 @@ RPC_PASSWORD = "rpcpassword"  # noqa: S105  # pragma: allowlist secret
 
 # the endpoint the tests build against, written once
 URL = "http://127.0.0.1:8332"
-# a node on another signet, as each release of `bitcoin-core-rpc` that
-# `pyproject.toml` admits words it
-SIGNET_MISMATCH = "(?:a signet|another signet than the one) this client"
+# what the network check answers for a refusal of the client's own, the
+# method named and the client's text not relayed
+_NO_USABLE_ANSWER = "^getblockchaininfo: no usable answer from the server: FetchError$"
 
 
 def asked_id(request: Request) -> str:
@@ -319,7 +320,10 @@ def test_assert_network_tells_two_signets_apart() -> None:
     signet does not share with a node on someone else's.
     """
     answer = blockchaininfo(chain="signet", signet_challenge=CUSTOM_CHALLENGE)
-    with pytest.raises(BTClibValueError, match=SIGNET_MISMATCH):
+    with pytest.raises(
+        BTClibValueError,
+        match="the node is on another chain than this fetcher, or the signet challenge is no script",
+    ):
         fetcher(answer, network="signet").assert_network()
 
     default = blockchaininfo(chain="signet", signet_challenge=DEFAULT_SIGNET_CHALLENGE)
@@ -342,7 +346,10 @@ def test_assert_network_checks_the_signet_the_fetcher_was_given() -> None:
     endpoint.assert_network()
 
     other = blockchaininfo(chain="signet", signet_challenge=OTHER_CHALLENGE)
-    with pytest.raises(BTClibValueError, match=SIGNET_MISMATCH):
+    with pytest.raises(
+        BTClibValueError,
+        match="the node is on another chain than this fetcher, or the signet challenge is no script",
+    ):
         fetcher(
             other,
             network="signet",
@@ -389,22 +396,42 @@ def test_a_challenge_that_is_no_script_is_refused_at_construction() -> None:
     otherwise reach the node's reply and be reported as the *node*
     answering something unreadable.
     """
-    with pytest.raises(BTClibValueError, match="no hex"):
+    with pytest.raises(
+        BTClibValueError,
+        match="the node is on another chain than this fetcher, or the signet challenge is no script",
+    ):
         fetcher(network="signet", verify_network=True, signet_challenge="not hex")
+
+
+def test_the_network_check_names_the_method_it_asked() -> None:
+    """A node refusing the check is named by the method, as each other call is.
+
+    The check is `getblockchaininfo`, asked by the client's `assert_chain`
+    before the call the caller made. Its refusal keeps Core's code and
+    names the method, so that a node still loading its index is told from
+    one refusing the call itself.
+    """
+    error = {"code": int(RPCErrorCode.IN_WARMUP), "message": "Loading block index"}
+    body = json.dumps({"jsonrpc": "2.0", "error": error, "id": "x"}).encode()
+    pattern = (
+        r"^getblockchaininfo: the server answered an rpc error"
+        r" \(rpc error code -28\)$"
+    )
+    with raises_alone(RpcError, match=pattern) as raised:
+        fetcher((200, body), verify_network=True).get_block_count()
+    assert isinstance(raised.value, RpcError)
+    assert raised.value.code == RPCErrorCode.IN_WARMUP
 
 
 @pytest.mark.parametrize(
     "result, message, network",
     [
-        pytest.param(
-            3, "no string chain in the int result", "mainnet", id="not-an-object"
-        ),
-        pytest.param(
-            {}, "no string chain in the dict result", "mainnet", id="no-chain"
-        ),
+        # each the client's own refusal, whose text is not relayed
+        pytest.param(3, _NO_USABLE_ANSWER, "mainnet", id="not-an-object"),
+        pytest.param({}, _NO_USABLE_ANSWER, "mainnet", id="no-chain"),
         pytest.param(
             {"chain": 5},
-            "no string chain in the dict result",
+            _NO_USABLE_ANSWER,
             "mainnet",
             id="chain-not-a-string",
         ),
@@ -413,13 +440,13 @@ def test_a_challenge_that_is_no_script_is_refused_at_construction() -> None:
         # read the member these are about
         pytest.param(
             {"chain": "signet"},
-            "no string signet_challenge",
+            _NO_USABLE_ANSWER,
             "signet",
             id="signet-no-challenge",
         ),
         pytest.param(
             {"chain": "signet", "signet_challenge": "not hex"},
-            "unreadable signet_challenge",
+            _NO_USABLE_ANSWER,
             "signet",
             id="challenge-that-is-not-hex",
         ),
@@ -473,7 +500,10 @@ def test_a_node_on_another_chain_answers_no_fetch_at_all() -> None:
     endpoint = client(blockchaininfo(chain="test"))
     core = BitcoinCoreFetcher(endpoint, "mainnet")
     for _ in range(2):
-        with pytest.raises(BTClibValueError, match=chain_mismatch("test", "main")):
+        with pytest.raises(
+            BTClibValueError,
+            match="the node is on another chain than this fetcher, or the signet challenge is no script",
+        ):
             core.get_tx(TX_ID)
     assert asked(endpoint) == ["getblockchaininfo"]
 
@@ -491,7 +521,9 @@ def test_a_node_that_could_not_be_asked_is_asked_again() -> None:
         (200, recorded_body("getrawtransaction.json")),
     )
     core = BitcoinCoreFetcher(endpoint)
-    with pytest.raises(FetchError, match="refused"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         core.get_tx(TX_ID)
     assert core.get_tx(TX_ID).id.hex() == TX_ID
     assert asked(endpoint) == [
@@ -526,11 +558,18 @@ def test_get_block_count_and_get_best_block_id() -> None:
     assert tip.hex() == TIP_ID
 
 
-@pytest.mark.parametrize("result", ["not a number", None, [1]])
+@pytest.mark.parametrize("result", ["not a number", None, [1], True, 5.9, "7"])
 def test_a_height_that_is_not_one(result: object) -> None:
     """Refuse a getblockcount result that is not an int."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
-    with pytest.raises(FetchError, match="getblockcount:"):
+    with pytest.raises(FetchError, match="^getblockcount: a malformed answer$"):
+        fetcher((200, body)).get_block_count()
+
+
+def test_a_negative_height() -> None:
+    """Refuse a negative getblockcount result, as a caller's (issue #901)."""
+    body = json.dumps({"jsonrpc": "2.0", "result": -1, "id": "x"}).encode()
+    with pytest.raises(FetchError, match="^getblockcount: a malformed answer$"):
         fetcher((200, body)).get_block_count()
 
 
@@ -582,7 +621,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     answers = ((200, recorded_body("getblockhash.json")), (200, reply.encode()))
     regtest = fetcher(*answers, network="regtest")
     assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         fetcher(*answers).get_block_header(0)
 
 
@@ -618,16 +657,24 @@ def test_get_block_header_verifies_the_chain_once_like_the_others() -> None:
     assert asked(endpoint) == ["getblockchaininfo", "getblockhash", "getblockheader"]
 
 
-def test_a_small_reply_carries_a_small_limit() -> None:
+def test_a_small_reply_carries_a_small_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A height and a tip hash are bounded by what they are.
 
     `BitcoinCoreRpcClient.call` is public and takes any method, so it
     keeps the client's default, `DEFAULT_MAX_BODY_SIZE`. The answers that
-    are a number and a hash narrow it.
+    are a number and a hash narrow it, to the 1024 octets read here where
+    the fetcher hands them to the client: a refusal names no number.
     """
     oversized = b'{"result":' + b"9" * 1100 + b',"error":null,"id":"x"}'
-    with pytest.raises(FetchError, match="more than the max_body_size of 1024"):
-        fetcher((200, oversized)).get_block_count()
+    small = fetcher((200, oversized))
+    handed = bounds_handed(monkeypatch, small.client, "call")
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
+        small.get_block_count()
+    assert handed == [1024]
 
     # the recorded answers are well inside it, which is the other half of
     # the claim
@@ -656,9 +703,9 @@ def test_a_status_from_the_client_arrives_as_this_packages_http_error() -> None:
         fetcher((503, b"")).get_block_count()
     assert exc.value.status == 503
     assert not isinstance(exc.value, rpc.HttpError)
-    # the message translated across, not the status carried beside it
-    # under the same positional index the message also answers to
-    assert "getblockcount" in str(exc.value)
+    # the request named by its kind, and not by the path the client's own
+    # text writes
+    assert str(exc.value) == "getblockcount: the server answered HTTP 503"
 
 
 def test_an_error_the_client_raises_without_a_status_is_a_fetch_error() -> None:
@@ -666,37 +713,44 @@ def test_an_error_the_client_raises_without_a_status_is_a_fetch_error() -> None:
 
     The transport raises rather than answering, which is what a socket
     that never connected does; the client turns it into its own
-    `FetchError`, and this is the branch of the translation with no field
-    to carry.
+    `FetchError`, and this is the branch of the translation that carries
+    no status and no code, only the `failure_type`, which this one leaves
+    None.
     """
     refused = rpc.FetchError("no answer from http://127.0.0.1:8332: refused")
-    with pytest.raises(FetchError, match="refused") as exc:
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ) as exc:
         fetcher(refused).get_block_count()
     assert not isinstance(exc.value, rpc.FetchError)
     assert type(exc.value) is FetchError
+    assert exc.value.failure_type is None
 
 
-def test_an_rpc_error_keeps_its_code_and_its_data_across_the_translation() -> None:
-    """The other two fields, and the message composed once rather than twice.
+def test_an_rpc_error_keeps_its_code_and_drops_its_data() -> None:
+    """The code kept, the node's message and `data` dropped, the code once.
 
-    Both classes append `(rpc error code N)` in `__str__`, so a
-    translation handing the composed message back in would say it again
-    per hop. `args[0]` is what it passes instead, and this is the
-    assertion that says so.
+    The translation writes a text of its own, the method and "the server
+    answered an rpc error", and hands it over with the code and a `data`
+    of None. This package's `RpcError.__str__` adds `(rpc error code N)`
+    to it once.
     """
     error = {"code": -5, "message": "No such mempool transaction", "data": {"tx": 1}}
     body = json.dumps({"jsonrpc": "2.0", "error": error, "id": "x"}).encode()
     with pytest.raises(RpcError) as exc:
         fetcher((200, body)).get_tx(TX_ID)
     assert exc.value.code == -5
-    # what the client carried: the node's `data`, or None from a release
-    # whose `RpcError` has none
-    assert exc.value.data == getattr(exc.value.__cause__, "data", None)
+    # Core's message and `data` are not relayed: either can quote a key
+    # passed in the wrong place (issue #821)
+    assert exc.value.data is None
     assert not isinstance(exc.value, rpc.RpcError)
+    assert exc.value.args == (
+        "getrawtransaction: the server answered an rpc error",
+        -5,
+        None,
+    )
     assert str(exc.value).count("rpc error code") == 1
-    # the message itself, and not the code or the data carried beside it
-    # under the same positional index once `args` holds all three
-    assert str(exc.value).startswith("getrawtransaction at ")
+    assert "No such mempool transaction" not in str(exc.value)
 
 
 def test_broadcast_sends_the_wire_serialization_and_returns_the_txid() -> None:
@@ -754,7 +808,10 @@ def test_broadcast_refuses_a_success_naming_another_txid(confirmed: str) -> None
     endpoint = client(
         (200, json.dumps({"jsonrpc": "2.0", "result": confirmed, "id": "x"}).encode())
     )
-    with pytest.raises(FetchError, match=f"the node confirmed {confirmed}"):
+    with pytest.raises(
+        FetchError,
+        match="^broadcast: the node confirmed another transaction$",
+    ):
         BitcoinCoreFetcher(endpoint, verify_network=False).broadcast(tx)
 
 
@@ -764,21 +821,33 @@ def test_broadcast_refuses_a_success_naming_another_txid(confirmed: str) -> None
 def test_broadcast_reports_the_nodes_refusal_by_its_code(
     code: RPCErrorCode,
 ) -> None:
-    """A refusal keeps Core's code, through `client_errors`.
+    """A refusal keeps Core's code and drops its text, in `client_errors`.
 
     `-26` is a policy rejection and `-27` a transaction already
     confirmed: two different refusals, and the code is what a caller
-    tells them apart with, not a code flattened to "broadcast failed".
+    tells them apart with. The message and `data` are another program's
+    text, which can quote a key passed in the wrong place (issue #821).
     """
     tx = broadcast_tx()
-    message = (
-        "min relay fee not met" if code == -26 else "Transaction already in block chain"
-    )
-    error = {"code": int(code), "message": message}
+    error = {"code": int(code), "message": f"{HEX} rejected", "data": HEX}
     body = json.dumps({"jsonrpc": "2.0", "error": error, "id": "x"}).encode()
     with pytest.raises(RpcError) as exc:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).broadcast(tx)
     assert exc.value.code == code
+    assert exc.value.__cause__ is None
+    assert_secret_free(exc.value, SPELLINGS)
+
+
+def test_an_http_status_keeps_its_number_and_drops_the_body() -> None:
+    """The body of an HTTP error is the node's text (issue #821)."""
+    body = json.dumps({"message": f"{HEX} rejected", "data": HEX}).encode()
+    with pytest.raises(HttpError) as exc:
+        BitcoinCoreFetcher(client((500, body)), verify_network=False).broadcast(
+            broadcast_tx()
+        )
+    assert exc.value.status == 500
+    assert exc.value.__cause__ is None
+    assert_secret_free(exc.value, SPELLINGS)
 
 
 def test_broadcast_verifies_the_network_before_sending_anything() -> None:
@@ -852,7 +921,7 @@ def test_estimate_fee_forwards_the_constructors_estimate_mode() -> None:
 
 
 def test_estimate_fee_refuses_a_reply_with_no_feerate() -> None:
-    """No `feerate` is a decline, not a rate -- the node's own errors kept."""
+    """No `feerate` is a decline, not a rate; the node's `errors` stay out."""
     body = json.dumps(
         {
             "jsonrpc": "2.0",
@@ -863,7 +932,9 @@ def test_estimate_fee_refuses_a_reply_with_no_feerate() -> None:
             "id": "x",
         }
     ).encode()
-    with pytest.raises(FetchError, match="Insufficient data or no feerate found"):
+    with pytest.raises(
+        FetchError, match="^estimatesmartfee: no estimate for this target$"
+    ):
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 
 
@@ -874,46 +945,24 @@ def test_estimate_fee_refuses_a_reply_with_no_feerate_and_no_errors() -> None:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
 
 
-@pytest.mark.parametrize(
-    "result, detail",
-    [
-        ("not an object", "a str of length 13"),
-        (["feerate", 0.0001], "a list of length 2"),
-        (None, "a NoneType"),
-        (HEX, "a str of length 64"),
-    ],
-)
-def test_estimate_fee_refuses_a_reply_that_is_not_an_object(
-    result: object,
-    detail: str,
-) -> None:
+@pytest.mark.parametrize("result", ["not an object", ["feerate", 0.0001], None, HEX])
+def test_estimate_fee_refuses_a_reply_that_is_not_an_object(result: object) -> None:
     """A malformed reply is a FetchError, not an AttributeError on `.get`."""
     body = json.dumps({"jsonrpc": "2.0", "result": result, "id": "x"}).encode()
-    message = f"estimatesmartfee: not an object: {detail}"
-    with pytest.raises(FetchError, match=f"^{re.escape(message)}$") as e:
+    with raises_alone(FetchError, match="^estimatesmartfee: a malformed answer$") as e:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
     assert_secret_free(e.value, SPELLINGS)
 
 
-@pytest.mark.parametrize(
-    "blocks, detail",
-    [
-        ("not an int", "a str of length 10"),
-        (None, "a NoneType"),
-        (1.5, "a Decimal"),
-        (HEX, "a str of length 64"),
-    ],
-)
+@pytest.mark.parametrize("blocks", ["not an int", None, 1.5, HEX])
 def test_estimate_fee_refuses_a_blocks_field_that_is_not_an_int(
     blocks: object,
-    detail: str,
 ) -> None:
     """`blocks` is what `FeeQuote.target` reports, so it has to be an int."""
     body = json.dumps(
         {"jsonrpc": "2.0", "result": {"feerate": 0.00001, "blocks": blocks}, "id": "x"}
     ).encode()
-    message = f"estimatesmartfee: invalid blocks: {detail}"
-    with pytest.raises(FetchError, match=f"^{re.escape(message)}$") as e:
+    with raises_alone(FetchError, match="^estimatesmartfee: a malformed answer$") as e:
         BitcoinCoreFetcher(client((200, body)), verify_network=False).estimate_fee(1)
     assert_secret_free(e.value, SPELLINGS)
 

@@ -227,6 +227,11 @@ def _set(reply: dict[str, Any], key: str, value: Any) -> dict[str, Any]:
     "kind, change, match",
     [
         ("block", lambda r: _set(r, "height", 9), "the answer is at height 9"),
+        (
+            "block",
+            lambda r: _set(r, "height", -1),
+            "invalid height: a negative int of 1 bits < 0",
+        ),
         ("chaininfo", lambda _r: {}, "no 'bestblockhash' member"),
         ("mempool", lambda _r: {}, "not an array: dict"),
         ("getutxos", lambda r: _set(r, "chaintipHash", "00" * 32), "read at 00"),
@@ -255,7 +260,7 @@ def test_get_history_refuses_a_malformed_answer(
     rest.node.mempool = [_tx([old], [OTHER])]
     rest.utxos = {old: OURS}
     rest.edit = lambda k, reply: change(reply) if k == kind else reply
-    with pytest.raises(FetchError, match=match) as e:
+    with pytest.raises(FetchError, match=": a malformed answer") as e:
         _fetcher(rest).get_history([OURS], 3)
     assert_secret_free(e.value, SPELLINGS)
 

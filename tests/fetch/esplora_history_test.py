@@ -26,6 +26,7 @@ from typing_extensions import override
 from btclib_wallet.exceptions import FetchError, HttpError
 from btclib_wallet.fetch import esplora
 from btclib_wallet.fetch.esplora import EsploraFetcher
+from tests import raises_alone
 from tests.fetch.electrum_history_test import (
     FIRST,
     FUNDING,
@@ -462,7 +463,7 @@ def test_a_block_not_at_its_height_is_refused() -> None:
 def test_a_transaction_not_in_its_block_is_refused() -> None:
     """`/block/<hash>/txids` must list it."""
     explorer = _with("txids", lambda r: r[:1])
-    with pytest.raises(FetchError, match=f"no transaction {FUNDING.id.hex()}"):
+    with pytest.raises(FetchError, match="^txids of block 1: a transaction missing$"):
         _fetcher(explorer).get_history([OURS])
 
 
@@ -484,52 +485,42 @@ def test_a_transaction_listed_in_two_blocks_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    "change, match",
+    "change",
     [
-        (lambda r: r[::-1], "not newest first"),
-        (lambda r: [r[0], r[0]], "listed twice"),
-        (lambda _r: {}, "not an array: dict"),
-        (lambda r: [_status(r[0], confirmed=False)], "is not confirmed"),
-        (
-            lambda r: [_status(r[0], block_height="3")],
-            "invalid block_height: a str of length 1",
-        ),
-        (
-            lambda r: [_status(r[0], block_height=HEX)],
-            "invalid block_height: a str of length 64",
-        ),
-        (lambda r: [{"status": r[0]["status"]}], "no 'txid' member"),
+        lambda r: r[::-1],
+        lambda r: [r[0], r[0]],
+        lambda _r: {},
+        lambda r: [_status(r[0], confirmed=False)],
+        lambda r: [_status(r[0], block_height="3")],
+        lambda r: [_status(r[0], block_height=HEX)],
+        lambda r: [{"status": r[0]["status"]}],
     ],
 )
 def test_a_page_of_the_chain_that_is_not_one_is_refused(
-    change: Callable[[Any], Any], match: str
+    change: Callable[[Any], Any],
 ) -> None:
     """Each page is read whole and checked before any entry is used."""
-    with pytest.raises(FetchError, match=match) as e:
+    with raises_alone(FetchError, match="^script history: ") as e:
         _fetcher(_with("chain", change)).get_history([OURS])
     assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize(
-    "kind, change, match",
+    "kind, change",
     [
-        ("stats", lambda _r: [], "not an object: list"),
-        ("stats", lambda r: {**r, "mempool_stats": None}, "not an object"),
-        ("stats", lambda r: {**r, "mempool_stats": {}}, "invalid tx_count: a NoneType"),
-        (
-            "stats",
-            lambda r: {**r, "mempool_stats": {"tx_count": HEX}},
-            "invalid tx_count: a str of length 64",
-        ),
-        ("mempool", lambda _r: {}, "not an array: dict"),
-        ("txids", lambda _r: {}, "not an array: dict"),
+        ("stats", lambda _r: []),
+        ("stats", lambda r: {**r, "mempool_stats": None}),
+        ("stats", lambda r: {**r, "mempool_stats": {}}),
+        ("stats", lambda r: {**r, "mempool_stats": {"tx_count": HEX}}),
+        ("mempool", lambda _r: {}),
+        ("txids", lambda _r: {}),
     ],
 )
 def test_an_answer_that_is_not_one_is_refused(
-    kind: str, change: Callable[[Any], Any], match: str
+    kind: str, change: Callable[[Any], Any]
 ) -> None:
     """The counts, the mempool's list and a block's txids are checked."""
-    with pytest.raises(FetchError, match=match) as e:
+    with raises_alone(FetchError, match=": a malformed answer$") as e:
         _fetcher(_with(kind, change)).get_history([OURS])
     assert_secret_free(e.value, SPELLINGS)
 
@@ -548,7 +539,7 @@ def test_get_history_verifies_the_network_first() -> None:
     """An explorer on another chain is refused before any history is asked."""
     explorer = _with("block-height", lambda _r: TESTNET_GENESIS)
     endpoint = EsploraFetcher(BASE, network="regtest", transport=explorer)
-    with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+    with pytest.raises(BTClibValueError, match="serves the testnet chain"):
         endpoint.get_history([OURS])
     assert explorer.paths == ["/block-height/0"]
 
@@ -566,8 +557,8 @@ def test_the_txids_of_a_block_are_bounded_by_its_weight() -> None:
 @pytest.mark.parametrize(
     "kind, err_msg",
     [
-        ("chain", "^script history: not an array: dict$"),
-        ("stats", "^script mempool: mempool_stats: not an object$"),
+        ("chain", "^script history: a malformed answer$"),
+        ("stats", "^script mempool: a malformed answer$"),
     ],
 )
 def test_a_history_label_carries_no_hash_of_the_script(kind: str, err_msg: str) -> None:

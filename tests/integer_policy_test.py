@@ -16,10 +16,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum, IntEnum
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
-from btclib.exceptions import BTClibTypeError
+from btclib.exceptions import BTClibTypeError, BTClibValueError
+from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.bip32.bip32 import (
@@ -35,9 +38,11 @@ from btclib_wallet.bip32.der_path import (
     str_from_index_int,
 )
 from btclib_wallet.descriptors import parse
+from btclib_wallet.ledger import Ledger
 from btclib_wallet.psbt.psbt import PSBT_V2, Psbt
 from btclib_wallet.wallet import DescriptorWallet
 from btclib_wallet.wallet.script_wallet import KeyGroup
+from tests.ledger.conftest import FakeChain, source
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed("00" * 32))
 # account depth, hardened: what derive_from_account_'s own is_hardened
@@ -62,6 +67,19 @@ def _psbt(**field: Any) -> Psbt:
         "hd_key_paths": {},
     }
     return Psbt(**(fields | field), check_validity=False)
+
+
+def _new_address(source_id: Any, branch: Any) -> str:
+    """Return the address a new ledger of `source()` hands out on a branch.
+
+    The ledger's one source is `source_id` 0.
+    """
+    with (
+        TemporaryDirectory() as tmp,
+        Ledger.create(Path(tmp) / "ledger.sqlite", "regtest", FakeChain()) as ledger,
+    ):
+        ledger.add_source(source(), lookahead=1)
+        return ledger.new_address(source_id, branch)
 
 
 # every field whose contract is an integer quantity, with the shortest
@@ -122,6 +140,8 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
         "wallet position_of last_index",
         lambda v: _WALLET.position_of(_DESCRIPTOR.script_pub_key(0), v),
     ),
+    # a ledger writes the label's str(), and cannot read "True" back
+    ("descriptor wallet branch", lambda v: DescriptorWallet({v: _DESCRIPTOR})),
 ]
 
 _IDS = [case[0] for case in _CASES]
@@ -149,17 +169,17 @@ _WORDINGS = [
     (
         "bip32 account branch",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, v, 0),
-        "non-integer branch: True",
+        "non-integer branch: a bool",
     ),
     (
         "bip32 account address index",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, v),
-        "non-integer address index: True",
+        "non-integer address index: a bool",
     ),
     (
         "bip32 account max_index",
         lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, 0, max_index=v),
-        "non-integer max_index: True",
+        "non-integer max_index: a bool",
     ),
 ]
 
@@ -194,6 +214,7 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     assert derive_from_account_(_ACCOUNT_XPRV, 1, 1, max_index=1).depth == 5
     assert _DESCRIPTOR.index_of(_DESCRIPTOR.script_pub_key(1), 1) == 1
     assert _WALLET.position_of(_DESCRIPTOR.script_pub_key(1), 1) == (0, 1)
+    assert DescriptorWallet({1: _DESCRIPTOR}).branches == (1,)
 
     # the str and bytes spellings of a path are untouched by any of it
     assert indexes_from_der_path("m/44h/0h") == [2147483692, 2147483648]
@@ -202,22 +223,42 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
 def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
     """The policy is about integers, and a bool is only its sharpest case.
 
-    A derivation index that is no integer at all is refused as a type, and
-    not converted through `int()`.
+    A derivation index, a wallet's or a ledger's branch, or a ledger's
+    source id that is no integer at all is refused as a type, and not
+    converted through `int()`.
     """
     with pytest.raises(BTClibTypeError, match="invalid derivation index type"):
         indexes_from_der_path([2.0])  # type: ignore[list-item]
     with pytest.raises(BTClibTypeError, match="invalid derivation index type"):
         str_from_index_int(1.0)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match="invalid branch type: float"):
+        DescriptorWallet({1.0: _DESCRIPTOR})  # type: ignore[dict-item]
+    with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
+        DescriptorWallet({"0": _DESCRIPTOR})  # type: ignore[dict-item]
+
+    claims_int: Any = property(lambda _self: int)
+
+    class Claims:
+        __class__ = claims_int
+
+    # isinstance believes it, so the type is what decides
+    assert isinstance(Claims(), int)
+    with pytest.raises(BTClibTypeError, match="invalid branch type: Claims"):
+        DescriptorWallet({Claims(): _DESCRIPTOR})  # type: ignore[dict-item]
+    with pytest.raises(BTClibTypeError, match="invalid branch type: Claims"):
+        _new_address(0, Claims())
+    with pytest.raises(BTClibTypeError, match="invalid source type: Claims"):
+        _new_address(Claims(), 0)
 
 
 def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
     """`IntEnum` stays a number, which is why the predicate names bool.
 
-    The path step is the case that has to be *answered* with a number and
-    not merely accepted as one: an `IntEnum` whose `str()` is its name, as
-    `Enum.__str__` writes it, would make a derivation path read
-    "Index.ONE" rather than "1".
+    The path step and a wallet's branch are the cases that have to be
+    *answered* with a number and not merely accepted as one: an `IntEnum`
+    whose `str()` is its name, as `Enum.__str__` writes it, would make a
+    derivation path read "Index.ONE" rather than "1", and a ledger's file
+    hold a branch it cannot read back.
     """
 
     class Index(IntEnum):
@@ -228,3 +269,73 @@ def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
     assert indexes_from_der_path(Index.ONE) == [1]
     assert indexes_from_der_path([Index.ONE]) == [1]
     assert str_from_index_int(Index.ONE) == "1"
+    (branch,) = DescriptorWallet({Index.ONE: _DESCRIPTOR}).branches
+    assert type(branch) is int
+
+
+def test_a_branch_is_the_int_its_label_holds() -> None:
+    """Read by `_exact_int`, whatever a subclass's `__int__` answers.
+
+    Through `int()` these would label a chain -1 or 2**70, which a ledger
+    cannot hold, or put two descriptors on one branch.
+    """
+
+    class Negative(int):
+        @override
+        def __int__(self) -> int:
+            return -1
+
+    class Huge(int):
+        @override
+        def __int__(self) -> int:
+            return 2**70
+
+    class Twin(int):
+        __hash__ = int.__hash__
+
+        @override
+        def __eq__(self, other: object) -> bool:
+            return self is other
+
+    # what `int()` answers for each, which the wallet must not take
+    assert (int(Negative(5)), int(Huge(5))) == (-1, 2**70)
+    (branch,) = DescriptorWallet({Negative(5): _DESCRIPTOR}).branches
+    assert (type(branch), branch) == (int, 5)
+    assert DescriptorWallet({Huge(5): _DESCRIPTOR}).branches == (5,)
+    other = parse(f"wpkh({_XPUB}/1/*)")
+    with pytest.raises(BTClibValueError, match="two labels hold one int"):
+        DescriptorWallet({Twin(5): _DESCRIPTOR, 5: other})
+
+
+def test_a_branch_is_an_int_by_its_type_whatever_its_class_claims() -> None:
+    """The type decides, as `_quoted` does, and `__class__` is never read.
+
+    An int subclass is a label whether its `__class__` claims bool or
+    raises; `isinstance`, which reads `__class__`, calls the first a bool
+    and raises from the second. A ledger decides a source id and a
+    branch it is handed the same way.
+    """
+
+    def no_class(_self: object) -> type:
+        raise RuntimeError("no __class__")
+
+    raises_class: Any = property(no_class)
+    claims_bool: Any = property(lambda _self: bool)
+
+    class RaisesClass(int):
+        __class__ = raises_class
+
+    class ClaimsBool(int):
+        __class__ = claims_bool
+
+    # what isinstance reads of each, which the wallet must not ask
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(RaisesClass(5), bool)
+    assert isinstance(ClaimsBool(5), bool)
+    assert DescriptorWallet({RaisesClass(5): _DESCRIPTOR}).branches == (5,)
+    assert DescriptorWallet({ClaimsBool(7): _DESCRIPTOR}).branches == (7,)
+    wallet = source()
+    assert _new_address(0, RaisesClass(0)) == wallet.address(0, 0)
+    assert _new_address(0, ClaimsBool(1)) == wallet.address(1, 0)
+    assert _new_address(RaisesClass(0), 0) == wallet.address(0, 0)
+    assert _new_address(ClaimsBool(0), 1) == wallet.address(1, 0)

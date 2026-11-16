@@ -20,6 +20,8 @@ from btclib_wallet.bip32 import bip32
 from btclib_wallet.bip44 import BIP44ScriptType
 from btclib_wallet.wallet import AddressInfo, BIP32KeyWallet, KeyWallet
 from tests import needs_bindings, replace_unchecked
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" seed, whose master key BIP84 and BIP86
 # both publish as their rootpriv and whose addresses SLIP132, BIP49,
@@ -172,7 +174,7 @@ def test_a_bip32keydata_is_validated_even_when_already_one() -> None:
     unlike the `bip32` functions the same census names as compliant.
     """
     bad = replace_unchecked(bip32.BIP32KeyData.b58decode(_ACCOUNT_44_XPUB), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -185,12 +187,17 @@ def test_the_key_index_must_be_the_path_element_at_its_depth() -> None:
     # names the index the path has at that depth -- which is what says
     # the comparison read the element the key's own depth points at,
     # rather than some other element of the same path
-    err_msg = "key index 2147483648 at depth 3 is not the account path's 2147483649"
+    err_msg = (
+        "key index an int of 32 bits at depth an int of 2 bits"
+        " is not the account path's 2147483649"
+    )
     with pytest.raises(BTClibValueError, match=err_msg):
         BIP32KeyWallet(_ACCOUNT_44_XPUB, "m/44h/0h/1h")
     # a key already below the account level
     too_deep = bip32.derive(_ACCOUNT_44_XPUB, "m/0/0")
-    with pytest.raises(BTClibValueError, match="invalid key depth: 5 is past the"):
+    with pytest.raises(
+        BTClibValueError, match="invalid key depth: an int of 3 bits is past the"
+    ):
         BIP32KeyWallet(too_deep, "m/44h/0h/0h")
 
 
@@ -212,7 +219,9 @@ def test_invalid_account_path(der_path: str, err_msg: str) -> None:
 
 def test_an_unknown_purpose_is_refused_and_script_type_is_the_override() -> None:
     """Refuse purpose 45 bare, and let the script type override win."""
-    with pytest.raises(BTClibValueError, match="unknown BIP44 purpose: 45"):
+    with pytest.raises(
+        BTClibValueError, match="unknown BIP44 purpose: an int of 6 bits"
+    ):
         BIP32KeyWallet(_ROOT, "m/45h/0h/0h")
     wallet = BIP32KeyWallet(_ROOT, "m/45h/0h/0h", "p2wpkh")
     assert wallet.script_type == "p2wpkh"
@@ -223,11 +232,20 @@ def test_an_unknown_purpose_is_refused_and_script_type_is_the_override() -> None
 
 def test_an_unknown_script_type_is_refused() -> None:
     """Refuse p2wsh at every entry point that takes a script type."""
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         BIP32KeyWallet(_ROOT, "m/84h/0h/0h", "p2wsh")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         KeyWallet(script_type="p2wsh")  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         KeyWallet().add(_PUB_KEY, "p2wsh")  # type: ignore[arg-type]
 
 
@@ -454,8 +472,18 @@ def test_add_refuses_a_key_of_another_network() -> None:
     btclib-org/btclib#1188).
     """
     wallet = KeyWallet(network="testnet")
-    with pytest.raises(BTClibValueError, match="not a testnet key: mainnet"):
+    err_msg = "^the key's network, mainnet, is not the wallet's, testnet$"
+    with pytest.raises(BTClibValueError, match=err_msg):
         wallet.add(b58.prv_key_data_from_wif(_WIF_COMPRESSED))
+    # a network written after the wallet checked it is told by its length,
+    # with no article before it (issue #821)
+    wallet.network = HEX
+    err_msg = (
+        "^the key's network, mainnet, is not the wallet's, a value of 64 characters$"
+    )
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
+        wallet.add(b58.prv_key_data_from_wif(_WIF_COMPRESSED))
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_a_key_added_to_a_bip32_wallet_is_not_derived() -> None:

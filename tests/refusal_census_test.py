@@ -1,0 +1,2905 @@
+# Copyright (c) The btclib developers
+# Distributed under the MIT software license, see the accompanying
+# LICENSE file or https://opensource.org/license/mit for the full text.
+
+"""A lint: a refusal of the package formats no value the census does not trace.
+
+Section 7 of the btclib-org standard, *A refusal carries no secret*, says
+an argument in the wrong place may be a key. The census reads the sources
+of the package with `ast` and runs none of them. It is a lint over the
+shapes its controls show, the pairs of `_SHAPES` it traces and flags, and
+not a proof: a shape no control holds may pass unseen. Each shape
+measured to pass unseen is an open issue whose title starts "The refusal
+census does not see", of btclib-org/btclib-wallet or of
+btclib-org/bitcoin-core-rpc, whose census this one is ported from.
+
+It reads as an exception the package builds each call of a name ending in
+`Error` or `Exception`, or of a name an assignment or an import binds to
+such a class or to a class of the package that may be an exception: one
+deriving, through classes of the package, from a base that is neither one
+of them nor one of `_PLAIN_BASES`. It reads the exception of each `raise`
+too, but not what a function of the package returns, nor the exception
+an `except` around the `raise` binds, nor a name each value of which its
+scope assigns is `None`, such a call, or a call of a function of the
+package each of whose `return`s is one; a bare annotation assigns it
+nothing. Every argument of each has to be traced to values a refusal may
+print, and what the census cannot trace is a finding. It traces
+
+- a literal, a comparison, a name bound by a `def`, a `class` or an
+  import but one of `_PROCESS_INPUT`, a builtin of `_PURE_BUILTINS` or
+  one whose name ends in `Error`, `Exception` or `Warning`, and an
+  attribute named in capitals;
+- what `_code`, `_message_text`, `_quoted`, `len`, `type` and `bool`
+  answer, and a `__name__` or a `__qualname__`;
+- what `_hex_field` answers: a field of at most 4 bytes holding one of
+  the values it is handed second, which section 7 lets a refusal print,
+  where it traces those values, and for anything else what
+  `_message_text` answers;
+- what `_position` answers: an index or a count, and for anything else
+  what `_message_text` answers. Where an `if` or an `if` expression
+  around it, in the same function, compares what it is handed with a
+  constant other than by `is`, or reads it for its truth, which compares
+  it with 0, that is a finding: the `if` refuses the value for what it
+  is, and `_quoted` describes it. So is a `_position` handed its value
+  with `*` or `**`, which the census cannot compare;
+- what the methods `bit_length`, `count`, `find` and `index` answer,
+  where it traces what they are called on;
+- what `_label` answers, where it traces the labels it is handed;
+- the index `enumerate` counts from a start it traces, and each number a
+  `range` counts, where it traces every argument of it;
+- what a callable outside the package answers, where it is one of
+  `_OUTSIDE_CALLS` or `_OUTSIDE_METHODS` and the census traces what it
+  is handed and what it is called on: any other call outside the
+  package is a finding, and so is a call of `_INPUT_READS`, which reads
+  a file or a socket, and an attribute of `_PROCESS_INPUT`;
+- an attribute or an item of what it traces; each element a loop or a
+  comprehension takes from it, or `zip` pairs; and in a loop over rows
+  written out, the column the name takes;
+- a local or module name, where it traces every value the name is bound
+  to, what a `with` binds traced as the call it makes, and every value
+  put into it anywhere in the scope, by a method such as `append` or by
+  an assignment to an item or an attribute;
+- a parameter of a private function, where it traces what every call in
+  the package passes there, and its default, read in the scope where the
+  `def` stands;
+- an exception the package builds, whose arguments are read where it is
+  built;
+- what a function of the package answers, where it traces every value
+  the function returns or yields, or the item at the position a tuple is
+  unpacked from.
+
+A name called is the `def` of the scope that binds it, or the one of the
+module of the package it is imported from; an attribute called is every
+method of that name in the package, and what it is called on is traced
+too, but for `self`, `cls` and `super()`. So the census does not trace a
+parameter of a public function or of a lambda, a method's `self`, a
+function read as a value rather than called, the exception an `except`
+binds, or what `_PROCESS_INPUT` names. Each of these holds what a caller,
+a server or another program handed over, and reaches a refusal only
+through `_code`, `_message_text`, `_position` or `_quoted`, or not at all.
+
+What a refusal still raises that the census does not trace is in `KEPT`,
+an exception one function raises by name, each entry with its reason. An
+entry no refusal uses fails the census. A `_position` the census finds
+compared with a constant, and that writes what section 7 lets a refusal
+print, such as a size the package measures, rather than a value a caller
+handed over, is in `MEASURED`, each entry with its reason, and an entry
+no finding uses fails the census too.
+
+It takes three things on trust. A callable of `_OUTSIDE_CALLS` or
+`_OUTSIDE_METHODS` answers a part of what it is handed and of what it is
+called on, and nothing else. A builtin of `_PURE_BUILTINS` read by name
+holds nothing the process was handed. And a value reaches an object only
+through the name the census reads it under. Of a container a name is
+bound to in its own scope, a list, a dict, a set or what a call of
+`_CONTAINER_TYPES` builds, these places it is handed to are each a
+finding: another name, an item of another container, and an argument of
+a call other than a refusal, one of `_READERS`, or a function of the
+package whose parameter neither has a value put into it nor is handed on
+in turn. A container reached any other way, through an attribute or what
+a call answers, is not followed past the name the census reads.
+
+An exception that is not one of the package's classes may hold the input,
+as a `UnicodeError` holds its bytes, so no refusal chains one or has it as
+context, and no `except` raises one again. A class is the package's where
+the scope that names it defines it, or imports it from a module of the
+package that does: one of another package is not, whatever its name. A
+`raise` inside an `except` of another class, or in a `finally`, is a
+finding, and so is a `raise ... from` anything but `None` or an exception
+of the package's classes. So is a call, inside such an `except` or a
+`finally`, that may reach a `raise` of the package: of a function of the
+package that holds one, or calls one that does, however far down, or of a
+callee the census cannot name, a parameter, a local or what is no name,
+there or in any function it reaches. There a method is every method of
+that name in the package, whatever object it is called on, except that a
+name called on a method's own object that the package assigns as an
+attribute and defines no method of is unknown; a class of the package
+called runs the `__init__`, `__new__` and `__post_init__` of it and of
+each class of the package it derives from; a builtin, or a name imported
+from outside the package, runs none of it. A call of `CLEANUPS`, each
+entry with its reason, is not a finding, and an entry no finding uses
+fails the census. A bare `raise`, or a `raise` of the name the `except`
+binds, is a finding unless the `except` catches the package's classes,
+`KeyboardInterrupt` and `SystemExit` alone, or is a cleanup: one that
+catches everything, binds no name and has no way out but the bare `raise`
+it ends in. What a cleanup relays passes on as it would with no `try`
+around it. What a call outside the package raises, and an exception
+another package raises that none of the package's `except` catches, are
+not read by the census.
+"""
+
+from __future__ import annotations
+
+import ast
+import io
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+_LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
+
+# a call whose answer describes what it is handed and holds no byte of it
+_DESCRIBING = frozenset({"_code", "_message_text", "_quoted", "len", "type", "bool"})
+_DESCRIBING_METHODS = frozenset({"bit_length", "count", "find", "index"})
+_DESCRIBING_ATTRIBUTES = frozenset({"__name__", "__qualname__"})
+# the callables outside the package a refusal may call, each answering a
+# part of what it is handed, or of what it is called on: both are traced
+_OUTSIDE_CALLS = frozenset(
+    {"fields", "frozenset", "next", "sorted", "str", "sum", "zip"}
+)
+_OUTSIDE_METHODS = frozenset({"fromkeys", "get", "hex", "items", "join"})
+# the names a method is called on that make it one of its own class's
+_BOUND = frozenset({"self", "cls"})
+# what a module holds that the process was handed
+_PROCESS_INPUT = frozenset(
+    {
+        "argv",
+        "cwd",
+        "environ",
+        "environb",
+        "expanduser",
+        "getcwd",
+        "getenv",
+        "getenvb",
+        "home",
+        "input",
+        "orig_argv",
+        "stdin",
+    }
+)
+# the calls that answer what a file or a socket holds, whatever defines them
+_INPUT_READS = frozenset(
+    {
+        "fdopen",
+        "read",
+        "read1",
+        "read_bytes",
+        "read_text",
+        "readline",
+        "readlines",
+        "recv",
+        "recv_into",
+    }
+)
+# the builtins a refusal may read by name: each is a function or a value
+# of the interpreter, and a module's `__name__` is its own
+_PURE_BUILTINS = frozenset(
+    {
+        "__name__",
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "bytes",
+        "chr",
+        "divmod",
+        "dict",
+        "enumerate",
+        "float",
+        "frozenset",
+        "hex",
+        "int",
+        "isinstance",
+        "issubclass",
+        "len",
+        "list",
+        "max",
+        "min",
+        "ord",
+        "range",
+        "repr",
+        "reversed",
+        "round",
+        "set",
+        "sorted",
+        "str",
+        "sum",
+        "super",
+        "tuple",
+        "type",
+        "zip",
+    }
+)
+# bases outside the package that alone make no class an exception
+_PLAIN_BASES = frozenset(
+    {"ABC", "Enum", "Generic", "IntEnum", "NamedTuple", "Protocol", "list", "object"}
+)
+# what an `except` may raise again whose text is the interpreter's own
+_INTERRUPTS = frozenset({"KeyboardInterrupt", "SystemExit"})
+# a call whose answer is a field of at most 4 bytes, in hex
+_FIELDS = frozenset({"_hex_field"})
+# a call whose answer is an index or a count, in decimal
+_POSITIONS = frozenset({"_position"})
+# the methods that put values into a list, a set, a dict or a deque
+_MUTATORS = frozenset(
+    {
+        "add",
+        "append",
+        "appendleft",
+        "extend",
+        "extendleft",
+        "insert",
+        "setdefault",
+        "update",
+    }
+)
+# what builds a container a value can be put into
+_CONTAINERS = (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)
+_CONTAINER_TYPES = frozenset(
+    {"list", "dict", "set", "bytearray", "deque", "defaultdict", "OrderedDict"}
+)
+# what reads a container handed to it, and puts nothing into it
+_READERS = frozenset(
+    {
+        *_DESCRIBING,
+        *_FIELDS,
+        *_POSITIONS,
+        "_label",
+        "all",
+        "any",
+        "enumerate",
+        "frozenset",
+        "isinstance",
+        "iter",
+        "join",
+        "list",
+        "max",
+        "min",
+        "reversed",
+        "set",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+        "zip",
+    }
+)
+_CONSTANT = re.compile(r"_*[A-Z][A-Z0-9_]*")
+_FUNCTION = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_COMPREHENSION = (ast.ListComp, ast.SetComp, ast.GeneratorExp)
+_BINDING = (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)
+_LOOP = (ast.For, ast.AsyncFor, ast.comprehension)
+_DECLARED = (ast.Import, ast.ImportFrom, *_FUNCTION, ast.ClassDef)
+
+
+def _private(name: str) -> bool:
+    return name.startswith("_") and not name.endswith("__")
+
+
+def _bound(receiver: ast.expr) -> bool:
+    """Return whether a method is called on `self`, `cls` or `super()`."""
+    if isinstance(receiver, ast.Call):
+        receiver = receiver.func
+        return isinstance(receiver, ast.Name) and receiver.id == "super"
+    return isinstance(receiver, ast.Name) and receiver.id in _BOUND
+
+
+def _called_name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    return func.attr if isinstance(func, ast.Attribute) else None
+
+
+def _positional(func: ast.AST) -> list[ast.arg]:
+    args: ast.arguments = func.args  # type: ignore[attr-defined]
+    return [*args.posonlyargs, *args.args]
+
+
+def _arguments(func: ast.AST) -> list[ast.arg]:
+    args: ast.arguments = func.args  # type: ignore[attr-defined]
+    found = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    found.extend(arg for arg in (args.vararg, args.kwarg) if arg is not None)
+    return found
+
+
+def _own_nodes(scope: ast.AST) -> list[ast.AST]:
+    """Return the nodes of a scope, not entering a nested function or class."""
+    found: list[ast.AST] = []
+    todo = list(ast.iter_child_nodes(scope))
+    while todo:
+        node = todo.pop()
+        found.append(node)
+        if isinstance(node, (*_FUNCTION, ast.ClassDef)):
+            # its decorators are read in this scope, its body is not
+            todo.extend(getattr(node, "decorator_list", []))
+            continue
+        todo.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def _cleanup(handler: ast.ExceptHandler) -> bool:
+    """Return whether an `except` cleans up and relays what it caught.
+
+    It catches everything, binds no name, ends in a bare `raise`, and has
+    no other way out: no other `raise`, no `return`, `break`, `continue`
+    or `yield`.
+    """
+    caught = handler.type
+    everything = caught is None or (
+        isinstance(caught, ast.Name) and caught.id == "BaseException"
+    )
+    last = handler.body[-1]
+    exits = (ast.Raise, ast.Return, ast.Break, ast.Continue, ast.Yield, ast.YieldFrom)
+    others = [
+        node
+        for statement in handler.body
+        for node in [statement, *_own_nodes(statement)]
+        if isinstance(node, exits) and node is not last
+    ]
+    return (
+        everything
+        and handler.name is None
+        and isinstance(last, ast.Raise)
+        and last.exc is None
+        and not others
+    )
+
+
+def _function_name(module: _Module, node: ast.AST) -> str:
+    """Return the name of the `def` a node is in, or `<module>`."""
+    return next(
+        (
+            scope.name
+            for scope in module.scopes(node)
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ),
+        "<module>",
+    )
+
+
+def _enclosing_tests(module: _Module, node: ast.AST) -> list[ast.expr]:
+    """Return the test of each `if` whose body or `else` holds the node.
+
+    Up to the function the node is in, and an `if` expression's too.
+    """
+    found: list[ast.expr] = []
+    child, current = node, module.parents.get(node)
+    while current is not None and not isinstance(current, _FUNCTION):
+        if isinstance(current, (ast.If, ast.IfExp)) and child is not current.test:
+            found.append(current.test)
+        child, current = current, module.parents.get(current)
+    return found
+
+
+def _constant(expr: ast.expr) -> bool:
+    """Return whether an expression is made of literals and capitals alone."""
+    if isinstance(expr, ast.Constant):
+        return expr.value is not None
+    if isinstance(expr, (ast.Name, ast.Attribute)):
+        name = expr.id if isinstance(expr, ast.Name) else expr.attr
+        return _CONSTANT.fullmatch(name) is not None
+    parts: list[ast.expr] = []
+    if isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
+        parts = expr.elts
+    elif isinstance(expr, ast.BinOp):
+        parts = [expr.left, expr.right]
+    elif isinstance(expr, ast.UnaryOp):
+        parts = [expr.operand]
+    return bool(parts) and all(_constant(part) for part in parts)
+
+
+def _truths(test: ast.expr) -> list[ast.expr]:
+    """Return what a test reads for its truth: `x`, `not x`, `x and y`."""
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        return _truths(test.operand)
+    if isinstance(test, ast.BoolOp):
+        return [truth for value in test.values for truth in _truths(value)]
+    return [test]
+
+
+def _compares_with_a_constant(test: ast.expr, value: ast.expr) -> bool:
+    """Return whether a test compares the value with a constant, not by `is`.
+
+    A test that reads the value for its truth compares it with 0.
+    """
+    shape = ast.dump(value)
+    if any(ast.dump(truth) == shape for truth in _truths(test)):
+        return True
+    for node in ast.walk(test):
+        if not isinstance(node, ast.Compare):
+            continue
+        operands = [node.left, *node.comparators]
+        for op, left, right in zip(node.ops, operands[:-1], operands[1:], strict=True):
+            if isinstance(op, (ast.Is, ast.IsNot)):
+                continue
+            if (ast.dump(left) == shape and _constant(right)) or (
+                ast.dump(right) == shape and _constant(left)
+            ):
+                return True
+    return False
+
+
+def _names(target: ast.AST) -> list[str]:
+    return [node.id for node in ast.walk(target) if isinstance(node, ast.Name)]
+
+
+def _values(call: ast.Call) -> list[ast.expr]:
+    return [*call.args, *(keyword.value for keyword in call.keywords)]
+
+
+def _names_exception(name: str) -> bool:
+    return name.rsplit(".", 1)[-1].endswith(("Error", "Exception"))
+
+
+def _base_name(base: ast.expr) -> str:
+    """Return the name a base of a class is read by, its subscript dropped."""
+    while isinstance(base, ast.Subscript):
+        base = base.value
+    return _called_name(base) or ast.unparse(base)
+
+
+def _builds_container(node: ast.AST) -> bool:
+    """Return whether a binding assigns a container a value can be put into."""
+    value = getattr(node, "value", None)
+    if isinstance(node, ast.AugAssign) or value is None:
+        return False
+    if isinstance(value, _CONTAINERS):
+        return True
+    return isinstance(value, ast.Call) and _called_name(value.func) in _CONTAINER_TYPES
+
+
+def _mutates(node: ast.AST, name: str) -> bool:
+    """Return whether a node is a call putting values into a named container."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _MUTATORS
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == name
+    )
+
+
+def _mutated(node: ast.AST) -> list[str]:
+    """Return the names a node puts values into, by a call or an assignment.
+
+    `x.append(v)` puts `v` into `x`, and so do `x[k] = v` and `x.k = v`.
+    """
+    if isinstance(node, ast.Call):
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr in _MUTATORS
+            and isinstance(func.value, ast.Name)
+        ):
+            return [func.value.id]
+        return []
+    if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+        return []
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    found: list[str] = []
+    for target in targets:
+        for part in ast.walk(target):
+            if isinstance(part, (ast.Subscript, ast.Attribute)):
+                root = part.value
+                while isinstance(root, (ast.Subscript, ast.Attribute)):
+                    root = root.value
+                if isinstance(root, ast.Name):
+                    found.append(root.id)
+    return found
+
+
+def _binds(node: ast.AST, name: str) -> bool:  # noqa: PLR0911
+    """Return whether a node binds a name in the scope it belongs to."""
+    if _mutates(node, name):
+        return True
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return any(name in _names(target) for target in targets)
+    if isinstance(node, (*_LOOP, ast.NamedExpr)):
+        return name in _names(node.target)
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return any(
+            item.optional_vars is not None and name in _names(item.optional_vars)
+            for item in node.items
+        )
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return any((a.asname or a.name).split(".")[0] == name for a in node.names)
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return name in node.names
+    if isinstance(
+        node,
+        (ast.ExceptHandler, ast.MatchAs, ast.MatchStar, *_FUNCTION, ast.ClassDef),
+    ):
+        return getattr(node, "name", None) == name
+    return False
+
+
+@dataclass
+class _Module:
+    name: str
+    tree: ast.Module
+    parents: dict[ast.AST, ast.AST] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for node in ast.walk(self.tree):
+            for child in ast.iter_child_nodes(node):
+                self.parents[child] = node
+
+    def scopes(self, node: ast.AST) -> list[ast.AST]:
+        """Return the enclosing functions, innermost first, then the module.
+
+        A default, an annotation or a decorator of a `def` or a lambda is
+        read where it stands, so that `def` is not one of its scopes.
+        """
+        found: list[ast.AST] = []
+        child, current = node, self.parents.get(node)
+        while current is not None:
+            if isinstance(current, ast.Lambda):
+                if child is current.body:
+                    found.append(current)
+            elif (
+                isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and child in current.body
+            ):
+                found.append(current)
+            child, current = current, self.parents.get(current)
+        found.append(self.tree)
+        return found
+
+    def where(self, node: ast.AST) -> str:
+        return f"{self.name}:{getattr(node, 'lineno', 0)}"
+
+
+# what a value is traced through: a name in the scope that binds it, a
+# parameter of a function, or what a private function returns
+_Key = tuple[str, int, str]
+
+
+@dataclass
+class _Census:
+    modules: list[_Module]
+    # the calls of each function of the package, and where it is read as a
+    # value, keyed by the id of its `def`
+    calls: dict[int, list[tuple[_Module, ast.Call]]] = field(default_factory=dict)
+    reads: dict[int, list[tuple[_Module, ast.AST]]] = field(default_factory=dict)
+    functions: dict[int, tuple[_Module, ast.AST]] = field(default_factory=dict)
+    methods: dict[str, list[ast.AST]] = field(default_factory=dict)
+    scopes: dict[int, tuple[_Module, ast.AST]] = field(default_factory=dict)
+    nodes: dict[int, list[ast.AST]] = field(default_factory=dict)
+    mutations: dict[int, dict[str, list[ast.AST]]] = field(default_factory=dict)
+    edges: dict[_Key, tuple[list[str], set[_Key]]] = field(default_factory=dict)
+    reached: dict[_Key, frozenset[str]] = field(default_factory=dict)
+    # each class of the package by its name, the `def`s that may raise, and
+    # the attributes the package assigns, the last two worked out once
+    class_defs: dict[str, list[ast.ClassDef]] = field(default_factory=dict)
+    raising: set[int] | None = None
+    assigned: set[str] | None = None
+    exceptions: set[str] | None = None
+    # the entries of `CLEANUPS` and of `KEPT` a finding was hidden by
+    used: set[tuple[str, str, str]] = field(default_factory=set)
+    kept_used: set[tuple[str, str, str]] = field(default_factory=set)
+    measured_used: set[tuple[str, str, str]] = field(default_factory=set)
+
+    def __post_init__(self) -> None:  # noqa: C901
+        for module in self.modules:
+            for node in ast.walk(module.tree):
+                if isinstance(node, ast.ClassDef):
+                    self.class_defs.setdefault(node.name, []).append(node)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    self.functions[id(node)] = (module, node)
+                    if isinstance(module.parents.get(node), ast.ClassDef):
+                        self.methods.setdefault(node.name, []).append(node)
+        for module in self.modules:
+            for node in ast.walk(module.tree):
+                if isinstance(node, ast.Call):
+                    for func in self._resolve(node.func, module) or []:
+                        self.calls.setdefault(id(func), []).append((module, node))
+                elif isinstance(node, (ast.Name, ast.Attribute)) and isinstance(
+                    node.ctx, ast.Load
+                ):
+                    parent = module.parents.get(node)
+                    if not (isinstance(parent, ast.Call) and parent.func is node):
+                        for func in self._resolve(node, module) or []:
+                            self.reads.setdefault(id(func), []).append((module, node))
+
+    def _resolve(self, func: ast.expr, module: _Module) -> list[ast.AST] | None:
+        """Return the `def`s of the package a callee may be, None where unknown.
+
+        A name is the `def` of the scope that binds it, or the one of the
+        module it is imported from. An attribute is every method of that
+        name.
+        """
+        if isinstance(func, ast.Attribute):
+            return self.methods.get(func.attr)
+        if not isinstance(func, ast.Name):
+            return None
+        for scope in module.scopes(func):
+            bindings = [n for n in self._scope_nodes(scope) if _binds(n, func.id)]
+            if isinstance(scope, _FUNCTION) and any(
+                arg.arg == func.id for arg in _arguments(scope)
+            ):
+                return None
+            if not bindings:
+                continue
+            found: list[ast.AST] = []
+            for binding in bindings:
+                if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    found.append(binding)
+                elif isinstance(binding, ast.ImportFrom):
+                    found.extend(self._imported(binding, func.id))
+                else:
+                    return None
+            return found or None
+        return None
+
+    def _imported(self, node: ast.ImportFrom, name: str) -> list[ast.AST]:
+        """Return the `def`s an import of the package binds to a name."""
+        source = next(a.name for a in node.names if (a.asname or a.name) == name)
+        path = f"{(node.module or '').replace('.', '/')}.py"
+        package = path.removesuffix(".py") + "/__init__.py"
+        return [
+            func
+            for module in self.modules
+            if module.name in {path, package}
+            for func in module.tree.body
+            if isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and func.name == source
+        ]
+
+    def sites(self) -> list[tuple[_Module, ast.AST, list[ast.expr]]]:
+        """Return each exception the package builds, and the values it holds.
+
+        A call that builds one is the call, and its arguments. A `raise` of
+        what a function of the package returns is not one: the exception
+        that function builds is. A `raise` of an exception already built, a
+        name or anything else that is no call, holds that exception, which
+        is traced as a value; but the exception an enclosing `except`
+        handles, raised again, and a name that holds only exceptions built
+        at a site.
+        """
+        found: dict[int, tuple[_Module, ast.AST, list[ast.expr]]] = {}
+        for module in self.modules:
+            for node in ast.walk(module.tree):
+                if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                    if self._resolve(node.exc.func, module) is None:
+                        found[id(node.exc)] = (module, node.exc, _values(node.exc))
+                elif isinstance(node, ast.Raise) and node.exc is not None:
+                    if not (
+                        self._handled(node, module)
+                        or self._built_at_a_site(node.exc, module)
+                    ):
+                        found[id(node)] = (module, node, [node.exc])
+                elif isinstance(node, ast.Call) and self._builds_exception(
+                    node.func, module
+                ):
+                    found[id(node)] = (module, node, _values(node))
+        return sorted(
+            found.values(),
+            key=lambda site: (site[0].name, getattr(site[1], "lineno", 0)),
+        )
+
+    def _built_at_a_site(self, exc: ast.expr, module: _Module) -> bool:
+        """Return whether a name raised holds only exceptions built at a site.
+
+        Each value its scope assigns it is `None`, a call that builds an
+        exception, which is a site of its own, or a call of a function of
+        the package each of whose `return`s is one.
+        """
+        if not isinstance(exc, ast.Name):
+            return False
+        scope = module.scopes(exc)[0]
+        if isinstance(scope, _FUNCTION) and any(
+            arg.arg == exc.id for arg in _arguments(scope)
+        ):
+            return False
+        # a bare annotation declares the name and assigns it nothing
+        bindings = [
+            n
+            for n in self._scope_nodes(scope)
+            if _binds(n, exc.id) and not (isinstance(n, ast.AnnAssign) and not n.value)
+        ]
+        return bool(bindings) and all(
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and self._builds_at_a_site(node.value, module)
+            for node in bindings
+        )
+
+    def _builds_at_a_site(self, value: ast.expr | None, module: _Module) -> bool:
+        """Return whether a value is `None` or an exception a site builds."""
+        if isinstance(value, ast.Constant) and value.value is None:
+            return True
+        if not isinstance(value, ast.Call):
+            return False
+        if self._builds_exception(value.func, module):
+            return True
+        functions = self._resolve(value.func, module) or []
+        returns = [
+            (self.functions[id(function)][0], node)
+            for function in functions
+            for node in self._scope_nodes(function)
+            if isinstance(node, ast.Return)
+        ]
+        return bool(returns) and all(
+            isinstance(node.value, ast.Call)
+            and self._builds_exception(node.value.func, returned_in)
+            for returned_in, node in returns
+        )
+
+    def _handled(self, node: ast.Raise, module: _Module) -> bool:
+        """Return whether a `raise` raises the exception an `except` binds."""
+        exc = node.exc
+        current = module.parents.get(node)
+        while isinstance(exc, ast.Name) and current is not None:
+            if isinstance(current, ast.ExceptHandler) and current.name == exc.id:
+                return True
+            if isinstance(current, (*_FUNCTION, ast.ClassDef)):
+                break
+            current = module.parents.get(current)
+        return False
+
+    def _builds_exception(self, func: ast.expr, module: _Module) -> bool:
+        """Return whether a callee is an exception class or a name bound to one.
+
+        A name ending in `Error` or `Exception`, or a name an assignment or
+        an import binds to such a name or to an exception class of the
+        package, as `_exception_classes` finds them.
+        """
+        name = _called_name(func) or ""
+        if name.endswith(("Error", "Exception")):
+            return True
+        if not isinstance(func, ast.Name):
+            return False
+        for scope in module.scopes(func):
+            for binding in self._scope_nodes(scope):
+                if isinstance(binding, (ast.Import, ast.ImportFrom)):
+                    if any(
+                        (a.asname or a.name) == name
+                        and (
+                            _names_exception(a.name)
+                            or a.name in self._exception_classes()
+                        )
+                        for a in binding.names
+                    ):
+                        return True
+                elif isinstance(binding, (ast.Assign, ast.AnnAssign)) and _binds(
+                    binding, name
+                ):
+                    source = _called_name(binding.value) if binding.value else None
+                    if source and (
+                        _names_exception(source) or source in self._exception_classes()
+                    ):
+                        return True
+        return False
+
+    def _exception_classes(self) -> set[str]:
+        """Return each class of the package that may be an exception, by name.
+
+        A class one of whose bases is no class of the package nor one of
+        `_PLAIN_BASES`, and then, until nothing changes, one deriving from
+        any of them. A class with no base, or only plain ones, is not.
+        """
+        if self.exceptions is None:
+            bases = {
+                name: {
+                    _base_name(base)
+                    for class_def in class_defs
+                    for base in class_def.bases
+                }
+                for name, class_defs in self.class_defs.items()
+            }
+            found = {
+                name
+                for name, named in bases.items()
+                if named - set(self.class_defs) - _PLAIN_BASES
+            }
+            changed = True
+            while changed:
+                changed = False
+                for name, named in bases.items():
+                    if name not in found and named & found:
+                        found.add(name)
+                        changed = True
+            self.exceptions = found
+        return self.exceptions
+
+    def findings(
+        self,
+        cleanups: Mapping[tuple[str, str, str], str] | None = None,
+        kept: Mapping[tuple[str, str, str], str] | None = None,
+        measured: Mapping[tuple[str, str, str], str] | None = None,
+    ) -> list[str]:
+        """Return each exception built from a value the census cannot trace.
+
+        And each `raise` that chains, or leaves as context, an exception
+        that can hold the input, each call that may raise from the
+        package while handling one, and each `_position` of a value an
+        `if` refuses. A call `cleanups` names is not one, nor an exception
+        `kept` names a `raise` of by its module, its function and its
+        source, nor a `_position` `measured` names by its module, its
+        function and its source; each entry that hides one is recorded as
+        used.
+        """
+        cleanups = cleanups or {}
+        found = self._untraced_sites(kept or {})
+        found.extend(self._refused_positions(measured or {}))
+        for module in self.modules:
+            for node in ast.walk(module.tree):
+                if isinstance(node, ast.Raise) and node.exc is not None:
+                    found.extend(self._chained(node, module))
+                elif isinstance(node, ast.Raise):
+                    found.extend(self._raised_again(node, module))
+                elif isinstance(node, ast.ExceptHandler) and not self._own(
+                    node.type, module
+                ):
+                    caught = (
+                        "everything" if node.type is None else ast.unparse(node.type)
+                    )
+                    found.extend(
+                        self._raising_calls(node.body, module, caught, cleanups)
+                    )
+                elif isinstance(node, (ast.Try, ast.TryStar)) and node.finalbody:
+                    found.extend(
+                        self._raising_calls(
+                            node.finalbody,
+                            module,
+                            "whatever the try raised",
+                            cleanups,
+                        )
+                    )
+        return found
+
+    def _refused_positions(
+        self, measured: Mapping[tuple[str, str, str], str]
+    ) -> list[str]:
+        """Return each `_position` of a value an `if` around it refuses.
+
+        The `if` is one whose body or `else` holds the call, in the same
+        function, and whose test compares what the call is handed with a
+        constant, other than by `is`: `index > MAX_INDEX`, `not 0 <= index
+        < n`, `version not in {0, 2}`, `index and not ranged`. A call
+        `measured` names by its module, its function and its source is not
+        one, and is recorded as used. A call that hands its value with `*`
+        or `**` is a finding wherever it is.
+        """
+        found: list[str] = []
+        for module in self.modules:
+            for node in ast.walk(module.tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in _POSITIONS
+                ):
+                    continue
+                if _unpacks(node):
+                    found.append(
+                        f"{module.where(node)}: {ast.unparse(node)} hands its value"
+                        " unpacked, which the census cannot compare"
+                    )
+                    continue
+                handed = [*node.args[:1]]
+                handed += [k.value for k in node.keywords if k.arg == "value"]
+                tests = [
+                    test
+                    for test in _enclosing_tests(module, node)
+                    for value in handed
+                    if _compares_with_a_constant(test, value)
+                ]
+                if not tests:
+                    continue
+                key = (module.name, _function_name(module, node), ast.unparse(node))
+                if key in measured:
+                    self.measured_used.add(key)
+                    continue
+                lines = ", ".join(str(test.lineno) for test in tests)
+                found.append(
+                    f"{module.where(node)}: {ast.unparse(node)} writes what the"
+                    f" `if` at line {lines} refuses, which `_quoted` describes"
+                )
+        return found
+
+    def _untraced_sites(self, kept: Mapping[tuple[str, str, str], str]) -> list[str]:
+        """Return each site that holds a value the census cannot trace.
+
+        A `raise` `kept` names by its module, its function and the source
+        of what it raises is not one, and is recorded as used.
+        """
+        found: list[str] = []
+        for module, site, values in self.sites():
+            if isinstance(site, ast.Raise) and site.exc is not None:
+                key = (module.name, _function_name(module, site), ast.unparse(site.exc))
+                if key in kept:
+                    self.kept_used.add(key)
+                    continue
+            if untraced := sorted(self.untraced(values, module)):
+                found.append(f"{module.where(site)}: " + "; ".join(untraced))
+        return found
+
+    def _raising_calls(
+        self,
+        body: list[ast.stmt],
+        module: _Module,
+        caught: str,
+        cleanups: Mapping[tuple[str, str, str], str],
+    ) -> list[str]:
+        """Return each call in a block that may raise from the package.
+
+        What a function of the package raises, itself or through any
+        function of the package it calls, has the exception handled as
+        context. A call whose callee the census cannot name is one too. A
+        call `cleanups` names by its module, its function and its source is
+        not, and is recorded as used.
+        """
+        found: list[str] = []
+        for statement in body:
+            for node in [statement, *_own_nodes(statement)]:
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = ast.unparse(node.func)
+                callees = self._callees(node.func, module)
+                if callees is None:
+                    found.append(
+                        f"{module.where(node)}: calls {callee}, which the census"
+                        f" cannot name, while handling {caught}"
+                    )
+                elif any(id(function) in self._raising() for function in callees):
+                    key = (module.name, _function_name(module, node), callee)
+                    if key in cleanups:
+                        self.used.add(key)
+                        continue
+                    found.append(
+                        f"{module.where(node)}: calls {callee}, which raises,"
+                        f" while handling {caught}"
+                    )
+        return found
+
+    def _callees(self, func: ast.expr, module: _Module) -> list[ast.AST] | None:
+        """Return the `def`s of the package a call may run, None where unknown.
+
+        An attribute called is what `_method_callees` says. A name is the
+        `def` of the scope binding it, the one of the package it is
+        imported from, or the constructor of a class of the package; a name
+        nothing binds is a builtin, and one imported by name from outside
+        the package runs none of it. A name bound any other way, a
+        parameter or a local, is unknown, and so is a callee that is no
+        name.
+        """
+        if isinstance(func, ast.Attribute):
+            return self._method_callees(func, module)
+        if not isinstance(func, ast.Name):
+            return None
+        for scope in module.scopes(func):
+            if isinstance(scope, _FUNCTION) and any(
+                arg.arg == func.id for arg in _arguments(scope)
+            ):
+                return None
+            bindings = [n for n in self._scope_nodes(scope) if _binds(n, func.id)]
+            if not bindings:
+                continue
+            found: list[ast.AST] = []
+            for binding in bindings:
+                runs = self._runs(binding, func.id)
+                if runs is None:
+                    return None
+                found.extend(runs)
+            return found
+        return []
+
+    def _method_callees(
+        self, func: ast.Attribute, module: _Module
+    ) -> list[ast.AST] | None:
+        """Return the methods an attribute called may be, None where unknown.
+
+        Every method of that name in the package, whatever it is called on.
+        Called on a method's own object, a name that is no method of the
+        package but an attribute the package assigns holds whatever was
+        assigned, a function of the package included, and is unknown.
+        """
+        if (
+            func.attr not in self.methods
+            and self._is_self(func.value, module)
+            and func.attr in self._assigned_attributes()
+        ):
+            return None
+        return self.methods.get(func.attr, [])
+
+    def _assigned_attributes(self) -> set[str]:
+        """Return the name of each attribute the package assigns a value to."""
+        if self.assigned is None:
+            self.assigned = {
+                node.attr
+                for module in self.modules
+                for node in ast.walk(module.tree)
+                if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
+            }
+        return self.assigned
+
+    def _runs(self, binding: ast.AST, name: str) -> list[ast.AST] | None:
+        """Return what calling a name a node binds runs, None where unknown."""
+        if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return [binding]
+        if isinstance(binding, ast.ImportFrom):
+            return [
+                *self._imported(binding, name),
+                *self._constructors(binding.names, name),
+            ]
+        if isinstance(binding, ast.ClassDef):
+            return self._constructors([], binding.name)
+        return None
+
+    def _constructors(self, names: list[ast.alias], name: str) -> list[ast.AST]:
+        """Return what building a class of the package of a name runs.
+
+        Its own `__init__`, `__new__` and `__post_init__`, and those of each
+        class of the package it derives from, which it may inherit.
+        """
+        source = next((a.name for a in names if (a.asname or a.name) == name), name)
+        found: list[ast.AST] = []
+        seen: set[str] = set()
+        todo = [source]
+        while todo:
+            class_name = todo.pop()
+            if class_name in seen:
+                continue
+            seen.add(class_name)
+            for class_def in self.class_defs.get(class_name, []):
+                todo.extend(_called_name(base) or "" for base in class_def.bases)
+                found.extend(
+                    method
+                    for method in class_def.body
+                    if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and method.name in {"__init__", "__new__", "__post_init__"}
+                )
+        return found
+
+    def _raising(self) -> set[int]:
+        """Return the ids of the `def`s of the package that may raise.
+
+        A `def` holding a `raise` of an exception, or a call the census
+        cannot name, and then, until nothing changes, one calling any of
+        them.
+        """
+        if self.raising is None:
+            calls: dict[int, list[list[ast.AST]]] = {}
+            raising: set[int] = set()
+            for function_id, (module, function) in self.functions.items():
+                calls[function_id] = []
+                for node in self._scope_nodes(function):
+                    if isinstance(node, ast.Raise) and node.exc is not None:
+                        raising.add(function_id)
+                    elif isinstance(node, ast.Call):
+                        callees = self._callees(node.func, module)
+                        if callees is None:
+                            raising.add(function_id)
+                        else:
+                            calls[function_id].append(callees)
+            changed = True
+            while changed:
+                changed = False
+                for function_id, callee_lists in calls.items():
+                    if function_id not in raising and any(
+                        id(callee) in raising
+                        for callees in callee_lists
+                        for callee in callees
+                    ):
+                        raising.add(function_id)
+                        changed = True
+            self.raising = raising
+        return self.raising
+
+    def _is_self(self, expr: ast.expr, module: _Module) -> bool:
+        """Return whether an expression is the first parameter of a method."""
+        if not isinstance(expr, ast.Name):
+            return False
+        for scope in module.scopes(expr):
+            if isinstance(scope, _FUNCTION) and any(
+                arg.arg == expr.id for arg in _arguments(scope)
+            ):
+                positional = _positional(scope)
+                return (
+                    isinstance(module.parents.get(scope), ast.ClassDef)
+                    and bool(positional)
+                    and positional[0].arg == expr.id
+                    and all(
+                        _called_name(d) != "staticmethod"
+                        for d in getattr(scope, "decorator_list", [])
+                    )
+                )
+        return False
+
+    def _chained(self, node: ast.Raise, module: _Module) -> list[str]:
+        """Return what a `raise` chains that can hold the input.
+
+        An exception is handled, and becomes the context of what is raised,
+        in the body of each `except` around the `raise` and in a `finally`.
+        One of the package's own classes holds what the census checks; any
+        other may hold the input, as a `UnicodeError` holds its bytes.
+        """
+        found: list[str] = []
+        handlers: list[ast.ExceptHandler] = []
+        child: ast.AST = node
+        parent = module.parents.get(node)
+        while parent is not None and not isinstance(parent, (*_FUNCTION, ast.ClassDef)):
+            if isinstance(parent, ast.ExceptHandler):
+                handlers.append(parent)
+            elif (
+                isinstance(parent, (ast.Try, ast.TryStar)) and child in parent.finalbody
+            ):
+                found.append(f"{module.where(node)}: raised in a finally block")
+            child, parent = parent, module.parents.get(parent)
+        names = {handler.name for handler in handlers if handler.name}
+        if isinstance(node.exc, ast.Name) and node.exc.id in names:
+            # the exception handled, raised again, as a bare `raise` does
+            handler = next(h for h in handlers if h.name == node.exc.id)
+            return [*found, *self._relayed(node, handler, module)]
+        for handler in handlers:
+            if not self._own(handler.type, module):
+                caught = (
+                    "everything" if handler.type is None else ast.unparse(handler.type)
+                )
+                found.append(f"{module.where(node)}: raised while handling {caught}")
+        cause = node.cause
+        if not (
+            cause is None
+            or (isinstance(cause, ast.Constant) and cause.value is None)
+            or (isinstance(cause, ast.Name) and cause.id in names)
+            or self._own_kept(cause, module)
+        ):
+            found.append(f"{module.where(node)}: chains {ast.unparse(cause)}")
+        return found
+
+    def _own_kept(self, cause: ast.expr, module: _Module) -> bool:
+        """Return whether a name, or an item of it, holds own exceptions alone.
+
+        Each value put into it is an empty literal, None, or the exception
+        an `except` of the package's own classes binds.
+        """
+        while isinstance(cause, ast.Subscript):
+            cause = cause.value
+        if not isinstance(cause, ast.Name):
+            return False
+        scope = module.scopes(cause)[0]
+        own = {
+            handler.name
+            for handler in self._scope_nodes(scope)
+            if isinstance(handler, ast.ExceptHandler)
+            and handler.name
+            and self._own(handler.type, module)
+        }
+        values: list[ast.expr | None] = []
+        # and what any function the scope holds puts into it
+        nested = self._mutations(scope).get(cause.id, [])
+        for node in [*self._scope_nodes(scope), *nested]:
+            if _mutates(node, cause.id):
+                call = cast("ast.Call", node)
+                values.extend([*call.args, *(k.value for k in call.keywords)])
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)) and _binds(
+                node, cause.id
+            ):
+                values.append(node.value)
+            elif _binds(node, cause.id):
+                return False
+        return bool(values) and all(
+            (isinstance(value, (ast.List, ast.Tuple)) and not value.elts)
+            or (isinstance(value, ast.Constant) and value.value is None)
+            or (isinstance(value, ast.Name) and value.id in own)
+            for value in values
+        )
+
+    def _raised_again(self, node: ast.Raise, module: _Module) -> list[str]:
+        """Return what a bare `raise` relays: what the `except` caught."""
+        parent = module.parents.get(node)
+        while parent is not None and not isinstance(parent, (*_FUNCTION, ast.ClassDef)):
+            if isinstance(parent, ast.ExceptHandler):
+                return self._relayed(node, parent, module)
+            parent = module.parents.get(parent)
+        return []
+
+    def _relayed(
+        self, node: ast.Raise, handler: ast.ExceptHandler, module: _Module
+    ) -> list[str]:
+        """Return a finding where an exception raised again can hold the input.
+
+        It cannot where each class the `except` catches is the package's or
+        an interrupt, whose text is the interpreter's. Nor does a cleanup,
+        an `except` of everything that binds no name and ends in a bare
+        `raise`, with no other way out: what it relays passes on as it
+        would with no `try` at all.
+        """
+        caught = handler.type
+        each = caught.elts if isinstance(caught, ast.Tuple) else [caught]
+        relayed = caught is not None and all(
+            (isinstance(c, ast.Name) and c.id in _INTERRUPTS) or self._own(c, module)
+            for c in each
+        )
+        if relayed or _cleanup(handler):
+            return []
+        what = "everything" if caught is None else ast.unparse(caught)
+        return [f"{module.where(node)}: raises {what} again"]
+
+    def _own(self, caught: ast.expr | None, module: _Module) -> bool:
+        """Return whether an `except` catches the package's classes alone.
+
+        A class is the package's where the scope that names it defines it,
+        or imports it from a module of the package that does: a class of
+        another package is not, whatever its name.
+        """
+        if isinstance(caught, ast.Tuple):
+            return all(self._own(each, module) for each in caught.elts)
+        if isinstance(caught, ast.Attribute) and isinstance(caught.value, ast.Name):
+            # a class of a module of the package, read off the module
+            source = self._module_bound(caught.value, module)
+            return source is not None and self._defines(source, caught.attr, set())
+        if not isinstance(caught, ast.Name):
+            return False
+        for scope in module.scopes(caught):
+            if bindings := [
+                n for n in self._scope_nodes(scope) if _binds(n, caught.id)
+            ]:
+                return all(
+                    self._is_class(binding, caught.id, set()) for binding in bindings
+                )
+        return False
+
+    def _module_bound(self, name: ast.Name, module: _Module) -> _Module | None:
+        """Return the module of the package an import binds to a name."""
+        for scope in module.scopes(name):
+            for node in self._scope_nodes(scope):
+                if isinstance(node, (ast.Import, ast.ImportFrom)) and _binds(
+                    node, name.id
+                ):
+                    alias = next(
+                        a for a in node.names if (a.asname or a.name) == name.id
+                    )
+                    dotted = alias.name
+                    if isinstance(node, ast.ImportFrom):
+                        dotted = f"{node.module}.{alias.name}"
+                    return self._module_of(dotted)
+        return None
+
+    def _module_of(self, dotted: str) -> _Module | None:
+        """Return the package's module a dotted name is, None for another."""
+        path = f"{dotted.replace('.', '/')}.py"
+        package = path.removesuffix(".py") + "/__init__.py"
+        return next((m for m in self.modules if m.name in {path, package}), None)
+
+    def _defines(self, module: _Module, name: str, seen: set[tuple[str, str]]) -> bool:
+        """Return whether a module binds a name to a class of the package."""
+        if (module.name, name) in seen:
+            return False
+        seen.add((module.name, name))
+        bindings = [n for n in self._scope_nodes(module.tree) if _binds(n, name)]
+        return bool(bindings) and all(
+            self._is_class(binding, name, seen) for binding in bindings
+        )
+
+    def _is_class(
+        self, binding: ast.AST, name: str, seen: set[tuple[str, str]]
+    ) -> bool:
+        """Return whether a binding is a class the package defines.
+
+        A `class` statement is one, and so is an import of a name from a
+        module of the package that binds it to one.
+        """
+        if isinstance(binding, ast.ClassDef):
+            return True
+        if not isinstance(binding, ast.ImportFrom):
+            return False
+        source_name = next(
+            a.name for a in binding.names if (a.asname or a.name) == name
+        )
+        source = self._module_of(binding.module or "")
+        return source is not None and self._defines(source, source_name, seen)
+
+    def untraced(self, exprs: list[ast.expr], module: _Module) -> set[str]:
+        """Return each value the expressions hold that cannot be traced."""
+        leaves: list[str] = []
+        keys: set[_Key] = set()
+        for expr in exprs:
+            self._visit(expr, module, leaves, keys)
+        found = set(leaves)
+        for key in keys:
+            found |= self._reach(key)
+        return found
+
+    # low-code-quality measures the complexity the noqa already declines
+    def _visit(  # noqa: C901, PLR0911, PLR0912  # sourcery skip: low-code-quality
+        self, expr: ast.AST | None, module: _Module, leaves: list[str], keys: set[_Key]
+    ) -> None:
+        """Sort what an expression holds into untraced values and keys."""
+        if expr is None or isinstance(expr, (ast.Constant, ast.Compare)):
+            # nothing, a literal, or a bool whatever it compares
+            return
+        if isinstance(expr, ast.Name):
+            key = self._name_key(expr, module)
+            if key is not None:
+                keys.add(key)
+            elif expr.id not in _PURE_BUILTINS and not expr.id.endswith(
+                ("Error", "Exception", "Warning")
+            ):
+                # a builtin that reads what the process holds or was handed
+                leaves.append(f"{module.where(expr)} {expr.id}, a builtin")
+            return
+        if isinstance(expr, ast.Call):
+            func = expr.func
+            name = _called_name(func) or ""
+            if name in _INPUT_READS:
+                # what a file or a socket holds, whoever defines the call
+                leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, read")
+                return
+            if (
+                isinstance(func, ast.Name)
+                and name in {"_label", *_FIELDS}
+                and _unpacks(expr)
+            ):
+                # which argument is which is not in the source
+                leaves.append(f"{module.where(expr)} {ast.unparse(expr)}, unpacked")
+                return
+            if isinstance(func, ast.Name) and name == "_label":
+                # an element of the labels it is handed second, or what
+                # `_quoted` answers: the labels are what is traced
+                labels = [k.value for k in expr.keywords if k.arg != "value"]
+                for child in [*expr.args[1:], *labels]:
+                    self._visit(child, module, leaves, keys)
+                return
+            if isinstance(func, ast.Name) and name in _FIELDS:
+                # a field holding one of the values it is handed second:
+                # those values are what is traced
+                defined = [k.value for k in expr.keywords if k.arg != "value"]
+                for child in [*expr.args[1:], *defined]:
+                    self._visit(child, module, leaves, keys)
+                return
+            if isinstance(func, ast.Name) and name in _DESCRIBING | _POSITIONS:
+                return
+            if isinstance(func, ast.Attribute) and name in _DESCRIBING_METHODS:
+                self._visit(func.value, module, leaves, keys)
+                return
+            functions = self._resolve(func, module)
+            if functions is not None:
+                # what a function of the package answers: each value it
+                # returns or yields, whichever `def` the call reaches
+                keys.update(("returns", id(function), "") for function in functions)
+                if isinstance(func, ast.Attribute) and not _bound(func.value):
+                    # a method found by its name alone: what it is called
+                    # on may be no object of the package, and is traced
+                    self._visit(func.value, module, leaves, keys)
+                return
+            if self._builds_exception(func, module):
+                # an exception, a site of its own whose arguments it traces
+                return
+            allowed = (
+                _OUTSIDE_METHODS if isinstance(func, ast.Attribute) else _OUTSIDE_CALLS
+            )
+            if name not in allowed:
+                leaves.append(f"{module.where(expr)} {ast.unparse(expr)}")
+                return
+            # what a method is called on, and not the name of a callable
+            # `_OUTSIDE_CALLS` already allows
+            receiver = [func] if isinstance(func, ast.Attribute) else []
+            for child in [*receiver, *expr.args, *(k.value for k in expr.keywords)]:
+                self._visit(child, module, leaves, keys)
+            return
+        if isinstance(expr, ast.Attribute):
+            if expr.attr in _DESCRIBING_ATTRIBUTES or _CONSTANT.fullmatch(expr.attr):
+                return
+            if expr.attr in _PROCESS_INPUT:
+                leaves.append(f"{module.where(expr)} {ast.unparse(expr)}")
+                return
+            self._visit(expr.value, module, leaves, keys)
+            return
+        if isinstance(expr, (ast.Subscript, ast.NamedExpr, ast.Starred)):
+            # an item of what is traced, whichever item
+            self._visit(expr.value, module, leaves, keys)
+            return
+        if isinstance(expr, ast.DictComp):
+            self._visit(expr.key, module, leaves, keys)
+            self._visit(expr.value, module, leaves, keys)
+            return
+        if isinstance(expr, _COMPREHENSION):
+            # its targets are bound in the enclosing scope, as a loop's are
+            self._visit(expr.elt, module, leaves, keys)
+            return
+        if isinstance(expr, ast.IfExp):
+            # the test only chooses
+            self._visit(expr.body, module, leaves, keys)
+            self._visit(expr.orelse, module, leaves, keys)
+            return
+        if isinstance(
+            expr,
+            (
+                ast.JoinedStr,
+                ast.FormattedValue,
+                ast.BinOp,
+                ast.UnaryOp,
+                ast.BoolOp,
+                ast.Tuple,
+                ast.List,
+                ast.Set,
+                ast.Dict,
+                ast.Slice,
+            ),
+        ):
+            for node in ast.iter_child_nodes(expr):
+                if isinstance(node, ast.expr):
+                    self._visit(node, module, leaves, keys)
+            return
+        leaves.append(f"{module.where(expr)} {ast.unparse(expr)}")
+
+    def _mutations(self, scope: ast.AST) -> dict[str, list[ast.AST]]:
+        """Return, by name, the nodes in a scope that put values into it."""
+        if id(scope) not in self.mutations:
+            found: dict[str, list[ast.AST]] = {}
+            for node in ast.walk(scope):
+                for name in _mutated(node):
+                    found.setdefault(name, []).append(node)
+            self.mutations[id(scope)] = found
+        return self.mutations[id(scope)]
+
+    def _scope_nodes(self, scope: ast.AST) -> list[ast.AST]:
+        if id(scope) not in self.nodes:
+            self.nodes[id(scope)] = _own_nodes(scope)
+        return self.nodes[id(scope)]
+
+    def _name_key(self, node: ast.Name, module: _Module) -> _Key | None:
+        """Return the key of the innermost scope binding a name, or None."""
+        for scope in module.scopes(node):
+            params = isinstance(scope, _FUNCTION) and any(
+                arg.arg == node.id for arg in _arguments(scope)
+            )
+            if params or any(_binds(n, node.id) for n in self._scope_nodes(scope)):
+                self.scopes[id(scope)] = (module, scope)
+                return ("name", id(scope), node.id)
+        return None
+
+    def _reach(self, start: _Key) -> frozenset[str]:  # noqa: C901, PLR0912
+        """Return each untraced value a key reaches, through every key it reads.
+
+        Tarjan's strongly connected components, iterative: a key on a cycle
+        reaches what every key of the cycle reaches.
+        """
+        if start in self.reached:
+            return self.reached[start]
+        index: dict[_Key, int] = {}
+        low: dict[_Key, int] = {}
+        stack: list[_Key] = []
+        on_stack: set[_Key] = set()
+        work: list[tuple[_Key, list[_Key]]] = []
+
+        def enter(key: _Key) -> None:
+            index[key] = low[key] = len(index)
+            stack.append(key)
+            on_stack.add(key)
+            work.append((key, sorted(self._edges(key)[1])))
+
+        enter(start)
+        while work:
+            key, todo = work[-1]
+            if todo:
+                child = todo.pop()
+                if child in self.reached:
+                    continue
+                if child not in index:
+                    enter(child)
+                else:
+                    # a key whose component is complete is in `reached`, so
+                    # one indexed and not there is on the stack
+                    low[key] = min(low[key], index[child])
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[key])
+            if low[key] == index[key]:
+                component: list[_Key] = []
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                    if member == key:
+                        break
+                found: set[str] = set()
+                for member in component:
+                    leaves, children = self._edges(member)
+                    found.update(leaves)
+                    for child in children:
+                        if child not in component:
+                            found |= self.reached[child]
+                for member in component:
+                    self.reached[member] = frozenset(found)
+        return self.reached[start]
+
+    # low-code-quality measures the complexity the noqa already declines
+    def _edges(self, key: _Key) -> tuple[list[str], set[_Key]]:  # noqa: C901, PLR0912  # sourcery skip: low-code-quality
+        """Return the untraced values a key holds and the keys it reads."""
+        if key not in self.edges:
+            leaves: list[str] = []
+            keys: set[_Key] = set()
+            kind, scope_id, name = key
+            if kind == "returns":
+                module, func = self.functions[scope_id]
+                for node in self._scope_nodes(func):
+                    if isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)):
+                        self._visit(node.value, module, leaves, keys)
+            elif kind == "item":
+                module, func = self.functions[scope_id]
+                position, size = map(int, name.split("/"))
+                for node in self._scope_nodes(func):
+                    if isinstance(node, ast.Return):
+                        value = node.value
+                        if isinstance(value, ast.Tuple) and len(value.elts) == size:
+                            value = value.elts[position]
+                        elif isinstance(value, ast.Call) and (
+                            callees := self._resolve(value.func, module)
+                        ):
+                            # that item of what the function it calls returns
+                            keys.update(("item", id(c), name) for c in callees)
+                            continue
+                        self._visit(value, module, leaves, keys)
+                    elif isinstance(node, (ast.Yield, ast.YieldFrom)):
+                        self._visit(node.value, module, leaves, keys)
+            elif kind == "parameter":
+                module, func = self.scopes[scope_id]
+                self._parameter(func, name, module, leaves, keys)
+            else:
+                module, scope = self.scopes[scope_id]
+                if isinstance(scope, _FUNCTION) and any(
+                    arg.arg == name for arg in _arguments(scope)
+                ):
+                    keys.add(("parameter", scope_id, name))
+                bindings = [n for n in self._scope_nodes(scope) if _binds(n, name)]
+                # and what any function the scope holds puts into it
+                bindings.extend(
+                    node
+                    for node in self._mutations(scope).get(name, [])
+                    if node not in bindings
+                )
+                for node in bindings:
+                    self._binding(node, name, module, leaves, keys)
+                if any(_builds_container(node) for node in bindings):
+                    leaves.extend(self._escapes(scope, name, module))
+            self.edges[key] = (leaves, keys)
+        return self.edges[key]
+
+    # low-code-quality measures the complexity the noqa already declines
+    def _binding(  # noqa: C901  # sourcery skip: low-code-quality
+        self,
+        node: ast.AST,
+        name: str,
+        module: _Module,
+        leaves: list[str],
+        keys: set[_Key],
+    ) -> None:
+        if _mutates(node, name):
+            call = cast("ast.Call", node)
+            for value in [*call.args, *(k.value for k in call.keywords)]:
+                self._visit(value, module, leaves, keys)
+        elif isinstance(node, _BINDING):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if name in _names(target):
+                    self._element(target, node.value, name, module, leaves, keys)
+        elif isinstance(node, _LOOP):
+            self._element(node.target, node.iter, name, module, leaves, keys, loop=True)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            # what the context manager answers, traced as what makes it
+            for item in node.items:
+                if item.optional_vars is not None and name in _names(
+                    item.optional_vars
+                ):
+                    self._visit(item.context_expr, module, leaves, keys)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+            alias.name.rsplit(".", 1)[-1] in _PROCESS_INPUT
+            and (alias.asname or alias.name).split(".")[0] == name
+            for alias in node.names
+        ):
+            # what the process was handed, imported by name
+            leaves.append(f"{module.where(node)} {name}, imported")
+        elif not isinstance(node, _DECLARED):
+            leaves.append(
+                f"{module.where(node)} {name}, bound by {type(node).__name__}"
+            )
+
+    def _escapes(
+        self, scope: ast.AST, name: str, module: _Module, depth: int = 0
+    ) -> list[str]:
+        """Return where a container a name is bound to is handed elsewhere.
+
+        What is put into it through another name, or by what it is handed
+        to, is not read: a name it is bound to, a container it is put
+        into, and a call it is passed to are each a finding, but a refusal,
+        a call that only reads it, and a function of the package whose
+        parameter neither puts a value into it nor hands it on.
+        """
+        found: list[str] = []
+        reads = [
+            node
+            for node in ast.walk(scope)
+            if isinstance(node, ast.Name)
+            and node.id == name
+            and isinstance(node.ctx, ast.Load)
+        ]
+        for node in reads:
+            parent = module.parents.get(node)
+            if isinstance(parent, ast.Call) and node is not parent.func:
+                callee = _called_name(parent.func) or ""
+                if callee in _READERS or callee.endswith(("Error", "Exception")):
+                    continue
+                if self._only_read(parent, node, module, depth):
+                    continue
+            elif not isinstance(
+                parent,
+                (
+                    ast.Assign,
+                    ast.AnnAssign,
+                    ast.AugAssign,
+                    ast.NamedExpr,
+                    ast.Call,
+                    ast.keyword,
+                    ast.Starred,
+                    *_CONTAINERS,
+                    ast.Tuple,
+                    ast.Lambda,
+                    ast.arguments,
+                ),
+            ) or (isinstance(parent, ast.AugAssign) and parent.target is node):
+                continue
+            found.append(
+                f"{module.where(node)} {name}, handed to {type(parent).__name__}"
+            )
+        return found
+
+    def _only_read(
+        self, call: ast.Call, node: ast.Name, module: _Module, depth: int
+    ) -> bool:
+        """Return whether every package `def` a call runs only reads `node`.
+
+        Where the parameter it is passed as has no value put into it in
+        that `def`, and is handed nowhere else.
+        """
+        functions = self._resolve(call.func, module)
+        if not functions or node not in call.args or depth > len(self.functions):
+            return False
+        for function in functions:
+            function_module = self.functions[id(function)][0]
+            positional = _positional(function)
+            # a method called on its object is handed that object first
+            position = call.args.index(node) + (
+                bool(positional)
+                and positional[0].arg in _BOUND
+                and isinstance(call.func, ast.Attribute)
+            )
+            if position >= len(positional):
+                return False
+            parameter = positional[position].arg
+            if self._mutations(function).get(parameter) or self._escapes(
+                function, parameter, function_module, depth + 1
+            ):
+                return False
+        return True
+
+    # low-code-quality measures the complexity the noqa already declines
+    def _element(  # noqa: C901, PLR0911, PLR0912  # sourcery skip: low-code-quality
+        self,
+        target: ast.AST,
+        value: ast.expr | None,
+        name: str,
+        module: _Module,
+        leaves: list[str],
+        keys: set[_Key],
+        *,
+        loop: bool = False,
+    ) -> None:
+        """Sort what the value a target takes the name from holds.
+
+        Where `loop` is set the target takes each element of `value` in turn.
+        """
+        if loop and isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            counter, args = value.func.id, value.args
+            if counter == "range":
+                # each number it counts is made of its start, its stop and
+                # its step
+                for bound in [*args, *(k.value for k in value.keywords)]:
+                    self._visit(bound, module, leaves, keys)
+                return
+            if counter == "enumerate" and args and isinstance(target, ast.Tuple):
+                index, element = target.elts
+                if name in _names(index):
+                    # the index, counted from a start that has to be traced
+                    for start in [*args[1:], *(k.value for k in value.keywords)]:
+                        self._visit(start, module, leaves, keys)
+                    return
+                self._element(element, args[0], name, module, leaves, keys, loop=True)
+                return
+            if counter == "zip" and isinstance(target, ast.Tuple):
+                for part, iterable in zip(target.elts, args, strict=False):
+                    if name in _names(part):
+                        self._element(
+                            part, iterable, name, module, leaves, keys, loop=True
+                        )
+                        return
+        if (
+            loop
+            and isinstance(target, ast.Tuple)
+            and isinstance(value, (ast.Tuple, ast.List))
+            and all(
+                isinstance(row, ast.Tuple) and len(row.elts) == len(target.elts)
+                for row in value.elts
+            )
+        ):
+            # a loop over rows written out: the name takes its column
+            position = next(
+                i for i, part in enumerate(target.elts) if name in _names(part)
+            )
+            for row in value.elts:
+                row_items = cast("ast.Tuple", row).elts
+                self._element(
+                    target.elts[position],
+                    row_items[position],
+                    name,
+                    module,
+                    leaves,
+                    keys,
+                )
+            return
+        if (
+            not loop
+            and isinstance(target, ast.Tuple)
+            and isinstance(value, ast.Tuple)
+            and len(target.elts) == len(value.elts)
+        ):
+            # the name is in the target, so in one of its parts
+            part, item = next(
+                (part, item)
+                for part, item in zip(target.elts, value.elts, strict=True)
+                if name in _names(part)
+            )
+            self._element(part, item, name, module, leaves, keys)
+            return
+        if not loop and isinstance(target, ast.Tuple) and isinstance(value, ast.Call):
+            functions = self._resolve(value.func, module)
+            position = next(
+                (i for i, part in enumerate(target.elts) if name in _names(part)), 0
+            )
+            if functions is not None and isinstance(target.elts[position], ast.Name):
+                # the item of each tuple a function returns, at that position
+                keys.update(
+                    ("item", id(function), f"{position}/{len(target.elts)}")
+                    for function in functions
+                )
+                return
+        self._visit(value, module, leaves, keys)
+
+    # low-code-quality measures the complexity the noqa already declines
+    def _parameter(  # noqa: C901  # sourcery skip: low-code-quality
+        self,
+        func: ast.AST,
+        name: str,
+        module: _Module,
+        leaves: list[str],
+        keys: set[_Key],
+    ) -> None:
+        """Sort what every call of the package passes to a parameter."""
+        arg = next(arg for arg in _arguments(func) if arg.arg == name)
+        func_name = getattr(func, "name", "a lambda")
+        origin = f"{module.where(arg)} parameter {name} of {func_name}"
+        func_args: ast.arguments = func.args  # type: ignore[attr-defined]
+        positional = [*func_args.posonlyargs, *func_args.args]
+        bound = bool(positional) and positional[0].arg in {"self", "cls"}
+        if not _private(func_name) or arg in {func_args.vararg, func_args.kwarg}:
+            leaves.append(origin)
+            return
+        if bound and arg is positional[0]:
+            # the object a method is called on, which no call passes
+            leaves.append(origin)
+            return
+        if id(func) in self.reads:
+            # read as a value, it is called where the census cannot see
+            reader, read = self.reads[id(func)][0]
+            leaves.append(f"{origin}, read at {reader.where(read)}")
+            return
+        # the default, which a call that passes nothing there takes
+        defaults: dict[ast.arg, ast.expr | None] = dict(
+            zip(
+                positional[len(positional) - len(func_args.defaults) :],
+                func_args.defaults,
+                strict=True,
+            )
+        )
+        defaults |= zip(func_args.kwonlyargs, func_args.kw_defaults, strict=True)
+        default = defaults.get(arg)
+        if default is not None:
+            self._visit(default, module, leaves, keys)
+        calls = self.calls.get(id(func), [])
+        if not calls and default is None:
+            leaves.append(f"{origin}, never called")
+        for caller, call in calls:
+            if _unpacks(call):
+                leaves.append(f"{origin}, unpacked at {caller.where(call)}")
+                continue
+            passed = [k.value for k in call.keywords if k.arg == name]
+            if arg in positional:
+                position = positional.index(arg)
+                if bound and isinstance(call.func, ast.Attribute):
+                    position -= 1
+                if 0 <= position < len(call.args):
+                    passed.append(call.args[position])
+            for value in passed:
+                self._visit(value, caller, leaves, keys)
+
+
+def _unpacks(call: ast.Call) -> bool:
+    """Answer whether a call hands an argument with `*` or `**`."""
+    return any(isinstance(a, ast.Starred) for a in call.args) or any(
+        k.arg is None for k in call.keywords
+    )
+
+
+def _census(sources: dict[str, str]) -> _Census:
+    return _Census([_Module(name, ast.parse(text)) for name, text in sources.items()])
+
+
+def _library() -> dict[str, str]:
+    return {
+        path.relative_to(_LIBRARY.parent).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(_LIBRARY.rglob("*.py"))
+    }
+
+
+_PACKAGE = "btclib_wallet"
+
+#: A call in a cleanup, an `except` or a `finally`, that the census finds
+#: may raise from the package, and that raises no refusal of it, keyed by
+#: module, function and the call's source, each with its reason. The
+#: census knows a method by its name alone, so a `close` called on a
+#: socket or on an SQLite connection is every `close` of the package, and
+#: some of those raise.
+CLEANUPS = {
+    ("fetch/peer_transport.py", "send", "self._discard"): (
+        "`_discard` runs `close` under `suppress(FetchError)`, and `close`"
+        " raises `_TransportError` alone, a `FetchError`"
+    ),
+    ("fetch/peer_transport.py", "receive", "self._discard"): (
+        "`_discard` runs `close` under `suppress(FetchError)`, and `close`"
+        " raises `_TransportError` alone, a `FetchError`"
+    ),
+    ("fetch/transport.py", "_answer", "self._discard"): (
+        "`_discard` runs `_close` under `suppress(FetchError)`, and `_close`"
+        " raises `_TransportError` alone, a `FetchError`"
+    ),
+    ("fetch/transport.py", "_connected", "sock.close"): (
+        "the socket `_open_connection` answered, closed by the standard"
+        " library under `suppress(OSError)`: no `close` of the package runs,"
+        " and a close that fails leaves the handshake's error to be raised"
+    ),
+    ("fetch/transport.py", "_open_connection", "sock.close"): (
+        "the `socket.socket` built above, closed by the standard library"
+        " while an interrupt is handled: no `close` of the package runs"
+    ),
+    ("fetch/compact_filters.py", "_sync_headers", "self._restore"): (
+        "`_restore` reaches a raise only through `_append`'s `append` calls,"
+        " which the census takes for `Miniscript.append`: they are calls of"
+        " `list.append` on `_headers`, `_hashes` and `_work`, lists"
+        " `__init__` builds"
+    ),
+    ("ledger/store.py", "_copy_backup", "source.close"): (
+        "`source` is the `sqlite3.Connection` `_connect` answers, closed by"
+        " the standard library: no `close` of the package runs"
+    ),
+    ("ledger/ledger.py", "load", "store.close"): (
+        "`_Store.close` runs `_release`, which closes an SQLite connection"
+    ),
+    ("ledger/store.py", "_copy", "_undo_copy"): (
+        "`_release`, which closes an SQLite connection, and"
+        " `_remove_new_file`, which holds no `raise`"
+    ),
+    ("ledger/store.py", "create", "_release"): (
+        "it closes an SQLite connection, under `suppress(sqlite3.Error)` but"
+        " for `close` itself"
+    ),
+    ("ledger/store.py", "open", "_release"): (
+        "it closes an SQLite connection, under `suppress(sqlite3.Error)` but"
+        " for `close` itself"
+    ),
+}
+
+
+#: An exception raised by a name the census does not trace, keyed by
+#: module, function and the source of what is raised, each with its reason.
+KEPT = {
+    ("fetch/transport.py", "_open_connection", "error"): (
+        "`error` is what `socket.create_connection` would raise: the last"
+        " attempt's `OSError`, or its own where the host resolves to no"
+        " address. Each caller catches `OSError` and refuses with a text of"
+        " its own, naming at most the error's class;"
+        " `test_a_failed_connect_names_no_address` holds them to it"
+    ),
+    ("fetch/fetcher.py", "_verify_once", "refusal"): (
+        "a `copy.copy` of `_disagreement`. `__init__` assigns it `None`,"
+        " and `_verify_once` assigns it nothing but a copy of the exception"
+        " that `except _WrongChainError` binds, with its `__dict__` cleared"
+        " so that only its args carry over: a class of the package, built"
+        " at sites the census reads"
+    ),
+}
+
+
+#: A `_position` of a value an `if` compares with a constant, keyed by
+#: module, function and the call's source, each with its reason: the value
+#: is one section 7 lets a refusal print, such as a size the package
+#: measures, and not one a caller handed over.
+MEASURED = {
+    ("bip322.py", "_assert_weight", "_position(weight)"): (
+        "the weight of to_sign, which `Tx.weight` measures: its size"
+    ),
+    ("bip322.py", "_assert_sig_op_cost", "_position(cost)"): (
+        "the sigop cost `sig_op_cost` counts in to_sign and to_spend"
+    ),
+    ("silent_payments.py", "_assert_labels", "_position(tweak.itemsize)"): (
+        "the item size of a memoryview, a part of its type, which section 7"
+        " lets a refusal print as it does a type name"
+    ),
+}
+
+
+def _cleanups() -> dict[tuple[str, str, str], str]:
+    """Return `CLEANUPS` keyed by the module's name as the census names it."""
+    return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in CLEANUPS.items()}
+
+
+def _kept() -> dict[tuple[str, str, str], str]:
+    """Return `KEPT` keyed by the module's name as the census names it."""
+    return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in KEPT.items()}
+
+
+def _measured() -> dict[tuple[str, str, str], str]:
+    """Return `MEASURED` keyed by the module's name as the census names it."""
+    return {(f"{_PACKAGE}/{m}", f, c): why for (m, f, c), why in MEASURED.items()}
+
+
+def test_no_refusal_formats_a_value() -> None:
+    """Each exception the package builds formats only what the census traces."""
+    census = _census(_library())
+    findings = census.findings(_cleanups(), _kept(), _measured())
+    assert not findings, "\n".join(findings)
+    # an entry no finding uses is one a change made stale
+    assert set(_cleanups()) <= census.used, set(_cleanups()) - census.used
+    assert set(_kept()) <= census.kept_used, set(_kept()) - census.kept_used
+    measured = set(_measured())
+    assert measured <= census.measured_used, measured - census.measured_used
+
+
+def test_library_is_read_whatever_the_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sources are read as UTF-8, whatever the locale's encoding.
+
+    The patch makes a `Path` read that names no encoding decode as cp1252
+    on every platform, as CPython does on the Windows runners outside UTF-8
+    mode.
+    """
+    expected = _library()
+    monkeypatch.setattr(io, "text_encoding", lambda encoding, *_: encoding or "cp1252")
+    # the control: the patch reaches a read that names no encoding
+    control = tmp_path / "control.py"
+    control.write_text("# \N{RIGHT DOUBLE QUOTATION MARK}\n", encoding="utf-8")
+    with pytest.raises(UnicodeDecodeError):
+        control.read_text()
+    assert _library() == expected
+
+
+def test_cleanups_hide_their_own_entries_alone() -> None:
+    """An entry hides one call in one function, and no other."""
+    module = (
+        "def _g():\n    raise ValueError('a')\n"
+        "def f(key):\n    try:\n        pass\n    except BaseException:\n"
+        "        _g()\n        raise\n"
+        "def h(key):\n    try:\n        pass\n    except BaseException:\n"
+        "        _g()\n        raise"
+    )
+    census = _census({"m.py": module})
+    assert len(census.findings()) == 2
+    assert len(census.findings({("m.py", "f", "_g"): ""})) == 1
+    assert census.used == {("m.py", "f", "_g")}
+    # a cleanup of the module itself is named by `<module>`
+    top = (
+        "def _g():\n    raise ValueError('a')\n"
+        "try:\n    pass\nexcept BaseException:\n    _g()\n    raise"
+    )
+    census = _census({"m.py": top})
+    assert not census.findings({("m.py", "<module>", "_g"): ""})
+    assert census.used == {("m.py", "<module>", "_g")}
+
+
+def test_measured_hides_its_own_entry_alone() -> None:
+    """An entry hides one `_position` in one function, and no other."""
+    refusal = "    if key > LIMIT:\n        raise ValueError(_position(key))\n"
+    census = _census({"m.py": f"def f(key):\n{refusal}def g(key):\n{refusal}"})
+    assert len(census.findings()) == 2
+    assert len(census.findings(measured={("m.py", "f", "_position(key)"): ""})) == 1
+    assert census.measured_used == {("m.py", "f", "_position(key)")}
+
+
+# one module per shape the docstring claims, each refusing `key`, a public
+# function's parameter, or a value made from it: the census traces the
+# first of each pair and flags the second
+_SHAPES = {
+    "literal": (
+        "def f(key):\n    raise ValueError('a literal')",
+        "def f(key):\n    raise ValueError(key)",
+    ),
+    "comparison": (
+        "def f(key):\n    raise ValueError(f'{key == 1}')",
+        "def f(key):\n    raise ValueError(f'{key + 1}')",
+    ),
+    "capitals": (
+        "import m\ndef f(key):\n    raise ValueError(m.LIMIT)",
+        "def f(key):\n    raise ValueError(key.limit)",
+    ),
+    "describing call": (
+        (
+            "def f(key):\n"
+            "    raise ValueError(_quoted(key), len(key), _code(key), _position(key))"
+        ),
+        "def f(key):\n    raise ValueError(str(key))",
+    ),
+    "field": (
+        "import m\ndef f(key):\n    raise ValueError(_hex_field(key, m.TYPES))",
+        "def f(key):\n    raise ValueError(_hex_field(key, {key}))",
+    ),
+    "field unpacked": (
+        "import m\ndef f(key):\n    raise ValueError(_hex_field(key, m.TYPES))",
+        "def f(key):\n    raise ValueError(_hex_field(*(key, {key})))",
+    ),
+    "field unpacked by name": (
+        "import m\ndef f(key):\n    raise ValueError(_hex_field(key, defined=m.TYPES))",
+        "def f(key, kw):\n    raise ValueError(_hex_field(key, **kw))",
+    ),
+    "label unpacked": (
+        "import m\ndef f(key):\n    raise ValueError(_label(key, m.NAMES))",
+        "def f(key):\n    raise ValueError(_label(*(key, {key})))",
+    ),
+    "position compared": (
+        "def f(key, n):\n    if key > n:\n        raise ValueError(_position(key))",
+        "def f(key):\n    if key > LIMIT:\n        raise ValueError(_position(key))",
+    ),
+    "position in a range": (
+        "def f(key, n):\n    if not key < n:\n        raise ValueError(_position(key))",
+        (
+            "def f(key, n):\n    if not 0 <= key < n:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position past a constant expression": (
+        (
+            "def f(key, n):\n    if key >= n + 1:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        ("def f(key):\n    if key >= 2**32:\n        raise ValueError(_position(key))"),
+    ),
+    "position below a negative constant": (
+        "def f(key, n):\n    if key < -n:\n        raise ValueError(_position(key))",
+        "def f(key):\n    if key < -1:\n        raise ValueError(_position(key))",
+    ),
+    "position in a set": (
+        (
+            "def f(key, keys):\n    if key not in keys:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        (
+            "def f(key):\n    if key not in {0, 2}:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position by identity": (
+        (
+            "def f(key):\n    if key is not LIMIT:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        "def f(key):\n    if key != LIMIT:\n        raise ValueError(_position(key))",
+    ),
+    "position in an else": (
+        (
+            "def f(key, n):\n    if key < n:\n        pass\n    else:\n"
+            "        raise ValueError(_position(key))"
+        ),
+        (
+            "def f(key):\n    if key < LIMIT:\n        pass\n    else:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position in an if expression": (
+        "def f(key, n):\n    raise ValueError(_position(key) if n else 'a')",
+        "def f(key):\n    raise ValueError(_position(key) if key > LIMIT else 'a')",
+    ),
+    "position for its truth": (
+        (
+            "def f(key, i):\n    if key and not i:\n"
+            "        raise ValueError(_position(len(key)))"
+        ),
+        (
+            "def f(key, ranged):\n    if key and not ranged:\n"
+            "        raise ValueError(_position(key))"
+        ),
+    ),
+    "position unpacked": (
+        "def f(key):\n    raise ValueError(_position(key))",
+        ("def f(key):\n    if key > 10:\n        raise ValueError(_position(*(key,)))"),
+    ),
+    "position unpacked by name": (
+        "def f(key):\n    raise ValueError(_position(value=key))",
+        (
+            "def f(key):\n    if key > 10:\n"
+            '        raise ValueError(_position(**{"value": key}))'
+        ),
+    ),
+    "position by keyword": (
+        (
+            "def f(key, i):\n    if key > LIMIT:\n"
+            "        raise ValueError(_position(value=i))"
+        ),
+        (
+            "def f(key):\n    if key > LIMIT:\n"
+            "        raise ValueError(_position(value=key))"
+        ),
+    ),
+    "position of another value": (
+        ("def f(key, i):\n    if key > LIMIT:\n        raise ValueError(_position(i))"),
+        "def f(key, i):\n    if i > LIMIT:\n        raise ValueError(_position(i))",
+    ),
+    "describing method": (
+        "def f(key):\n    raise ValueError('a;b'.count(key), len(key).bit_length())",
+        "def f(key):\n    raise ValueError(key.count(';'))",
+    ),
+    "name attribute": (
+        "def f(key):\n    raise ValueError(type(key).__name__, key.__qualname__)",
+        "def f(key):\n    raise ValueError(key.__doc__)",
+    ),
+    "enumerate": (
+        "def f(keys):\n    for i, key in enumerate(keys):\n        raise ValueError(i)",
+        (
+            "def f(keys):\n    for i, key in enumerate(keys):\n"
+            "        raise ValueError(key)"
+        ),
+    ),
+    "enumerate start": (
+        (
+            "def f(keys):\n    for i, key in enumerate(keys, 1):\n"
+            "        raise ValueError(i)"
+        ),
+        (
+            "def f(keys, start):\n    for i, key in enumerate(keys, start):\n"
+            "        raise ValueError(i)"
+        ),
+    ),
+    "range": (
+        "def f(n):\n    for i in range(3):\n        raise ValueError(i)",
+        "def f(n):\n    for i in range(n):\n        raise ValueError(i)",
+    ),
+    "range of a start": (
+        "def f(n):\n    for i in range(1, 3):\n        raise ValueError(i)",
+        "def f(n, start):\n    for i in range(start, 3):\n        raise ValueError(i)",
+    ),
+    "range of a step": (
+        "def f(key):\n    for i in range(0, 6, 2):\n        raise ValueError(i)",
+        (
+            "def f(key):\n    for i in range(0, key * 2, key):\n        if i:\n"
+            "            raise ValueError(i)"
+        ),
+    ),
+    "zip": (
+        (
+            "def f(keys):\n    for name, key in zip(('a',), keys):\n"
+            "        raise ValueError(name)"
+        ),
+        (
+            "def f(keys):\n    for name, key in zip(('a',), keys):\n"
+            "        raise ValueError(key)"
+        ),
+    ),
+    "rows": (
+        (
+            "def f(key):\n    for value, name in ((key, 'a'),):\n"
+            "        raise ValueError(name)"
+        ),
+        (
+            "def f(key):\n    for value, name in ((key, 'a'),):\n"
+            "        raise ValueError(value)"
+        ),
+    ),
+    "comprehension": (
+        "def f(keys):\n    raise ValueError([len(key) for key in keys])",
+        "def f(keys):\n    raise ValueError([key for key in keys])",
+    ),
+    "local name": (
+        "def f(key):\n    text = 'a'\n    raise ValueError(text)",
+        "def f(key):\n    text = 'a'\n    text = key\n    raise ValueError(text)",
+    ),
+    "with": (
+        (
+            "def _open():\n    return 'a'\n"
+            "def f(key):\n    with _open() as text:\n        raise ValueError(text)"
+        ),
+        "def f(key):\n    with open(key) as text:\n        raise ValueError(text)",
+    ),
+    "mutator": (
+        (
+            "def f(key):\n    names = []\n    names.append('a')\n"
+            "    raise ValueError(names)"
+        ),
+        (
+            "def f(key):\n    names = []\n    names.append(key)\n"
+            "    raise ValueError(names)"
+        ),
+    ),
+    "item assignment": (
+        (
+            "def f(key):\n    names = {}\n    names['a'] = 'b'\n"
+            "    raise ValueError(names)"
+        ),
+        (
+            "def f(key):\n    names = {}\n    def g():\n        names['a'] = key\n"
+            "    raise ValueError(names)"
+        ),
+    ),
+    "private parameter": (
+        "def _g(text):\n    raise ValueError(text)\ndef f(key):\n    _g('a')",
+        "def _g(text):\n    raise ValueError(text)\ndef f(key):\n    _g(key)",
+    ),
+    "never called": (
+        "def _g(text):\n    raise ValueError(len(text))",
+        "def _g(text):\n    raise ValueError(text)",
+    ),
+    "read as a value": (
+        "def _g(text):\n    raise ValueError(len(text))\nTABLE = {'a': _g}",
+        "def _g(text):\n    raise ValueError(text)\nTABLE = {'a': _g}",
+    ),
+    "lambda": (
+        "def f(key):\n    g = lambda text: ValueError(len(text))",
+        "def f(key):\n    g = lambda text: ValueError(text)",
+    ),
+    "self": (
+        "class C:\n    def _m(self):\n        raise ValueError(type(self))",
+        "class C:\n    def _m(self):\n        raise ValueError(self)",
+    ),
+    "except": (
+        (
+            "def f(key):\n    try:\n        pass\n    except OSError as e:\n"
+            "        name = type(e).__name__\n    raise ValueError(name)"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except OSError as e:\n"
+            "        name = str(e)\n    raise ValueError(name)"
+        ),
+    ),
+    "environment": (
+        "import os\ndef f(key):\n    raise ValueError(len(os.environ))",
+        "import os\ndef f(key):\n    raise ValueError(os.environ['HOME'])",
+    ),
+    "arguments": (
+        "import sys\ndef f(key):\n    raise ValueError(len(sys.argv))",
+        "import sys\ndef f(key):\n    raise ValueError(sys.argv[0])",
+    ),
+    "returns": (
+        "def _g(key):\n    return 'a'\ndef f(key):\n    raise ValueError(_g(key))",
+        "def _g(key):\n    return key\ndef f(key):\n    raise ValueError(_g(key))",
+    ),
+    "item": (
+        (
+            "def _g(key):\n    return 'a', key\ndef f(key):\n"
+            "    name, value = _g(key)\n    raise ValueError(name)"
+        ),
+        (
+            "def _g(key):\n    return 'a', key\ndef f(key):\n"
+            "    name, value = _g(key)\n    raise ValueError(value)"
+        ),
+    ),
+    "item forwarded": (
+        (
+            "def _g(key):\n    return 'a', key\ndef _h(key):\n    return _g(key)\n"
+            "def f(key):\n    name, value = _h(key)\n    raise ValueError(name)"
+        ),
+        (
+            "def _g(key):\n    return 'a', key\ndef _h(key):\n    return _g(key)\n"
+            "def f(key):\n    name, value = _h(key)\n    raise ValueError(value)"
+        ),
+    ),
+    "method": (
+        (
+            "class C:\n    def _m(self, text):\n        raise ValueError(text)\n"
+            "def f(key, c):\n    c._m('a')"
+        ),
+        (
+            "class C:\n    def _m(self, text):\n        raise ValueError(text)\n"
+            "def f(key, c):\n    c._m(key)"
+        ),
+    ),
+    "raise of a call": (
+        (
+            "def _error(key):\n    return ValueError(len(key))\n"
+            "def f(key):\n    raise _error(key)"
+        ),
+        (
+            "def _error(key):\n    return ValueError(key)\n"
+            "def f(key):\n    raise _error(key)"
+        ),
+    ),
+    "label": (
+        "LABELS = ('a',)\ndef f(key):\n    raise ValueError(_label(key, LABELS))",
+        "def f(key):\n    raise ValueError(_label(key, (key,)))",
+    ),
+    "error name": (
+        "def f(key):\n    return KeyError('a')",
+        "def f(key):\n    return KeyError(key)",
+    ),
+    "dict comprehension": (
+        "def f(keys):\n    raise ValueError({len(k): len(k) for k in keys})",
+        "def f(keys):\n    raise ValueError({k: 1 for k in keys})",
+    ),
+    "expression the census does not read": (
+        "def f(key):\n    raise ValueError('a literal')",
+        "def f(key):\n    raise ValueError(lambda: 1)",
+    ),
+    "chained assignment": (
+        "def f(key):\n    a = b = len(key)\n    raise ValueError(a, b)",
+        "def f(key):\n    a = b = key\n    raise ValueError(a, b)",
+    ),
+    "with of several items": (
+        (
+            "def _open(x):\n    return x\ndef f(key):\n"
+            "    with _open('a') as h, lock():\n        raise ValueError(h)"
+        ),
+        (
+            "def _open(x):\n    return x\ndef f(key):\n"
+            "    with _open(key) as h, lock():\n        raise ValueError(h)"
+        ),
+    ),
+    "zip of fewer iterables than names": (
+        (
+            "def f(key):\n    for a, b, c in zip((1,), (2,)):\n"
+            "        raise ValueError(c)"
+        ),
+        (
+            "def f(key):\n    for a, b, c in zip((1,), (key,)):\n"
+            "        raise ValueError(c)"
+        ),
+    ),
+    "tuple from a tuple": (
+        "def f(key):\n    a, b = 1, len(key)\n    raise ValueError(b)",
+        "def f(key):\n    a, b = 1, key\n    raise ValueError(b)",
+    ),
+    "tuple from a call outside the package": (
+        "def f(key):\n    a, b = sorted((1, 2))\n    raise ValueError(a)",
+        "def f(key):\n    a, b = sorted((key, 2))\n    raise ValueError(a)",
+    ),
+    "tuple from a generator": (
+        (
+            "def _g():\n    yield 1\n    yield 2\n"
+            "def f(key):\n    a, b = _g()\n    raise ValueError(a)"
+        ),
+        (
+            "def _g(key):\n    yield key\n    yield 2\n"
+            "def f(key):\n    a, b = _g(key)\n    raise ValueError(a)"
+        ),
+    ),
+    "arguments unpacked": (
+        "def _g(x):\n    raise ValueError(x)\ndef f(keys):\n    _g(1)",
+        "def _g(x):\n    raise ValueError(x)\ndef f(keys):\n    _g(*keys)",
+    ),
+    "environment variable": (
+        "def f(key):\n    raise ValueError(str(len(key)))",
+        "import os\ndef f(key):\n    raise ValueError(os.getenv('RPC_PASSWORD'))",
+    ),
+    "prompt": (
+        "def f(key):\n    raise ValueError(sorted(('a', 'b')))",
+        "import getpass\ndef f(key):\n    raise ValueError(getpass.getpass())",
+    ),
+    "input": (
+        "def f(key):\n    raise ValueError(next(c for c in 'ab'))",
+        "def f(key):\n    raise ValueError(input())",
+    ),
+    "file": (
+        "def f(key):\n    raise ValueError('-'.join(('a', 'b')))",
+        "from pathlib import Path\ndef f(key):\n    raise ValueError(Path('.cookie').read_text())",
+    ),
+    "subprocess": (
+        "def f(key):\n    raise ValueError(sum((1, 2)))",
+        (
+            "import subprocess\ndef f(key):\n"
+            "    raise ValueError(subprocess.run(['a'], capture_output=True).stdout)"
+        ),
+    ),
+    "locals": (
+        "def f(key):\n    raise ValueError(f'{frozenset((1,))}')",
+        "def f(key):\n    raise ValueError(f'{locals()}')",
+    ),
+    "method found by its name": (
+        (
+            "class C:\n    def hex(self):\n        return 'a'\n"
+            "    def _m(self):\n        raise ValueError(self.hex())"
+        ),
+        (
+            "class C:\n    def hex(self):\n        return 'a'\n"
+            "def f(key):\n    raise ValueError(key.hex())"
+        ),
+    ),
+    "chained": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError as e:\n"
+            "        raise ValueError('a') from e"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except ValueError as e:\n"
+            "        raise ValueError('a') from e"
+        ),
+    ),
+    "context": (
+        (
+            "def f(key):\n    failed = False\n    try:\n        pass\n"
+            "    except ValueError:\n        failed = True\n"
+            "    if failed:\n        raise ValueError('a')"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except ValueError:\n"
+            "        raise ValueError('a') from None"
+        ),
+    ),
+    "finally": (
+        "def f(key):\n    try:\n        raise ValueError('a')\n    finally:\n        pass",
+        "def f(key):\n    try:\n        pass\n    finally:\n        raise ValueError('a')",
+    ),
+    "cause kept": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    seen = []\n"
+            "    try:\n        pass\n    except _OwnError as e:\n"
+            "        seen.append(e)\n    raise ValueError('a') from seen[-1]"
+        ),
+        (
+            "def f(key):\n    seen = []\n    try:\n        pass\n"
+            "    except ValueError as e:\n        seen.append(e)\n"
+            "    raise ValueError('a') from seen[-1]"
+        ),
+    ),
+    "cause of a call": (
+        "def f(key):\n    raise ValueError('a') from None",
+        "def f(key):\n    raise ValueError('a') from g()",
+    ),
+    "cause bound by a loop": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    last = None\n"
+            "    try:\n        pass\n    except _OwnError as e:\n        last = e\n"
+            "    raise ValueError('a') from last"
+        ),
+        (
+            "def f(errors):\n    for last in errors:\n        pass\n"
+            "    raise ValueError('a') from last"
+        ),
+    ),
+    "raising call in an except": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef _g():\n"
+            "    raise ValueError('a')\ndef f(key):\n    try:\n        pass\n"
+            "    except _OwnError:\n        _g()"
+        ),
+        (
+            "def _g():\n    raise ValueError('a')\ndef f(key):\n    try:\n"
+            "        pass\n    except ValueError:\n        _g()"
+        ),
+    ),
+    "raised again": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError:\n        raise"
+        ),
+        "def f(key):\n    try:\n        pass\n    except ValueError:\n        raise",
+    ),
+    "raised again by its name": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError as e:\n        raise e"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except ValueError as e:\n"
+            "        raise e"
+        ),
+    ),
+    "interrupts raised again": (
+        (
+            "def f(key):\n    try:\n        pass\n"
+            "    except (KeyboardInterrupt, SystemExit):\n        raise"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n"
+            "    except (KeyboardInterrupt, ValueError):\n        raise"
+        ),
+    ),
+    "cleanup": (
+        (
+            "def f(key):\n    try:\n        pass\n    except BaseException:\n"
+            "        g()\n        raise"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except Exception:\n"
+            "        g()\n        raise"
+        ),
+    ),
+    "cleanup with another way out": (
+        "def f(key):\n    try:\n        pass\n    except:\n        g()\n        raise",
+        (
+            "def f(key):\n    try:\n        pass\n    except:\n"
+            "        if g():\n            return\n        raise"
+        ),
+    ),
+    "cleanup binding the exception": (
+        (
+            "def f(key):\n    try:\n        pass\n    except BaseException:\n"
+            "        g()\n        raise"
+        ),
+        (
+            "def f(key):\n    try:\n        pass\n    except BaseException as e:\n"
+            "        g(e)\n        raise"
+        ),
+    ),
+    "bare raise outside an except": (
+        "def f(key):\n    raise",
+        "def f(key):\n    try:\n        pass\n    except ValueError:\n        raise",
+    ),
+    "class read off what no import binds": (
+        (
+            "class _OwnError(Exception):\n    pass\ndef f(key):\n    try:\n"
+            "        pass\n    except _OwnError:\n        raise"
+        ),
+        (
+            "def f(key, errors):\n    try:\n        pass\n"
+            "    except errors.FetchError:\n        raise"
+        ),
+    ),
+    "environment as bytes": (
+        "import os\ndef f(key):\n    raise ValueError(len(os.environb))",
+        "import os\ndef f(key):\n    raise ValueError(os.environb[b'HOME'])",
+    ),
+    "arguments of the interpreter": (
+        "import sys\ndef f(key):\n    raise ValueError(len(sys.orig_argv))",
+        "import sys\ndef f(key):\n    raise ValueError(sys.orig_argv[0])",
+    ),
+    "default of a parameter": (
+        (
+            "def f(key):\n    def _g(text='a'):\n        raise ValueError(text)\n"
+            "    _g()"
+        ),
+        (
+            "def f(key):\n    def _g(text=key):\n        raise ValueError(text)\n"
+            "    _g()"
+        ),
+    ),
+    "default of a keyword": (
+        (
+            "def f(key):\n    def _g(*, text='a'):\n        raise ValueError(text)\n"
+            "    _g()"
+        ),
+        (
+            "def f(key):\n    def _g(*, text=key):\n        raise ValueError(text)\n"
+            "    _g()"
+        ),
+    ),
+    "environment imported by name": (
+        "from os import sep\ndef f(key):\n    raise ValueError(sep)",
+        "from os import environ\ndef f(key):\n    raise ValueError(environ['HOME'])",
+    ),
+    "environment imported under another name": (
+        "from os import sep as s\ndef f(key):\n    raise ValueError(s)",
+        "from os import getenv as g\ndef f(key):\n    raise ValueError(g)",
+    ),
+    "a builtin read by name": (
+        "def f(key):\n    raise ValueError(len)",
+        "def f(key):\n    raise ValueError(vars)",
+    ),
+    "a read of a file": (
+        (
+            "class C:\n    def _text(self):\n        return 'a'\n"
+            "    def _m(self):\n        raise ValueError(self._text())"
+        ),
+        (
+            "class C:\n    def read(self):\n        return 'a'\n"
+            "    def _m(self):\n        raise ValueError(self.read())"
+        ),
+    ),
+    "a container put into through another name": (
+        (
+            "def f(key):\n    values = []\n    values.append('a')\n"
+            "    raise ValueError(values)"
+        ),
+        (
+            "def f(key):\n    values = []\n    alias = values\n"
+            "    alias.append(key)\n    raise ValueError(values)"
+        ),
+    ),
+    "a container handed to a call": (
+        (
+            "def f(key):\n    values = ['a']\n    sorted(values)\n"
+            "    raise ValueError(values)"
+        ),
+        (
+            "def f(key):\n    values = ['a']\n    g(values)\n"
+            "    raise ValueError(values)"
+        ),
+    ),
+    "a container handed to a function that only reads it": (
+        (
+            "def _g(items):\n    return len(items)\n"
+            "def f(key):\n    values = ['a']\n    _g(values)\n"
+            "    raise ValueError(values)"
+        ),
+        (
+            "def _g(items, key):\n    items.append(key)\n"
+            "def f(key):\n    values = ['a']\n    _g(values, key)\n"
+            "    raise ValueError(values)"
+        ),
+    ),
+    "a container handed on as one of many": (
+        (
+            "def _g(items):\n    return len(items)\n"
+            "def f(key):\n    values = ['a']\n    _g(values)\n"
+            "    raise ValueError(values)"
+        ),
+        (
+            "def _g(*items):\n    return len(items)\n"
+            "def f(key):\n    values = ['a']\n    _g(values)\n"
+            "    raise ValueError(values)"
+        ),
+    ),
+    "a container put into another": (
+        (
+            "def f(key):\n    values = ['a']\n    other = ('b',)\n"
+            "    raise ValueError(values, other)"
+        ),
+        (
+            "def f(key):\n    values = ['a']\n    other = [values]\n"
+            "    other[0].append(key)\n    raise ValueError(values)"
+        ),
+    ),
+    "a call that raises further down": (
+        (
+            "def _inner():\n    return 1\ndef _outer():\n    _inner()\n"
+            "def f(action):\n    try:\n        action()\n    except OSError:\n"
+            "        _outer()"
+        ),
+        (
+            "def _inner():\n    raise ValueError('a')\ndef _outer():\n    _inner()\n"
+            "def f(action):\n    try:\n        action()\n    except OSError:\n"
+            "        _outer()"
+        ),
+    ),
+    "a call the census cannot name": (
+        (
+            "def _g():\n    return 1\ndef f(action):\n    try:\n        pass\n"
+            "    except OSError:\n        _g()"
+        ),
+        (
+            "def f(action):\n    try:\n        pass\n    except OSError:\n"
+            "        action()"
+        ),
+    ),
+    "a method called on another object": (
+        (
+            "class C:\n    def _g(self):\n        return 1\n"
+            "def f(key, other):\n    try:\n        pass\n    except OSError:\n"
+            "        other._g()"
+        ),
+        (
+            "class C:\n    def _g(self):\n        raise ValueError('a')\n"
+            "def f(key, other):\n    try:\n        pass\n    except OSError:\n"
+            "        other._g()"
+        ),
+    ),
+    "an attribute of its own object called": (
+        (
+            "class C:\n    def __init__(self):\n        self.n = 1\n"
+            "    def _f(self):\n        try:\n            pass\n"
+            "        except OSError:\n            self._g()\n"
+            "    def _g(self):\n        return 1"
+        ),
+        (
+            "class C:\n    def __init__(self, factory):\n        self.g = factory\n"
+            "    def _f(self):\n        try:\n            pass\n"
+            "        except OSError:\n            self.g()"
+        ),
+    ),
+    "a constructor that raises": (
+        (
+            "class _E(Exception):\n    pass\n"
+            "def f(key):\n    try:\n        pass\n    except OSError:\n"
+            "        _E('a')"
+        ),
+        (
+            "class _B(Exception):\n    def __init__(self, text):\n"
+            "        raise ValueError('a')\nclass _E(_B):\n    pass\n"
+            "def f(key):\n    try:\n        pass\n    except OSError:\n"
+            "        _E('a')"
+        ),
+    ),
+    "default read where the def stands": (
+        "def f(key):\n    def _g(key='a'):\n        raise ValueError(key)\n    _g()",
+        "def f(key):\n    def _g(key=key):\n        raise ValueError(key)\n    _g()",
+    ),
+    "keyword default read where the def stands": (
+        "def f(key):\n    def _g(*, key='a'):\n        raise ValueError(key)\n    _g()",
+        "def f(key):\n    def _g(*, key=key):\n        raise ValueError(key)\n    _g()",
+    ),
+    "default of a module name": (
+        "key = 'a'\ndef _g(key=key):\n    raise ValueError(key)\n_g()",
+        (
+            "import os\nkey = os.environ['KEY']\ndef _g(key=key):\n"
+            "    raise ValueError(key)\n_g()"
+        ),
+    ),
+    "default of a lambda read where the lambda stands": (
+        (
+            "def _h():\n    return 'a'\ndef f(key):\n"
+            "    pick = lambda _h=None, x=ValueError(_h()): x\n    return pick"
+        ),
+        (
+            "def _h():\n    return 'a'\ndef f(key):\n"
+            "    pick = lambda _h: ValueError(_h())\n    return pick"
+        ),
+    ),
+    "exception class bound to another name": (
+        (
+            "Failure = ValueError\ndef f(key):\n    refusal = Failure('a')\n"
+            "    raise refusal"
+        ),
+        (
+            "Failure = ValueError\ndef f(key):\n    refusal = Failure(key)\n"
+            "    raise refusal"
+        ),
+    ),
+    "exception class imported under another name": (
+        (
+            "from builtins import ValueError as Failure\ndef f(key):\n"
+            "    error = Failure('a')\n    raise error"
+        ),
+        (
+            "from builtins import ValueError as Failure\ndef f(key):\n"
+            "    error = Failure(key)\n    raise error"
+        ),
+    ),
+    "class of the package bound to another name": (
+        (
+            "class _Own(Exception):\n    pass\nAlias = _Own\ndef f(key):\n"
+            "    refusal = Alias('a')\n    raise refusal"
+        ),
+        (
+            "class _Own(Exception):\n    pass\nAlias = _Own\ndef f(key):\n"
+            "    refusal = Alias(key)\n    raise refusal"
+        ),
+    ),
+    "class of the package deriving from no known plain base": (
+        (
+            "from typing import NamedTuple\nclass _Ref(NamedTuple):\n"
+            "    n: int\nAlias = _Ref\ndef f(key):\n    Alias(key)\n"
+            "    raise ValueError('a')"
+        ),
+        (
+            "from x import Mystery\nclass _Ref(Mystery):\n    pass\n"
+            "Alias = _Ref\ndef f(key):\n    Alias(key)\n    raise ValueError('a')"
+        ),
+    ),
+    "exception raised by name": (
+        "def f(key):\n    refusal = None\n    raise ValueError('a')",
+        "def f(key):\n    raise key",
+    ),
+    "exception raised by a name that may hold None": (
+        (
+            "def f(key):\n    refusal = None\n    if key:\n"
+            "        refusal = ValueError('a')\n    if refusal is not None:\n"
+            "        raise refusal"
+        ),
+        (
+            "def f(key):\n    refusal = None\n    if key:\n"
+            "        refusal = key\n    if refusal is not None:\n"
+            "        raise refusal"
+        ),
+    ),
+    "exception declared by a bare annotation": (
+        (
+            "def f(key):\n    refusal: Exception\n    if key:\n"
+            "        refusal = ValueError('a')\n    else:\n"
+            "        refusal = TypeError('a')\n    raise refusal"
+        ),
+        (
+            "def f(key):\n    refusal: Exception\n    if key:\n"
+            "        refusal = key\n    else:\n"
+            "        refusal = TypeError('a')\n    raise refusal"
+        ),
+    ),
+    "exception a function of the package returns, raised by name": (
+        (
+            "def _make():\n    return ValueError('a')\n"
+            "def f(key):\n    refusal = _make()\n    raise refusal"
+        ),
+        (
+            "def _make(key):\n    return key\n"
+            "def f(key):\n    refusal = _make(key)\n    raise refusal"
+        ),
+    ),
+    "exception handed to a function that raises it": (
+        (
+            "def _raise(refusal):\n    raise refusal\n"
+            "def f(key):\n    _raise(ValueError('a'))"
+        ),
+        "def _raise(refusal):\n    raise refusal\ndef f(key):\n    _raise(key)",
+    ),
+    "exception raised out of a container": (
+        "def f(key):\n    errors = [ValueError('a')]\n    raise errors[0]",
+        "def f(key):\n    errors = [key]\n    raise errors[0]",
+    ),
+    "raising call in a finally": (
+        (
+            "def _g():\n    return 1\ndef f(key):\n    try:\n        int(key)\n"
+            "    finally:\n        _g()"
+        ),
+        (
+            "def _g():\n    raise ValueError('a')\ndef f(key):\n    try:\n"
+            "        int(key)\n    finally:\n        _g()"
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("traced, flagged", _SHAPES.values(), ids=_SHAPES)
+def test_census_controls(traced: str, flagged: str) -> None:
+    """The census traces one module of a shape and flags the other."""
+    assert not _census({"m.py": traced}).findings()
+    assert _census({"m.py": flagged}).findings()
+
+
+_ERRORS = "class FetchError(Exception):\n    pass"
+_RELAY = "def f(key):\n    try:\n        pass\n    except {}:\n        raise"
+
+
+@pytest.mark.parametrize(
+    "imports, caught",
+    [
+        ("from errors import FetchError", "FetchError"),
+        ("from errors import FetchError as Refused", "Refused"),
+        ("import errors", "errors.FetchError"),
+        ("from errors import FetchError", "(FetchError, KeyboardInterrupt)"),
+    ],
+)
+def test_census_knows_a_class_by_its_import(imports: str, caught: str) -> None:
+    """A class is the package's by where it comes from, not by its name.
+
+    `errors` is a module of the package, `outside` another package's: a
+    class of the same name imported from it is not the package's.
+    """
+    own = {"errors.py": _ERRORS, "m.py": f"{imports}\n{_RELAY.format(caught)}"}
+    assert not _census(own).findings()
+    foreign = imports.replace("errors", "outside")
+    other = {
+        "errors.py": _ERRORS,
+        "m.py": f"{foreign}\n{_RELAY.format(caught.replace('errors', 'outside'))}",
+    }
+    assert _census(other).findings()
+
+
+def test_census_finds_no_class_in_an_import_cycle() -> None:
+    """A name two modules import from each other is bound to no class."""
+    sources = {
+        "a.py": "from b import FetchError",
+        "b.py": "from a import FetchError",
+        "m.py": f"from a import FetchError\n{_RELAY.format('FetchError')}",
+    }
+    assert _census(sources).findings()

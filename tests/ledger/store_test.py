@@ -7,22 +7,53 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import functools
 import json
+import operator
 import os
 import sqlite3
 import stat
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
-from btclib.tx import TxOut
+from btclib.script import ScriptPubKey
+from btclib.tx import Tx, TxOut
 from typing_extensions import override
 
-from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, crypto, store
+from btclib_wallet._refusal import _exact, _exact_int, _quoted
+from btclib_wallet.descriptors import parse
+from btclib_wallet.fetch.history import (
+    BlockRef,
+    HistoryTx,
+    ScriptHistory,
+    history_scripts,
+)
+from btclib_wallet.ledger import (
+    APPLICATION_ID,
+    FORMAT_VERSION,
+    Ledger,
+    TxState,
+    WalletTx,
+    crypto,
+    store,
+)
+from btclib_wallet.wallet import DescriptorWallet
+from tests import raises_alone
+from tests.ledger import (
+    ClaimsInt,
+    ClaimsStr,
+    Conforming,
+    ConformingBytes,
+    ConformingStr,
+)
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
+from tests.refused_value_test import HEX, SPELLINGS
 from tests.secret_free import assert_secret_free, windows
 
 
@@ -81,16 +112,20 @@ def test_load_refuses_what_is_no_ledger_of_this_network(
         Ledger.load(text, "regtest", chain)
     other = tmp_path / "other.sqlite"
     sqlite3.connect(other).close()
-    with pytest.raises(BTClibValueError, match="application id 0x0"):
+    with pytest.raises(
+        BTClibValueError, match="not a ledger file: application id an int of 0 bits"
+    ):
         Ledger.load(other, "regtest", chain)
     # this package's header over no table
     headed = tmp_path / "headed.sqlite"
     _set_pragma(headed, "application_id", APPLICATION_ID)
     _set_pragma(headed, "user_version", FORMAT_VERSION)
-    with pytest.raises(BTClibValueError, match="not a ledger file: no such table"):
+    with pytest.raises(BTClibValueError, match="not a ledger file: OperationalError"):
         Ledger.load(headed, "regtest", chain)
     Ledger.create(path, "regtest", chain).close()
-    with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
+    with pytest.raises(
+        BTClibValueError, match="^not a testnet ledger file: its network is regtest$"
+    ):
         Ledger.load(path, "testnet", chain)
 
 
@@ -98,7 +133,7 @@ def test_load_refuses_a_newer_format(chain: FakeChain, path: Path) -> None:
     """A release reads no format written by a later one."""
     Ledger.create(path, "regtest", chain).close()
     _set_pragma(path, "user_version", FORMAT_VERSION + 1)
-    err_msg = f"ledger format {FORMAT_VERSION + 1} is newer"
+    err_msg = f"ledger format {_quoted(FORMAT_VERSION + 1)} is newer"
     with pytest.raises(BTClibValueError, match=err_msg):
         Ledger.load(path, "regtest", chain)
 
@@ -121,7 +156,9 @@ def test_an_older_format_is_migrated_one_version_at_a_time(
     assert ran == [FORMAT_VERSION, FORMAT_VERSION + 1]
     assert _pragma(path, "user_version") == FORMAT_VERSION + 2
     _set_pragma(path, "user_version", 0)
-    with pytest.raises(BTClibValueError, match="no migration from ledger format 0"):
+    with pytest.raises(
+        BTClibValueError, match="no migration from ledger format an int of 0 bits"
+    ):
         Ledger.load(path, "regtest", chain)
 
 
@@ -180,6 +217,48 @@ def test_a_create_that_cannot_open_its_file_leaves_none(
     with pytest.raises(BTClibValueError, match="cannot open the ledger file"):
         Ledger.create(path, "regtest", chain)
     assert not path.exists()
+
+
+def refuse_removal(monkeypatch: pytest.MonkeyPatch, folder: Path) -> None:
+    """Refuse to remove a file in `folder`, as where it has no write permission.
+
+    The error is the one the system raises there, its text and `filename`
+    the file's path. A removal of a file elsewhere fails the test.
+    """
+
+    def refused(self: Path, missing_ok: bool = False) -> None:
+        assert self.parent == folder
+        raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(self))
+
+    monkeypatch.setattr(Path, "unlink", refused)
+
+
+def test_a_create_whose_file_cannot_be_removed_raises_its_failure(
+    chain: FakeChain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key's hex in the path is in no error (issue #907).
+
+    The create is interrupted after making its file, and the system
+    refuses to remove that file: the interrupt is raised as it was, and
+    the file is left.
+    """
+    folder = tmp_path / HEX
+    folder.mkdir()
+    target = folder / "ledger.sqlite"
+    interrupt = KeyboardInterrupt()
+
+    def interrupted(path: Path, mode: str) -> sqlite3.Connection:
+        raise interrupt
+
+    monkeypatch.setattr(store, "_connect", interrupted)
+    refuse_removal(monkeypatch, folder)
+    with pytest.raises(KeyboardInterrupt) as e:
+        Ledger.create(target, "regtest", chain)
+    raised = e.value
+    assert id(raised) == id(interrupt)
+    assert raised.__context__ is None
+    assert_secret_free(raised, SPELLINGS)
+    assert target.exists()
 
 
 def test_a_file_that_names_no_network_is_refused(chain: FakeChain, path: Path) -> None:
@@ -374,7 +453,7 @@ def test_another_constraint_on_a_new_source_is_no_ledgers(
     with contextlib.closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE UNIQUE INDEX one_lookahead ON sources(lookahead)")
     with Ledger.load(path, "regtest", chain) as ledger:
-        err_msg = "not a ledger file: UNIQUE constraint failed: sources.lookahead"
+        err_msg = "not a ledger file: IntegrityError"
         with pytest.raises(BTClibValueError, match=err_msg):
             ledger.add_source(source("wpkh({}/84h/1h/1h/{}/*)"))
 
@@ -544,7 +623,9 @@ def test_a_format_1_file_of_another_network_is_left_at_format_1(
 ) -> None:
     """The network is checked before any step, so v2026.11.11 still opens it."""
     _format_1_file(path)
-    with pytest.raises(BTClibValueError, match="a regtest ledger file, not a testnet"):
+    with pytest.raises(
+        BTClibValueError, match="^not a testnet ledger file: its network is regtest$"
+    ):
         Ledger.load(path, "testnet", chain)
     assert _pragma(path, "user_version") == 1
     assert "master_key" not in _layout(path)
@@ -583,7 +664,7 @@ def test_v2026_11_11_refuses_a_file_of_this_release(
     Ledger.create(path, "regtest", chain).close()
     monkeypatch.setattr(store, "FORMAT_VERSION", 1)
     monkeypatch.setattr(store, "_MIGRATIONS", {})
-    err_msg = "ledger format 2 is newer than this release's 1"
+    err_msg = "ledger format an int of 2 bits is newer than this release's 1"
     with pytest.raises(BTClibValueError, match=err_msg):
         Ledger.load(path, "regtest", chain)
 
@@ -642,3 +723,436 @@ def test_every_statement_of_the_store_is_read_to_its_end(
         _keeps_the_format_1_sources(ledger, chain)
         ledger.change_passphrase("passphrase", "new passphrase")
     assert not unread
+
+
+@pytest.mark.parametrize(
+    "statement, value, err_msg",
+    [
+        (
+            "UPDATE meta SET value = ? WHERE key = 'network'",
+            HEX,
+            "^not a regtest ledger file: its network is a value of 64 characters$",
+        ),
+        (
+            "UPDATE sources SET descriptors = ?",
+            json.dumps({HEX: "x"}),
+            "^not a ledger file: source 0's descriptors are not keyed by branch$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'",
+            HEX,
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_id'",
+            HEX.upper(),
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE txs SET state = ?",
+            HEX,
+            "^not a ledger file: a transaction in no state$",
+        ),
+        (
+            "UPDATE txs SET height = ?",
+            HEX,
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET block_id = ?",
+            HEX,
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET seq = ?",
+            HEX,
+            "^not a ledger file: a transaction with a malformed seq$",
+        ),
+        # past what an SQLite INTEGER holds: a column of INTEGER affinity
+        # keeps the text as a REAL
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'",
+            str(2**63),
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE txs SET height = ?",
+            str(2**63),
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET seq = ?",
+            str(2**63),
+            "^not a ledger file: a transaction with a malformed seq$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_height'",
+            str(-(2**63) - 1),
+            "^not a ledger file: a malformed tip$",
+        ),
+        (
+            "UPDATE txs SET height = ?",
+            str(-(2**63) - 1),
+            "^not a ledger file: a transaction in a malformed block$",
+        ),
+        (
+            "UPDATE txs SET seq = ?",
+            "-1",
+            "^not a ledger file: a transaction with a malformed seq$",
+        ),
+        (
+            "UPDATE meta SET value = ? WHERE key = 'tip_id'",
+            HEX[:-1],
+            "^not a ledger file: a malformed tip$",
+        ),
+    ],
+    ids=[
+        "network",
+        "descriptors map key",
+        "tip height",
+        "tip id",
+        "tx state",
+        "tx height",
+        "tx block id",
+        "tx seq",
+        "tip height of 2**63",
+        "tx height of 2**63",
+        "tx seq of 2**63",
+        "tip height below -2**63",
+        "tx height below -2**63",
+        "negative tx seq",
+        "tip id of odd length",
+    ],
+)
+def test_a_key_in_a_damaged_file_is_in_no_refusal(
+    chain: FakeChain, path: Path, statement: str, value: str, err_msg: str
+) -> None:
+    """What `int`, `TxState` and the network check read is not quoted.
+
+    `int` and `TxState` quote a value they refuse, so the file's value is
+    checked before they read it, and refused by where it is (issue #900).
+    """
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
+        ledger.sync()
+    db = sqlite3.connect(path)
+    with db:
+        assert db.execute(statement, (value,)).rowcount > 0
+    db.close()
+    with raises_alone(BTClibValueError, err_msg) as e:
+        Ledger.load(path, "regtest", chain)
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize("height", [2**63 - 1, -(2**63)], ids=["largest", "least"])
+def test_a_height_an_sqlite_integer_holds_loads(
+    chain: FakeChain, path: Path, height: int
+) -> None:
+    """Any height an SQLite INTEGER holds, and the largest seq, load."""
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        chain.mine([chain.pay([TxOut(100_000, script_of(ledger.new_address()))])])
+        ledger.sync()
+    largest = 2**63 - 1
+    db = sqlite3.connect(path)
+    with db:
+        db.execute("UPDATE meta SET value = ? WHERE key = 'tip_height'", (str(height),))
+        db.execute("UPDATE txs SET height = ?, seq = ?", (height, largest))
+    db.close()
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.tip is not None
+        assert again.tip.height == height
+        [info] = again.transactions
+        assert info.wallet_tx.seq == largest
+        assert info.wallet_tx.block is not None
+        assert info.wallet_tx.block.height == height
+
+
+class _JumpChain(FakeChain):
+    """A chain whose tip is `jump` once `held` holds that block's txs."""
+
+    def __init__(self, jump: BlockRef) -> None:
+        super().__init__()
+        self.jump = jump
+        self.held: list[Tx] | None = None
+
+    @override
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        if self.held is None:
+            return super().get_history(scripts, start_height)
+        # read once after the jump, from the genesis the first sync left
+        wanted = set(history_scripts(scripts))
+        txs = tuple(
+            HistoryTx(tx, self.jump) for tx in self.held if self._touches(tx, wanted)
+        )
+        return ScriptHistory(BlockRef(0, self.blocks[0][0]), self.jump, txs)
+
+
+@pytest.mark.parametrize("confirmed", [False, True], ids=["tip", "confirmed tx"])
+@pytest.mark.parametrize(
+    "jump",
+    [
+        BlockRef(10**10, b"\x0b" * 32),
+        BlockRef(5, b"\x0b" * 31),
+        BlockRef(5, b"\x0b" * 33),
+    ],
+    ids=["height past 10 digits", "31-byte id", "33-byte id"],
+)
+def test_what_a_sync_writes_of_a_backends_block_loads_again(
+    path: Path, jump: BlockRef, *, confirmed: bool
+) -> None:
+    """What a sync writes of a block a backend answers, a load reads back.
+
+    A sync keeps the height and the id a backend answers: a height past
+    10 digits, and, from a reader of the caller's own, any id.
+    """
+    chain = _JumpChain(jump)
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        ledger.sync()
+        payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
+        chain.held = [payment] if confirmed else []
+        ledger.sync()
+        synced = (ledger.tip, [info.wallet_tx for info in ledger.transactions])
+    assert synced[0] == jump
+    with Ledger.load(path, "regtest", chain) as again:
+        assert (again.tip, [info.wallet_tx for info in again.transactions]) == synced
+    if confirmed:
+        [wtx] = synced[1]
+        assert wtx.block == jump
+
+
+def test_a_branch_past_10_digits_loads_again(chain: FakeChain, path: Path) -> None:
+    """`add_source` writes a branch past 10 digits, and a load reads it."""
+    prv_keys: dict[str, str] = {}
+    branch = 10**12
+    descriptor = parse(f"wpkh({XPRV}/84h/1h/0h/0/*)", "regtest", prv_keys)
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(DescriptorWallet({branch: descriptor}, prv_keys))
+    with Ledger.load(path, "regtest", chain) as again:
+        [wallet] = again.sources
+        assert wallet.branches == (branch,)
+
+
+def test_a_test_fails_that_binds_a_subclass() -> None:
+    """What `tests/conftest.py` makes of a connection `sqlite3.connect` opens.
+
+    `sqlite3` binds what each `__conform__` answers, where such a
+    connection fails the test first.
+    """
+    values = (Conforming(1), ConformingStr("a"), ConformingBytes(b"a"))
+    with contextlib.closing(sqlite3.Connection(":memory:")) as plain:
+        row = plain.execute("SELECT ?, ?, ?, ?", (*values, memoryview(b"a")))
+        assert row.fetchone() == ("conformed", "conformed", b"conformed", b"a")
+    with contextlib.closing(sqlite3.connect(":memory:")) as db:
+        db.execute("CREATE TABLE t(v)")
+        with pytest.raises(pytest.fail.Exception, match="binds a Conforming$"):
+            db.execute("INSERT INTO t VALUES (?)", (Conforming(1),))
+        with pytest.raises(pytest.fail.Exception, match="binds a ConformingStr$"):
+            db.executemany("INSERT INTO t VALUES (?)", [(ConformingStr("a"),)])
+        with pytest.raises(pytest.fail.Exception, match="binds a ConformingBytes$"):
+            db.execute("INSERT INTO t VALUES (?)", (ConformingBytes(b"a"),))
+        with pytest.raises(pytest.fail.Exception, match="binds a memoryview$"):
+            db.execute("INSERT INTO t VALUES (?)", (memoryview(b"a"),))
+        with pytest.raises(pytest.fail.Exception, match="binds a bool$"):
+            db.execute("INSERT INTO t VALUES (:v)", {"v": True})
+        assert db.execute("SELECT count(*) FROM t").fetchone() == (0,)
+        # a cursor's own execute is not the connection's, and is not checked
+        row = db.cursor().execute("SELECT ?", (Conforming(1),)).fetchone()
+        assert row == ("conformed",)
+
+
+def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        return db.execute(sql).fetchall()
+
+
+def test_a_caller_s_int_or_str_is_written_as_the_value_it_holds(
+    chain: FakeChain, path: Path
+) -> None:
+    """What `store` says it binds of a caller's arguments, read back.
+
+    Each of the subclass's own methods would write another value.
+    """
+    wallet = source()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(wallet, Conforming(3), lookahead=Conforming(2))
+        address = ledger.new_address(Conforming(0), Conforming(1))
+        ledger.new_address(0, 0, label=ConformingStr("a"))
+        ledger.set_label(address, ConformingStr("b"))
+    assert _rows(path, "SELECT lookahead, birth FROM sources") == [(2, 3)]
+    assert _rows(path, "SELECT * FROM handed_out ORDER BY branch") == [
+        (0, 0, 0),
+        (0, 1, 0),
+    ]
+    assert sorted(_rows(path, "SELECT label FROM labels")) == [("a",), ("b",)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.label_of(address) == "b"
+        assert again.new_address(0, 1) == wallet.address(1, 1)
+
+
+def test_a_value_is_copied_by_its_type_whatever_its_class_claims() -> None:
+    """`_exact` and `_exact_int` read the type, and never `__class__`.
+
+    `isinstance` reads `__class__`, which can claim another type, or
+    raise.
+    """
+
+    def no_class(_self: object) -> type:
+        raise RuntimeError("no __class__")
+
+    claims_bytes: Any = property(lambda _self: bytes)
+
+    class ClaimsBytes:
+        __class__ = claims_bytes
+
+    class RaisesClass(int):
+        __class__ = property(no_class)
+
+    claimant = ClaimsBytes()
+    # what isinstance reads of each, which a copy must not ask
+    assert isinstance(ClaimsInt("a"), int)
+    assert isinstance(ClaimsStr(b"a"), str)
+    assert isinstance(claimant, bytes)
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(RaisesClass(5), bool)
+    copies = (_exact(ClaimsInt("a")), _exact(ClaimsStr(b"a")), _exact(RaisesClass(5)))
+    assert [(type(held), held) for held in copies] == [
+        (str, "a"),
+        (bytes, b"a"),
+        (int, 5),
+    ]
+    assert _exact(claimant) is claimant
+    held = _exact_int(RaisesClass(5))
+    assert (type(held), held) == (int, 5)
+
+
+def test_a_subclass_is_bound_as_the_value_it_holds_not_as_it_answers() -> None:
+    """What `_exact` reads of each, and what its own methods answer.
+
+    The tests that read a ledger's file back rest on the difference.
+    """
+    number, text, octets = Conforming(1), ConformingStr("a"), ConformingBytes(b"a")
+    assert (int(number), number.__index__(), str(number)) == (99, 98, "97")
+    arithmetic = (
+        number | 0,
+        0 | number,
+        number + 0,
+        0 + number,
+        number * 1,
+        1 * number,
+    )
+    assert arithmetic == (99,) * 6
+    assert str(text) == "str"
+    # operator.add is `+`, the dispatch under test, either way round
+    texts = (
+        operator.add(text, ""),
+        operator.add("", text),
+        text[:],
+        text * 1,
+        1 * text,
+    )
+    assert (texts, len(text)) == (("wrong",) * 5, 0)
+    assert (bytes(octets), octets.hex()) == (b"bytes", "beef")
+    assert octets.__buffer__(0).tobytes() == b"buffer"
+    octet_copies = (octets + b"", b"" + octets, octets[:], octets * 1, 1 * octets)
+    assert (octet_copies, len(octets)) == ((b"wrong",) * 5, 0)
+    for value, exact in ((number, 1), (text, "a"), (octets, b"a"), (True, 1)):
+        held = _exact(value)
+        assert (type(held), held) == (type(exact), exact)
+    # an empty copy is still the exact type, not the subclass
+    empties = (Conforming(0), ConformingStr(""), ConformingBytes(b""))
+    for empty, copy in zip(empties, (0, "", b""), strict=True):
+        copied = _exact(empty)
+        assert (type(copied), copied) == (type(copy), copy)
+    other = 5.0
+    # the very object, which `==` would not tell from a copy
+    assert _exact(other) is other  # sourcery skip: compare-via-equals
+
+
+def test_the_store_writes_the_value_held_whatever_reaches_it(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """The store's own read, under the ledger's, which hands it the value.
+
+    Each of the subclass's own methods would write another value, a 0 and
+    an empty one included, and bytes whose `__class__` claims str are
+    copied as bytes.
+    """
+    held = ledger._store
+    wallet = source("wpkh({}/84h/1h/9h/{}/*)")
+    source_id = held.next_source_id()
+    descriptors = {branch: str(wallet.descriptor(branch)) for branch in wallet.branches}
+    added = store._Source(descriptors, {}, None, Conforming(2), Conforming(3), False)
+    held.add_source(source_id, added)
+    held.add_handed_out([(Conforming(source_id), Conforming(0), 0)])
+    held.set_label(b"\x51", ConformingStr("b"), "send")
+    tx = chain.pay([TxOut(1_000, script_of(ledger.new_address()))])
+    block = BlockRef(Conforming(0), ConformingBytes(b""))
+    comments = (ConformingStr("c"), ConformingStr(""))
+    wtx = WalletTx(tx, TxState.CONFIRMED, block, 0, *comments, None, None)
+    other = chain.pay([TxOut(2_000, script_of(ledger.new_address()))])
+    claimed = BlockRef(1, ClaimsStr(b"\x01"))
+    claiming = WalletTx(other, TxState.CONFIRMED, claimed, 1, None, None, None, None)
+    held.upsert_txs([wtx, claiming])
+    ledger.close()
+    sources = _rows(path, "SELECT id, lookahead, birth FROM sources ORDER BY id")
+    assert sources[-1] == (source_id, 2, 3)
+    assert (source_id, 0, 0) in _rows(path, "SELECT * FROM handed_out")
+    assert _rows(path, "SELECT label FROM labels WHERE script = x'51'") == [("b",)]
+    sql = "SELECT height, block_id, comment, comment_to FROM txs ORDER BY seq"
+    assert _rows(path, sql) == [(0, b"", "c", ""), (1, b"\x01", None, None)]
+
+
+class _ConformingChain(FakeChain):
+    """A reader answering each height and block id as a subclass of its own."""
+
+    @override
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        # the ledger asks from a height this reader answered
+        answer = super().get_history(scripts, _exact_int(start_height))
+
+        def theirs(block: BlockRef) -> BlockRef:
+            return BlockRef(Conforming(block.height), ConformingBytes(block.block_id))
+
+        return ScriptHistory(
+            theirs(answer.start),
+            theirs(answer.tip),
+            tuple(
+                HistoryTx(
+                    entry.tx, None if entry.block is None else theirs(entry.block)
+                )
+                for entry in answer.txs
+            ),
+        )
+
+
+def test_a_reader_s_heights_and_ids_are_written_as_the_values_they_hold(
+    path: Path,
+) -> None:
+    """What `store` says it binds of a reader's answers, read back.
+
+    A reorganization drops the block of the old tip by its height.
+    """
+    chain = _ConformingChain()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
+        [block_id] = chain.mine([payment])
+        chain.mine(count=2)
+        ledger.sync()
+        chain.invalidate(2)
+        ledger.sync()
+    assert _rows(path, "SELECT height, block_id FROM blocks") == [(1, block_id)]
+    assert _rows(path, "SELECT height, block_id FROM txs") == [(1, block_id)]
+    tip = _rows(path, "SELECT value FROM meta WHERE key LIKE 'tip_%' ORDER BY key")
+    assert tip == [("1",), (block_id.hex(),)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.tip == BlockRef(1, block_id)
+        [info] = again.transactions
+        assert info.wallet_tx.block == BlockRef(1, block_id)

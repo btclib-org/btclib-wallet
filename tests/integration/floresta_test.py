@@ -152,7 +152,10 @@ def test_the_server_serves_this_chain(fetcher: ElectrumFetcher) -> None:
     """`assert_network` passes for regtest and refuses a mainnet label."""
     fetcher.assert_network()
     wrong = ElectrumFetcher("mainnet", transport=fetcher.transport)
-    with pytest.raises(BTClibValueError, match="genesis"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the regtest chain, and this fetcher was built for mainnet$",
+    ):
         wrong.assert_network()
 
 

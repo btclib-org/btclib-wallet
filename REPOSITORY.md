@@ -21,12 +21,12 @@ place the answer lives, which is what *Topics* and *Publishing* say of
 them.
 
 Each section carries the command that sets its setting and the command
-that reads it back, and the `#` lines under a read-back are what it
-printed on 2026-09-24 — section 16's last step — unless the section
-names a later date. Section 11 makes such
-an answer documentation, with a reader as its check: nothing re-runs
-these commands, so an answer that differs today is a change made since
-that date.
+that reads it back, and the `text` or `json` fence under a read-back is
+what it printed on 2026-09-24 — section 16's last step — unless the
+section names a later date. Section 11 makes such an answer
+documentation, with a reader as its check: nothing re-runs these
+commands, so an answer that differs today is a change made since that
+date.
 
 ## Creating the repository
 
@@ -71,10 +71,19 @@ Read back:
 gh api repos/btclib-org/btclib-wallet \
   --jq '{visibility, default_branch: .default_branch, has_issues,
          wiki: .has_wiki, projects: .has_projects}'
-# {"default_branch":"main","has_issues":true,"projects":false,
-#  "visibility":"public","wiki":false}
+```
+
+```json
+{"default_branch":"main","has_issues":true,"projects":false,
+ "visibility":"public","wiki":false}
+```
+
+```shell
 gh api -i repos/btclib-org/btclib-wallet/pages 2>/dev/null | head -1
-# HTTP/2.0 404 Not Found
+```
+
+```text
+HTTP/2.0 404 Not Found
 ```
 
 `has_issues` is what `CONTRIBUTING.md`'s *The issue tracker* rests on,
@@ -179,17 +188,20 @@ gh api repos/btclib-org/btclib-wallet/branches/main/protection \
          enforce_admins: .enforce_admins.enabled,
          linear: .required_linear_history.enabled,
          conversation: .required_conversation_resolution.enabled}'
-# {"checks":[["test: every job passed",15368],
-#   ["docs / Build the documentation",15368],
-#   ["lint / Lint and type-check",15368],
-#   ["regtest / Regtest against Bitcoin Core",15368],
-#   ["lint / Dependency review",15368],
-#   ["lint / Sign-off",15368],
-#   ["sourcery / Sourcery",15368]],
-#  "conversation":true,"enforce_admins":false,"linear":true,
-#  "reviews":{"dismiss_stale_reviews":true,
-#   "required_approving_review_count":1},
-#  "strict":false}
+```
+
+```json
+{"checks":[["test: every job passed",15368],
+  ["docs / Build the documentation",15368],
+  ["lint / Lint and type-check",15368],
+  ["regtest / Regtest against Bitcoin Core",15368],
+  ["lint / Dependency review",15368],
+  ["lint / Sign-off",15368],
+  ["sourcery / Sourcery",15368]],
+ "conversation":true,"enforce_admins":false,"linear":true,
+ "reviews":{"dismiss_stale_reviews":true,
+  "required_approving_review_count":1},
+ "strict":false}
 ```
 
 Three rulesets sit beside it, additive — rules aggregate across rulesets
@@ -292,7 +304,10 @@ Read on 2026-10-15:
 ```shell
 gh api repos/btclib-org/btclib-wallet/branches/main/protection \
   --jq '.required_signatures.enabled'
-# false
+```
+
+```text
+false
 ```
 
 `verified-signatures.yml` checks after each push what lands on `main`: for
@@ -328,16 +343,19 @@ for id in $(gh api repos/btclib-org/btclib-wallet/rulesets --jq '.[].id'); do
            methods: [.rules[] | select(.type=="pull_request")
                               | .parameters.allowed_merge_methods]}'
 done
-# {"bypass":[],"enforcement":"active","include":["refs/heads/main"],
-#  "methods":[],"name":"main-integrity",
-#  "rules":["required_linear_history","non_fast_forward","deletion"],
-#  "target":"branch"}
-# {"bypass":[[3296421,"pull_request"]],"enforcement":"active",
-#  "include":["refs/heads/main"],"methods":[["squash"]],
-#  "name":"main-self-merge","rules":["pull_request"],"target":"branch"}
-# {"bypass":[],"enforcement":"active","include":["refs/tags/v*"],
-#  "methods":[],"name":"tag-integrity","rules":["required_signatures"],
-#  "target":"tag"}
+```
+
+```text
+{"bypass":[],"enforcement":"active","include":["refs/heads/main"],
+ "methods":[],"name":"main-integrity",
+ "rules":["required_linear_history","non_fast_forward","deletion"],
+ "target":"branch"}
+{"bypass":[[3296421,"pull_request"]],"enforcement":"active",
+ "include":["refs/heads/main"],"methods":[["squash"]],
+ "name":"main-self-merge","rules":["pull_request"],"target":"branch"}
+{"bypass":[],"enforcement":"active","include":["refs/tags/v*"],
+ "methods":[],"name":"tag-integrity","rules":["required_signatures"],
+ "target":"tag"}
 ```
 
 A `v*` tag push that brings an unsigned commit is refused. A tag on a
@@ -353,7 +371,8 @@ gh api repos/<owner>/<repo>/git/tags/<sha> --jq .verification
 ## Merge methods
 
 **Squash is the only method GitHub can be asked for**, and auto-merge is
-off, so no pull request can be armed: the merge is explicit. The call is
+off, [for the reason section 11
+gives](https://github.com/btclib-org/.github#merge-method). The call is
 the one under *Creating the repository*. Read on 2026-11-14:
 
 ```shell
@@ -361,11 +380,14 @@ gh api repos/btclib-org/btclib-wallet \
   --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge,
          allow_auto_merge, squash_merge_commit_title,
          squash_merge_commit_message, delete_branch_on_merge}'
-# {"allow_auto_merge":false,"allow_merge_commit":false,
-#  "allow_rebase_merge":false,"allow_squash_merge":true,
-#  "delete_branch_on_merge":true,
-#  "squash_merge_commit_message":"COMMIT_MESSAGES",
-#  "squash_merge_commit_title":"COMMIT_OR_PR_TITLE"}
+```
+
+```json
+{"allow_auto_merge":false,"allow_merge_commit":false,
+ "allow_rebase_merge":false,"allow_squash_merge":true,
+ "delete_branch_on_merge":true,
+ "squash_merge_commit_message":"COMMIT_MESSAGES",
+ "squash_merge_commit_title":"COMMIT_OR_PR_TITLE"}
 ```
 
 `COMMIT_OR_PR_TITLE` is the subject: the pull request title with its
@@ -403,8 +425,11 @@ value it gets:
 ```shell
 gh api repos/btclib-org/btclib-wallet/actions/permissions/workflow \
   --jq '{default_workflow_permissions, can_approve_pull_request_reviews}'
-# {"can_approve_pull_request_reviews":false,
-#  "default_workflow_permissions":"read"}
+```
+
+```json
+{"can_approve_pull_request_reviews":false,
+ "default_workflow_permissions":"read"}
 ```
 
 The expected answer is `read` and `false`. Where it is not, the
@@ -418,10 +443,19 @@ This repository's answer, then the organization's, read on 2026-09-27:
 ```shell
 gh api repos/btclib-org/btclib-wallet/actions/permissions \
   --jq '{allowed_actions, sha_pinning_required}'
-# {"allowed_actions":"all","sha_pinning_required":true}
+```
+
+```json
+{"allowed_actions":"all","sha_pinning_required":true}
+```
+
+```shell
 gh api orgs/btclib-org/actions/permissions \
   --jq '{allowed_actions, sha_pinning_required}'
-# {"allowed_actions":"all","sha_pinning_required":true}
+```
+
+```json
+{"allowed_actions":"all","sha_pinning_required":true}
 ```
 
 `sha_pinning_required` is set at the organization level: [section 11 of
@@ -432,9 +466,18 @@ fields](https://github.com/btclib-org/.github/blob/main/README.md#tokens-publish
 
 ```shell
 gh api repos/btclib-org/btclib-wallet --jq .web_commit_signoff_required
-# true
+```
+
+```text
+true
+```
+
+```shell
 gh api orgs/btclib-org --jq .web_commit_signoff_required
-# true
+```
+
+```text
+true
 ```
 
 Set at the organization level, [for the reason section 11
@@ -481,13 +524,22 @@ Read back:
 gh api repos/btclib-org/btclib-wallet/environments \
   --jq '.environments[] | {name, dbp: .deployment_branch_policy,
          rules: [.protection_rules[] | .type]}'
-# {"dbp":{"custom_branch_policies":true,"protected_branches":false},
-#  "name":"pypi","rules":["required_reviewers","branch_policy"]}
-# {"dbp":null,"name":"testpypi","rules":["required_reviewers"]}
+```
+
+```text
+{"dbp":{"custom_branch_policies":true,"protected_branches":false},
+ "name":"pypi","rules":["required_reviewers","branch_policy"]}
+{"dbp":null,"name":"testpypi","rules":["required_reviewers"]}
+```
+
+```shell
 env=repos/btclib-org/btclib-wallet/environments/pypi
 gh api "$env/deployment-branch-policies" \
   --jq '.branch_policies[] | [.name, .type]'
-# ["v*","tag"]
+```
+
+```json
+["v*","tag"]
 ```
 
 The two pending publishers `RELEASING.md`'s *One-time setup* names, on
@@ -498,10 +550,19 @@ answers `404` for the project until its first upload.
 ```shell
 curl -s -o /dev/null -w '%{http_code}\n' \
   https://pypi.org/pypi/btclib-wallet/json
-# 404
+```
+
+```text
+404
+```
+
+```shell
 curl -s -o /dev/null -w '%{http_code}\n' \
   https://test.pypi.org/pypi/btclib-wallet/json
-# 404
+```
+
+```text
+404
 ```
 
 **The repository's `.homepage` is its page on btclib.org**, as
@@ -511,7 +572,10 @@ here rather than from `pyproject.toml`'s own copy of it. Read at
 
 ```shell
 gh api repos/btclib-org/btclib-wallet --jq '.homepage'
-# https://btclib.org/btclib-wallet/
+```
+
+```text
+https://btclib.org/btclib-wallet/
 ```
 
 ## Read the Docs, which is btclib-wallet.readthedocs.io
@@ -527,12 +591,21 @@ The project's public API answers without a token:
 ```shell
 p=https://app.readthedocs.org/api/v3/projects/btclib-wallet
 curl -s "$p/" | jq -c '{default_branch, repository: .repository.url}'
-# {"default_branch":"main",
-#  "repository":"https://github.com/btclib-org/btclib-wallet.git"}
+```
+
+```json
+{"default_branch":"main",
+ "repository":"https://github.com/btclib-org/btclib-wallet.git"}
+```
+
+```shell
 curl -s "$p/versions/?active=true" \
   | jq -c '.results[] | select(.slug == "latest" or .slug == "stable")
            | [.slug, .type, .ref]'
-# ["latest","branch",null]
+```
+
+```json
+["latest","branch",null]
 ```
 
 `stable` is missing from the second answer because no `v*` tag existed
@@ -548,7 +621,10 @@ is what tells an absent project from one with nothing active:
 ```shell
 curl -s -o /dev/null -w '%{http_code}\n' \
   https://app.readthedocs.org/api/v3/projects/btclib-wallet/
-# 200
+```
+
+```text
+200
 ```
 
 **What connects the repository to Read the Docs is the organization-wide
@@ -559,9 +635,18 @@ the repository is expected to carry no hook:
 gh api orgs/btclib-org/installations \
   --jq '.installations[] | select(.app_slug == "read-the-docs-community")
         | [.app_slug, .repository_selection]'
-# ["read-the-docs-community","all"]
+```
+
+```json
+["read-the-docs-community","all"]
+```
+
+```shell
 gh api repos/btclib-org/btclib-wallet/hooks --jq length
-# 0
+```
+
+```text
+0
 ```
 
 A hook the second command finds is stale and is deleted rather than
@@ -601,21 +686,54 @@ Read back:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet --jq '.security_and_analysis'
-# {"dependabot_security_updates":{"status":"enabled"},
-#  "secret_scanning":{"status":"enabled"},
-#  "secret_scanning_non_provider_patterns":{"status":"disabled"},
-#  "secret_scanning_push_protection":{"status":"enabled"},
-#  "secret_scanning_validity_checks":{"status":"disabled"}}
+```
+
+```json
+{"dependabot_security_updates":{"status":"enabled"},
+ "secret_scanning":{"status":"enabled"},
+ "secret_scanning_non_provider_patterns":{"status":"disabled"},
+ "secret_scanning_push_protection":{"status":"enabled"},
+ "secret_scanning_validity_checks":{"status":"disabled"}}
+```
+
+```shell
 gh api -i repos/btclib-org/btclib-wallet/vulnerability-alerts | head -1
-# HTTP/2.0 204 No Content
+```
+
+```text
+HTTP/2.0 204 No Content
+```
+
+```shell
 gh api repos/btclib-org/btclib-wallet/automated-security-fixes
-# {"enabled":true,"paused":false}
+```
+
+```json
+{"enabled":true,"paused":false}
+```
+
+```shell
 gh api repos/btclib-org/btclib-wallet/private-vulnerability-reporting
-# {"enabled":true}
+```
+
+```json
+{"enabled":true}
+```
+
+```shell
 gh api repos/btclib-org/btclib-wallet/code-scanning/default-setup --jq .state
-# not-configured
+```
+
+```text
+not-configured
+```
+
+```shell
 gh api repos/btclib-org/btclib-wallet/code-quality/setup --jq .state
-# not-configured
+```
+
+```text
+not-configured
 ```
 
 The alerts endpoint has no body and answers with its status, 204 for
@@ -636,23 +754,25 @@ sed -n '/^keywords = \[/,/^]/s/^ *"\(.*\)",$/\1/p' pyproject.toml \
 ```
 
 Read back, and compared, sorted because GitHub returns topics in an order
-of its own; the diff is expected empty:
+of its own; the diff prints nothing and exits `0`:
 
 ```shell
 diff <(gh api repos/btclib-org/btclib-wallet --jq '.topics[]' | sort) \
      <(sed -n '/^keywords = \[/,/^]/s/^ *"\(.*\)",$/\1/p' pyproject.toml \
        | sort)
-# (nothing, exit 0)
 ```
 
 What the diff compares, the topics as the endpoint returns them:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet --jq '.topics'
-# ["bip21","bip32","bip39","bip44","bip85","bitcoin","bolt11",
-#  "coin-selection","electrum","hardware-wallet","message-signing",
-#  "miniscript","mnemonic","output-descriptors","psbt","silent-payments",
-#  "slip39","wallet"]
+```
+
+```json
+["bip21","bip32","bip39","bip44","bip85","bitcoin","bolt11",
+ "coin-selection","electrum","hardware-wallet","message-signing",
+ "miniscript","mnemonic","output-descriptors","psbt","silent-payments",
+ "slip39","wallet"]
 ```
 
 ## Plan-gated settings
@@ -664,7 +784,10 @@ configures, so prose that needs the reasoning — a workflow header,
 
 ```shell
 gh api orgs/btclib-org --jq .plan.name
-# free
+```
+
+```text
+free
 ```
 
 [GitHub's own table](https://docs.github.com/en/actions/reference/limits)
@@ -701,9 +824,18 @@ either would be that decision undone:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet/actions/secrets --jq .total_count
-# 0
+```
+
+```text
+0
+```
+
+```shell
 gh api repos/btclib-org/btclib-wallet/dependabot/secrets --jq .total_count
-# 0
+```
+
+```text
+0
 ```
 
 **A switch this repository does not set.** `claude-review.yml` calls
@@ -714,5 +846,8 @@ store is read too:
 
 ```shell
 gh api repos/btclib-org/btclib-wallet/actions/variables --jq .total_count
-# 0
+```
+
+```text
+0
 ```

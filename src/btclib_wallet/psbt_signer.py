@@ -82,7 +82,6 @@ from btclib_wallet.bip32.bip32 import (
 from btclib_wallet.bip32.der_path import (
     DerPath,
     indexes_from_der_path,
-    str_from_der_path,
 )
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
@@ -444,10 +443,10 @@ def select_device(devices: Sequence[SignerDevice], fingerprint: Octets) -> Signe
     for device in devices:
         if device.fingerprint == wanted:
             if device.error:
-                err_msg = f"device {wanted.hex()} cannot be used: {device.error}"
-                raise SignerError(err_msg)
+                # HWI's error is another program's text, not relayed
+                raise SignerError("the device with that fingerprint cannot be used")
             return device
-    raise SignerError(f"no device with fingerprint {wanted.hex()}")
+    raise SignerError("no device with that fingerprint")
 
 
 def assert_public(descriptor: Descriptor) -> None:
@@ -567,8 +566,7 @@ def display_address(
     expected = descriptor.address(index)
     shown = signer.display_address(descriptor, index)
     if shown != expected:
-        err_msg = f"the signer displayed {shown}, where the descriptor describes"
-        err_msg += f" {expected}"
+        err_msg = "the signer displayed another address than the descriptor describes"
         raise BTClibValueError(err_msg)
     return shown
 
@@ -611,8 +609,7 @@ def display_policy_address(
     )
     shown = signer.display_policy_address(registration, index, multipath_index)
     if shown != expected:
-        err_msg = f"the signer displayed {shown}, where the policy describes"
-        err_msg += f" {expected}"
+        err_msg = "the signer displayed another address than the policy describes"
         raise BTClibValueError(err_msg)
     return shown
 
@@ -749,11 +746,9 @@ class SoftwareSigner:
         which the others are derivations, and answering one of them would
         be answering a key the caller did not ask about.
         """
-        try:
-            return self._keys[()]
-        except KeyError:
-            err_msg = "this signer holds accounts, not one key"
-            raise BTClibValueError(err_msg) from None
+        if () not in self._keys:
+            raise BTClibValueError("this signer holds accounts, not one key")
+        return self._keys[()]
 
     def _at(self, der_path: DerPath) -> str:
         """Return the key at a path from the master, derived from what is held.
@@ -770,7 +765,7 @@ class SoftwareSigner:
             if indexes[: len(path)] == path
         ]
         if not candidates:
-            err_msg = f"no key held for the path {str_from_der_path(der_path)}"
+            err_msg = f"no key held for the path of {len(indexes)} steps"
             raise BTClibValueError(err_msg)
         depth, key = max(candidates)
         return derive(key, list(indexes[depth:])) if indexes[depth:] else key

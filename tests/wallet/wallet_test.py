@@ -234,10 +234,12 @@ def test_a_position_outside_the_wallet_is_refused(
         wallet.witness_script,
     ):
         with pytest.raises(
-            BTClibValueError, match=r"invalid branch: 2 not in \(0, 1\)"
+            BTClibValueError, match=r"invalid branch: an int of 2 bits not in \(0, 1\)"
         ):
             method(2, 0)
-        with pytest.raises(BTClibValueError, match="invalid index: -1"):
+        with pytest.raises(
+            BTClibValueError, match="invalid index: a negative int of 1 bits"
+        ):
             method(0, -1)
 
 
@@ -400,6 +402,9 @@ def test_a_span_filed_at_the_wrong_position_is_refused(
 
     with pytest.raises(BTClibValueError, match="no addresses to check"):
         wallet.assert_derives([], 1, 3)
+    # the branch is checked first, so that it is written only once checked
+    with pytest.raises(BTClibValueError, match="invalid branch: an int of 27 bits"):
+        wallet.assert_derives([], 123456789)
     with pytest.raises(BTClibValueError, match="not what 1/2 derives"):
         wallet.assert_derives(span, 1, 2)
     with pytest.raises(BTClibValueError, match="not what 0/3 derives"):

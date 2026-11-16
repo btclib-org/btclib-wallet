@@ -124,6 +124,7 @@ https://github.com/bitcoin/bips/blob/master/bip-0067.mediawiki
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any, Literal
@@ -140,6 +141,7 @@ from btclib.script.script_pub_key import ScriptPubKey
 from btclib.utils import assert_type, is_integer
 from typing_extensions import override
 
+from btclib_wallet._refusal import _position, _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -149,7 +151,6 @@ from btclib_wallet.bip32.bip32 import (
     pub_keyinfo_from_xkey,
     xpub_from_xprv,
 )
-from btclib_wallet.bip32.der_path import str_from_index_int
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors.descriptors import Descriptor, derived_origin
 from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
@@ -292,18 +293,16 @@ def _assert_origin(key: BIP32KeyData, origin: BIP32KeyOrigin) -> None:
     master key nobody has.
     """
     if len(origin.der_path) != key.depth:
-        err_msg = f"invalid key origin {origin.description}:"
-        err_msg += f" {len(origin.der_path)} levels for a key at depth {key.depth}"
+        err_msg = f"invalid key origin: {len(origin.der_path)} levels"
+        err_msg += f" for a key at depth {_quoted(key.depth)}"
         raise BTClibValueError(err_msg)
     if key.depth and key.index != origin.der_path[-1]:
-        err_msg = f"invalid key origin {origin.description}: it ends at"
-        err_msg += f" {str_from_index_int(origin.der_path[-1])}, and the key's"
-        err_msg += f" own index is {str_from_index_int(key.index)}"
+        err_msg = f"invalid key origin: it ends at {_quoted(origin.der_path[-1])}"
+        err_msg += f", and the key's own index is {_quoted(key.index)}"
         raise BTClibValueError(err_msg)
     own = fingerprint(key.b58encode())
     if not key.depth and origin.master_fingerprint != own:
-        err_msg = f"invalid key origin {origin.description}: the master key's"
-        err_msg += f" own fingerprint is {own.hex()}"
+        err_msg = "invalid key origin: the master key's own fingerprint is another"
         raise BTClibValueError(err_msg)
 
 
@@ -423,11 +422,11 @@ class KeyGroup:
                 _assert_origin(key, origin)
         n = len(self.keys)
         if not 0 < n <= _MAX_KEYS:
-            err_msg = f"invalid n in {threshold}-of-{n}:"
-            err_msg += f" 1 to {_MAX_KEYS} keys, which is what op_int spells"
+            err_msg = f"invalid n in k-of-n: {n} keys, where 1 to {_MAX_KEYS} is"
+            err_msg += " what op_int spells"
             raise BTClibValueError(err_msg)
         if not 0 < threshold <= n:
-            err_msg = f"invalid threshold in {threshold}-of-{n}"
+            err_msg = f"invalid threshold of {_position(n)} keys: {_quoted(threshold)}"
             raise BTClibValueError(err_msg)
         self.threshold = threshold
         self.verify = verify
@@ -453,11 +452,11 @@ class ScriptWallet(RangedWallet):
         super().__init__(network)
         if script_type not in _SCRIPT_PUB_KEY_FROM_SCRIPT_TYPE:
             known = ", ".join(sorted(_SCRIPT_PUB_KEY_FROM_SCRIPT_TYPE))
-            err_msg = f"unknown script type: {script_type} not in ({known})"
+            err_msg = f"unknown script type: {_quoted(script_type)} not in ({known})"
             raise BTClibValueError(err_msg)
         if order not in _KEY_ORDERS:
             known = ", ".join(_KEY_ORDERS)
-            err_msg = f"unknown key order: {order} not in ({known})"
+            err_msg = f"unknown key order: {_quoted(order)} not in ({known})"
             raise BTClibValueError(err_msg)
         if order == "none" and sort_key is not None:
             err_msg = (
@@ -503,7 +502,7 @@ class ScriptWallet(RangedWallet):
         max_size = _MAX_SCRIPT_FROM_SCRIPT_TYPE[script_type]
         if len(script) > max_size:
             err_msg = f"invalid script length: {len(script)} bytes is past the"
-            err_msg += f" {max_size} a {script_type} script may have"
+            err_msg += f" {max_size} a {_quoted(script_type)} script may have"
             raise BTClibValueError(err_msg)
 
     @property
@@ -679,7 +678,7 @@ class ScriptWallet(RangedWallet):
         # an IndexError out of a public method is not an answer, and a
         # negative index would quietly update the input at the other end
         if not 0 <= vin_i < len(psbt.inputs):
-            raise BTClibValueError(f"invalid input index: {vin_i}")
+            raise BTClibValueError(f"invalid input index: {_quoted(vin_i)}")
         psbt = deepcopy(psbt)
         self._update(psbt.inputs[vin_i], branch, index)
         psbt.assert_valid()
@@ -710,11 +709,12 @@ class ScriptWallet(RangedWallet):
         # an IndexError out of a public method is not an answer, and a
         # negative index would quietly update the output at the other end
         if not 0 <= vout_i < len(psbt.outputs):
-            raise BTClibValueError(f"invalid output index: {vout_i}")
+            raise BTClibValueError(f"invalid output index: {_quoted(vout_i)}")
         paid = psbt.tx.vout[vout_i].script_pub_key.script
         if self._script_pub_key(branch, index).script != paid:
-            err_msg = f"output {vout_i} pays to {paid.hex()}, which is not the"
-            err_msg += f" script this wallet derives at {branch}/{index}"
+            err_msg = f"output {_position(vout_i)} pays to another script than"
+            err_msg += f" the one this wallet derives at {_position(branch)}/"
+            err_msg += _position(index)
             raise BTClibValueError(err_msg)
         psbt = deepcopy(psbt)
         self._update(psbt.outputs[vout_i], branch, index)
@@ -859,10 +859,13 @@ class ScriptWallet(RangedWallet):
             )
             raise NoDescriptorError(err_msg)
         script = self._script(branch, 0)
-        try:
+        # refused after `suppress`, as below, so that it chains nothing
+        node = None
+        with suppress(BTClibValueError):
             node = _miniscript_from_script(script, P2WSH)
-        except BTClibValueError as exception:
-            raise NoDescriptorError(str(exception)) from exception
+        if node is None:
+            err_msg = "the script is no miniscript a descriptor can hold"
+            raise NoDescriptorError(err_msg)
         expressions = {
             self._derived_sec(key, branch, 0): self._key_expression(
                 key, branch, origins
@@ -898,9 +901,8 @@ class ScriptWallet(RangedWallet):
             lifted = descriptor.script_pub_key(index).script
             own = self._script_pub_key(branch, index).script
             if lifted != own:
-                err_msg = f"the lifted descriptor pays to {lifted.hex()} at"
-                err_msg += f" {branch}/{index}, where this wallet pays to"
-                err_msg += f" {own.hex()}"
+                err_msg = "the lifted descriptor pays to another script at"
+                err_msg += f" {_position(branch)}/{_position(index)} than this wallet"
                 raise BTClibRuntimeError(err_msg)
 
     def descriptor(
@@ -945,7 +947,9 @@ class ScriptWallet(RangedWallet):
         """
         self._assert_position(branch, 0)
         if checked_indexes < _MIN_CHECKED_INDEXES:
-            err_msg = f"invalid checked_indexes: {checked_indexes} is fewer than"
+            err_msg = (
+                f"invalid checked_indexes: {_quoted(checked_indexes)} is fewer than"
+            )
             err_msg += f" the {_MIN_CHECKED_INDEXES} a lift is confirmed at"
             raise BTClibValueError(err_msg)
         origins = self._key_origins()
@@ -953,14 +957,16 @@ class ScriptWallet(RangedWallet):
             branch, origins
         ) or self._lifted_expression(branch, origins)
         text = self._descriptor_form.format(expression)
-        try:
+        # what a descriptor may hold and not what miniscript can read:
+        # Bitcoin Core refuses an insane expression -- one satisfiable
+        # without a signature, or whose witness a third party can rewrite
+        # -- and a wallet of that shape has no descriptor for the same
+        # reason it has no safe spend
+        descriptor = None
+        with suppress(BTClibValueError):
             descriptor = _parse_descriptor(text, self.network)
-        except BTClibValueError as exception:
-            # what a descriptor may hold and not what miniscript can read:
-            # Bitcoin Core refuses an insane expression -- one satisfiable
-            # without a signature, or whose witness a third party can
-            # rewrite -- and a wallet of that shape has no descriptor for
-            # the same reason it has no safe spend
-            raise NoDescriptorError(f"{text}: {exception}") from exception
+        if descriptor is None:
+            err_msg = "no descriptor Bitcoin Core accepts for this wallet"
+            raise NoDescriptorError(err_msg)
         self._assert_lift(descriptor, branch, checked_indexes)
         return descriptor

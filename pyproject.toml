@@ -61,10 +61,10 @@ dependencies = [
     # floor is the first release whose `bech32_encode` and `bech32_decode`
     # take `limit`, which `bolt11` passes as None
     "base58-bech32>=2026.10.23",
-    # the release `BitcoinCoreRestClient` first ships in: `btclib_wallet.fetch`
-    # imports it at module level rather than behind a guard, so anything
-    # resolving older fails on the import itself
-    "bitcoin-core-rpc>=2026.9.3",
+    # the first release whose `FetchError` carries `failure_type`, which the
+    # transports of `btclib_wallet.fetch` set where an exchange does not
+    # complete
+    "bitcoin-core-rpc>=2026.11.15",
     # the cipher of a ledger's private keys at rest, which `ledger.crypto`
     # imports, and BIP324's, which `fetch.V2PeerTransport` reaches through
     # `btclib.p2p.bip324`. The marker leaves out Windows arm64: the release

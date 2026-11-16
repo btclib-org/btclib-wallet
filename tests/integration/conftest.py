@@ -66,6 +66,12 @@ from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_outpu
 # the failure case
 _STARTUP_TIMEOUT = 30.0
 
+# the wallet of the session's node that pays the first wallet of each
+# `wallets`, and what it pays it: more than any test on `wallets` spends,
+# so a test that spends more raises it
+_BANK = "bank"
+_ALLOWANCE = "5"
+
 _T = TypeVar("_T")
 
 
@@ -143,21 +149,27 @@ def node(
     """Yield an rpc client of a regtest node started for this session.
 
     `-fallbackfee` because a regtest chain has no fee history to estimate
-    from, and Core refuses to fund a transaction without one; the wallet
-    calls here fund nothing, but a caller reading this as a recipe would
-    meet that on the first `walletcreatefundedpsbt`.
+    from, and Core refuses to fund a transaction without one, and the
+    bank's `sendtoaddress` in `wallets` funds one.
 
     `-listen=0` because nothing here dials the node over p2p. `-natpmp`,
     `-discover` and `-listenonion` are switched off by name as well: each
     reaches past this machine -- a port mapping asked of the gateway, a
     public address looked up, a Tor control port dialled -- which is not
     what a throwaway regtest node wants of a developer's own network.
+
+    The node opens its bank before it is yielded: `wallets` says why.
     """
     datadir = tmp_path_factory.mktemp("regtest")
     process, client, _ = start_on_free_ports(
         lambda: _start_node([bitcoind_path], datadir, None, ())
     )
     try:
+        client.call("createwallet", [_BANK])
+        bank = client.for_wallet(_BANK)
+        # 101 blocks because a coinbase output is spendable after 100: the
+        # first is spendable now, and the rest as the chain grows
+        bank.call("generatetoaddress", [101, bank.call("getnewaddress")])
         yield client
     finally:
         _stop(process)
@@ -207,6 +219,12 @@ def wallets(
     several tests has no wallet of one still open in another; and
     `for_wallet` is the client's own way of naming the endpoint, the
     wallet being a path on the url rather than an argument.
+
+    The first wallet starts with a confirmed coin the bank paid it, rather
+    than a coinbase it mined: regtest halves the subsidy every
+    `NETWORKS["regtest"].consensus.subsidy_halving_interval` blocks, and
+    on the session's node, which the tests share, a coinbase mined late in
+    the session can pay less than the test spends.
     """
     suffix = f"{time.monotonic_ns():x}"
     miner, watcher = f"miner-{suffix}", f"watch-{suffix}"
@@ -214,7 +232,10 @@ def wallets(
     # disable_private_keys, which is what makes the second wallet one that
     # can only watch: it is the third parameter of createwallet
     node.call("createwallet", [watcher, True])
-    return node.for_wallet(miner), node.for_wallet(watcher)
+    paid, bank = node.for_wallet(miner), node.for_wallet(_BANK)
+    bank.call("sendtoaddress", [paid.call("getnewaddress"), _ALLOWANCE])
+    bank.call("generatetoaddress", [1, bank.call("getnewaddress")])
+    return paid, node.for_wallet(watcher)
 
 
 def as_regtest(descriptor: Descriptor) -> Descriptor:
@@ -232,13 +253,11 @@ def as_regtest(descriptor: Descriptor) -> Descriptor:
 
 
 def fund(miner: BitcoinCoreRpcClient, address: str, amount: str = "1.5") -> str:
-    """Mine a spendable balance, pay an address, and confirm the payment.
+    """Pay an address from the miner's wallet, and confirm the payment.
 
-    101 blocks because a coinbase output is spendable after 100, and the
-    amount is a string because json carries no exact decimal -- the rpc
-    client refuses a `Decimal` rather than rounding one.
+    The amount is a string because json carries no exact decimal -- the
+    rpc client refuses a `Decimal` rather than rounding one.
     """
-    miner.call("generatetoaddress", [101, miner.call("getnewaddress")])
     tx_id = miner.call("sendtoaddress", [address, amount])
     miner.call("generatetoaddress", [1, miner.call("getnewaddress")])
     return str(tx_id)

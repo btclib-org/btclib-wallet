@@ -66,16 +66,17 @@ from btclib.utils import is_integer
 from typing_extensions import override
 
 from btclib_wallet import electrum
-from btclib_wallet._refusal import _message_text
-from btclib_wallet.exceptions import FetchError
+from btclib_wallet._refusal import _label, _message_text, _position
+from btclib_wallet.exceptions import FetchError, _caller_errors, _guarded_methods
 from btclib_wallet.fetch.fee_estimator import FeeQuote, valid_confirmation_target
 from btclib_wallet.fetch.fetcher import (
     NetworkVerifyingFetcher,
+    _fetch_errors,
     _touching_ids,
+    _WrongChainError,
     block_header_from_raw,
     block_header_height,
     client_errors,
-    fetch_errors,
     tx_from_raw,
     tx_id_hex,
 )
@@ -106,6 +107,7 @@ def _anchor(height: int) -> bool:
     return height % _MAX_HEADERS == 0
 
 
+@_guarded_methods
 class ElectrumFetcher(NetworkVerifyingFetcher):
     """Every `Fetcher` question, and a merkle branch, from an Electrum server.
 
@@ -197,7 +199,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """Return the chain tip `blockchain.headers.subscribe` answers."""
         request_id = self._next_request_id()
         line = self._round_trip(electrum.headers_subscribe_request(request_id))
-        with fetch_errors("headers.subscribe"):
+        with _fetch_errors("headers.subscribe"):
             return electrum.headers_subscribe_response(line, request_id)
 
     def _raw_header_at(self, height: int) -> bytes:
@@ -209,7 +211,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """
         request_id = self._next_request_id()
         line = self._round_trip(electrum.block_header_request(request_id, height))
-        with fetch_errors("block header"):
+        with _fetch_errors("block header"):
             return electrum.block_header_response(line, request_id)
 
     def _header_at(self, height: int) -> BlockHeader:
@@ -229,7 +231,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         hex_ = tx_id_hex(tx_id)
         request_id = self._next_request_id()
         line = self._round_trip(electrum.transaction_get_request(request_id, hex_))
-        with fetch_errors("transaction"):
+        with _fetch_errors("transaction"):
             raw = electrum.transaction_get_response(line, request_id)
         return tx_from_raw(raw, hex_, self.network)
 
@@ -286,7 +288,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             electrum.block_headers_request(request_id, start_height, count)
         )
         source = "block headers"
-        with fetch_errors(source):
+        with _fetch_errors(source):
             raws = electrum.block_headers_response(line, request_id, count)
         headers = [block_header_from_raw(raw, network=self.network) for raw in raws]
         for i in range(1, len(headers)):
@@ -336,14 +338,23 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         against.
         """
         raw = self._raw_header_at(0)
-        with fetch_errors("block header 0"):
+        with _fetch_errors("block header 0"):
             reported = BlockHeader.parse(raw, check_validity=False).hash
         expected = NETWORKS[self.network].genesis_block
         if reported != expected:
-            err_msg = "the server serves a chain whose genesis is"
-            err_msg += f" {reported.hex()}, not the {expected.hex()}"
-            err_msg += f" this {self.network} fetcher was built for"
-            raise BTClibValueError(err_msg)
+            # the chain named where its genesis is a network's: the hash
+            # itself is the server's, and is not written
+            served = next(
+                (
+                    f"the {name} chain"
+                    for name, params in NETWORKS.items()
+                    if params.genesis_block == reported
+                ),
+                "a chain whose genesis is no network's",
+            )
+            err_msg = f"the server serves {served}, and this fetcher was built"
+            err_msg += f" for {_label(self.network, NETWORKS)}"
+            raise _WrongChainError(err_msg)
 
     def get_tx_merkle(self, tx_id: Octets, height: int) -> electrum.MerkleProof:
         """Return the branch proving `tx_id` confirmed at `height`.
@@ -358,7 +369,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         line = self._round_trip(
             electrum.transaction_get_merkle_request(request_id, hex_, height)
         )
-        with fetch_errors("transaction merkle"):
+        with _fetch_errors("transaction merkle"):
             return electrum.transaction_get_merkle_response(line, request_id)
 
     def verify_tx(self, tx_id: Octets, height: int) -> bool:
@@ -369,8 +380,12 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         class's own docstring for what each half already checks on its
         own.
         """
-        header = self.get_block_header(height)
-        proof = self.get_tx_merkle(tx_id, height)
+        # `get_block_header` and `get_tx_merkle` may be methods of the
+        # caller's own subclass
+        with _caller_errors("get_block_header"):
+            header = self.get_block_header(height)
+        with _caller_errors("get_tx_merkle"):
+            proof = self.get_tx_merkle(tx_id, height)
         return electrum.verify_merkle_proof(tx_id, proof, header)
 
     def _tip_ref(self) -> tuple[BlockRef, BlockHeader]:
@@ -468,12 +483,14 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             {tx_id: h for tx_id, h in heights.items() if h is not None and h >= first},
             chain,
         )
-        txs = [HistoryTx(self.get_tx(tx_id), ref) for tx_id, ref in confirmed]
-        txs += [
-            HistoryTx(self.get_tx(tx_id), None)
-            for tx_id, height in heights.items()
-            if height is None
-        ]
+        # `get_tx` may be a method of the caller's own subclass
+        with _caller_errors("get_tx"):
+            txs = [HistoryTx(self.get_tx(tx_id), ref) for tx_id, ref in confirmed]
+            txs += [
+                HistoryTx(self.get_tx(tx_id), None)
+                for tx_id, height in heights.items()
+                if height is None
+            ]
         touching = _touching_ids([entry.tx for entry in txs], elements, self.get_tx)
         txs = [entry for entry in txs if entry.tx.id in touching]
         if self._tip_ref()[0] != tip:
@@ -491,7 +508,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
             for item in self._script_history(sha256(script)[::-1].hex()):
                 height = item.height if item.height > 0 else None
                 if heights.setdefault(item.tx_id, height) != height:
-                    err_msg = f"transaction {item.tx_id}: listed at two heights"
+                    err_msg = "a transaction listed at two heights"
                     raise FetchError(err_msg)
         return heights
 
@@ -506,9 +523,13 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         """
         confirmed: list[tuple[int, int, str]] = []
         for tx_id, height in heights.items():
-            proof = self.get_tx_merkle(tx_id, height)
+            # `get_tx_merkle` may be a method of the caller's own subclass
+            with _caller_errors("get_tx_merkle"):
+                proof = self.get_tx_merkle(tx_id, height)
             if not electrum.verify_merkle_proof(tx_id, proof, chain[height]):
-                err_msg = f"transaction {tx_id}: no proof it is in block {height}"
+                err_msg = (
+                    f"a transaction with no proof it is in block {_position(height)}"
+                )
                 raise FetchError(err_msg)
             confirmed.append((height, proof.pos, tx_id))
         return [
@@ -564,12 +585,15 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         kept: dict[int, BlockHeader] = {}
         height, last = low, None
         while height <= end.height:
-            chunk = self.get_block_headers(height, end.height - height + 1)
+            # `get_block_headers` may be a method of the caller's own subclass
+            with _caller_errors("get_block_headers"):
+                chunk = self.get_block_headers(height, end.height - height + 1)
             if not chunk:
-                err_msg = f"block headers: none from {height} up to {end.height}"
+                err_msg = f"block headers: none from {_position(height)}"
+                err_msg += f" up to {_position(end.height)}"
                 raise FetchError(err_msg)
             if last is not None and chunk[0].previous_block_hash != last.hash:
-                err_msg = f"block headers: header {height} does not follow"
+                err_msg = f"block headers: header {_position(height)} does not follow"
                 err_msg += " the one before it"
                 raise FetchError(err_msg)
             for header in chunk:
@@ -578,7 +602,8 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
                 height += 1
             last = chunk[-1]
         if last is None or last.hash != end.block_id:
-            err_msg = f"block headers: the headers from {low} do not reach the tip"
+            err_msg = f"block headers: the headers from {_position(low)}"
+            err_msg += " do not reach the tip"
             raise FetchError(err_msg)
         return kept
 
@@ -588,7 +613,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         line = self._round_trip(
             electrum.scripthash_get_history_request(request_id, scripthash)
         )
-        with fetch_errors("script history"):
+        with _fetch_errors("script history"):
             return electrum.scripthash_get_history_response(line, request_id)
 
     def estimate_fee(self, target: int) -> FeeQuote:
@@ -606,7 +631,7 @@ class ElectrumFetcher(NetworkVerifyingFetcher):
         target = valid_confirmation_target(target)
         request_id = self._next_request_id()
         line = self._round_trip(electrum.estimate_fee_request(request_id, target))
-        with fetch_errors("blockchain.estimatefee"):
+        with _fetch_errors("blockchain.estimatefee"):
             result = electrum.estimate_fee_response(line, request_id)
             if result == -1:
                 raise FetchError("blockchain.estimatefee: no estimate for this target")

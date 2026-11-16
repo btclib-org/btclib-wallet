@@ -71,6 +71,7 @@ from ecc.curves import scalar_from_prv_key, secp256k1
 from ecc.curves.sec_point import bytes_from_point
 from ecc.hashes import tagged_hash
 
+from btclib_wallet._refusal import _position
 from btclib_wallet.bip32 import BIP328_CHAIN_CODE, pub_key_derivation_tweaks
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -133,11 +134,21 @@ def add_participant_pub_keys(
 
 def _participants(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
     """Return the participants of an aggregate key, in aggregation order."""
-    participants = psbt_in.musig2_participant_pub_keys.get(aggregate_pub_key)
-    if not participants:
-        err_msg = f"no musig2 participants for aggregate key {aggregate_pub_key.hex()}"
-        raise BTClibValueError(err_msg)
-    return participants
+    if participants := psbt_in.musig2_participant_pub_keys.get(aggregate_pub_key):
+        return participants
+    err_msg = "no musig2 participants for the aggregate key"
+    raise BTClibValueError(err_msg)
+
+
+def _participant(participants: list[bytes], pub_key: bytes) -> str:
+    """Return how a refusal names a participant: by aggregation order.
+
+    The key is not printed: a key passed in the wrong place may be a
+    private one.
+    """
+    if pub_key in participants:
+        return f"participant {_position(participants.index(pub_key))}"
+    return "a key that is no participant"
 
 
 def _derivation_tweaks(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]:
@@ -155,9 +166,10 @@ def _derivation_tweaks(psbt_in: PsbtIn, aggregate_pub_key: bytes) -> list[bytes]
     fingerprint = hash160(aggregate_pub_key)[:4]
     derivation = psbt_in.taproot_hd_key_paths.get(internal_key)
     if derivation is None or derivation[1].master_fingerprint != fingerprint:
-        err_msg = "no BIP328 derivation from musig2 aggregate key "
-        err_msg += f"{aggregate_pub_key.hex()} to taproot internal key "
-        err_msg += internal_key.hex()
+        err_msg = (
+            "no BIP328 derivation from the musig2 aggregate key "
+            "to the taproot internal key"
+        )
         raise BTClibValueError(err_msg)
     return pub_key_derivation_tweaks(
         aggregate_pub_key, BIP328_CHAIN_CODE, derivation[1].der_path
@@ -200,8 +212,10 @@ def _tweaks(
     if output_key == x_only_aggregate:
         return [], []
 
-    err_msg = f"musig2 aggregate key {aggregate_pub_key.hex()} is neither "
-    err_msg += "the taproot output key nor the internal key of the input"
+    err_msg = (
+        "the musig2 aggregate key is neither "
+        "the taproot output key nor the internal key of the input"
+    )
     raise BTClibValueError(err_msg)
 
 
@@ -256,8 +270,7 @@ def _session_parts(
     key_agg_ctx = musig2.key_agg_and_tweak_var(participants, tweaks, is_xonly)
     expected = _script_key(psbt_in, leaf_hash) if leaf_hash else output_key
     if key_agg_ctx.x_only_pub_key != expected:
-        err_msg = f"the tweaked musig2 key {key_agg_ctx.x_only_pub_key.hex()} is not "
-        err_msg += f"the key being spent, {expected.hex()}"
+        err_msg = "the tweaked musig2 key is not the key being spent"
         raise BTClibValueError(err_msg)
 
     _assert_taproot_session_input(psbt_in)
@@ -319,8 +332,7 @@ def session_context(
         psbt.inputs[vin_i], parts.tweaked_pub_key, leaf_hash
     )
     if not pub_nonces:
-        err_msg = "no musig2 public nonce for aggregate key "
-        err_msg += aggregate_pub_key.hex()
+        err_msg = "no musig2 public nonce for the aggregate key"
         raise BTClibValueError(err_msg)
     # in aggregation order and not in the order the map holds them: an
     # aggregate nonce is a sum, so the order is not what it changes --
@@ -400,8 +412,7 @@ def nonce_gen(
     q = scalar_from_prv_key(prv_key)
     pub_key = musig2.individual_pub_key(q)
     if pub_key not in parts.participants:
-        err_msg = f"{pub_key.hex()} is not a participant of aggregate key "
-        err_msg += aggregate_pub_key.hex()
+        err_msg = "the private key is not a participant of the aggregate key"
         raise BTClibValueError(err_msg)
 
     sec_nonce, pub_nonce = musig2.nonce_gen(
@@ -454,14 +465,12 @@ def partial_sign(
     # as in `nonce_gen` above, and for its reason
     q = scalar_from_prv_key(prv_key)
     pub_key = musig2.individual_pub_key(q)
-    tweaked_pub_key = _session_parts(
-        psbt, vin_i, aggregate_pub_key, leaf_hash
-    ).tweaked_pub_key
-    key_data = _key_data(pub_key, tweaked_pub_key, leaf_hash)
+    parts = _session_parts(psbt, vin_i, aggregate_pub_key, leaf_hash)
+    key_data = _key_data(pub_key, parts.tweaked_pub_key, leaf_hash)
     pub_nonce = psbt_in.musig2_pub_nonces.get(key_data)
     if pub_nonce is None:
-        err_msg = f"no musig2 public nonce of {pub_key.hex()} for aggregate key "
-        err_msg += aggregate_pub_key.hex()
+        err_msg = f"input {_position(vin_i)}: no musig2 public nonce of "
+        err_msg += f"{_participant(parts.participants, pub_key)} for the aggregate key"
         raise BTClibValueError(err_msg)
 
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
@@ -499,15 +508,14 @@ def partial_sig_verify(
     leaf_hash = bytes_from_octets(leaf_hash)
     participant_pub_key = bytes_from_octets(participant_pub_key, MUSIG2_PUB_KEY_SIZE)
     psbt_in = psbt.inputs[vin_i]
-    tweaked_pub_key = _session_parts(
-        psbt, vin_i, aggregate_pub_key, leaf_hash
-    ).tweaked_pub_key
-    key_data = _key_data(participant_pub_key, tweaked_pub_key, leaf_hash)
+    parts = _session_parts(psbt, vin_i, aggregate_pub_key, leaf_hash)
+    key_data = _key_data(participant_pub_key, parts.tweaked_pub_key, leaf_hash)
     psig = psbt_in.musig2_partial_sigs.get(key_data)
     pub_nonce = psbt_in.musig2_pub_nonces.get(key_data)
     if psig is None or pub_nonce is None:
-        err_msg = f"no musig2 partial signature of {participant_pub_key.hex()} "
-        err_msg += f"for aggregate key {aggregate_pub_key.hex()}"
+        participant = _participant(parts.participants, participant_pub_key)
+        err_msg = f"input {_position(vin_i)}: no musig2 partial signature of "
+        err_msg += f"{participant} for the aggregate key"
         raise BTClibValueError(err_msg)
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
     return musig2.partial_sig_verify_(
@@ -541,9 +549,12 @@ def partial_sigs_agg(
     session = session_context(psbt, vin_i, aggregate_pub_key, leaf_hash=leaf_hash)
     tweaked_pub_key = bytes_from_point(session.key_agg_ctx.Q, secp256k1)
     partial_sigs = _session_partial_sigs(psbt_in, tweaked_pub_key, leaf_hash)
-    if missing := [key for key in session.context.pub_keys if key not in partial_sigs]:
-        err_msg = "missing musig2 partial signature of " + ", ".join(
-            key.hex() for key in missing
+    if missing := [
+        i for i, key in enumerate(session.context.pub_keys) if key not in partial_sigs
+    ]:
+        # by position in aggregation order, printing no byte of the key
+        err_msg = "missing musig2 partial signature of participant " + ", ".join(
+            _position(i) for i in missing
         )
         raise BTClibValueError(err_msg)
 
@@ -555,8 +566,10 @@ def partial_sigs_agg(
         # a partial signature that verifies on its own and does not add
         # up is what a peer sending one of another session produces, so
         # this is the Finalizer's check and not a belt-and-braces one
-        err_msg = "the musig2 partial signatures do not add up to a signature "
-        err_msg += f"of {x_only_pub_key.hex()}"
+        err_msg = (
+            "the musig2 partial signatures do not add up to a signature "
+            "of the tweaked key"
+        )
         raise BTClibValueError(err_msg)
 
     signature = sig.serialize()
@@ -605,6 +618,7 @@ def assert_valid_participants(psbt_map: PsbtIn | PsbtOut) -> None:
         assert_valid_musig2_pub_key(aggregate_pub_key, "musig2 aggregate pub key")
         computed = bytes_from_point(musig2.key_agg_var(participants).Q, secp256k1)
         if computed != aggregate_pub_key:
-            err_msg = f"musig2 participants aggregate to {computed.hex()}, "
-            err_msg += f"not to {aggregate_pub_key.hex()}"
+            err_msg = (
+                "musig2 participants aggregate to another key than the aggregate key"
+            )
             raise BTClibValueError(err_msg)

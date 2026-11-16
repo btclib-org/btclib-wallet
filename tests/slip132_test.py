@@ -40,7 +40,9 @@ def test_slip132() -> None:
     address = slip132.address_from_xpub(xpub)
     assert slip132.address_from_xkey(xprv) == address
     assert address == "1DjfiAgNyvRXhYXiDgE9K7bfB82hVUPTm1"
-    with pytest.raises(BTClibValueError, match="not a root key: "):
+    # the depth refused is described
+    err_msg = r"^not a root key: depth an int of \d+ bits$"
+    with pytest.raises(BTClibValueError, match=err_msg):
         slip132.p2pkh_xkey(xprv)
 
     yprv = slip132.p2wpkh_p2sh_xkey(mxprv)
@@ -92,7 +94,7 @@ def test_an_already_built_key_is_validated_too() -> None:
     assert slip132.address_from_xpub(good) == slip132.address_from_xpub(xpub)
 
     bad = replace_unchecked(bip32.BIP32KeyData.b58decode(xpub), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -295,7 +297,7 @@ def test_unknown_xpub_version() -> None:
         reversioned = replace_unchecked(
             xpub_data, version=getattr(NETWORKS["mainnet"], version)
         )
-        with pytest.raises(BTClibValueError, match="unknown xpub version: "):
+        with pytest.raises(BTClibValueError, match="unknown xpub version"):
             slip132.address_from_xpub(reversioned)
 
 

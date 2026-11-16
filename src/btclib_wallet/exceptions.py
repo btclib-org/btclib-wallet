@@ -8,18 +8,28 @@ Each derives from btclib's class of its kind, so `except BTClibException`
 catches these as it catches btclib's own, and `except ValueError` or
 `except RuntimeError` catches them too.
 
-The classes carrying a field hand every constructor argument to
-`BaseException.__init__` and compose the message in `__str__`. That is
-what keeps them picklable, for the reason `btclib.exceptions`' own
-docstring gives.
+The classes carrying a field store every constructor argument in `args`
+and compose the message in `__str__`. That is what keeps them
+picklable, for the reason `btclib.exceptions`' own docstring gives.
+`SignerError` stores them through `BaseException.__init__`; `HttpError`
+and `RpcError` through `FetchError.__init__`, which assigns `args`
+itself, for the reason its comment gives.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import functools
+import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
+from types import FrameType, FunctionType, TracebackType
+from typing import Any, Literal, ParamSpec, TypeVar, cast
+from weakref import ref
 
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 from typing_extensions import override
+
+from btclib_wallet._refusal import _code
 
 __all__ = [
     "FetchError",
@@ -52,7 +62,57 @@ class FetchError(BTClibRuntimeError):
     `BTClibRuntimeError` of its own, and an `except BTClibRuntimeError`
     written against btclib would not catch it.
     `btclib_wallet.fetch.fetcher.client_errors` is the one place the two meet.
+
+    `failure_type` is the class of what failed where the exchange did not
+    complete, as for `bitcoin_core_rpc`'s `FetchError`, whose docstring
+    names such classes, and None on every other refusal. An expired
+    deadline is `TimeoutError` here as there. A connection that ends
+    before a whole answer is `EOFError`, which `ftplib` raises where its
+    connection ends before a line. The class held is the one
+    `_failure_class` makes of the class that failed, so that it holds no
+    text and pickles.
+
+    One built by a module of this package is told apart from one the
+    caller's code built, and `_caller_errors` says what becomes of each.
+    C code adds no frame to those `_built_by_the_package` reads, so one
+    built in C code that a module of this package calls counts as the
+    package's: a transport of the caller's written in C is such code.
+    Under CPython 3.11, C code that raises one by its class, as
+    `PyErr_SetString` does, while no other exception is being handled,
+    leaves it to be built in the first frame that handles it, with an
+    `except`, a `finally` or a `with`. Once built, one that counts as the
+    package's stays so however it is raised again, while its class, args
+    and attributes are as built, as `_as_built` says. The caller's code
+    makes such an error its own by building a new one in a Python function
+    of its own. Catching it there is enough only where C code that this
+    function calls, with no frame of this package between, raised it by
+    its class.
+
+    One built with an exception among its args is the caller's wherever it
+    is built. PyPy builds one, holding the exception being handled, in an
+    `except` of this package where the caller's code gave that exception a
+    class that is no subclass of the one it was raised with. A bare `raise`
+    there raises the one built, and anything else raised there takes it as
+    its `__context__`. Where that class cannot be built from the exception
+    alone, as `HttpError` and `RpcError` cannot, PyPy raises a `TypeError`
+    there in place of whatever is raised.
     """
+
+    failure_type: type[BaseException] | None = None
+
+    def __init__(self, *args: object) -> None:
+        # what `BaseException.__init__` does: the census of
+        # `tests/refusal_census_test.py` reads a `super().__init__` as any
+        # `__init__` of the package, some of which raise
+        self.args = args
+        if _built_by_the_package() and not any(
+            issubclass(type(arg), BaseException) for arg in args
+        ):
+            # named first: the census reads a call in the subscript of an
+            # assignment as a binding of the name called
+            key = id(self)
+            fields = tuple(vars(self).items())
+            _BUILT[key] = (ref(self, _forgotten(key)), type(self), args, fields)
 
 
 class HttpError(FetchError):
@@ -67,7 +127,8 @@ class HttpError(FetchError):
 
     Not every FetchError carries one, and that is the distinction: a
     refused connection and an expired timeout are failures of an exchange
-    that never produced a status, and stay a plain FetchError.
+    that never produced a status, and stay a plain FetchError. A status
+    that is no integer, or does not fit in 16 signed bits, is 0.
 
     A FetchError still, so code catching that keeps catching this.
     """
@@ -86,7 +147,9 @@ class HttpError(FetchError):
 class RpcError(FetchError):
     """A backend answered with a JSON-RPC error object, and this is it.
 
-    `code` is the backend's own. From bitcoind, `src/rpc/protocol.h`
+    `code` is the backend's number where it is an integer that fits in 16
+    signed bits, and 0 otherwise: JSON bounds no integer, so a code can
+    hold the scalar of a key. From bitcoind, `src/rpc/protocol.h`
     (bitcoin/bitcoin@f0de87f040): -5 is RPC_INVALID_ADDRESS_OR_KEY, which
     is what `getrawtransaction` returns for a transaction it cannot find
     -- including every non-wallet transaction on a node running without
@@ -97,14 +160,14 @@ class RpcError(FetchError):
     number, and parsing it back out of the message is what having a field
     avoids.
 
-    `data` is JSON-RPC's optional third member of an error object, as the
-    rpc client hands it over: a release of `bitcoin_core_rpc` whose
-    `RpcError` carries `data` passes it through, and one whose `RpcError`
-    has none leaves it None.
-
-    From an Electrum server the message names the method asked, `data` is
-    None, and `code` is 0 where the server's is no integer or does not
-    fit in 16 signed bits. The server's own text and `data` are dropped:
+    The message names the method where the error is read with one:
+    `BitcoinCoreFetcher` names it for each client call it wraps, and
+    `btclib_wallet.electrum`'s codec for each error it decodes. A
+    `bitcoin_core_rpc.RpcError` that a transport or a client of the
+    caller's own raises under another fetcher is wrapped without a
+    method, so that refusal names none. `data`, JSON-RPC's optional
+    third member of an error object, is None. The backend's own text and
+    `data` are dropped, since they can quote the request:
     `btclib_wallet.electrum`'s `_raise_rpc_error` says why.
 
     A FetchError still, so code catching that keeps catching this.
@@ -213,3 +276,432 @@ class NoDescriptorError(BTClibValueError):
     refusal it most often stands in front of is
     `btclib_wallet.descriptors.miniscript.from_script`'s, which is one.
     """
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_C = TypeVar("_C", bound=type)
+_F = TypeVar("_F", bound=FetchError)
+
+# each `FetchError` a module of this package built, by its id: a weak
+# reference to it, and its class, args and attributes as it was built
+_BUILT: dict[
+    int,
+    tuple[ref[FetchError], type[FetchError], tuple[object, ...], tuple[Any, ...]],
+] = {}
+
+
+def _forgotten(key: int) -> Callable[[ref[FetchError]], None]:
+    """Return what drops the entry of `_BUILT` at `key` once it is gone."""
+
+    def forget(_reference: ref[FetchError]) -> None:
+        # called as the error is freed, before its id can name another
+        _BUILT.pop(key, None)
+
+    return forget
+
+
+def _as_built(error: FetchError) -> bool:
+    """Return whether this package built `error`, and nothing changed it since.
+
+    Its class, each of its args and its attributes are those it was built
+    with, read by identity: code of the caller's that gives it other args or
+    another `__class__`, sets an attribute or adds a note, which is an
+    attribute, makes it the caller's. The args are read one by one, since
+    PyPy builds a new tuple at each read of `args` where it holds any. The
+    class is read first, so that what is read after is read off a class of
+    this package. The attributes are read only off a `dict` that is no
+    subclass, whose names are each a `str` that is no subclass: a subclass
+    of the caller's, which its code can set as `__dict__`, could answer the
+    reads with other attributes than those it holds, or change them while
+    they are read.
+
+    The args are read once. The attributes are then counted off the `dict`
+    itself, which runs no code of the caller's: a count other than the one
+    built refuses them without a copy, however many the caller's code
+    added. Otherwise they are read once, as a copy that `dict.copy` makes
+    in one step, and the copy is counted again. The args and the copy are
+    checked as read: a thread of the caller's can change the error while
+    they are checked. That thread can still change the error once it is
+    checked, before the caller catches it, which no check here can prevent.
+    """
+    entry = _BUILT.get(id(error))
+    if entry is None or entry[0]() is not error or type(error) is not entry[1]:
+        return False
+    args = error.args
+    fields = vars(error)
+    if type(fields) is not dict or len(fields) != len(entry[3]):
+        return False
+    fields = dict.copy(fields)
+    return (
+        len(args) == len(entry[2])
+        and all(value is built for value, built in zip(args, entry[2], strict=True))
+        and len(fields) == len(entry[3])
+        and all(type(name) is str for name in fields)
+        and all(fields.get(name, fields) is value for name, value in entry[3])
+    )
+
+
+def _failed_exchange(refusal: _F, failure_type: type[BaseException] | None) -> _F:
+    """Return `refusal`, holding `failure_type` as its `failure_type`.
+
+    `refusal` is one a module of this package has just built. It is
+    recorded again with its new attribute, so that `_as_built` still reads
+    it as built.
+    """
+    refusal.failure_type = failure_type
+    key = id(refusal)
+    reference, kind, args, _ = _BUILT[key]
+    _BUILT[key] = (reference, kind, args, tuple(vars(refusal).items()))
+    return refusal
+
+
+# the modules whose exception classes `FetchError.failure_type` holds: the
+# ones whose calls the transports of this package and of
+# `bitcoin_core_rpc` make. Read from `sys.modules`, since a module not yet
+# imported defines no class a failure can be of
+_FAILURE_MODULES = ("builtins", "socket", "ssl", "http.client", "urllib.error")
+
+# the descriptor answering a class's `__mro__`, which a metaclass can
+# override
+_MRO = vars(type)["__mro__"]
+
+
+def _failure_class(value: object) -> type[BaseException]:
+    """Return what `FetchError.failure_type` holds for `value`.
+
+    For a class, the first of it and its bases that a module of
+    `_FAILURE_MODULES` defines, found there by identity: a class of the
+    caller's is held as the one of those modules it derives from, which
+    pickles. `BaseException` where there is none, and for a value that is
+    no class. The bases are read through `type`'s own `__mro__`, and each
+    test is one no code of the caller's answers.
+    """
+    held: type[BaseException] = BaseException
+    if issubclass(type(value), type):
+        # by id, which no two live objects share: each class here is held
+        # by its module, and each base by the class
+        defined = {
+            id(each)
+            for name in _FAILURE_MODULES
+            if (module := sys.modules.get(name)) is not None
+            for each in vars(module).values()
+            if isinstance(each, type) and issubclass(each, BaseException)
+        }
+        for base in _MRO.__get__(value):
+            if id(base) in defined:
+                held = base
+                break
+    return held
+
+
+def _cut_at_the_callers(error: FetchError) -> None:
+    """Cut the chain of `error` at each link this package did not build.
+
+    A link is the `__cause__` or the `__context__` of an exception of the
+    chain. One that is no `FetchError` `_as_built` is dropped, and the
+    chain goes on through each one that is. Python sets a `__context__`
+    where an exception is raised inside an `except`, which may be a
+    handler of the caller's code that this package's code runs inside. No
+    refusal of this package is chained on purpose: each is raised outside
+    the `except` that caught what it refuses. `__suppress_context__` keeps
+    the value it had, which setting `__cause__` changes.
+    """
+    seen: set[int] = set()
+    todo = [error]
+    while todo:
+        link = todo.pop()
+        if id(link) in seen:
+            continue
+        seen.add(id(link))
+        hidden = link.__suppress_context__
+        for name in ("__cause__", "__context__"):
+            linked = getattr(link, name)
+            if linked is None:
+                continue
+            if issubclass(type(linked), FetchError) and _as_built(linked):
+                todo.append(linked)
+            else:
+                setattr(link, name, None)
+        link.__suppress_context__ = hidden
+
+
+def _built_by_the_package() -> bool:
+    """Return whether this package builds the `FetchError` being built.
+
+    The builder is the module of the first frame past `FetchError.__init__`
+    that is no `__init__` of this module. A subclass the caller defines is
+    then the caller's, and so is a class of this module that the caller's
+    code builds, but for the C code `FetchError`'s docstring names.
+    """
+    # the frame that called `FetchError.__init__`
+    frame: FrameType | None = sys._getframe(2)
+    while (
+        frame is not None
+        and frame.f_code.co_name == "__init__"
+        and frame.f_globals.get("__name__") == __name__
+    ):
+        frame = frame.f_back
+    module = "" if frame is None else str(frame.f_globals.get("__name__", ""))
+    return module == "btclib_wallet" or module.startswith("btclib_wallet.")
+
+
+@contextmanager
+def _caller_errors(request: str) -> Iterator[None]:
+    """Refuse by its class a `FetchError` the caller's code built.
+
+    Wrapped around a call of an object the caller can supply, such as a
+    `Fetcher`, a reader, a broadcaster, a client or a transport. A
+    `FetchError` a module of this package built, and that nothing changed
+    since, as `_as_built` says, passes as the same object: its text is
+    composed where the census of `tests/refusal_census_test.py` reads it.
+    Its chain is cut first, as `_cut_at_the_callers` says. Any other holds
+    what the caller's code gave it, which the census does not read. Its
+    text is not relayed, and nothing is chained to the refusal, which
+    `_failed` reads: an `RpcError` keeps its code and an `HttpError` its
+    status, as `_code` bounds them, and any other names its class and
+    holds the `failure_type` `_failed` makes of its own. A group of
+    exceptions is refused as `_GROUPS` says, and any other exception
+    passes as it is. `request` names the call, empty for none.
+    """
+    head = f"{request}: " if request else ""
+    kind = failure = ""
+    code = 0
+    failure_type: type[BaseException] | None = None
+    try:
+        with _GROUPS:
+            yield
+    except FetchError as e:
+        if _as_built(e):
+            _cut_at_the_callers(e)
+            raise
+        kind, code, failure, failure_type = _failed(e, RpcError, HttpError)
+    else:
+        return
+    refusal: FetchError
+    match kind:
+        case "rpc":
+            refusal = RpcError(f"{head}the server answered an rpc error", code)
+        case "http":
+            refusal = HttpError(f"{head}the server answered HTTP {code}", code)
+        case _:
+            refusal = FetchError(f"{head}no usable answer from the server: {failure}")
+            _failed_exchange(refusal, failure_type)
+    try:
+        raise refusal
+    finally:
+        # raised inside the `with` statement's handling of what its block
+        # raised, which Python sets as the refusal's `__context__`
+        refusal.__context__ = None
+
+
+class _CallersGroups:
+    """Refuse by its class a group of exceptions holding a `FetchError`.
+
+    A group is a `BaseExceptionGroup`, read by its type. This package
+    raises none, so each is the caller's code's, and `except* FetchError`
+    would hand the caller a `FetchError` it holds, among the leaves that
+    `_leaves` reads. Any other group passes as it is, as any exception that
+    is no `FetchError` does. A group holding a leaf that is no `Exception`,
+    such as a `KeyboardInterrupt`, raises a new one of the kind of the
+    first such leaf in place of the refusal, as `_interrupt` builds it,
+    so that no interrupt is lost. Not the leaf itself, which is the
+    caller's, and which the census of `tests/refusal_census_test.py`
+    refuses to see raised again. A context manager and not
+    an `except`: one lets an exception through by returning False, where
+    an `except` would have to raise it again. The refusal is a `FetchError`
+    that `_caller_errors` passes, without its `request`.
+    """
+
+    def __enter__(self) -> None:
+        """Enter the block, holding nothing."""
+
+    def __exit__(
+        self,
+        _kind: type[BaseException] | None,
+        error: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> Literal[False]:
+        """Return False for what passes, and raise the refusal of the rest.
+
+        What `error` is, is read off its type and not off its `__class__`.
+        """
+        if not issubclass(type(error), BaseExceptionGroup):
+            return False
+        leaves = _leaves(cast("BaseExceptionGroup[BaseException]", error))
+        if not any(issubclass(type(leaf), FetchError) for leaf in leaves):
+            return False
+        raised: BaseException = FetchError(
+            f"no usable answer from the server: {_class_name(error)}"
+        )
+        for leaf in leaves:
+            if not issubclass(type(leaf), Exception):
+                raised = _interrupt(leaf)
+                break
+        try:
+            raise raised
+        finally:
+            # raised while the `with` statement handles the group, which
+            # Python sets as its `__context__`
+            raised.__cause__ = None
+            raised.__context__ = None
+
+
+_GROUPS = _CallersGroups()
+
+
+# the descriptors answering `exceptions` and `code`, which a subclass can
+# override
+_MEMBERS = vars(BaseExceptionGroup)["exceptions"]
+_EXIT_CODE = vars(SystemExit)["code"]
+
+
+def _interrupt(leaf: BaseException) -> BaseException:
+    """Return a new exception of the kind of `leaf`, holding nothing of it.
+
+    A `KeyboardInterrupt`, a `GeneratorExit` or a `SystemExit`, read by
+    the type of `leaf`; a `SystemExit` says only whether its code is a
+    failure, as `sys.exit` reads it. Any other is a `BaseException`, which
+    no `except Exception` catches either.
+    """
+    kind = type(leaf)
+    if issubclass(kind, KeyboardInterrupt):
+        return _KeyboardInterruptException()
+    if issubclass(kind, GeneratorExit):
+        return _GeneratorExitException()
+    if issubclass(kind, SystemExit):
+        code = _EXIT_CODE.__get__(leaf, SystemExit)
+        # an int, a bool or an `IntEnum` among them, by its value, read by
+        # `int`'s own `__eq__`, so that no method of the caller's runs
+        success = code is None or (issubclass(type(code), int) and int.__eq__(code, 0))
+        return _SystemExitException(success is False)
+    return BaseException()
+
+
+class _KeyboardInterruptException(KeyboardInterrupt):
+    """A `KeyboardInterrupt` this package raises for one a group held."""
+
+
+class _GeneratorExitException(GeneratorExit):
+    """A `GeneratorExit` this package raises for one a group held."""
+
+
+class _SystemExitException(SystemExit):
+    """A `SystemExit` this package raises for one a group held."""
+
+
+def _leaves(group: BaseExceptionGroup[BaseException]) -> list[BaseException]:
+    """Return the leaves of `group`, in order, each group read once.
+
+    Each group is read through `BaseExceptionGroup`'s own `exceptions`,
+    and each member by its type: a subclass of the caller's can answer
+    `exceptions`, `__class__` or `derive`, which `split` and `subgroup`
+    call, otherwise.
+    """
+    leaves: list[BaseException] = []
+    todo: list[BaseException] = [group]
+    seen: set[int] = set()
+    while todo:
+        each = todo.pop()
+        if not issubclass(type(each), BaseExceptionGroup):
+            leaves.append(each)
+        elif id(each) not in seen:
+            seen.add(id(each))
+            todo += reversed(_MEMBERS.__get__(each, BaseExceptionGroup))
+    return leaves
+
+
+def _class_name(value: object) -> str:
+    """Return the name of the class of `value`, read off its type.
+
+    Not off its `__class__`, which a class can answer with another. A
+    name a metaclass of the caller's answers is read as a name only where
+    it is a `str` and no subclass of one, which could run code where it is
+    formatted. Any other is "an unnamed class", and so is one whose read
+    raises.
+    """
+    name: object = "an unnamed class"
+    with suppress(Exception):
+        name = type(value).__name__
+    return name if type(name) is str else "an unnamed class"
+
+
+def _failed(
+    error: BaseException,
+    rpc_error: type[BaseException],
+    http_error: type[BaseException],
+) -> tuple[str, int, str, type[BaseException] | None]:
+    """Return the kind of refusal for `error`, its code, class and failure.
+
+    The kind is read off the type of `error`, and not off its `__class__`:
+    "rpc" for an `rpc_error`, with what `_code` answers for its `code`;
+    "http" for an `http_error`, with that of its `status`; and "fetch",
+    with 0, for any other. The failure is what `_failure_class` makes of
+    the `failure_type` of a "fetch" one, and None for the other two, whose
+    server answered. A field of the caller's class can run its code, as a
+    property does: where reading one raises, the kind is "fetch", the
+    failure is None, and nothing that read raised is chained to a refusal.
+    """
+    kind = type(error)
+    name = _class_name(error)
+    failure_type: object = None
+    with suppress(Exception):
+        for refused, cls, field in (
+            ("rpc", rpc_error, "code"),
+            ("http", http_error, "status"),
+        ):
+            if issubclass(kind, cls):
+                # read with no default: a field missing is a read that raises
+                return refused, _code(getattr(error, field)), name, None
+        failure_type = getattr(error, "failure_type", None)
+    held = None if failure_type is None else _failure_class(failure_type)
+    return "fetch", 0, name, held
+
+
+def _guarded(function: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Return `function`, run inside `_caller_errors`.
+
+    For a public function or method of this package that reaches what the
+    caller supplies, or a method of the caller's own subclass: whatever
+    that runs, a `FetchError` the caller's code built leaves the call as
+    `_caller_errors` refuses it. The call is named by the qualified name
+    of `function`.
+    """
+    request = function.__qualname__
+
+    @functools.wraps(function)
+    def guarded(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with _caller_errors(request):
+            return function(*args, **kwargs)
+
+    return guarded
+
+
+def _guarded_methods(cls: _C) -> _C:
+    """Return `cls`, each public method and property of its own `_guarded`.
+
+    Public includes the dunder methods, such as `__init__`, `__enter__`
+    and `__exit__`, and the classmethods and staticmethods. An abstract
+    method is left as it is: the caller's subclass gives its body.
+    `tests/caller_errors_test.py` checks which classes take this.
+    """
+    for name, member in list(vars(cls).items()):
+        if name.startswith("_") and not name.endswith("__"):
+            continue
+        guarded: object
+        if isinstance(member, property):
+            fget, fset, fdel = (
+                None if f is None else _guarded(f)
+                for f in (member.fget, member.fset, member.fdel)
+            )
+            guarded = property(fget, fset, fdel, member.__doc__)
+        elif isinstance(member, (classmethod, staticmethod)):
+            guarded = type(member)(_guarded(member.__func__))
+        elif isinstance(member, FunctionType) and not getattr(
+            member, "__isabstractmethod__", False
+        ):
+            guarded = _guarded(member)
+        else:
+            continue
+        setattr(cls, name, guarded)
+    return cls

@@ -84,7 +84,7 @@ from btclib_wallet.psbt_signer import (
     request_signatures,
     sign_message,
 )
-from tests.refused_value_test import HEX, SPELLINGS
+from tests.refused_value_test import HEX, KEY, SPELLINGS
 from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" root of BIP39, which BIP84 publishes
@@ -334,7 +334,8 @@ def test_a_device_is_named_by_its_fingerprint(tmp_path: Path) -> None:
     )
     hwi = stand_in(tmp_path, {"enumerate": [one, other]})
     with pytest.raises(
-        SignerError, match=f"2 usable devices \\({FINGERPRINT}, deadbeef"
+        SignerError,
+        match="^2 usable devices: name the one to use by its fingerprint, which enumerate_devices answers$",
     ):
         HwiSigner(executable=hwi)
 
@@ -346,7 +347,7 @@ def test_a_device_is_named_by_its_fingerprint(tmp_path: Path) -> None:
         "code": -12,
     }
     hwi = stand_in(tmp_path, {"enumerate": [locked]})
-    with pytest.raises(SignerError, match="no usable device: trezor \\(locked\\)"):
+    with pytest.raises(SignerError, match=r"no usable device: 'trezor' \(an error\)"):
         HwiSigner(executable=hwi)
     hwi = stand_in(tmp_path, {"enumerate": []})
     with pytest.raises(SignerError, match="no device"):
@@ -610,7 +611,8 @@ def test_a_descriptor_is_registered_and_the_receipt_is_opaque(tmp_path: Path) ->
         )
     )
     with pytest.raises(
-        SignerError, match=r"Invalid policy \(signer error code -19\)"
+        SignerError,
+        match=r"the hwi command answered an error \(signer error code -19\)",
     ) as e:
         invalid.register_descriptor("my wallet", ranged)
     assert e.value.code == -19
@@ -672,6 +674,14 @@ def test_a_message_signature_is_verified_against_the_address(hwi: list[str]) -> 
     assert sign_message(device, b"hello".hex(), der_path, address) == signature
     with pytest.raises(BTClibValueError, match="not utf-8"):
         device.sign_message(b"\xff\xfe", der_path)
+
+
+def test_a_message_that_is_not_utf8_chains_no_byte_of_it(tmp_path: Path) -> None:
+    """The codec's error holds the message: not chained (issue #821)."""
+    device = signer(stand_in(tmp_path, {}))
+    with pytest.raises(BTClibValueError, match="this message is not utf-8$") as e:
+        device.sign_message(KEY + b"\xff", "m/0")
+    assert_secret_free(e.value, SPELLINGS)
 
 
 @pytest.mark.parametrize("text", ["-x", "--help", "--", "a\nb"])
@@ -761,6 +771,38 @@ def test_a_nul_character_is_refused_before_anything_runs(
     assert not Path(hwi[-1]).with_suffix(".argv.json").exists()
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [
+        b'{"key": "' + HEX.encode() + b'\\xff"}',
+        b'"' + HEX.encode() + b'\xff"',
+        b"[" * 200_000,
+        b'{"key": ' + b"1" * 5000 + b"}",
+    ],
+    ids=["escaped", "no-utf-8", "nested-past-the-parser", "int-past-the-digit-limit"],
+)
+def test_an_answer_json_cannot_read_is_a_signer_error(
+    tmp_path: Path, answer: bytes
+) -> None:
+    """Bytes json cannot read are no json (issue #821).
+
+    Bytes that are no UTF-8, nest too deep, or hold an int of more digits
+    than `sys.get_int_max_str_digits()` allows, which `json.loads`
+    refuses with a plain ValueError.
+
+    The decode error of bytes that are no UTF-8 holds them whole, so the
+    refusal holds no piece of the answer and chains nothing.
+    """
+    script = tmp_path / "answers.py"
+    script.write_text(
+        f"import sys; sys.stdout.buffer.write({answer!r})\n", encoding="ascii"
+    )
+    with pytest.raises(SignerError, match="^the hwi command did not answer json$") as e:
+        enumerate_devices(executable=[sys.executable, str(script)])
+    assert (e.value.__cause__, e.value.__context__) == (None, None)
+    assert_secret_free(e.value, SPELLINGS)
+
+
 def test_what_the_subprocess_can_do_wrong(tmp_path: Path) -> None:
     """Every failure is a SignerError, with HWI's code where there is one.
 
@@ -793,7 +835,10 @@ def test_what_the_subprocess_can_do_wrong(tmp_path: Path) -> None:
 
     silent = tmp_path / "silent.py"
     silent.write_text("import sys; sys.stderr.write('boom')\n", encoding="ascii")
-    with pytest.raises(SignerError, match="answered nothing: boom"):
+    with pytest.raises(
+        SignerError,
+        match="the hwi command answered nothing, 4 bytes on stderr",
+    ):
         enumerate_devices(executable=[sys.executable, str(silent)])
 
     flood = tmp_path / "flood.py"
@@ -831,14 +876,17 @@ def test_what_the_subprocess_can_do_wrong(tmp_path: Path) -> None:
 
     slow = tmp_path / "slow.py"
     slow.write_text("import time; time.sleep(5)\n", encoding="ascii")
-    with pytest.raises(SignerError, match="timed out after"):
+    with pytest.raises(SignerError, match="the hwi command timed out"):
         enumerate_devices(executable=[sys.executable, str(slow)], timeout=0.2)
 
     # the device said no, which is HWI's ACTION_CANCELED
     cancelled = stand_in(tmp_path, {"signtx": {"error": "Canceled", "code": -14}})
     device = signer(cancelled)
     psbt = account_psbt(signer(stand_in(tmp_path, {})))[0]
-    with pytest.raises(SignerError, match=r"Canceled \(signer error code -14\)") as e:
+    with pytest.raises(
+        SignerError,
+        match=r"the hwi command answered an error \(signer error code -14\)",
+    ) as e:
         device.sign_psbt(psbt)
     assert e.value.code == -14
 
@@ -1064,7 +1112,9 @@ def test_a_bare_name_is_never_looked_up_in_the_current_directory(
 
     assert not is_available()
     assert not is_available([DEFAULT_EXECUTABLE, "--flag"])
-    with pytest.raises(SignerNotFoundError, match=f"cannot run {DEFAULT_EXECUTABLE}:"):
+    with pytest.raises(
+        SignerNotFoundError, match="^cannot run the hwi command: not found on the PATH$"
+    ):
         enumerate_devices()
     popen.assert_not_called()
 
@@ -1343,7 +1393,7 @@ def test_another_sig_hash_type_is_sent_only_if_allowed(
     device = stand_in(tmp_path, {"signtx": {"psbt": psbt.b64encode()}})
     argv = Path(device[-1]).with_suffix(".argv.json")
 
-    with pytest.raises(BTClibValueError, match=f"sig_hash type {hex(hash_type)}"):
+    with pytest.raises(BTClibValueError, match=f"sig_hash type {hex(hash_type)},"):
         signer(device).sign_psbt(psbt)
     with pytest.raises(BTClibValueError, match="invalid sig_hash type"):
         signer(device).sign_psbt(psbt, allowed_sig_hash_types={0x04})
@@ -1446,7 +1496,9 @@ def test_every_error_code_arrives_with_its_number(tmp_path: Path, code: int) -> 
     """
     name = HWI_ERROR_CODES[code]
     hwi = stand_in(tmp_path, {"enumerate": {"error": name, "code": code}})
-    with pytest.raises(SignerError, match=f"{name} .signer error code {code}") as e:
+    # HWI's text is not relayed, its code is
+    pattern = rf"^the hwi command answered an error \(signer error code {code}\)$"
+    with pytest.raises(SignerError, match=pattern) as e:
         enumerate_devices(executable=hwi)
     assert e.value.code == code
 
@@ -1502,36 +1554,40 @@ def test_a_device_is_usable_only_with_a_fingerprint_and_no_error() -> None:
 
 
 def test_every_refusal_names_the_command_it_ran(tmp_path: Path) -> None:
-    """The message names argv[0], which is the executable and not a flag.
+    """The message says "the hwi command", and writes no element of argv.
 
-    A caller offering signers of several kinds reads that name to know
-    which one failed, and every one of these messages is built from the
-    same argv -- so naming any other element of it would name a chain
-    flag, a subcommand or the script the interpreter was given.
+    The executable is the caller's, a path that can hold anything, and
+    the arguments after it can hold a message or a descriptor: so no
+    refusal writes them, and none chains the `OSError` that names the
+    path (issue #821).
     """
-    # anchored on the colon that follows it, the OSError carried after it
-    # naming the same path: what is being asserted is which element of the
-    # argv the message opens with
     missing = str(tmp_path / "nowhere")
-    with pytest.raises(SignerNotFoundError, match=f"cannot run {re.escape(missing)}:"):
+    with pytest.raises(
+        SignerNotFoundError, match="^cannot run the hwi command: no such file$"
+    ) as not_found:
         enumerate_devices(executable=missing)
+    assert not_found.value.__cause__ is None
+    assert missing not in str(not_found.value)
 
     flood = tmp_path / "flood.py"
     flood.write_text("print('x' * 100)\n", encoding="ascii")
-    with pytest.raises(SignerError, match=re.escape(sys.executable)):
+    with pytest.raises(SignerError, match="^the hwi command ") as e:
         enumerate_devices(executable=[sys.executable, str(flood)], max_output=10)
+    assert sys.executable not in str(e.value)
 
     chatty = tmp_path / "chatty.py"
     chatty.write_text(
         "import sys\nsys.stderr.write('x' * 100)\nprint('[]')\n", encoding="ascii"
     )
-    with pytest.raises(SignerError, match=re.escape(sys.executable)):
+    with pytest.raises(SignerError, match="^the hwi command ") as e:
         enumerate_devices(executable=[sys.executable, str(chatty)], max_output=10)
+    assert sys.executable not in str(e.value)
 
     slow = tmp_path / "slow.py"
     slow.write_text("import time; time.sleep(5)\n", encoding="ascii")
-    with pytest.raises(SignerError, match=re.escape(sys.executable)):
+    with pytest.raises(SignerError, match="^the hwi command ") as e:
         enumerate_devices(executable=[sys.executable, str(slow)], timeout=0.2)
+    assert sys.executable not in str(e.value)
 
 
 def test_the_emulators_flag_is_global_and_goes_before_the_command(

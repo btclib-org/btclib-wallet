@@ -152,7 +152,7 @@ def _input(spk: bytes, **change: Any) -> dlc.FundingInput:
 def test_a_funding_input_is_checked_against_its_output() -> None:
     """Refuse a missing output, a wrong redeem script, a non-SegWit one."""
     p2wpkh = b"\x00\x14" + bytes(20)
-    with pytest.raises(BTClibValueError, match="no output 5"):
+    with pytest.raises(BTClibValueError, match="no output an int of 3 bits"):
         _input(p2wpkh, prev_vout=5)
     with pytest.raises(BTClibValueError, match="not the output's"):
         _input(p2wpkh, redeem_script=b"\x00\x14" + bytes(20))
@@ -587,7 +587,8 @@ def test_the_change_is_accepted_at_the_dust_limit_and_refused_under() -> None:
     spk = at_limit.offer.change_spk
     changes = [o for o in funding_tx.vout if o.script_pub_key.script == spk]
     assert [o.value for o in changes] == [1000]
-    with pytest.raises(BTClibValueError, match="of change, under 1000"):
+    err_msg = "leave an int of 10 bits of change, under 1000 satoshis"
+    with pytest.raises(BTClibValueError, match=err_msg):
         dataclasses.replace(terms, offer=_with_change(terms.offer, terms.fee_rate, 999))
 
 

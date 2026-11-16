@@ -24,6 +24,7 @@ repeated: what a recorded reply looks like is that module's business.
 from __future__ import annotations
 
 import ast
+import traceback
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,9 +96,12 @@ def _compact_filters() -> tuple[Fetcher, Sequence[object]]:
 _BACKENDS = {
     "BitcoinCoreFetcher": _Backend(_core, chain_mismatch("test", "main")),
     "BitcoinCoreRestFetcher": _Backend(_rest, chain_mismatch("test", "main")),
-    "CompactFilterFetcher": _Backend(_compact_filters, "not the genesis"),
-    "ElectrumFetcher": _Backend(_electrum, TESTNET_GENESIS),
-    "EsploraFetcher": _Backend(_esplora, TESTNET_GENESIS),
+    "CompactFilterFetcher": _Backend(
+        _compact_filters,
+        "the peer serves a chain whose first block does not follow the genesis this mainnet fetcher was built for",
+    ),
+    "ElectrumFetcher": _Backend(_electrum, "serves the testnet chain"),
+    "EsploraFetcher": _Backend(_esplora, "serves the testnet chain"),
 }
 
 # the questions `Fetcher` declares, which every backend answers, except
@@ -190,6 +194,79 @@ def test_no_question_is_answered_by_a_host_on_another_chain(
     endpoint, asked = _BACKENDS[backend].build()
     with pytest.raises(BTClibValueError, match=_BACKENDS[backend].refusal):
         _QUESTIONS[question](endpoint)
+    assert len(asked) == 1
+
+
+@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def test_a_disagreement_raised_again_carries_one_calls_traceback(
+    backend: str,
+) -> None:
+    """Each call raises a refusal of its own, which holds that call's frames.
+
+    The first refusal is remembered: raised again as it is, its traceback
+    would gather the frames of every later call, under each caller holding
+    it, and on every thread that asks.
+    """
+    endpoint, asked = _BACKENDS[backend].build()
+    raised: list[BaseException] = []
+    held: list[list[traceback.FrameSummary]] = []
+    for _ in range(3):
+        with pytest.raises(BTClibValueError) as e:
+            endpoint.get_block_count()
+        raised.append(e.value)
+        held.append(traceback.extract_tb(e.value.__traceback__))
+    assert len({id(refusal) for refusal in raised}) == 3
+    assert {str(refusal) for refusal in raised} == {str(raised[0])}
+    # the first caller's refusal is as it was raised, after two more calls
+    assert traceback.extract_tb(raised[0].__traceback__) == held[0]
+    assert len(held[1]) == len(held[2])
+    assert len(asked) == 1
+
+
+@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def test_a_note_on_one_refusal_is_on_no_other(backend: str) -> None:
+    """A note a caller adds to its refusal stays on that refusal.
+
+    Only the args of the remembered refusal carry over to a later one: a
+    shallow copy would share its `__notes__` list, and any attribute a
+    caller set on it, with every refusal raised after.
+    """
+    endpoint, asked = _BACKENDS[backend].build()
+    with pytest.raises(BTClibValueError) as first:
+        endpoint.get_block_count()
+    first.value.add_note("added by the first caller")
+    with pytest.raises(BTClibValueError) as second:
+        endpoint.get_block_count()
+    assert not hasattr(second.value, "__notes__")
+    second.value.add_note("added by the second caller")
+    assert first.value.__notes__ == ["added by the first caller"]
+    with pytest.raises(BTClibValueError) as third:
+        endpoint.get_block_count()
+    assert not hasattr(third.value, "__notes__")
+    assert second.value.args == first.value.args == third.value.args
+    assert len(asked) == 1
+
+
+@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def test_a_caller_rewriting_its_refusal_rewrites_no_other(backend: str) -> None:
+    """The refusal remembered is a copy raised to no caller.
+
+    The first caller is raised the refusal `assert_network` raised. Were
+    that the one remembered, a caller rewriting its args would put its
+    own text into every refusal raised after.
+    """
+    endpoint, asked = _BACKENDS[backend].build()
+    with pytest.raises(BTClibValueError) as first:
+        endpoint.get_block_count()
+    text = str(first.value)
+    first.value.args = ("rewritten by the first caller",)
+    with pytest.raises(BTClibValueError) as second:
+        endpoint.get_block_count()
+    assert str(second.value) == text
+    second.value.args = ("rewritten by the second caller",)
+    with pytest.raises(BTClibValueError) as third:
+        endpoint.get_block_count()
+    assert str(third.value) == text
     assert len(asked) == 1
 
 

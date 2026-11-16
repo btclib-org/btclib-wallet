@@ -21,10 +21,11 @@ from btclib.network import NETWORKS
 from btclib.tx import OutPoint, Tx
 
 from btclib_wallet.exceptions import FetchError, HttpError
+from btclib_wallet.fetch import esplora as esplora_module
 from btclib_wallet.fetch.balance import Balance
 from btclib_wallet.fetch.esplora import BLOCKSTREAM_INFO, EsploraFetcher
 from btclib_wallet.fetch.transport import MAX_TIMEOUT, SessionTransport
-from tests import chained_text
+from tests import chained_text, raises_alone
 from tests.fetch import (
     LATER_TX_ID,
     REGTEST_GENESIS_HEADER_RAW,
@@ -34,6 +35,7 @@ from tests.fetch import (
     TIP_ID,
     TX_ID,
     Recorded,
+    bounds_handed,
     recorded_body,
 )
 from tests.refused_value_test import HEX, SCALAR, SPELLINGS
@@ -324,7 +326,7 @@ def test_a_regtest_header_is_checked_against_regtests_limit() -> None:
     )
     assert regtest.get_block_header(0).hash == NETWORKS["regtest"].genesis_block
     mainnet = EsploraFetcher(BASE, transport=Recorded(*answers), verify_network=False)
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         mainnet.get_block_header(0)
 
 
@@ -340,7 +342,7 @@ def test_a_header_that_did_not_mine_the_bits_it_claims_is_refused() -> None:
         (200, forged.encode()),
     )
     esplora = EsploraFetcher(BASE, transport=transport, verify_network=False)
-    with pytest.raises(FetchError, match="^block header: invalid proof"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         esplora.get_block_header(TIP_HEIGHT)
 
 
@@ -352,9 +354,13 @@ def test_assert_network_accepts_the_genesis_of_the_network_given() -> None:
 def test_assert_network_refuses_a_different_genesis() -> None:
     """The silent failure this exists for: a testnet host under a mainnet label.
 
-    Both hashes are in the message, so the caller can see which is which.
+    Both chains are named in the message, so the caller can see which is
+    which.
     """
-    with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the testnet chain, and this fetcher was built for mainnet$",
+    ):
         fetcher((200, TESTNET_GENESIS.encode())).assert_network()
 
 
@@ -365,8 +371,21 @@ def test_assert_network_refuses_a_genesis_sorting_before_the_expected_one() -> N
     mainnet explorer is the case a guard written `>` accepts, where the
     mainnet fetcher above refuses under the same weakening.
     """
-    with pytest.raises(BTClibValueError, match=f"{MAINNET_GENESIS}.*{TESTNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the mainnet chain, and this fetcher was built for testnet$",
+    ):
         fetcher((200, MAINNET_GENESIS.encode()), network="testnet").assert_network()
+
+
+def test_assert_network_refuses_a_genesis_of_no_network_and_does_not_print_it() -> None:
+    """The hash is the explorer's: a key there is not written (issue #821)."""
+    with pytest.raises(
+        BTClibValueError,
+        match="serves a chain whose genesis is no network's, and this fetcher",
+    ) as e:
+        fetcher((200, HEX.encode())).assert_network()
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_the_first_fetch_asks_the_explorer_which_chain_it_serves() -> None:
@@ -405,7 +424,7 @@ def test_an_explorer_on_another_chain_answers_no_fetch_at_all() -> None:
     transport = Recorded((200, TESTNET_GENESIS.encode()))
     esplora = EsploraFetcher(BASE, transport=transport, verify_network=True)
     for _ in range(2):
-        with pytest.raises(BTClibValueError, match=TESTNET_GENESIS):
+        with pytest.raises(BTClibValueError, match="serves the testnet chain"):
             esplora.get_block_count()
     assert len(transport.requests) == 1
 
@@ -439,13 +458,13 @@ def test_verify_network_false_asks_the_explorer_nothing() -> None:
 
 def test_a_404_carries_what_the_explorer_said() -> None:
     """Esplora answers a failure with a status and a sentence."""
-    with pytest.raises(FetchError, match="HTTP 404 .*: Block not found$"):
+    with pytest.raises(FetchError, match="HTTP 404 from the path asked$"):
         fetcher((404, b"Block not found")).get_block_count()
 
 
 def test_a_404_on_a_tx_id_names_the_endpoint_and_not_the_sentence() -> None:
     """The sentence can quote the request and its tx id (issue #843)."""
-    with pytest.raises(FetchError, match=f"^HTTP 404 from {BASE}/tx/<txid>/hex$"):
+    with pytest.raises(FetchError, match="^HTTP 404 from /tx/<txid>/hex$"):
         fetcher((404, b"Transaction not found")).get_tx(TX_ID)
 
 
@@ -466,11 +485,12 @@ def test_the_status_of_a_failure_is_a_field(status: int) -> None:
     assert exc.value.status == status
 
 
-def test_a_body_that_is_not_utf_8_is_still_reported() -> None:
+def test_a_failure_whose_body_is_not_utf_8_is_still_reported() -> None:
     """What is in the way when it fails is not always something that speaks.
 
     Decoding with `replace` is why: a UnicodeDecodeError here would
-    replace the diagnosis with a second failure, of the client.
+    replace the status with a second failure, of the client. The body
+    itself is not relayed.
     """
     with pytest.raises(FetchError, match="HTTP 502"):
         fetcher((502, b"\xff\xfe not text")).get_tx(TX_ID)
@@ -481,6 +501,12 @@ def test_a_height_that_is_not_one(body: bytes) -> None:
     """Refuse a tip-height body that is not a decimal integer."""
     with pytest.raises(FetchError, match="blocks/tip/height:"):
         fetcher((200, body)).get_block_count()
+
+
+def test_a_negative_tip_height() -> None:
+    """Refuse a negative tip height, as a caller's (issue #901)."""
+    with pytest.raises(FetchError, match="^blocks/tip/height: a malformed answer$"):
+        fetcher((200, b"-1")).get_block_count()
 
 
 @pytest.mark.parametrize("body", [b"not hex", b"", b"00" * 31])
@@ -495,26 +521,29 @@ def test_whitespace_around_an_answer_is_not_part_of_it() -> None:
     assert fetcher((200, b"  481824\n")).get_block_count() == TIP_HEIGHT
 
 
-def test_each_answer_is_bounded_by_what_it_is() -> None:
+def test_each_answer_is_bounded_by_what_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
     """A height is not megabytes, and the limit says so per endpoint.
 
     One limit for every answer would have to be the widest of them -- a raw
     transaction in hex -- so a host answering `blocks/tip/height` with a
     transaction's worth of digits would be held in memory and only then
     refused by `int`. The narrow answers carry narrow limits, with room
-    for the newline a proxy adds and for nothing else.
+    for the newline a proxy adds and for nothing else. A refusal names no
+    number, so each limit is read where the fetcher hands it on.
     """
+    handed = bounds_handed(monkeypatch, esplora_module, "http_request")
     height = fetcher((200, b"9" * 65))
     with pytest.raises(
-        FetchError, match="response of 65 bytes, more than the max_body_size of 64"
+        FetchError, match="no usable answer from the server: FetchError"
     ):
         height.get_block_count()
 
     tip = fetcher((200, b"a" * 129))
     with pytest.raises(
-        FetchError, match="response of 129 bytes, more than the max_body_size of 128"
+        FetchError, match="no usable answer from the server: FetchError"
     ):
         tip.get_best_block_id()
+    assert handed == [64, 128]
 
     # and the recorded answers are inside their limits, which is the other
     # half of the claim
@@ -522,19 +551,22 @@ def test_each_answer_is_bounded_by_what_it_is() -> None:
     assert fetcher((200, TIP_ID.encode() + b"\n")).get_best_block_id().hex() == TIP_ID
 
 
-def test_the_header_answer_is_bounded_too() -> None:
+def test_the_header_answer_is_bounded_too(monkeypatch: pytest.MonkeyPatch) -> None:
     """The header endpoint, bounded the same way the others are.
 
     Eighty bytes of hex is a hundred and sixty digits, so the limit
-    leaves room for a proxy's newline and nothing past it.
+    leaves room for a proxy's newline and nothing past it. The limits are
+    read where the fetcher hands them on: the hash's, then the header's.
     """
+    handed = bounds_handed(monkeypatch, esplora_module, "http_request")
     header = fetcher(
         (200, recorded_body("esplora_block_height_hash.txt")), (200, b"a" * 257)
     )
     with pytest.raises(
-        FetchError, match="response of 257 bytes, more than the max_body_size of 256"
+        FetchError, match="no usable answer from the server: FetchError"
     ):
         header.get_block_header(TIP_HEIGHT)
+    assert handed == [128, 256]
 
     # and the recorded answer is inside its limit
     ok = fetcher(
@@ -545,15 +577,18 @@ def test_the_header_answer_is_bounded_too() -> None:
 
 
 def test_the_body_of_a_failure_is_not_held_to_the_answer_limit() -> None:
-    """A 404 page is longer than a height, and is still the diagnosis.
+    """A 404 page longer than a height is still reported as the 404 it is.
 
     The bound on an error body is `MAX_ERROR_BODY_SIZE` and truncation,
-    not the caller's limit for the answer that did not arrive: an explorer
-    saying "Block not found" in a paragraph of html is worth reading.
+    not the caller's limit for the answer that did not arrive. Held to
+    that limit, the page would be refused as an answer too large, and a
+    caller could not tell a missing block from an oversized reply by the
+    status. The page itself is not relayed.
     """
     page = b"<html><body>Block not found, and here is why: " + b"x" * 200 + b"</body>"
-    with pytest.raises(FetchError, match="HTTP 404"):
+    with pytest.raises(HttpError, match="^HTTP 404 from the path asked$") as raised:
         fetcher((404, page)).get_block_count()
+    assert raised.value.status == 404
 
 
 def test_broadcast_posts_the_wire_serialization_and_returns_the_txid() -> None:
@@ -603,7 +638,10 @@ def test_broadcast_refuses_a_success_naming_another_txid(confirmed: str) -> None
     back as the id of a broadcast the server never confirmed.
     """
     tx = broadcast_tx()
-    with pytest.raises(FetchError, match=f"the server confirmed {confirmed}"):
+    with pytest.raises(
+        FetchError,
+        match="^broadcast: the server confirmed another transaction$",
+    ):
         fetcher((200, confirmed.encode())).broadcast(tx)
 
 
@@ -631,7 +669,10 @@ def test_broadcast_verifies_the_network_before_sending_anything() -> None:
     """
     transport = Recorded((200, TESTNET_GENESIS.encode()))
     esplora = EsploraFetcher(BASE, transport=transport, verify_network=True)
-    with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the testnet chain, and this fetcher was built for mainnet$",
+    ):
         esplora.broadcast(broadcast_tx())
     assert len(transport.requests) == 1
     assert transport.requests[0].full_url == f"{BASE}/block-height/0"
@@ -649,11 +690,12 @@ def test_broadcast_verifies_the_network_once_like_the_other_methods() -> None:
     assert [r.get_method() for r in transport.requests] == ["GET", "POST", "POST"]
 
 
-def test_broadcast_reports_a_400_with_the_explorers_own_body() -> None:
-    """A refusal keeps Esplora's reason, the way a 404 on `get_tx` does."""
+def test_broadcast_reports_a_400_by_its_status_and_not_the_explorers_body() -> None:
+    """A refusal keeps the status and not Esplora's reason, as `get_tx` does."""
     tx = broadcast_tx()
-    with pytest.raises(FetchError, match="HTTP 400 .*: min relay fee not met"):
+    with pytest.raises(HttpError, match="^HTTP 400 from /tx$") as raised:
         fetcher((400, b"min relay fee not met")).broadcast(tx)
+    assert raised.value.status == 400
 
 
 def fee_estimates(**targets: float) -> bytes:
@@ -714,8 +756,7 @@ def test_estimate_fee_refuses_a_malformed_payload(body: bytes) -> None:
 
 def test_estimate_fee_says_not_an_object_for_a_reply_that_is_not_one() -> None:
     """A list is named as what it is, and described, not quoted."""
-    err_msg = "^fee-estimates: not an object: a list of length 2$"
-    with pytest.raises(FetchError, match=err_msg):
+    with raises_alone(FetchError, match="^fee-estimates: a malformed answer$"):
         fetcher((200, b"[1, 2]")).estimate_fee(1)
 
 
@@ -737,7 +778,10 @@ def test_estimate_fee_verifies_the_network_before_asking_anything() -> None:
     """The same guard every other question goes through first."""
     transport = Recorded((200, TESTNET_GENESIS.encode()))
     esplora = EsploraFetcher(BASE, transport=transport, verify_network=True)
-    with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the testnet chain, and this fetcher was built for mainnet$",
+    ):
         esplora.estimate_fee(1)
     assert len(transport.requests) == 1
 
@@ -878,7 +922,10 @@ def test_get_balance_verifies_the_network_before_asking_the_balance() -> None:
     """The same guard every other question goes through first."""
     transport = Recorded((200, TESTNET_GENESIS.encode()))
     esplora = EsploraFetcher(BASE, transport=transport, verify_network=True)
-    with pytest.raises(BTClibValueError, match=f"{TESTNET_GENESIS}.*{MAINNET_GENESIS}"):
+    with pytest.raises(
+        BTClibValueError,
+        match="serves the testnet chain, and this fetcher was built for mainnet$",
+    ):
         esplora.get_balance(GENESIS_ADDRESS)
     assert len(transport.requests) == 1
 
@@ -892,57 +939,54 @@ def test_get_balance_refuses_an_answer_for_another_address() -> None:
 
 
 @pytest.mark.parametrize(
-    "body, message",
+    "body",
     [
-        (b"not json", "line 1 column"),
-        (b"[1, 2]", "not an object"),
-        (address_body(chain=(True, 0)), "chain_stats: invalid sums"),
-        (address_body(mempool=(5, 1.5)), "mempool_stats: invalid sums"),
-        (address_body(chain=("100", 0)), "chain_stats: invalid sums"),
-        (address_body(chain=(10, 30)), "negative confirmed balance: -20"),
+        # the parser's text is not relayed, the type of its refusal is
+        b"not json",
+        b"[1, 2]",
+        address_body(chain=(True, 0)),
+        address_body(mempool=(5, 1.5)),
+        address_body(chain=("100", 0)),
+        address_body(chain=(10, 30)),
     ],
 )
-def test_get_balance_refuses_a_malformed_answer(body: bytes, message: str) -> None:
-    """Every refusal of the answer is a `FetchError` naming the address."""
-    with pytest.raises(FetchError, match=f"^address {GENESIS_ADDRESS}: .*{message}"):
+def test_get_balance_refuses_a_malformed_answer(body: bytes) -> None:
+    """Every refusal of the answer is a `FetchError` naming the question.
+
+    The address is the caller's, so it is not written. The refusal the
+    answer met is neither relayed nor chained: a builtin's is named by
+    its type.
+    """
+    with raises_alone(FetchError, match="^address: a malformed answer"):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
 
 
 def test_get_balance_refuses_stats_that_are_no_object() -> None:
     """A stats member that is no object is refused, not read as zero."""
     body = json.dumps({"address": GENESIS_ADDRESS, "chain_stats": None}).encode()
-    with pytest.raises(FetchError, match="chain_stats: not an object"):
+    with raises_alone(FetchError, match="address: a malformed answer"):
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
 
 
 @pytest.mark.parametrize(
-    "body, message",
+    "body",
     [
-        (json.dumps(HEX).encode(), "not an object: a str of length 64"),
-        (address_body(address=HEX), "the server answered for a str of length 64"),
-        (
-            json.dumps({"address": GENESIS_ADDRESS, "chain_stats": HEX}).encode(),
-            "chain_stats: not an object: a str of length 64",
-        ),
-        (
-            address_body(chain=(HEX, SCALAR)),
-            "chain_stats: invalid sums: a str of length 64, an int of 256 bits",
-        ),
+        json.dumps(HEX).encode(),
+        address_body(address=HEX),
+        json.dumps({"address": GENESIS_ADDRESS, "chain_stats": HEX}).encode(),
+        address_body(chain=(HEX, SCALAR)),
     ],
 )
-def test_get_balance_describes_what_it_refuses(body: bytes, message: str) -> None:
+def test_get_balance_describes_what_it_refuses(body: bytes) -> None:
     """What the explorer answered is described, not printed (issue #802)."""
-    with pytest.raises(
-        FetchError, match=f"^address {GENESIS_ADDRESS}: {message}$"
-    ) as e:
+    with raises_alone(FetchError, match="^address: ") as e:
         fetcher((200, body)).get_balance(GENESIS_ADDRESS)
     assert_secret_free(e.value, SPELLINGS)
 
 
 def test_estimate_fee_describes_a_reply_that_is_not_an_object() -> None:
     """What the explorer answered is described, not printed (issue #802)."""
-    err_msg = "^fee-estimates: not an object: a str of length 64$"
-    with pytest.raises(FetchError, match=err_msg) as e:
+    with raises_alone(FetchError, match="^fee-estimates: a malformed answer$") as e:
         fetcher((200, json.dumps(HEX).encode())).estimate_fee(1)
     assert_secret_free(e.value, SPELLINGS)
 

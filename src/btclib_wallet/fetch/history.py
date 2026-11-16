@@ -30,6 +30,7 @@ from btclib.script import ScriptPubKey
 from btclib.tx import Tx
 from btclib.utils import bytes_from_octets, is_octets
 
+from btclib_wallet.exceptions import _caller_errors, _guarded
 from btclib_wallet.fetch.fetcher import Fetcher
 
 __all__ = [
@@ -142,6 +143,7 @@ class HistoryReader(Protocol):
         ...
 
 
+@_guarded
 def start_height_for_time(fetcher: Fetcher, time: datetime) -> int | None:
     """Return the first height a wallet born at `time` has history from.
 
@@ -171,16 +173,18 @@ def start_height_for_time(fetcher: Fetcher, time: datetime) -> int | None:
     if not isinstance(time, datetime):
         raise BTClibTypeError(f"not a datetime: {type(time).__name__}")
     if time.utcoffset() is None:
-        raise BTClibValueError(f"a time with no time zone: {time}")
+        raise BTClibValueError("a time with no time zone")
     # compared as seconds, since a datetime near `datetime.min` has no
     # datetime two hours earlier
     earliest = time.timestamp() - MAX_FUTURE_BLOCK_TIME
-    tip = fetcher.get_block_count()
-    return next(
-        (
-            height
-            for height in range(tip + 1)
-            if fetcher.get_block_header(height).time.timestamp() >= earliest
-        ),
-        None,
-    )
+    with _caller_errors("get_block_count"):
+        tip = fetcher.get_block_count()
+    with _caller_errors("get_block_header"):
+        return next(
+            (
+                height
+                for height in range(tip + 1)
+                if fetcher.get_block_header(height).time.timestamp() >= earliest
+            ),
+            None,
+        )

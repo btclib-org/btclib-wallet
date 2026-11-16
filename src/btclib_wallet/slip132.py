@@ -23,6 +23,7 @@ from btclib.network import (
     network_from_xkeyversion,
 )
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -63,7 +64,7 @@ def address_from_xpub(xpub: BIP32Key) -> str:
     if xpub.key[0] not in {2, 3}:
         # this branch is reached with an xprv: never echo it,
         # the prefix already says what is wrong
-        raise BTClibValueError(f"not a public key: prefix 0x{xpub.key[:1].hex()}")
+        raise BTClibValueError("not a public key: the prefix is no SEC one")
 
     # NetworkField, where inference would widen the three to str: they
     # are field names of Network, resolved with getattr by the lookup
@@ -88,7 +89,7 @@ def address_from_xpub(xpub: BIP32Key) -> str:
             return function(PubKeyData(xpub.key, network, check_validity=False))
     # reachable: b58decode accepts the p2wsh versions too, and a p2wsh
     # address is not a function of the public key alone
-    err_msg = f"unknown xpub version: {xpub.version.hex()}"
+    err_msg = "unknown xpub version"
     raise BTClibValueError(err_msg)
 
 
@@ -97,10 +98,9 @@ def _helper_checks(
 ) -> tuple[BIP32KeyData, Network]:
     xkey = key_data_from_bip32_key(xkey)
     if check_root_xkey and not xkey.is_root:
-        # xkey may be an xprv: never echo it; depth and
-        # parent fingerprint are the non-root, non-secret, parts
-        err_msg = f"not a root key: depth {xkey.depth}"
-        err_msg += f", parent fingerprint 0x{xkey.parent_fingerprint.hex()}"
+        # xkey may be an xprv: never echo it; the depth is the
+        # non-root, non-secret, part
+        err_msg = f"not a root key: depth {_quoted(xkey.depth)}"
         raise BTClibValueError(err_msg)
     network = NETWORKS[network_from_xkeyversion(xkey.version)]
     return xkey, network

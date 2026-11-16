@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import select
 import socket
 import ssl
@@ -478,8 +479,9 @@ def test_the_deadline_holds_over_each_line_read(
 
     server = serve(notifying)
     with client(server, authority) as transport:
-        with pytest.raises(RpcFetchError, match="timeout expired"):
+        with pytest.raises(RpcFetchError, match="timeout expired") as e:
             transport(request(1), TIMEOUT)
+        assert e.value.failure_type is TimeoutError
         assert not transport.is_open
 
 
@@ -588,8 +590,13 @@ def test_a_late_answer_is_never_read(
 
     server = serve(late)
     with client(server, authority) as transport:
-        with pytest.raises(RpcFetchError, match="timed out|timeout expired"):
+        with pytest.raises(
+            RpcFetchError,
+            match=r"^no answer from '127\.0\.0\.1':\d+: TimeoutError$",
+        ) as e:
             transport(request(1), 0.5)
+        # the server took the request and did not answer in time
+        assert e.value.failure_type is TimeoutError
         assert asked.is_set()
         assert not transport.is_open
         release.set()
@@ -708,7 +715,9 @@ def test_a_close_that_fails_is_a_fetch_error(
     transport = client(server, authority)
     transport.context.sslsocket_class = FailingClose
     assert transport(request(1), TIMEOUT) == answer(1, 1)
-    with pytest.raises(RpcFetchError, match=f"closing {HOST}:{server.port}"):
+    with pytest.raises(
+        RpcFetchError, match=rf"^closing {re.escape(repr(HOST))}:{server.port}$"
+    ):
         transport.close()
     assert not transport.is_open
     with pytest.raises(RpcFetchError, match="answering another request"):
@@ -722,8 +731,45 @@ def test_the_default_context_refuses_an_untrusted_server(
     """TLS is verified by default: a test authority is no trusted one."""
     server = serve(numbered)
     with PersistentTlsLineTransport(HOST, server.port) as transport:
-        with pytest.raises(RpcFetchError, match="CERTIFICATE_VERIFY_FAILED"):
+        with pytest.raises(
+            RpcFetchError,
+            match=r"^no answer from '127\.0\.0\.1':\d+: SSLCertVerificationError$",
+        ) as e:
             transport(request(1), TIMEOUT)
+        assert e.value.failure_type is ssl.SSLCertVerificationError
+        assert not transport.is_open
+
+
+class FailingSocket(socket.socket):
+    """A socket whose close raises, once it has closed."""
+
+    @override
+    def close(self) -> None:
+        """Close, then fail."""
+        super().close()
+        raise OSError(MARKER)
+
+
+def test_a_handshake_refused_names_its_error_and_not_the_close(
+    serve: Callable[[Handler], Server], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A socket that fails to close after a failed handshake hides nothing."""
+
+    def connect(
+        address: tuple[str, int], _deadline: float, timeout: float, _where: str
+    ) -> socket.socket:
+        sock = socket.create_connection(address, timeout=timeout)
+        return FailingSocket(sock.family, sock.type, sock.proto, sock.detach())
+
+    monkeypatch.setattr(transport_module, "_open_connection", connect)
+    server = serve(numbered)
+    with PersistentTlsLineTransport(HOST, server.port) as transport:
+        with pytest.raises(
+            RpcFetchError,
+            match=r"^no answer from '127\.0\.0\.1':\d+: SSLCertVerificationError$",
+        ) as e:
+            transport(request(1), TIMEOUT)
+        assert e.value.failure_type is ssl.SSLCertVerificationError
         assert not transport.is_open
 
 
@@ -775,8 +821,9 @@ def test_the_wait_for_the_connection_counts_against_the_deadline(
     with client(server, authority) as transport, ThreadPoolExecutor(1) as pool:
         first = pool.submit(transport, request(1), TIMEOUT)
         assert asked.wait(TIMEOUT)
-        with pytest.raises(RpcFetchError, match="timeout expired"):
+        with pytest.raises(RpcFetchError, match="timeout expired") as e:
             transport(request(2), 0.2)
+        assert e.value.failure_type is TimeoutError
         # it did not wait for the slow call to end
         assert not first.done()
         release.set()

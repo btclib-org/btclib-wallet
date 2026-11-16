@@ -124,6 +124,13 @@ btclib\_wallet.psbt\_signer\_contract module
    :members:
    :show-inheritance:
 
+btclib\_wallet.recovery\_paths module
+-------------------------------------
+
+.. automodule:: btclib_wallet.recovery_paths
+   :members:
+   :show-inheritance:
+
 btclib\_wallet.silent\_payments module
 --------------------------------------
 

@@ -31,6 +31,7 @@ from btclib.utils import (
 )
 from ecc.curves import sec_point
 
+from btclib_wallet._refusal import _label, _message_text, _position, _quoted
 from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
 from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
 
@@ -162,6 +163,86 @@ PSBT_SEPARATOR = b"\x00"
 PSBT_V0 = 0
 PSBT_V2 = 2
 
+# the messages a caller of `assert_valid_taproot_script_keys` in the package
+# passes, which its refusal prints; it prints none other
+_SCRIPT_KEY_REFUSALS = ("invalid taproot script path key length",)
+
+# the labels the package passes these helpers, each naming a field or a
+# map where section 7 says which item failed: a refusal prints one of these
+# as it is, and anything else as `_quoted` shows it
+_LABELS = frozenset(
+    {
+        "PSBT_GLOBAL_FALLBACK_LOCKTIME",
+        "PSBT_GLOBAL_INPUT_COUNT",
+        "PSBT_GLOBAL_OUTPUT_COUNT",
+        "PSBT_GLOBAL_SP_DLEQ",
+        "PSBT_GLOBAL_SP_ECDH_SHARE",
+        "PSBT_GLOBAL_TX_MODIFIABLE",
+        "PSBT_GLOBAL_TX_VERSION",
+        "PSBT_IN_OUTPUT_INDEX",
+        "PSBT_IN_PREVIOUS_TXID",
+        "PSBT_IN_REQUIRED_HEIGHT_LOCKTIME",
+        "PSBT_IN_REQUIRED_TIME_LOCKTIME",
+        "PSBT_IN_SEQUENCE",
+        "PSBT_IN_SP_DLEQ",
+        "PSBT_IN_SP_ECDH_SHARE",
+        "PSBT_OUT_AMOUNT",
+        "PSBT_OUT_SCRIPT",
+        "PSBT_OUT_SP_V0_INFO",
+        "PSBT_OUT_SP_V0_LABEL",
+        "amount",
+        "fallback locktime",
+        "global",
+        "final script witness",
+        "final script_sig",
+        "global signed message",
+        "global unsigned tx",
+        "global version",
+        "input",
+        "input count",
+        "musig2 aggregate pub key",
+        "musig2 partial signature",
+        "musig2 participant pub key",
+        "musig2 public nonce",
+        "non-witness utxo",
+        "output",
+        "output count",
+        "output index",
+        "previous txid",
+        "redeem script",
+        "required height locktime",
+        "required time locktime",
+        "script",
+        "sequence",
+        "sig_hash type",
+        "silent payment global dleq proof",
+        "silent payment global dleq proof scan key",
+        "silent payment global ecdh share",
+        "silent payment global ecdh share scan key",
+        "silent payment info",
+        "silent payment input dleq proof",
+        "silent payment input dleq proof scan key",
+        "silent payment input ecdh share",
+        "silent payment input ecdh share scan key",
+        "silent payment label",
+        "silent payment scan key",
+        "silent payment spend key",
+        "taproot internal key",
+        "taproot key path signature",
+        "taproot key spend signature",
+        "taproot merkle root",
+        "taproot script path signature",
+        "taproot tree",
+        "tx modifiable",
+        "tx version",
+        "witness script",
+        "witness-utxo",
+    }
+)
+
+# the length and the first byte of each public key SEC 1 defines
+_SEC_PREFIXES = ((33, b"\x02"), (33, b"\x03"), (65, b"\x04"))
+
 
 def deserialize_map(data: BinaryData, which: str) -> dict[bytes, bytes]:
     """Return one map, read from the stream up to its 0x00 separator.
@@ -192,10 +273,8 @@ def deserialize_map(data: BinaryData, which: str) -> dict[bytes, bytes]:
         key = read_exactly(stream, var_int.parse(stream), "psbt map key")
         value = read_exactly(stream, var_int.parse(stream), "psbt map value")
         if key in partial_map:
-            err_msg = (
-                f"duplicated key in psbt map: {which}, type byte 0x{key[:1].hex()}, "
-            )
-            err_msg += f"{len(key)} bytes"
+            err_msg = f"duplicated key in psbt map: {_label(which, _LABELS)}, "
+            err_msg += f"type byte {_position(key[0])}, {len(key)} bytes"
             raise BTClibValueError(err_msg)
         partial_map[key] = value
 
@@ -251,10 +330,11 @@ def deserialize_sized_int(
     """
     assert_type(signed, bool, "signed")
     if len(k) != 1:
-        err_msg = f"invalid {type_} key length: {len(k)}"
+        err_msg = f"invalid {_label(type_, _LABELS)} key length: {len(k)}"
         raise BTClibValueError(err_msg)
     if len(v) != size:
-        err_msg = f"invalid {type_} length: {len(v)} bytes instead of {size}"
+        err_msg = f"invalid {_label(type_, _LABELS)} length: {len(v)} bytes"
+        err_msg += f" instead of {_position(size)}"
         raise BTClibValueError(err_msg)
     return int.from_bytes(v, byteorder="little", signed=signed)
 
@@ -269,12 +349,12 @@ def deserialize_count(k: bytes, v: bytes, type_: str) -> int:
     be the same malleability by another route.
     """
     if len(k) != 1:
-        err_msg = f"invalid {type_} key length: {len(k)}"
+        err_msg = f"invalid {_label(type_, _LABELS)} key length: {len(k)}"
         raise BTClibValueError(err_msg)
     stream = BytesIO(v)
     count = var_int.parse(stream)
     if stream.read():
-        err_msg = f"invalid {type_}: {len(v)} bytes for a {len(var_int.serialize(count))}-byte count"
+        err_msg = f"invalid {_label(type_, _LABELS)}: {len(v)} bytes for a {len(var_int.serialize(count))}-byte count"
         raise BTClibValueError(err_msg)
     return count
 
@@ -513,7 +593,7 @@ def parse_taproot_bip32(v: bytes) -> tuple[list[bytes], BIP32KeyOrigin]:
     # otherwise run len_ times whatever v is
     available = len(v) - stream.tell()
     if len_ * LEAF_HASH_SIZE + FINGERPRINT_SIZE > available:
-        err_msg = f"invalid number of leaf hashes: {len_}"
+        err_msg = f"invalid number of leaf hashes: {_quoted(len_)}"
         raise BTClibValueError(err_msg)
     leaves = [stream.read(LEAF_HASH_SIZE) for _ in range(len_)]
     bip32keyorigin = BIP32KeyOrigin.parse(stream.read())
@@ -590,12 +670,10 @@ def pub_key_shape(pub_key: bytes) -> str:
     pair SEC defines: `02` or `03` of 33 bytes, `04` of 65.
     """
     shape = f"{len(pub_key)} bytes"
-    if (len(pub_key), pub_key[:1]) in {
-        (33, b"\x02"),
-        (33, b"\x03"),
-        (65, b"\x04"),
-    }:
-        shape += f", prefix 0x{pub_key[:1].hex()}"
+    # the prefix written is the pair's own, which holds no byte of the value
+    for size, prefix in _SEC_PREFIXES:
+        if (len(pub_key), pub_key[:1]) == (size, prefix):
+            shape += f", prefix 0x{prefix.hex()}"
     return shape
 
 
@@ -611,9 +689,9 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str, where: str = "") -> N
     octets a key rather than 33 octets: a psbt naming an aggregate key
     that is not on the curve names a session no signer can join.
     """
-    suffix = f", {where}" if where else ""
+    suffix = f", {_quoted(where)}" if where else ""
     if len(pub_key) != MUSIG2_PUB_KEY_SIZE:
-        err_msg = f"invalid {what} length: {len(pub_key)} bytes "
+        err_msg = f"invalid {_label(what, _LABELS)} length: {len(pub_key)} bytes "
         err_msg += f"instead of {MUSIG2_PUB_KEY_SIZE}{suffix}"
         raise BTClibValueError(err_msg)
     # ValueError: the parse may be
@@ -628,7 +706,7 @@ def assert_valid_musig2_pub_key(pub_key: bytes, what: str, where: str = "") -> N
     else:
         is_a_point = True
     if not is_a_point:
-        err_msg = f"invalid {what}: not a point, {pub_key_shape(pub_key)}{suffix}"
+        err_msg = f"invalid {_label(what, _LABELS)}: not a point, {pub_key_shape(pub_key)}{suffix}"
         raise BTClibValueError(err_msg)
 
 
@@ -650,7 +728,7 @@ def assert_valid_musig2_participant_pub_keys(
         )
         if not participant_pub_keys:
             err_msg = "invalid musig2 participant pub keys: "
-            err_msg += f"none for aggregate key {aggregate_pub_key.hex()}"
+            err_msg += f"none for the aggregate key of entry {i}"
             raise BTClibValueError(err_msg)
         for j, participant_pub_key in enumerate(participant_pub_keys):
             assert_valid_musig2_pub_key(
@@ -673,6 +751,10 @@ def assert_valid_sp_scan_key_map(
     names a recipient no address ever published, and the ECDH the value
     claims to be could not have been computed against it.
 
+    A value of `SP_ECDH_SHARE_SIZE` is a share, and it is parsed too: a
+    share is a point, and BIP374's VerifyProof takes it as one, so a share
+    that is no point is refused here, where the refusal can name its field.
+
     What is *not* checked here is that the value is the share it claims to
     be. That is BIP374's answer, `ecc.dleq.verify_proof` over
     the input keys, and asking it here would make a codec verify a proof.
@@ -680,9 +762,11 @@ def assert_valid_sp_scan_key_map(
     for i, (scan_key, value) in enumerate(map_.items()):
         assert_valid_musig2_pub_key(scan_key, f"{what} scan key", f"entry {i}")
         if len(value) != value_size:
-            err_msg = f"invalid {what} length: {len(value)} bytes "
-            err_msg += f"instead of {value_size}"
+            err_msg = f"invalid {_label(what, _LABELS)} length: {len(value)} bytes "
+            err_msg += f"instead of {_position(value_size)}"
             raise BTClibValueError(err_msg)
+        if value_size == SP_ECDH_SHARE_SIZE:
+            assert_valid_musig2_pub_key(value, what, f"entry {i}")
 
 
 def assert_valid_sp_v0_info(info: bytes) -> None:
@@ -715,7 +799,7 @@ def assert_valid_musig2_session_data(
     for key, value in session_data.items():
         if len(key) not in MUSIG2_SESSION_KEY_SIZES:
             sizes = " or ".join(str(size) for size in MUSIG2_SESSION_KEY_SIZES)
-            err_msg = f"invalid {what} key length: {len(key)} bytes instead of {sizes}"
+            err_msg = f"invalid {_label(what, _LABELS)} key length: {len(key)} bytes instead of {sizes}"
             raise BTClibValueError(err_msg)
         assert_valid_musig2_pub_key(
             key[:MUSIG2_PUB_KEY_SIZE], "musig2 participant pub key"
@@ -725,8 +809,8 @@ def assert_valid_musig2_session_data(
             "musig2 aggregate pub key",
         )
         if len(value) != value_size:
-            err_msg = f"invalid {what} length: {len(value)} bytes "
-            err_msg += f"instead of {value_size}"
+            err_msg = f"invalid {_label(what, _LABELS)} length: {len(value)} bytes "
+            err_msg += f"instead of {_position(value_size)}"
             raise BTClibValueError(err_msg)
 
 
@@ -738,7 +822,7 @@ def serialize_bytes(type_: bytes, value: bytes) -> bytes:
 def deserialize_bytes(k: bytes, v: bytes, type_: str) -> bytes:
     """Return the dataclass element from its binary representation."""
     if len(k) != 1:
-        err_msg = f"invalid {type_} key length: {len(k)}"
+        err_msg = f"invalid {_label(type_, _LABELS)} key length: {len(k)}"
         raise BTClibValueError(err_msg)
     return v
 
@@ -788,9 +872,9 @@ def assert_valid_psbt_version(version: Any) -> None:
         raise BTClibTypeError(f"invalid version type: {type(version).__name__}")
     # must be a 4-bytes int
     if not 0 <= version <= 0xFFFFFFFF:
-        raise BTClibValueError(f"invalid version: {version}")
+        raise BTClibValueError(f"invalid version: {_message_text(version)}")
     if version not in {PSBT_V0, PSBT_V2}:
-        raise BTClibValueError(f"invalid psbt version: {version}")
+        raise BTClibValueError(f"invalid psbt version: {_quoted(version)}")
 
 
 def assert_not_a_v2_field(
@@ -813,7 +897,7 @@ def assert_not_a_v2_field(
     them there too.
     """
     if psbt_version == 0 and (name := v2_fields.get(key_type)):
-        raise BTClibValueError(f"{name} is not allowed in a v0 psbt")
+        raise BTClibValueError(f"{_label(name, _LABELS)} is not allowed in a v0 psbt")
 
 
 def assert_valid_taproot_internal_key(key: bytes) -> None:
@@ -826,9 +910,13 @@ def assert_valid_taproot_script_keys(keys: list[bytes], err_msg: str) -> None:
     """Fails when the keys have not the correct length.
 
     Each key is the sum of a 32byte pubkey and a 32 byte leaf hash.
+    `err_msg` is printed where it is one of `_SCRIPT_KEY_REFUSALS`, and a
+    message of the function's own otherwise: a refusal prints no text a
+    caller handed over.
     """
     if any(key and len(key) != 64 for key in keys):
-        raise BTClibValueError(err_msg)
+        known = next((m for m in _SCRIPT_KEY_REFUSALS if m == err_msg), None)
+        raise BTClibValueError(known or "invalid taproot script key length")
 
 
 def assert_valid_taproot_signatures(signatures: list[bytes], what: str) -> None:
@@ -853,14 +941,14 @@ def assert_valid_taproot_signatures(signatures: list[bytes], what: str) -> None:
         # for each of the two fields, so widening 64 to (64, 65) leaves
         # every one of them rejected
         if len(signature) not in {64, 65}:
-            err_msg = f"invalid {what} length: {len(signature)} bytes"
+            err_msg = f"invalid {_label(what, _LABELS)} length: {len(signature)} bytes"
             err_msg += " instead of 64 or 65"
             raise BTClibValueError(err_msg)
 
         if len(signature) == 65:
             sig_hash_type = signature[-1]
             if sig_hash_type == DEFAULT:
-                err_msg = f"invalid {what}: explicit SIGHASH_DEFAULT"
+                err_msg = f"invalid {_label(what, _LABELS)}: explicit SIGHASH_DEFAULT"
                 err_msg += "; the 64-byte signature is what means it"
                 raise BTClibValueError(err_msg)
             # SIG_HASH_TYPES rather than a second list of the seven
@@ -868,7 +956,8 @@ def assert_valid_taproot_signatures(signatures: list[bytes], what: str) -> None:
             # test against, and a psbt carrying what neither would accept
             # is a signature nothing can spend with
             if sig_hash_type not in SIG_HASH_TYPES:
-                err_msg = f"invalid {what} sig_hash type: {hex(sig_hash_type)}"
+                err_msg = f"invalid {_label(what, _LABELS)} sig_hash type: "
+                err_msg += _quoted(sig_hash_type)
                 raise BTClibValueError(err_msg)
 
 
@@ -915,7 +1004,7 @@ def deserialize_tx(
     assert_type(include_witness, bool, "include_witness")
     assert_type(unsigned_template, bool, "unsigned_template")
     if len(k) != 1:
-        err_msg = f"invalid {type_} key length: {len(k)}"
+        err_msg = f"invalid {_label(type_, _LABELS)} key length: {len(k)}"
         raise BTClibValueError(err_msg)
     tx = (
         Tx.parse(v, check_validity=False)

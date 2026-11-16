@@ -61,9 +61,13 @@ env:
   # Raising it is a commit
   ELECTRS_COMMIT: dd09701e84dc88a2c58a1365f798222b66e13772
 
-# named literally rather than through github.workflow, as everywhere else
+# named literally rather than through github.workflow, as everywhere
+# else. A push run is keyed on its commit and its ref, as test.yml says
 concurrency:
-  group: integration-electrs-${{ github.event.pull_request.number || github.ref }}
+  group: >-
+    integration-electrs-${{ github.event_name == 'push'
+    && format('{0}-{1}', github.sha, github.ref)
+    || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

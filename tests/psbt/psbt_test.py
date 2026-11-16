@@ -36,6 +36,7 @@ from ecc import dsa, ssa
 from ecc.curves import sec_point
 from ecc.hashes import tagged_hash
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import (
     Psbt,
@@ -278,7 +279,9 @@ def test_an_aggregate_key_with_no_participants_is_not_a_field() -> None:
     aggregate = next(iter(psbt.inputs[0].musig2_participant_pub_keys))
 
     psbt.inputs[0].musig2_participant_pub_keys = {aggregate: []}
-    err_msg = "invalid musig2 participant pub keys: none for aggregate key"
+    err_msg = (
+        "invalid musig2 participant pub keys: none for the aggregate key of entry 0"
+    )
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -527,17 +530,20 @@ def test_the_identifier_of_a_v2_psbt_ignores_the_sequences() -> None:
 
     other = deepcopy(psbt)
     other.inputs[0].output_index = 1
-    with pytest.raises(BTClibValueError, match="mismatched psbt.tx.id: "):
+    with pytest.raises(BTClibValueError, match=r"mismatched psbt\.tx\.id"):
         combine([deepcopy(psbt), deepcopy(other)])
     # and the other way round: what is compared is two identifiers for
     # equality, where an ordering would refuse one of the two arrangements
     # of the same disagreement and accept the other
-    with pytest.raises(BTClibValueError, match="mismatched psbt.tx.id: "):
+    with pytest.raises(BTClibValueError, match=r"mismatched psbt\.tx\.id"):
         combine([deepcopy(other), deepcopy(psbt)])
 
     # and the two versions are not combined into each other: which of
     # them the result would be is the caller's to say, with to_v0/to_v2
-    with pytest.raises(BTClibValueError, match="mismatched psbt version: 0 vs 2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="mismatched psbt version: an int of 0 bits vs an int of 2 bits",
+    ):
         combine([psbt, psbt.to_v0()])
 
 
@@ -712,7 +718,10 @@ def test_joining_asks_every_psbt_whether_it_may_grow() -> None:
     with pytest.raises(BTClibValueError, match="Version numbers are not the same"):
         join([first, other_tx_version], True, True, False, False)
 
-    with pytest.raises(BTClibValueError, match="mismatched psbt version: 0 vs 2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="mismatched psbt version: an int of 0 bits vs an int of 2 bits",
+    ):
         join([first, second.to_v0()], True, True, False, False)
 
 
@@ -885,7 +894,9 @@ def test_the_v2_fields_are_valid_at_both_ends_of_their_range() -> None:
     psbt_in.required_height_lock_time = 1
     psbt_in.assert_valid()
     psbt_in.required_height_lock_time = 0
-    with pytest.raises(BTClibValueError, match="invalid required height locktime: 0"):
+    with pytest.raises(
+        BTClibValueError, match="invalid required height locktime: an int of 0 bits"
+    ):
         psbt_in.assert_valid()
     psbt_in.required_height_lock_time = None
 
@@ -1098,7 +1109,7 @@ def test_taproot_signature_carries_its_sig_hash_type() -> None:
 
     # not one of the seven values SIG_HASH_TYPES holds
     psbt.inputs[0].taproot_key_spend_signature = signature + b"\x04"
-    err_msg = "invalid taproot key path signature sig_hash type: 0x4"
+    err_msg = "invalid taproot key path signature sig_hash type: an int of 3 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -1126,7 +1137,7 @@ def test_taproot_signature_carries_its_sig_hash_type() -> None:
 
     # 0x80 is ANYONECANPAY with DEFAULT, which BIP341 does not define
     signatures[key] = signature + b"\x80"
-    err_msg = "invalid taproot script path signature sig_hash type: 0x80"
+    err_msg = "invalid taproot script path signature sig_hash type: an int of 8 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
 
@@ -1491,7 +1502,7 @@ def test_explicit_version() -> None:
     # way in, check_validity or not: which fields a psbt is written and
     # read as *is* its version, so there is nothing to defer
     psbt.version = 10
-    err_msg = "invalid psbt version: 10"
+    err_msg = "invalid psbt version: an int of 4 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.b64encode(check_validity=False)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -1862,11 +1873,14 @@ def test_exceptions() -> None:
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.serialize()
     psbt.version = 0xFFFFFFFF + 1
-    with pytest.raises(BTClibValueError, match=err_msg):
+    # past 4 bytes it is no version field, so it is described, not printed
+    with pytest.raises(BTClibValueError, match="^invalid version: an int of 33 bits$"):
         psbt.serialize()
     # in range, and not one of the two versions there are
     psbt.version = 3
-    with pytest.raises(BTClibValueError, match="invalid psbt version: 3"):
+    with pytest.raises(
+        BTClibValueError, match="invalid psbt version: an int of 2 bits"
+    ):
         psbt.serialize()
 
     psbt_str = "cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAAiAgKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgf0cwRAIgdAGK1BgAl7hzMjwAFXILNoTMgSOJEEjn282bVa1nnJkCIHPTabdA4+tT3O+jOCPIBwUUylWn3ZVE8VfBZ5EyYRGMASICAtq2H/SaFNtqfQKwzR+7ePxLGDErW05U2uTbovv+9TbXSDBFAiEA9hA4swjcHahlo0hSdG8BV3KTQgjG0kRUOTzZm98iF3cCIAVuZ1pnWm0KArhbFOXikHTYolqbV2C+ooFvZhkQoAbqAQEDBAEAAAABBEdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSriIGApWDvzmuCmCXR60Zmt3WNPphCFWdbFzTm0whg/GrluB/ENkMak8AAACAAAAAgAAAAIAiBgLath/0mhTban0CsM0fu3j8SxgxK1tOVNrk26L7/vU21xDZDGpPAAAAgAAAAIABAACAAAEBIADC6wsAAAAAF6kUt/X69A49QKWkWbHbNTXyty+pIeiHIgIDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtxHMEQCIGLrelVhB6fHP0WsSrWh3d9vcHX7EnWWmn84Pv/3hLyyAiAMBdu3Rw2/LwhVfdNWxzJcHtMJE+mWzThAlF2xIijaXwEiAgI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc0cwRAIgZfRbpZmLWaJ//hp77QFq8fH5DVSzqo90UKpfVqJRA70CIH9yRwOtHtuWaAsoS1bU/8uI9/t1nqu+CKow8puFE4PSAQEDBAEAAAABBCIAIIwjUxc3Q7WV37Sge3K6jkLjeX2nTof+fZ10l+OyAokDAQVHUiEDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwhAjrdkE89bc9Z3bkGsN7iNSm3/7ntUOXoYVGSaGAiHw5zUq4iBgI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8OcxDZDGpPAAAAgAAAAIADAACAIgYDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwQ2QxqTwAAAIAAAACAAgAAgAAiAgOppMN/WZbTqiXbrGtXCvBlA5RJKUJGCzVHU+2e7KWHcRDZDGpPAAAAgAAAAIAEAACAACICAn9jmXV9Lv9VoTatAsaEsYOLZVbl8bazQoKpS2tQBRCWENkMak8AAACAAAAAgAUAAIAA"
@@ -2964,7 +2978,7 @@ def test_combining_refuses_two_participant_lists_for_one_aggregate_key() -> None
     second.outputs[0].musig2_participant_pub_keys = {
         aggregate_pub_key: list(reversed(participants))
     }
-    err_msg = "mismatched musig2 participants for aggregate key "
+    err_msg = "mismatched musig2 participants for an aggregate key"
     with pytest.raises(BTClibValueError, match=err_msg):
         combine([first, second])
 
@@ -3113,7 +3127,8 @@ def test_finalize_checks_a_partial_signature_against_its_pub_key() -> None:
     keys = list(psbt.inputs[0].partial_sigs)
     sigs = list(psbt.inputs[0].partial_sigs.values())
     psbt.inputs[0].partial_sigs = {keys[0]: sigs[1], keys[1]: sigs[0]}
-    err_msg = "invalid partial signature for pub_key "
+    # which signature failed is said by where it is
+    err_msg = "^input 0: partial signature 0: invalid$"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3122,6 +3137,7 @@ def test_finalize_checks_a_partial_signature_against_its_pub_key() -> None:
     keys = list(psbt.inputs[1].partial_sigs)
     sigs = list(psbt.inputs[1].partial_sigs.values())
     psbt.inputs[1].partial_sigs = {keys[0]: sigs[1], keys[1]: sigs[0]}
+    err_msg = "^input 1: partial signature 0: invalid$"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3614,7 +3630,10 @@ def test_what_a_taproot_input_cannot_be_signed_from() -> None:
         script + b"\x51",
         leaf_version,
     )
-    with pytest.raises(BTClibValueError, match="does not prove leaf script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="a control block does not prove its leaf script against the output key",
+    ):
         psbt.assert_signable()
 
     # a leaf version that is not the one the control block declares:
@@ -3675,7 +3694,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     # the signature commits to another
     psbt = _taproot_signed("output key is a MuSig2 Aggregate Pubkey, with all partial")
     psbt.inputs[0].sig_hash_type = 1
-    err_msg = "invalid taproot key path signature sig_hash type"
+    err_msg = "input 0: taproot key path signature: invalid sig_hash type"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3683,7 +3702,9 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     psbt = _taproot_signed("output key is a MuSig2 Aggregate Pubkey, with all partial")
     psbt.inputs[0].taproot_key_spend_signature = b"\x01" * 64
     err_msg = "invalid taproot key path signature for output key"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(
+        BTClibValueError, match="^input 0: taproot key path signature: invalid$"
+    ):
         finalize(psbt)
 
     # no utxo, which is not one input's problem: a taproot signature
@@ -3714,7 +3735,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
         "a key in a script is a MuSig2 Aggregate Pubkey, with all partial"
     )
     psbt.inputs[0].taproot_script_spend_signatures = {key_data[:32] + b"\x02" * 32: sig}
-    with pytest.raises(BTClibValueError, match="no leaf script for tapleaf hash"):
+    with pytest.raises(BTClibValueError, match="no leaf script for the tapleaf hash"):
         finalize(psbt)
 
     # a leaf whose script is neither a single key and OP_CHECKSIG nor a
@@ -3724,7 +3745,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
     )
     control_block = next(iter(psbt.inputs[0].taproot_leaf_scripts))
     psbt.inputs[0].taproot_leaf_scripts[control_block] = (b"\x51", 0xC0)
-    with pytest.raises(BTClibValueError, match="no leaf script for tapleaf hash"):
+    with pytest.raises(BTClibValueError, match="no leaf script for the tapleaf hash"):
         finalize(psbt)
 
     # the same, reached by its own hash: the leaf is the one signed for and
@@ -3746,7 +3767,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
         "a key in a script is a MuSig2 Aggregate Pubkey, with all partial"
     )
     psbt.inputs[0].taproot_script_spend_signatures = {b"\x03" * 32 + key_data[32:]: sig}
-    err_msg = "which is not the key of leaf script"
+    err_msg = "that is not the key of the leaf script"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -3755,7 +3776,7 @@ def test_what_a_taproot_input_cannot_be_finalized_from() -> None:
         "a key in a script is a MuSig2 Aggregate Pubkey, with all partial"
     )
     psbt.inputs[0].taproot_script_spend_signatures = {key_data: b"\x01" * 64}
-    err_msg = "invalid taproot script path signature for key"
+    err_msg = r"taproot script path signature \d+: invalid"
     with pytest.raises(BTClibValueError, match=err_msg):
         finalize(psbt)
 
@@ -4200,7 +4221,7 @@ def test_leaf_script_reports_no_match_when_only_an_odd_version_remains() -> None
     psbt, _ = _taproot_script_path_psbt()
     psbt.inputs[0].taproot_leaf_scripts = {b"\x00" * 33: (b"\x51", 0xC1)}
 
-    with pytest.raises(BTClibValueError, match="no leaf script for tapleaf hash"):
+    with pytest.raises(BTClibValueError, match="no leaf script for the tapleaf hash"):
         leaf_script(psbt.inputs[0], _LEAF_HASH)
 
 
@@ -4568,7 +4589,7 @@ def test_finalizing_keeps_the_silent_payment_input_fields() -> None:
     """
     signed, _ = _single_key_psbt("p2wsh")
     signed.version = PSBT_V2  # BIP375's fields are refused in a v0 psbt
-    share = b"\x02" + b"\x11" * 32
+    share = _PUB_KEY  # a point, which BIP375 asks a share to be
     proof = b"\x22" * 64
     signed.inputs[0].sp_ecdh_shares = {_PUB_KEY: share}
     signed.inputs[0].sp_dleq_proofs = {_PUB_KEY: proof}
@@ -4720,7 +4741,7 @@ def test_an_answer_that_adds_a_preimage_or_a_vendor_field_is_refused() -> None:
     """
     request, returned = _request_and_answer()
     returned.inputs[0].sha256_preimages = {sha256(b"x"): b"x"}
-    with pytest.raises(BTClibValueError, match="input 0: sha256_preimages"):
+    with pytest.raises(BTClibValueError, match="input 0: sha256_preimages was changed"):
         assert_signatures_only(request, returned)
 
     request, returned = _request_and_answer()
@@ -4738,14 +4759,18 @@ def test_an_answer_that_touches_the_first_signature_is_refused() -> None:
     """
     request, returned = _request_and_answer()
     del returned.inputs[0].partial_sigs[_PUB_KEY]
-    with pytest.raises(BTClibValueError, match="partial_sigs of .* was dropped"):
+    with pytest.raises(
+        BTClibValueError, match="input 0: partial_sigs entry 0 was dropped"
+    ):
         assert_signatures_only(request, returned)
 
     request, returned = _request_and_answer()
     returned.inputs[0].partial_sigs[_PUB_KEY] = returned.inputs[0].partial_sigs[
         _OTHER_PUB_KEY
     ]
-    with pytest.raises(BTClibValueError, match="partial_sigs of .* was changed"):
+    with pytest.raises(
+        BTClibValueError, match="input 0: partial_sigs entry 0 was changed"
+    ):
         assert_signatures_only(request, returned)
 
 
@@ -4758,7 +4783,7 @@ def test_an_answer_carrying_a_signature_that_does_not_verify_is_refused() -> Non
     returned.inputs[0].partial_sigs[_OTHER_PUB_KEY] = (
         request.inputs[0].partial_sigs[_PUB_KEY][:-1] + good[-1:]
     )
-    err_msg = "input 0: invalid signature for pub_key"
+    err_msg = r"input 0: partial signature \d+: invalid"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, returned)
 
@@ -4779,7 +4804,7 @@ def test_a_signature_whose_message_cannot_be_computed_is_refused() -> None:
     returned.inputs[0].witness_script = b""
     del request.inputs[0].partial_sigs[_PUB_KEY]
 
-    err_msg = "cannot verify the signature of .*does not say what was signed"
+    err_msg = "input 0: partial signature 0: cannot be verified, the psbt does not say what was signed"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, returned)
 
@@ -4881,8 +4906,10 @@ def test_a_taproot_answer_is_checked_against_the_output_key() -> None:
 
     request, returned, _ = _taproot_request_and_answer()
     returned.inputs[0].taproot_key_spend_signature = b"\x01" * 64
-    err_msg = "invalid taproot key path signature for output key"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(
+        BTClibValueError,
+        match="^input 0: taproot key path signature: invalid$",
+    ):
         assert_signatures_only(request, returned)
 
 
@@ -4947,8 +4974,10 @@ def test_a_taproot_script_path_answer_is_checked_against_the_leaf_key() -> None:
 
     key_data = next(iter(returned.inputs[0].taproot_script_spend_signatures))
     returned.inputs[0].taproot_script_spend_signatures[key_data] = b"\x01" * 64
-    err_msg = "invalid taproot script path signature for key"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"^input 0: taproot script path signature \d+: invalid$",
+    ):
         assert_signatures_only(request, returned)
 
 
@@ -5067,9 +5096,13 @@ def test_a_signature_that_does_not_verify_is_refused_however_many_there_are() ->
         partial_sigs[_PUB_KEY],
     )
 
-    with pytest.raises(BTClibValueError, match="invalid signature for pub_key"):
+    with pytest.raises(
+        BTClibValueError, match="^input 0: partial signature 0: invalid$"
+    ):
         assert_signed(returned)
-    with pytest.raises(BTClibValueError, match="invalid signature for pub_key"):
+    with pytest.raises(
+        BTClibValueError, match="^input 0: partial signature 0: invalid$"
+    ):
         assert_signed(returned, allow_partial=True)
 
 
@@ -5128,7 +5161,10 @@ def test_a_taproot_signature_is_verified_against_the_key_it_spends() -> None:
 
     returned.inputs[0].taproot_key_spend_signature = b"\x01" * 64
     err_msg = "invalid taproot key path signature for output key"
-    with pytest.raises(BTClibValueError, match=err_msg):
+    with pytest.raises(
+        BTClibValueError,
+        match="^input 0: taproot key path signature: invalid$",
+    ):
         assert_signed(returned)
 
     script_path = _taproot_signed(
@@ -5138,7 +5174,7 @@ def test_a_taproot_signature_is_verified_against_the_key_it_spends() -> None:
 
     key_data = next(iter(script_path.inputs[0].taproot_script_spend_signatures))
     script_path.inputs[0].taproot_script_spend_signatures[key_data] = b"\x01" * 64
-    err_msg = "invalid taproot script path signature for key"
+    err_msg = r"taproot script path signature \d+: invalid"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signed(script_path)
 
@@ -5568,7 +5604,8 @@ def test_the_flag_still_switches_the_dict_check_off() -> None:
         psbt.to_dict()
 
 
-_NOT_BASE64 = "^invalid base64 encoding: Only base64 data is allowed$"
+# base64's own text is not relayed
+_NOT_BASE64 = "^invalid base64 encoding$"
 # a pad outside ASCII is the first character, and is refused by its
 # position
 _NOT_ASCII = "^non-ascii character in base64 psbt at position 0$"
@@ -5935,7 +5972,7 @@ def test_join_of_version_2_refuses_a_lock_time_raised_by_an_unsigned_psbt() -> N
     unsigned, _ = _v2_psbt(2, fallback=500)
 
     for pair in ([signed, unsigned], [unsigned, signed]):
-        with pytest.raises(BTClibValueError, match="0 to 500"):
+        with pytest.raises(BTClibValueError, match=f"{_quoted(0)} to {_quoted(500)}"):
             join(pair, False, False, False, False)
 
 
@@ -5945,7 +5982,7 @@ def test_join_of_version_2_refuses_a_required_lock_time_the_fallback_hides() -> 
     requiring, _ = _v2_psbt(2, height=500)
     assert requiring.lock_time == 500
 
-    with pytest.raises(BTClibValueError, match="0 to 500"):
+    with pytest.raises(BTClibValueError, match=f"{_quoted(0)} to {_quoted(500)}"):
         join([signed, requiring], False, False, False, False)
 
 
@@ -6022,7 +6059,7 @@ def test_join_of_version_2_refuses_a_finalized_signed_psbt() -> None:
     assert finalized.inputs[0].final_script_witness
     unsigned, _ = _v2_psbt(2, fallback=500)
 
-    with pytest.raises(BTClibValueError, match="0 to 500"):
+    with pytest.raises(BTClibValueError, match=f"{_quoted(0)} to {_quoted(500)}"):
         join([finalized, unsigned], False, False, False, False)
 
 
@@ -6218,7 +6255,10 @@ def test_a_none_signature_pays_whoever_holds_it() -> None:
     """
     psbt, key_manager = _unsigned_ecdsa_psbt()
     psbt.inputs[0].sig_hash_type = 2  # NONE
-    with pytest.raises(BTClibValueError, match="asks for sig_hash type 0x2"):
+    with pytest.raises(
+        BTClibValueError,
+        match="input 0 asks for sig_hash type 0x2, which allowed_sig_hash_types does not name",
+    ):
         sign(psbt, key_manager)
 
     signed, _ = sign(psbt, key_manager, allowed_sig_hash_types={sig_hash.NONE})
@@ -6479,7 +6519,7 @@ def test_a_taproot_all_signature_is_refused_with_an_explicit_default(
     answer, _ = sign(asking_all, key_manager)
     answer.inputs[0].sig_hash_type = 0  # an explicit DEFAULT is a field
 
-    err_msg = "sig_hash type: 1, the input asks for 0"
+    err_msg = "invalid sig_hash type 0x1, the input asks for 0x0"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signed(answer)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -6502,7 +6542,7 @@ def test_a_taproot_signature_of_another_type_is_refused_without_the_field(
     answer, _ = sign(asking, key_manager, allowed_sig_hash_types={hash_type})
     answer.inputs[0].sig_hash_type = None
 
-    err_msg = f"sig_hash type: {hash_type}, the input asks for None"
+    err_msg = f"invalid sig_hash type {hash_type:#x}, the input asks for None"
     with pytest.raises(BTClibValueError, match=err_msg):
         assert_signatures_only(request, answer)
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -6688,7 +6728,7 @@ def test_a_global_xpub_key_is_78_bytes() -> None:
     assert PsbtView(psbt.serialize()).hd_key_paths == psbt.hd_key_paths
 
     psbt.hd_key_paths = {_PUB_KEY: BIP32KeyOrigin(b"beef", "m/42/1")}
-    err_msg = "invalid global xpub of .*: length 33"
+    err_msg = "invalid global xpub 0: length 33"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
     for read in _global_xpub_readers(psbt):
@@ -6701,7 +6741,7 @@ def test_a_global_xpub_public_key_is_on_the_curve() -> None:
     psbt = Psbt.b64decode(NO_SIG_HASH_TYPE)
     off_curve = b"\x04\x88\xb2\x1e" + bytes(41) + b"\x02" + bytes(31) + b"\x05"
     psbt.hd_key_paths = {off_curve: BIP32KeyOrigin(b"beef", "m/42/1")}
-    err_msg = "invalid global xpub of .*: public key is not a point"
+    err_msg = "invalid global xpub 0: public key is not a point"
     with pytest.raises(BTClibValueError, match=err_msg):
         psbt.assert_valid()
     for read in _global_xpub_readers(psbt):
@@ -6721,7 +6761,7 @@ def test_a_refused_global_xpub_prints_no_byte_of_the_key() -> None:
         with pytest.raises(BTClibValueError) as exc_info:
             refuse()
         text = chained_text(exc_info.value)
-        assert "global xpub of" in text
+        assert "invalid global xpub 0: " in text
         assert k.hex() not in text
         assert chain_code.hex() not in text
         assert xprv.hex() not in text
@@ -6752,7 +6792,7 @@ def test_a_witness_program_of_no_known_rule_has_no_ecdsa_sig_hash(
     psbt.inputs[0].redeem_script = program if wrapped else b""
     psbt.inputs[0].non_witness_utxo = prev_tx
 
-    err_msg = f"input 0: no sig_hash rule for witness version {version}$"
+    err_msg = f"input 0: no sig_hash rule for witness version {_quoted(version)}$"
     with pytest.raises(BTClibValueError, match=err_msg) as excinfo:
         ecdsa_sig_hash(psbt, 0, hash_type=1)
     assert program[2:].hex() not in str(excinfo.value)
@@ -6935,7 +6975,7 @@ def test_a_p2sh_wrapped_taproot_program_has_no_signature_rule() -> None:
     one for no taproot output.
     """
     psbt = _p2sh_wrapped_taproot_psbt()
-    err_msg = "input 0: no sig_hash rule for witness version 1$"
+    err_msg = "input 0: no sig_hash rule for witness version an int of 1 bits$"
     with pytest.raises(BTClibValueError, match=err_msg):
         ecdsa_sig_hash(psbt, 0, hash_type=1)
 

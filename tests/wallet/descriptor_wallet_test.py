@@ -153,16 +153,16 @@ def test_a_wallet_has_at_least_one_chain() -> None:
 
 
 def test_a_branch_is_a_label_and_labels_are_not_negative() -> None:
-    """The one thing a chain label has to be, `position_of` walking them."""
-    with pytest.raises(BTClibValueError, match="invalid branch: -1"):
-        DescriptorWallet({-1: parse(_descriptor(f"wpkh({_XPUB}/0/*)"))})
+    """A negative label is refused, `position_of` walking labels in order."""
+    with pytest.raises(BTClibValueError, match="invalid branch: negative"):
+        DescriptorWallet({-(10**5000): parse(_descriptor(f"wpkh({_XPUB}/0/*)"))})
 
 
 def test_the_chains_must_be_of_one_network() -> None:
     """A wallet is on a chain, and a network is what a chain is."""
     mainnet = parse(_descriptor(f"wpkh({_XPUB}/0/*)"))
     testnet = parse(_descriptor(f"wpkh({_TPUB}/1/*)"), "testnet")
-    err_msg = r"descriptors of different networks: \['mainnet', 'testnet'\]"
+    err_msg = "descriptors of different networks: mainnet, testnet"
     with pytest.raises(BTClibValueError, match=err_msg):
         DescriptorWallet([mainnet, testnet])
 
@@ -319,7 +319,7 @@ def test_a_wallet_that_is_not_ranged_has_one_position_per_chain() -> None:
     assert not wallet.is_ranged
     assert wallet.address() == address
     assert wallet.position_of(address, 999) == (0, 0)
-    err_msg = "not a ranged descriptor: no script at index 1"
+    err_msg = "not a ranged descriptor: no script at index an int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         wallet.address(0, 1)
 
@@ -413,7 +413,7 @@ def test_satisfy_is_the_descriptors_own_at_the_position() -> None:
     )
     # and a position the wallet has no output at is refused before the
     # signatures are looked up under a key derived from it
-    with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+    with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
         wallet.satisfy({sec: signature}, 2, 2)
 
 
@@ -448,10 +448,13 @@ def test_the_updaters_take_a_position_where_a_descriptor_takes_an_index() -> Non
     assert paid.outputs[0].redeem_script == wallet.redeem_script(1, 2)
     # the output half refuses unless the output being paid is the very
     # script the position derives, which is `position_of` as a claim
-    with pytest.raises(BTClibValueError, match="which is not the script"):
+    with pytest.raises(
+        BTClibValueError,
+        match="output 0 pays to another script than the one this descriptor describes at index 3",
+    ):
         wallet.update_psbt_output(psbt, 0, 1, 3)
     for method in (wallet.update_psbt_input, wallet.update_psbt_output):
-        with pytest.raises(BTClibValueError, match="invalid branch: 2"):
+        with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
             method(psbt, 0, 2, 2)
 
 

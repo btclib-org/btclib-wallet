@@ -136,9 +136,9 @@ vulnerability.
 
 ## Contributing
 
-Development is LLM-based: humans are welcome, as long as they are
-comfortable with agentic development ;-). A contribution must have been
-read and understood by the person who submits it.
+Software development in btclib-org is mainly LLM-driven, but human
+beings are welcome too. A contribution must have been read and
+understood by the person who submits it.
 [`CONTRIBUTING.md`](https://github.com/btclib-org/btclib-wallet/blob/main/CONTRIBUTING.md#working-with-an-llm)
 has the rules.
 

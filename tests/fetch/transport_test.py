@@ -20,6 +20,8 @@ servers, in `tests/fetch/persistent_transport_test.py`.
 from __future__ import annotations
 
 import json
+import pickle
+import re
 import socket
 import ssl
 import threading
@@ -63,7 +65,8 @@ class FakeConnection:
     Stands in for both the TCP socket `_open_connection` returns and the
     TLS one `wrap_socket` returns: each chunk is consumed in order, an
     `Exception` among them is raised in its place, and an exhausted
-    script reads as the peer closing the connection.
+    script reads as the peer closing the connection. `close_failure`,
+    where set, is what leaving its block raises, once it is closed.
     """
 
     def __init__(self, *chunks: bytes | Exception) -> None:
@@ -72,6 +75,7 @@ class FakeConnection:
         self.timeouts: list[float] = []
         self.asked: list[int] = []
         self.closed = False
+        self.close_failure: Exception | None = None
 
     def settimeout(self, timeout: float) -> None:
         """Record the timeout each operation was given."""
@@ -97,6 +101,8 @@ class FakeConnection:
 
     def __exit__(self, *exc_info: object) -> None:
         self.closed = True
+        if self.close_failure is not None:
+            raise self.close_failure
 
 
 class FakeContext(ssl.SSLContext):
@@ -327,8 +333,9 @@ def test_the_deadline_is_over_the_whole_exchange(
     clock = iter([100.0, 100.5, 101.0, 101.5, 102.5])
     monkeypatch.setattr(transport_module, "monotonic", lambda: next(clock))
     transport, _ = line_transport(kind, tcp, b"{", b"}")
-    with pytest.raises(RpcFetchError, match="timeout expired"):
+    with pytest.raises(RpcFetchError, match="timeout expired") as e:
         transport(REQUEST, 2.0)
+    assert e.value.failure_type is TimeoutError
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -344,9 +351,11 @@ def test_a_line_over_the_limit_is_refused(kind: str, tcp: Calls) -> None:
     transport, connection = line_transport(
         kind, tcp, b"123", b"456", b"\n", max_line_size=5
     )
-    with pytest.raises(RpcFetchError, match="max_line_size of 5"):
+    with pytest.raises(RpcFetchError, match="max_line_size of 5") as e:
         transport(REQUEST, 1.0)
     assert connection.asked == [6, 3]
+    # an answer arrived, too long to be one
+    assert e.value.failure_type is None
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -363,8 +372,9 @@ def test_a_connection_closed_before_the_newline_is_a_fetch_error(
 ) -> None:
     """A partial line is not an answer, however much of one arrived."""
     transport, _ = line_transport(kind, tcp, b'{"id": 1, "result"')
-    with pytest.raises(RpcFetchError, match="closed before a whole line"):
+    with pytest.raises(RpcFetchError, match="closed before a whole line") as e:
         transport(REQUEST, 1.0)
+    assert e.value.failure_type is EOFError
 
 
 @pytest.mark.parametrize(
@@ -381,11 +391,41 @@ def test_a_connection_closed_before_the_newline_is_a_fetch_error(
 def test_what_goes_wrong_below_the_answer_is_a_fetch_error(
     kind: str, failure: Exception, tcp: Calls
 ) -> None:
-    """The contract `LineTransport` states, the cause kept."""
+    """The contract `LineTransport` states, the failure named by its type.
+
+    Its text is neither relayed nor chained: an ssl refusal can quote the
+    names on the certificate the server sent. Its class is the
+    `failure_type`.
+    """
     transport, _ = line_transport(kind, tcp, failure=failure)
-    with pytest.raises(RpcFetchError, match=f"no answer from {HOST}:{PORT}") as e:
+    where = f"{re.escape(repr(HOST))}:{PORT}"
+    with pytest.raises(
+        RpcFetchError, match=f"^no answer from {where}: {type(failure).__name__}$"
+    ) as e:
         transport(REQUEST, 1.0)
-    assert e.value.__cause__ is failure
+    assert e.value.__cause__ is None
+    assert e.value.failure_type is type(failure)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_failure_of_a_class_of_the_callers_is_held_as_the_one_it_derives_from(
+    kind: str, tcp: Calls
+) -> None:
+    """A context of the caller's can raise a class pickle cannot find.
+
+    Defined in this function, the class has no name pickle can look up:
+    the refusal holds the `ssl.SSLError` it derives from, and pickles.
+    """
+
+    class LocalError(ssl.SSLError):
+        """A failure of a context of the caller's own."""
+
+    transport, _ = line_transport(kind, tcp, failure=LocalError("handshake"))
+    with pytest.raises(RpcFetchError, match="LocalError") as e:
+        transport(REQUEST, 1.0)
+    assert e.value.failure_type is ssl.SSLError
+    back = pickle.loads(pickle.dumps(e.value))  # noqa: S301
+    assert back.failure_type is ssl.SSLError
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -393,10 +433,39 @@ def test_a_failed_read_is_a_fetch_error(kind: str, tcp: Calls) -> None:
     """A reset after the connection is the same answer as a refused connect."""
     reset = ConnectionResetError("reset")
     transport, connection = line_transport(kind, tcp, b"{", reset)
-    with pytest.raises(RpcFetchError, match="reset") as e:
+    with pytest.raises(
+        RpcFetchError,
+        match=r"no answer from 'electrum\.example':50002: ConnectionResetError",
+    ) as e:
         transport(REQUEST, 1.0)
-    assert e.value.__cause__ is reset
+    assert e.value.__cause__ is None
+    assert e.value.failure_type is ConnectionResetError
     assert connection.closed
+
+
+@pytest.mark.parametrize(
+    "kind, layer", [("tls", "tls"), ("tls", "tcp"), ("tcp", "tcp")]
+)
+def test_a_close_failing_after_the_line_is_read_holds_no_failure_type(
+    kind: str, layer: str, tcp: Calls
+) -> None:
+    """The call is refused, but by no class: the close failed, not the answer.
+
+    The line is read whole, and the connection, or the socket under the
+    TLS one, raises as its block is left.
+    """
+    transport, connection = line_transport(kind, tcp, b"{}\n")
+    closing = connection if layer == "tls" else tcp.socket
+    closing.close_failure = ConnectionResetError("reset")
+    with pytest.raises(
+        RpcFetchError,
+        match=r"^no answer from 'electrum\.example':50002: ConnectionResetError$",
+    ) as e:
+        transport(REQUEST, 1.0)
+    assert e.value.__cause__ is None
+    assert e.value.failure_type is None
+    assert connection.closed
+    assert tcp[0][2].closed
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -406,8 +475,9 @@ def test_electrum_fetcher_translates_what_the_transport_raises(
     """A failed transport is this package's `FetchError` to the caller."""
     transport, _ = line_transport(kind, tcp, b"")
     endpoint = ElectrumFetcher(transport=transport, verify_network=False)
-    with pytest.raises(FetchError, match="closed before a whole line"):
+    with pytest.raises(FetchError, match="closed before a whole line") as e:
         endpoint.get_block_count()
+    assert e.value.failure_type is EOFError
 
 
 @pytest.mark.parametrize("kind", KINDS)

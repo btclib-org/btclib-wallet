@@ -47,6 +47,7 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch import compact_filters
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
+from tests import raises_alone
 from tests.fetch.peer_chain import (
     OTHER,
     REGTEST_BITS,
@@ -391,7 +392,7 @@ def test_a_message_of_another_network_is_a_fetch_error() -> None:
     """A message start that is not the network's is refused."""
     peer = ScriptedPeer(CHAIN, magic=b"\xf9\xbe\xb4\xd9")
     fetcher = CompactFilterFetcher("regtest", transport=peer)
-    with pytest.raises(FetchError, match="message start f9beb4d9 is not regtest's"):
+    with pytest.raises(FetchError, match="a message start that is not regtest's"):
         fetcher.get_block_count()
 
 
@@ -401,11 +402,34 @@ def test_a_silent_peer_is_a_fetch_error_and_the_next_call_greets_again() -> None
     fetcher.get_block_count()
     original = peer.reply_getheaders
     says(peer, "reply_getheaders", [])
-    with pytest.raises(FetchError, match="timeout expired"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher.get_block_count()
     assert peer.closed == 1
     peer.reply_getheaders = original  # type: ignore[method-assign]
     assert fetcher.get_block_count() == TIP
+    assert peer.versions == 2
+
+
+@pytest.mark.parametrize("call", ["send", "receive"])
+def test_an_interrupted_exchange_greets_the_peer_again(call: str) -> None:
+    """A transport an interrupt closed is greeted again before any request."""
+    fetcher, peer = build()
+    fetcher.get_block_count()
+
+    def interrupted(*_args: object) -> None:
+        # what a shipped transport does: close, and let the interrupt go on
+        peer.close()
+        raise KeyboardInterrupt
+
+    setattr(peer, call, interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        fetcher.get_block_count()
+    delattr(peer, call)
+    asked = len(peer.sent)
+    assert fetcher.get_block_count() == TIP
+    assert peer.sent[asked].command == "version"
     assert peer.versions == 2
 
 
@@ -417,8 +441,12 @@ def test_a_transport_that_cannot_send_is_a_fetch_error() -> None:
         raise RpcFetchError("no connection")
 
     setattr(peer, "send", refuse)  # noqa: B010
-    with pytest.raises(FetchError, match="no connection"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ) as e:
         fetcher.get_block_count()
+    # the caller's refusal says nothing of what failed
+    assert e.value.failure_type is None
     assert peer.closed == 1
 
 
@@ -429,8 +457,9 @@ def test_an_answer_that_takes_longer_than_the_timeout_is_a_fetch_error(
     ticks = itertools.count()
     monkeypatch.setattr(compact_filters, "monotonic", lambda: next(ticks) * 1000.0)
     fetcher, _ = build(timeout=5)
-    with pytest.raises(FetchError, match="did not answer in time"):
+    with pytest.raises(FetchError, match="did not answer in time") as e:
         fetcher.get_block_count()
+    assert e.value.failure_type is TimeoutError
 
 
 def test_a_peer_that_pings_and_stops_reading_does_not_outlast_the_timeout(
@@ -458,8 +487,9 @@ def test_a_peer_that_pings_and_stops_reading_does_not_outlast_the_timeout(
 
     setattr(peer, "receive", late_ping)  # noqa: B010
     setattr(peer, "send", blocked_pong)  # noqa: B010
-    with pytest.raises(FetchError, match="did not answer in time"):
+    with pytest.raises(FetchError, match="did not answer in time") as e:
         fetcher.get_block_count()
+    assert e.value.failure_type is TimeoutError
     assert now <= 10
 
 
@@ -483,7 +513,9 @@ def test_a_transport_that_cannot_close_is_a_fetch_error() -> None:
         raise RpcFetchError("stuck")
 
     peer.close = refuse  # type: ignore[method-assign]
-    with pytest.raises(FetchError, match="stuck"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher.close()
 
 
@@ -586,7 +618,7 @@ def test_a_header_with_other_bits_than_the_rules_ask_is_refused() -> None:
     """A header with work but not the bits the retarget rules ask is refused."""
     harder = CHAIN.fork(2).extend(1, bits=b"\x1f\x7f\xff\xff")
     fetcher, _ = build(harder, verify_network=False)
-    with pytest.raises(FetchError, match="header 3: bits 1f7fffff instead of 207fffff"):
+    with pytest.raises(FetchError, match="header 3: a malformed answer"):
         fetcher.get_block_count()
 
 
@@ -708,7 +740,10 @@ def test_a_fork_below_the_minimum_work_is_refused_and_the_chain_held_stays(
     required = replace(honest, minimum_chain_work=fetcher._work[-1])
     setattr(fetcher, "_consensus", required)  # noqa: B010
     peer.chain = CHAIN.fork(fork_at).extend(TIP - 1 - fork_at, salt=b"cheap")
-    with pytest.raises(FetchError, match=r"below the \d+"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum: an int of 5 bits against an int of 5 bits",
+    ):
         fetcher.get_block_count()
     assert len(fetcher._hashes) == TIP + 1
     peer.chain = CHAIN
@@ -761,10 +796,16 @@ def test_a_chain_below_the_minimum_work_is_refused(
     fetcher, _ = build()
     required = replace(fetcher._consensus, minimum_chain_work=10**80)
     monkeypatch.setattr(fetcher, "_consensus", required)
-    with pytest.raises(FetchError, match="below the 1000000"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum: an int of 5 bits against an int of 266 bits",
+    ):
         fetcher.get_block_count()
     assert len(fetcher._hashes) == 1
-    with pytest.raises(FetchError, match="below the 1000000"):
+    with pytest.raises(
+        FetchError,
+        match="a chain of work below the minimum: an int of 5 bits against an int of 266 bits",
+    ):
         fetcher.scan_blocks([WALLET])
 
 
@@ -828,40 +869,28 @@ def cfilters_with(peer: ScriptedPeer, make: Callable[[int], CFilter]) -> None:
 
 
 @pytest.mark.parametrize(
-    "make, why",
+    "make",
     [
-        (
-            lambda peer: lambda h: replace(peer.cfilter(h), filter_type=1),
-            "not the filter asked for",
+        lambda peer: lambda h: replace(peer.cfilter(h), filter_type=1),
+        lambda peer: lambda h: replace(peer.cfilter(h), block_hash=bytes(32)),
+        lambda peer: (
+            lambda h: CFilter(
+                BlockFilterType.BASIC,
+                peer.chain.hashes[h],
+                peer.chain.filters[h - 1].serialize(),
+            )
         ),
-        (
-            lambda peer: lambda h: replace(peer.cfilter(h), block_hash=bytes(32)),
-            "not the filter asked for",
-        ),
-        (
-            lambda peer: (
-                lambda h: CFilter(
-                    BlockFilterType.BASIC,
-                    peer.chain.hashes[h],
-                    peer.chain.filters[h - 1].serialize(),
-                )
-            ),
-            "does not match its filter header",
-        ),
-        (
-            lambda peer: lambda h: replace(peer.cfilter(h), filter_bytes=b"\xff\xff"),
-            "cfilter",
-        ),
+        lambda peer: lambda h: replace(peer.cfilter(h), filter_bytes=b"\xff\xff"),
     ],
     ids=["type", "block", "filter header", "bytes"],
 )
 def test_a_filter_that_is_not_the_one_asked_for_is_refused(
-    make: Callable[[ScriptedPeer], Callable[[int], CFilter]], why: str
+    make: Callable[[ScriptedPeer], Callable[[int], CFilter]],
 ) -> None:
     """A filter of another block or not hashing to its header is refused."""
     fetcher, peer = build()
     cfilters_with(peer, make(peer))
-    with pytest.raises(FetchError, match=why):
+    with raises_alone(FetchError, match="^cfilter 0: a malformed answer$"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -870,7 +899,9 @@ def test_filters_that_stop_short_are_a_fetch_error() -> None:
     fetcher, peer = build()
     honest = peer.reply_getcfilters
     peer.reply_getcfilters = lambda payload: honest(payload)[:-1]  # type: ignore[method-assign]
-    with pytest.raises(FetchError, match="timeout expired"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher.scan_blocks([WALLET])
 
 
@@ -893,7 +924,7 @@ def test_a_block_that_was_not_asked_for_is_refused() -> None:
         "reply_getdata",
         [peer.message("block", peer.block_payload(CHAIN.blocks[5]))],
     )
-    with pytest.raises(FetchError, match="not asked for"):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -903,7 +934,7 @@ def test_a_block_that_is_not_what_its_header_commits_to_is_refused() -> None:
     other = build_coinbase(3, OTHER, halving_interval=REGTEST_HALVING, extra_nonce=b"?")
     forged = Block(CHAIN.blocks[3].header, [other], check_validity=False)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(forged))])
-    with pytest.raises(FetchError, match="merkle root"):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -981,7 +1012,7 @@ def test_a_block_with_a_witness_changed_or_removed_is_refused(witness: Witness) 
     ]
     fetcher, peer = build(chain)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(altered))])
-    with pytest.raises(FetchError, match="invalid witness commitment"):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1001,7 +1032,7 @@ def test_a_block_with_every_witness_stripped_is_refused() -> None:
     # the block sits exactly at the activation height
     fetcher._consensus = replace(fetcher._consensus, segwit_height=3)
     says(peer, "reply_getdata", [peer.message("block", peer.block_payload(stripped))])
-    with pytest.raises(FetchError, match="invalid witness nonce"):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1023,7 +1054,7 @@ def test_a_block_with_a_time_lock_past_the_median_time_past_is_refused() -> None
     block = build_block(previous.hash, [coinbase, locked], time, REGTEST_BITS)
     block.header = mined(block.header)
     fetcher, _ = build(Chain([*base.blocks, block]).extend(TIP - 3))
-    with pytest.raises(FetchError, match="non-final transaction"):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1033,7 +1064,7 @@ def test_a_segwit_block_below_the_segwit_height_is_refused() -> None:
     block.assert_valid_structure()
     fetcher, _ = build(chain)
     fetcher._consensus = replace(fetcher._consensus, segwit_height=4)
-    with pytest.raises(FetchError, match="unexpected witness"):
+    with raises_alone(FetchError, match="block: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1327,7 +1358,7 @@ def test_a_filter_of_another_block_in_a_disagreement_is_refused() -> None:
         lambda _payload: [other.message("cfilter", other.cfilter(4).serialize())],
     )
     fetcher, _ = build(cross_check=[other])
-    with pytest.raises(FetchError, match="cfilter 3: not the filter asked for"):
+    with pytest.raises(FetchError, match="cfilter 3: a malformed answer"):
         fetcher.scan_blocks([WALLET])
 
 
@@ -1442,7 +1473,9 @@ def test_a_liar_that_cannot_be_closed_is_dropped_all_the_same() -> None:
         CHAIN.lying(3, filter_with_outputs(3, True)), cross_check=[honest]
     )
     refusing_to_close(lying)
-    with pytest.raises(FetchError, match="stuck"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher.scan_blocks([WALLET])
     assert lying.closed == 1
     assert fetcher.transport is honest
@@ -1456,7 +1489,9 @@ def test_a_peer_that_cannot_be_closed_leaves_the_others_closed() -> None:
     fetcher, peer = build(cross_check=[other])
     fetcher.sync()
     refusing_to_close(peer)
-    with pytest.raises(FetchError, match="stuck"):
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
         fetcher.close()
     assert (peer.closed, other.closed) == (1, 1)
     fetcher.sync()

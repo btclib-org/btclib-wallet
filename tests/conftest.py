@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""What the whole suite shares: hypothesis profiles, a fixture, a gate.
+"""What the whole suite shares: hypothesis profiles, fixtures, a gate.
 
 Registered once here rather than passed to each `@given`: a settings
 profile is process-wide, and a decorator repeating it on every property
@@ -18,16 +18,19 @@ ungated, and this file is the second of the two: such a run is refused
 """
 
 import difflib
+import functools
 import importlib.util
 import json
 import os
-from collections.abc import Callable, Iterator, Mapping
+import sqlite3
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 import pytest
 from ecc.curves import is_libsecp256k1_serving, set_libsecp256k1_serving
 from hypothesis import settings
+from typing_extensions import override
 
 # whether the bindings can be imported at all, asked of the import system
 # without importing them: `curves.is_libsecp256k1_serving` answers whether
@@ -356,6 +359,53 @@ def _libsecp256k1_serving_restored() -> Iterator[None]:
     serving = is_libsecp256k1_serving()
     yield
     set_libsecp256k1_serving(serving=serving)
+
+
+# the types `sqlite3` binds as they are, and `store`'s module docstring
+# says why no subclass of one; a buffer such as a memoryview, which
+# `sqlite3` binds as a blob, is not among them
+_BOUND_AS_IS = frozenset({int, float, str, bytes, bytearray, type(None)})
+
+
+def _assert_bound_as_is(sql: str, parameters: Any) -> None:
+    """Fail the test where a value is not of a type `sqlite3` binds as is."""
+    values = parameters.values() if isinstance(parameters, Mapping) else parameters
+    for value in values:
+        if type(value) not in _BOUND_AS_IS:
+            pytest.fail(f"{sql!r} binds a {type(value).__qualname__}")
+
+
+class _BoundAsIs(sqlite3.Connection):
+    """A connection that fails the test binding a value of another type."""
+
+    @override
+    def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+        _assert_bound_as_is(sql, parameters)
+        return super().execute(sql, parameters)
+
+    @override
+    def executemany(self, sql: str, parameters: Iterable[Any], /) -> sqlite3.Cursor:
+        rows = list(parameters)
+        for row in rows:
+            _assert_bound_as_is(sql, row)
+        return super().executemany(sql, rows)
+
+
+@pytest.fixture(autouse=True)
+def _bound_as_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make each connection `sqlite3.connect` opens in a test a `_BoundAsIs`.
+
+    `store`'s module docstring says what a ledger binds, and this is
+    where a test fails that hands SQLite a caller's object: a ledger's
+    own connections are opened through `sqlite3.connect`. A connection
+    built as `sqlite3.Connection`, or with a `factory` of the test's own,
+    is not one, and neither is any connection of a test that replaces
+    `sqlite3.connect` itself. A value bound through a cursor's own
+    `execute` or `executemany` is not checked. A memoryview fails the
+    test too, though SQLite would bind it.
+    """
+    connect = functools.partial(sqlite3.connect, factory=_BoundAsIs)
+    monkeypatch.setattr(sqlite3, "connect", connect)
 
 
 @pytest.fixture

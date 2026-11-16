@@ -46,11 +46,13 @@ class Broadcaster(Protocol):
       whether to try again, and how, is the caller's decision, made with
       whatever else it can ask the backend -- this is
       `bitcoin-core-rpc`'s own one-call contract, carried across;
-    - a refusal keeps its reason. Whatever the backend answered --
-      Core's `RpcError` code, an explorer's error body -- it reaches the
-      caller through `client_errors`, text intact and not reshaped into a
-      code common to every backend, because the two refuse for different
-      reasons and a caller acts on the one it got.
+    - a refusal keeps the backend's number and not its text. An
+      `RpcError` carries Core's code, and an `HttpError` the status an
+      explorer answered. Neither carries the message or the body, which
+      can quote the request. The number is the backend's own and is not
+      mapped to a code common to every backend; a caller that needs the
+      policy behind Core's -26 asks the node, as `testmempoolaccept`
+      answers.
     """
 
     def broadcast(self, tx: Tx) -> bytes:

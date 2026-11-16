@@ -16,7 +16,10 @@ from ecc.curves import mult, secp256k1
 from ecc.hashes import tagged_hash
 
 from btclib_wallet.dlc import oracle
+from tests import raises_alone
 from tests.exception_family_test import VALUE_ERRORS
+from tests.refused_value_test import HEX, KEY, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 _KEY = 7
 _NONCES = (11, 13, 17)
@@ -142,6 +145,18 @@ def test_a_string_that_is_not_utf8_is_refused() -> None:
     data[-1] = 0xFF
     with pytest.raises(BTClibValueError, match="not UTF-8"):
         oracle.OracleEvent.parse(bytes(data))
+
+
+def test_a_string_that_is_not_utf8_chains_no_byte_of_it() -> None:
+    """The codec's error holds the whole string: not chained (issue #821)."""
+    reader = oracle._Reader(BytesIO(bytes([len(KEY) + 1]) + KEY + b"\xff"))
+    with raises_alone(BTClibValueError, match="^a string is not UTF-8$") as e:
+        reader.string()
+    assert_secret_free(e.value, SPELLINGS)
+    outcomes = (HEX + "\ud800",)
+    with raises_alone(BTClibValueError, match="^outcome is not UTF-8$") as e:
+        _replace(_ENUM, outcomes=outcomes).assert_valid()
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_a_value_longer_than_its_fields_is_refused() -> None:

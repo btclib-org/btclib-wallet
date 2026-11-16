@@ -219,8 +219,8 @@ above is now that tip, so the weekly automated check can carry it.
 repo    bitcoin/bips
 path    bip-0032.mediawiki
 commit  c0644a054fd1568ecbfc9c2b656ad5200b16ff74  2026-03-05
-ours    a510e92e211a87a72ca57ea3b66f85bd4de8fabc
-pulled  2020-05-16, error strings last changed 2026-10-14, re-pinned to
+ours    71712727eb7d8b68a3ae61de36eef138c11fb5c9
+pulled  2020-05-16, error strings last changed 2026-11-15, re-pinned to
         the tip 2026-08-06
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -308,7 +308,7 @@ vector.
 repo    bitcoin/bips
 path    bip-0370.mediawiki
 commit  1e431879afd53be71a3bafe29ddae93837337f40  2026-09-23
-ours    e17a62599d8e4378adce594011e5dc49bb3e54d6
+ours    49d477e79e3ef66530013a3bd87febf6d1ce654a
 pulled  2026-08-03, re-pinned to the tip 2026-09-29
 behind  0 revisions; that commit is the tip of the path
 ```
@@ -1781,8 +1781,8 @@ package.
 repo    lightning/bolts
 path    09-features.md
 commit  35e79db504560b9d3494a0ed07bf1e8379c3663a  2026-07-27
-ours    4a6457da081430acaea70a817cde47099feb25b6
-pulled  2026-09-03
+ours    ebeda97bf067cc7f950406bfdf680614ba41b05d
+pulled  2026-09-03, a refusal's text changed 2026-11-13
 behind  0 revisions; that commit is the tip of the path
 ```
 

@@ -25,6 +25,8 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
+from btclib_wallet._refusal import _quoted
+
 __all__ = [
     "HARDENED_OFFSET",
     "DerPath",
@@ -154,7 +156,7 @@ def str_from_index_int(i: int, hardening: str = _HARDENING) -> str:
     parsers refuse, so this writes no path a descriptor cannot hold.
     """
     if hardening not in _BIP380_HARDENINGS:
-        raise BTClibValueError(f"invalid hardening symbol: {hardening}")
+        raise BTClibValueError(f"invalid hardening symbol: {_quoted(hardening)}")
     _assert_valid_index(i)
     # int() of an int, because a subclass of int may define a str() that
     # is not the number -- its *name*, "Sighash.ALL" where a path step

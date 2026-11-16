@@ -16,8 +16,6 @@ conftest beside this says which switch was off.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.tx import Tx, TxOut
@@ -43,13 +41,13 @@ PINNED_CORE = {
 }
 
 
-def test_core_infers_each_shape_as_recorded(node: BitcoinCoreRpcClient) -> None:
+def test_core_infers_each_shape_as_recorded(
+    node: BitcoinCoreRpcClient,
+    wallets: tuple[BitcoinCoreRpcClient, BitcoinCoreRpcClient],
+) -> None:
     """`scantxoutset` once each script is paid, over index 0."""
-    name = f"infer-{time.monotonic_ns():x}"
-    node.call("createwallet", [name])
-    miner = node.for_wallet(name)
+    miner = wallets[0]
     address = miner.call("getnewaddress")
-    miner.call("generatetoaddress", [101, address])
     scripts = {
         script.script: script
         for template, _ in SHAPES.values()

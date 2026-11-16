@@ -23,9 +23,10 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import BitcoinCoreRestFetcher
 from btclib_wallet.fetch.relay_fees import RelayFeeReader, RelayFees
+from tests import raises_alone
 from tests.fetch import bitcoin_core_rest_test as rest
 from tests.fetch import bitcoin_core_test as rpc
-from tests.fetch import chain_mismatch
+from tests.fetch import bounds_handed, chain_mismatch
 from tests.fetch.compact_filters_test import build as compact_filter_fetcher
 from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.fetch.esplora_test import fetcher as esplora_fetcher
@@ -116,8 +117,7 @@ def test_a_rate_finer_than_a_satoshi_is_rounded_up(build: _Build) -> None:
 def test_a_missing_rate_is_refused(build: _Build, source: str, missing: str) -> None:
     """All three are answered, or none is."""
     info = {name: rate for name, rate in MEMPOOL_INFO.items() if name != missing}
-    message = f"{source}: no {missing!r} member"
-    with pytest.raises(FetchError, match=f"^{re.escape(message)}$"):
+    with raises_alone(FetchError, match=f"^{source}: a malformed answer$"):
         build(info).get_relay_fees()
 
 
@@ -139,13 +139,27 @@ def test_a_reply_that_is_no_object_is_refused(build: _Build, source: str) -> Non
         build([MEMPOOL_INFO]).get_relay_fees()
 
 
-def test_the_reply_is_bounded_by_what_it_is() -> None:
-    """A reply past 1024 octets is refused before it is parsed."""
-    with pytest.raises(FetchError, match="more than the max_body_size of 1024"):
-        rest.fetcher((200, b"x" * 1025)).get_relay_fees()
+def test_the_reply_is_bounded_by_what_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A reply past 1024 octets is refused before it is parsed.
+
+    A refusal names no number, so the bound is read where each fetcher
+    hands it to its client.
+    """
+    over_rest = rest.fetcher((200, b"x" * 1025))
+    rest_handed = bounds_handed(monkeypatch, over_rest.client, "get_json")
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
+        over_rest.get_relay_fees()
+    assert rest_handed == [1024]
     oversized = b'{"result":' + b"9" * 1100 + b',"error":null,"id":"x"}'
-    with pytest.raises(FetchError, match="more than the max_body_size of 1024"):
-        rpc.fetcher((200, oversized)).get_relay_fees()
+    over_rpc = rpc.fetcher((200, oversized))
+    rpc_handed = bounds_handed(monkeypatch, over_rpc.client, "call")
+    with pytest.raises(
+        FetchError, match="no usable answer from the server: FetchError"
+    ):
+        over_rpc.get_relay_fees()
+    assert rpc_handed == [1024]
 
 
 def test_get_relay_fees_verifies_the_network_first() -> None:

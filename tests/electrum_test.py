@@ -525,6 +525,16 @@ def test_headers_subscribe_response_refuses_a_malformed_object(
         headers_subscribe_response(reply(id=1, result=members), 1)
 
 
+def test_headers_subscribe_response_refuses_a_negative_height() -> None:
+    """No block of a chain is below height zero (issue #901)."""
+    line = reply(id=1, result={"height": -1, "hex": TIP_HEADER_RAW})
+    err_msg = "^headers.subscribe: invalid height: a negative int of 1 bits < 0$"
+    with pytest.raises(BTClibValueError, match=err_msg):
+        headers_subscribe_response(line, 1)
+    line = reply(id=1, result={"height": 0, "hex": TIP_HEADER_RAW})
+    assert headers_subscribe_response(line, 1).height == 0
+
+
 def test_block_header_round_trips_the_raw_header() -> None:
     """No `cp_height` sent; the answer is the raw header hex alone."""
     request = block_header_request(4, TIP_HEIGHT)

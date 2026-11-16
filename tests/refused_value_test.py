@@ -21,6 +21,7 @@ from base58_bech32.bech32 import BECH32_M_CONST, bech32_encode
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.b32 import power_of_2_base_conversion
 from btclib.exceptions import BTClibRuntimeError, BTClibTypeError, BTClibValueError
+from btclib.p2p import Ping
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.curves import bytes_from_point, mult
@@ -29,7 +30,10 @@ from typing_extensions import override
 
 import btclib_wallet
 from btclib_wallet import electrum, silent_payments
+from btclib_wallet._refusal import _hex_field, _label, _position, _quoted
 from btclib_wallet.bip21 import Bip21
+from btclib_wallet.bip32 import BIP32KeyData
+from btclib_wallet.bip85 import nsec_from_root_key
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.bolt11 import Bolt11Invoice
 from btclib_wallet.core_import import assert_imported, import_request
@@ -42,6 +46,8 @@ from btclib_wallet.electrum import (
     transaction_get_request,
 )
 from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.fetch import peer_transport as peer_transport_module
+from btclib_wallet.fetch import transport as transport_module
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.electrum import ElectrumFetcher
@@ -63,6 +69,8 @@ from tests.fetch.electrum_test import fetcher as electrum_fetcher
 from tests.secret_free import assert_secret_free
 
 URL = "http://127.0.0.1:8332"
+# a message a peer transport sends, on regtest's magic
+_PING = Ping(7).to_message(b"\xfa\xbf\xb5\xda")
 ADDRESS = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
 # credentials of no node, named so that no `password=` argument holds a literal
 RPC_USER = "rpcuser"
@@ -315,6 +323,12 @@ HEX = KEY.hex()
         ),
         (
             lambda: electrum.headers_subscribe_response(
+                _answer({"height": -SCALAR, "hex": ""}), 1
+            ),
+            "^headers.subscribe: invalid height: a negative int of 256 bits < 0$",
+        ),
+        (
+            lambda: electrum.headers_subscribe_response(
                 _answer({"height": 1, "hex": SCALAR}), 1
             ),
             "^headers.subscribe: invalid hex: an int of 256 bits$",
@@ -371,11 +385,11 @@ HEX = KEY.hex()
         ),
         (
             lambda: electrum.encode_request(1, "m", [{HEX: object()}]),
-            "^request not JSON: Object of type object is not JSON serializable$",
+            "^request not JSON: TypeError$",
         ),
         (
             lambda: electrum.encode_request(1, "m", [{HEX: float("nan")}]),
-            "^request not JSON: Out of range float values are not JSON compliant",
+            "^request not JSON: ValueError$",
         ),
         (
             lambda: ElectrumFetcher(transport=KEY),  # type: ignore[arg-type]
@@ -397,6 +411,7 @@ HEX = KEY.hex()
         "transaction",
         "tip not an object",
         "tip height",
+        "tip height negative",
         "tip hex",
         "header",
         "headers not an object",
@@ -520,10 +535,30 @@ def test_an_int_equal_to_all_is_in_any_range() -> None:
     assert _EqualToAll(SCALAR) in range(-(2**15), 2**15)
 
 
+class _ItsOwnInt(_EqualToAll):
+    """An int equal to every value, whose `__int__` answers itself.
+
+    On PyPy `int.__int__` calls the value's own `__int__`, so a code read
+    through it keeps this class, and its comparison passes any bound
+    (issue #889).
+    """
+
+    @override
+    def __int__(self) -> int:
+        return self
+
+
+def test_an_int_that_is_its_own_int_is_in_any_range() -> None:
+    """Read through its own `__int__`, as PyPy's `int.__int__` reads it."""
+    code = _ItsOwnInt(SCALAR)
+    assert code.__int__() is code
+    assert code.__int__() in range(-(2**15), 2**15)
+
+
 @pytest.mark.parametrize(
     "code",
-    [SCALAR, -SCALAR, _EqualToAll(SCALAR), HEX],
-    ids=["scalar", "negative scalar", "int equal to all", "hex"],
+    [SCALAR, -SCALAR, _EqualToAll(SCALAR), _ItsOwnInt(SCALAR), HEX],
+    ids=["scalar", "negative scalar", "int equal to all", "its own int", "hex"],
 )
 def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None:
     """JSON bounds no integer, so a code can hold a key (issue #836)."""
@@ -532,6 +567,127 @@ def test_core_import_quotes_no_code_outside_16_signed_bits(code: object) -> None
     with pytest.raises(BTClibRuntimeError, match=err_msg) as e:
         assert_imported([{}], [answer])
     assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        (0x81, "0x81"),
+        (2**32 - 1, "0xffffffff"),
+        (0x82, "an int of 8 bits"),
+        (2**32, "an int of 33 bits"),
+        (-1, "a negative int of 1 bits"),
+        ("0x81", "a str of length 4"),
+        (True, "a bool"),
+        (KEY, "a bytes of length 32"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+        (_EqualToAll(SCALAR), f"an int of {SCALAR.bit_length()} bits"),
+    ],
+    ids=[
+        "byte",
+        "4 bytes",
+        "undefined",
+        "past 4 bytes",
+        "negative",
+        "str",
+        "bool",
+        "no int",
+        "scalar",
+        "int equal to all",
+    ],
+)
+def test_a_field_is_written_in_hex_where_its_format_defines_it(
+    value: object, shown: str
+) -> None:
+    """Section 7 lets a refusal print a field of at most 4 bytes it defines.
+
+    Anything else, a value the format does not define or an int past 4
+    bytes, is described by its type and its length: it may hold key
+    bytes. `defined` holds 2**32 so that the bound holds whatever it
+    holds.
+    """
+    defined = {0x81, 2**32 - 1, 2**32}
+    assert _hex_field(value, defined) == shown
+    assert_secret_free(BTClibValueError(_hex_field(value, defined)), SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        (0, "0"),
+        (3, "3"),
+        (-1, "-1"),
+        (10**16 - 1, "9999999999999999"),
+        (10**16, "an int of 54 bits"),
+        (-(10**16), "a negative int of 54 bits"),
+        (True, "a bool"),
+        ("3", "a str of length 1"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+        (_EqualToAll(SCALAR), f"an int of {SCALAR.bit_length()} bits"),
+    ],
+    ids=[
+        "zero",
+        "index",
+        "negative",
+        "16 digits",
+        "17 digits",
+        "17 negative digits",
+        "bool",
+        "str",
+        "scalar",
+        "int equal to all",
+    ],
+)
+def test_a_position_is_written_in_decimal_up_to_16_digits(
+    value: object, shown: str
+) -> None:
+    """An index or a count is printed, and a key handed in its place is not."""
+    assert _position(value) == shown
+    assert_secret_free(BTClibValueError(_position(value)), SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        ("mainnet", "'mainnet'"),
+        ("m" * 17, "a value of 17 characters"),
+        (True, "True"),
+        (3, "an int of 2 bits"),
+        (-1, "a negative int of 1 bits"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+        (KEY, "a bytes of length 32"),
+    ],
+    ids=["name", "long str", "bool", "int", "negative", "scalar", "bytes"],
+)
+def test_a_refused_int_is_described_and_a_name_quoted(
+    value: object, shown: str
+) -> None:
+    """Section 7 lets a refusal quote a short name, and no int it refuses.
+
+    An int refused for what it is may be a key in the wrong place,
+    whatever its size (issue #951).
+    """
+    assert _quoted(value) == shown
+    assert_secret_free(BTClibValueError(_quoted(value)), SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "value, shown",
+    [
+        ("mainnet", "mainnet"),
+        (HEX, "a value of 64 characters"),
+        (KEY, "a bytes of length 32"),
+        (SCALAR, f"an int of {SCALAR.bit_length()} bits"),
+    ],
+    ids=["label", "hex", "bytes", "scalar"],
+)
+def test_a_label_is_written_only_where_the_package_holds_it(
+    value: object, shown: str
+) -> None:
+    """Any other value is shown as `_quoted` shows it (issue #821)."""
+    labels = ("mainnet", "testnet")
+    assert _label(value, labels) == shown
+    assert_secret_free(BTClibValueError(_label(value, labels)), SPELLINGS)
 
 
 @pytest.mark.parametrize(
@@ -735,22 +891,19 @@ def test_a_refused_fetch_argument_is_described(
     [
         (
             lambda: electrum_fetcher(5).get_tx(KEY),
-            "^transaction: transaction.get: not a hex string: an int of 3 bits$",
+            "^transaction: a malformed answer$",
         ),
         (
             lambda: electrum_fetcher([]).get_tx_merkle(KEY, 1),
-            (
-                "^transaction merkle: transaction.get_merkle: not an object:"
-                " a list of length 0$"
-            ),
+            ("^transaction merkle: a malformed answer$"),
         ),
         (
             lambda: electrum_fetcher(5).get_block_header(SCALAR),
-            "^block header: block.header: not a hex string: an int of 3 bits$",
+            "^block header: a malformed answer$",
         ),
         (
             lambda: electrum_fetcher(5).get_block_headers(0, SCALAR),
-            "^block headers: block.headers: not an object: an int of 3 bits$",
+            "^block headers: a malformed answer$",
         ),
         (
             lambda: tx_from_raw(5, HEX, "mainnet"),  # type: ignore[arg-type]
@@ -758,7 +911,7 @@ def test_a_refused_fetch_argument_is_described(
         ),
         (
             lambda: tx_from_raw(SEGWIT_TX_RAW, HEX, "mainnet"),
-            "^transaction: the answer is [0-9a-f]{64}, not the one asked$",
+            "^transaction: the answer is another transaction than the one asked$",
         ),
     ],
     ids=[
@@ -838,4 +991,118 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
         BTClibValueError, match="^unknown method: a str of length 64$"
     ) as e:
         decode_response(line, 1, HEX)
+    assert_secret_free(e.value, SPELLINGS)
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: Bip21.parse(f"bitcoin:{ADDRESS}?label={HEX}%ff"),
+            "^invalid percent-encoding in label$",
+        ),
+        (
+            lambda: Bip21.parse(f"bitcoin:{ADDRESS}?{HEX}=%ff"),
+            "^invalid percent-encoding in parameter a value of 64 characters$",
+        ),
+        (
+            lambda: BIP32KeyData(
+                b"\x04\x88\xad\xe4", 1, b"\x01" * 4, SCALAR, b"\x00" * 32, b"\x00" + KEY
+            ),
+            f"^invalid index: an int of {SCALAR.bit_length()} bits$",
+        ),
+        (
+            lambda: nsec_from_root_key("", -SCALAR, 1),
+            f"^invalid nostr identity: a negative int of {SCALAR.bit_length()} bits$",
+        ),
+        (
+            lambda: Bolt11Invoice(
+                "mainnet", SCALAR, [], DsaSig(1, 1, check_validity=False), 0
+            ),
+            f"^timestamp does not fit 35 bits: an int of {SCALAR.bit_length()} bits$",
+        ),
+    ],
+    ids=[
+        "bip21 percent-escape",
+        "bip21 parameter name",
+        "bip32 index",
+        "bip85 identity",
+        "bolt11 timestamp",
+    ],
+)
+def test_a_refusal_of_each_kind_prints_no_key(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A key passed as an int or inside a str is in no refusal (issue #821).
+
+    The percent-escape's `UnicodeDecodeError` holds the whole decoded
+    value, so the refusal chains nothing.
+    """
+    with pytest.raises(BTClibValueError, match=err_msg) as e:
+        call()
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_host_that_passed_construction_is_described_where_it_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two labels of a key's hex are a hostname, quoted up to 16 characters.
+
+    The connection is refused, and the refusal names the host as
+    `_quoted` does (issue #821).
+    """
+
+    def open_connection(
+        address: tuple[str, int], _deadline: float, timeout: float, _where: str
+    ) -> object:
+        raise ConnectionRefusedError(address, timeout)
+
+    monkeypatch.setattr(transport_module, "_open_connection", open_connection)
+    host = f"{HEX[:32]}.{HEX[32:]}"
+    err_msg = "^no answer from a value of 65 characters:1: ConnectionRefusedError$"
+    with pytest.raises(FetchError, match=err_msg) as e:
+        TcpLineTransport(host, 1)(b"{}\n", 1.0)
+    assert e.value.__cause__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def _v2_peer(host: str) -> None:
+    """Send one message over a `V2PeerTransport`, where it can be built."""
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+    V2PeerTransport(host, 1).send(_PING, 1.0)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda host: TcpLineTransport(host, 1)(b"{}\n", 1.0),
+        lambda host: TlsLineTransport(host, 1)(b"{}\n", 1.0),
+        lambda host: PersistentTlsLineTransport(host, 1)(b'{"id": 1}\n', 1.0),
+        lambda host: TcpPeerTransport(host, 1).send(_PING, 1.0),
+        _v2_peer,
+    ],
+    ids=["tcp line", "tls line", "persistent tls", "tcp peer", "v2 peer"],
+)
+def test_a_failed_connect_names_no_address(
+    call: Callable[[str], object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each caller of `_open_connection` refuses without its error's text.
+
+    `_open_connection` raises the `OSError` `socket.create_connection`
+    would. Each caller names at most the error's class, which this test
+    holds with an `OSError` written to name the host (issue #821).
+    """
+    host = f"{HEX[:32]}.{HEX[32:]}"
+
+    def open_connection(
+        address: tuple[str, int], _deadline: float, _timeout: float, _where: str
+    ) -> object:
+        raise ConnectionRefusedError(f"cannot reach {address[0]}")
+
+    monkeypatch.setattr(transport_module, "_open_connection", open_connection)
+    monkeypatch.setattr(peer_transport_module, "_open_connection", open_connection)
+    with pytest.raises(FetchError) as e:
+        call(host)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
     assert_secret_free(e.value, SPELLINGS)

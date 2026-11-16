@@ -99,8 +99,9 @@ class FeeEstimator(Protocol):
     - a backend that cannot quote a rate for the target -- Core's
       `feerate` absent from a reply that carries `errors` instead,
       Electrum's `-1` -- declines rather than answering, and is raised as
-      a `FetchError` keeping the backend's own reason, unreshaped, the way
-      `Broadcaster`'s third contract bullet already requires of a
+      a `FetchError` that names the method and says no estimate was
+      given. It relays none of the backend's own text, Core's `errors`
+      included, as `Broadcaster`'s third contract bullet says of a
       refusal. No sentinel reaches `FeeQuote`.
     """
 

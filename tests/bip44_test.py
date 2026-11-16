@@ -49,6 +49,7 @@ from btclib_wallet.descriptors import (
     wallet_policy_address,
     wallet_policy_descriptor,
 )
+from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.history import (
     BlockRef,
     HistoryTx,
@@ -57,6 +58,8 @@ from btclib_wallet.fetch.history import (
 )
 from btclib_wallet.mnemonic.bip39 import mxprv_from_mnemonic
 from tests import replace_unchecked
+from tests.refused_value_test import HEX, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" seed of BIP39, which BIP84 and BIP86
 # publish as a root key: the same key, spelled with two versions
@@ -199,7 +202,7 @@ def test_unknown_purpose() -> None:
     """Refuse purpose 48 bare, and let the script type override win."""
     # 48 is BIP48, multi-signature: a real purpose, and one whose script
     # type an account key does not determine
-    err_msg = "unknown BIP44 purpose: 48 not in "
+    err_msg = "unknown BIP44 purpose: an int of 6 bits not in "
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(_XPRV_ROOT, "m/48h/0h/0h/0/0")
 
@@ -231,23 +234,26 @@ def test_unknown_script_type() -> None:
     # determines, so it is not in the table. mypy rejects the call, the
     # Literal being the static half of this check; the runtime half is for
     # the caller who does not run mypy
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh not in "):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         address_from_der_path(_XPRV_ROOT, "m/84h/0h/0h/0/0", "p2wsh")  # type: ignore[arg-type]
 
 
 def test_coin_type() -> None:
     """Refuse a coin type off the key's network, and Litecoin's."""
     # a mainnet key with the testnet coin type, and the other way round
-    err_msg = "coin type 1 is test, the extended key is main"
+    err_msg = "coin type 1 is 'test', the extended key is 'main'"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(_XPRV_ROOT, "m/44h/1h/0h/0/0")
-    err_msg = "coin type 0 is main, the extended key is test"
+    err_msg = "coin type 0 is 'main', the extended key is 'test'"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(_UPRV_ROOT, "m/49h/0h/0h/0/0")
 
     # 2 is Litecoin: another chain, and no bitcoin address to give it
     with pytest.raises(
-        BTClibValueError, match="unregistered BIP44 coin type: 2 not in"
+        BTClibValueError, match="unregistered BIP44 coin type: an int of 2 bits not in"
     ):
         address_from_der_path(_XPRV_ROOT, "m/44h/2h/0h/0/0")
 
@@ -277,14 +283,14 @@ def test_key_depth() -> None:
     # the account xpub of another account: the depth says which index of
     # the path the key must be, and it is not that one
     xpub = bip32.xpub_from_xprv(bip32.derive(_ZPRV_ROOT, "m/84h/0h/1h"))
-    err_msg = "key index 1h at depth 3 is not the path's 0h"
+    err_msg = "key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xpub, der_path)
 
     # a key deeper than the path itself has no tail left to walk, and the
     # bound is the path's own length: an account path is three levels
     xkey = bip32.derive(_ZPRV_ROOT, "m/84h/0h/0h/0/0/0")
-    err_msg = "invalid key depth: 6 is past the 5 levels of the path"
+    err_msg = "invalid key depth: an int of 3 bits is past the 5 levels of the path"
     with pytest.raises(BTClibValueError, match=err_msg):
         address_from_der_path(xkey, der_path)
 
@@ -401,11 +407,16 @@ def test_the_account_descriptors_of_each_purpose() -> None:
     # a purpose the mapping does not name is refused, and script_type is
     # the override -- BIP48 multisig, whose script type an account key does
     # not determine
-    with pytest.raises(BTClibValueError, match="unknown BIP44 purpose: 48"):
+    with pytest.raises(
+        BTClibValueError, match="unknown BIP44 purpose: an int of 6 bits"
+    ):
         account_descriptors(_XPRV_ROOT, "m/48h/0h/0h")
     overridden = account_descriptors(_XPRV_ROOT, "m/48h/0h/0h", None, "p2wpkh")[0]
     assert str(overridden).startswith("wpkh(")
-    with pytest.raises(BTClibValueError, match="unknown script type: p2wsh"):
+    with pytest.raises(
+        BTClibValueError,
+        match=r"unknown script type: 'p2wsh' not in \(p2pkh, p2tr, p2wpkh, p2wpkh-p2sh\)",
+    ):
         account_descriptors(_XPRV_ROOT, "m/48h/0h/0h", None, "p2wsh")  # type: ignore[arg-type]
 
 
@@ -444,7 +455,7 @@ def test_account_descriptors_validates_an_already_built_key_too() -> None:
     assert str(receive) == str(account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")[0])
 
     bad = replace_unchecked(bip32.BIP32KeyData.b58decode(_XPRV_ROOT), index=-1)
-    err_msg = "invalid index: -1"
+    err_msg = "invalid index: a negative int of 1 bits"
     with pytest.raises(BTClibValueError, match=err_msg):
         bad.assert_valid()
     with pytest.raises(BTClibValueError, match=err_msg):
@@ -489,9 +500,14 @@ def test_an_account_path_is_three_hardened_levels() -> None:
             account_descriptors(_XPRV_ROOT, der_path)
 
     # the coin type is a claim about the chain and the key is the chain
-    with pytest.raises(BTClibValueError, match="coin type 1 is test"):
+    with pytest.raises(
+        BTClibValueError,
+        match="coin type 1 is 'test', the extended key is 'main'",
+    ):
         account_descriptors(_XPRV_ROOT, "m/84h/1h/0h")
-    with pytest.raises(BTClibValueError, match="unregistered BIP44 coin type: 2"):
+    with pytest.raises(
+        BTClibValueError, match="unregistered BIP44 coin type: an int of 2 bits"
+    ):
         account_descriptors(_XPRV_ROOT, "m/84h/2h/0h")
 
     # a key below the account level has walked past the path
@@ -500,7 +516,10 @@ def test_an_account_path_is_three_hardened_levels() -> None:
         account_descriptors(deeper, "m/84h/0h/0h")
     # and one at the account level has to be *that* account
     other = bip32.xpub_from_xprv(bip32.derive(_XPRV_ROOT, "m/84h/0h/1h"))
-    with pytest.raises(BTClibValueError, match="is not the path's 0h"):
+    with pytest.raises(
+        BTClibValueError,
+        match="key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648",
+    ):
         account_descriptors(other, "m/84h/0h/0h", "deadbeef")
 
 
@@ -726,7 +745,9 @@ def test_discover_account_refuses_a_reader_and_a_limit() -> None:
         discover_account(pair, object())  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid gap_limit type: bool"):
         discover_account(pair, _Chain(), gap_limit=True)
-    with pytest.raises(BTClibValueError, match="invalid gap_limit: 0 is below 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid gap_limit: an int of 0 bits is below 1"
+    ):
         discover_account(pair, _Chain(), gap_limit=0)
     with pytest.raises(BTClibValueError, match="is above the 2147483648 indexes"):
         discover_account(pair, _Chain(), gap_limit=2**31 + 1)
@@ -756,29 +777,43 @@ def test_discover_accounts_finds_an_account_past_an_unused_one() -> None:
     chain.pay(change_86.script_pub_key(4))
 
     found = discover_accounts(xpubs, chain, _FINGERPRINT, gap_limit=5)
-    assert list(found) == [(84, 0)]
-    assert found[84, 0].used == ((0,), ())
+    assert list(found.accounts) == [(84, 0)]
+    assert found.accounts[84, 0].used == ((0,), ())
+    assert found.cut_short == ()
 
     found = discover_accounts(xpubs, chain, _FINGERPRINT, account_gap=2, gap_limit=5)
-    assert list(found) == [(84, 0), (86, 1)]
-    assert found[86, 1].used == ((), (4,))
-    assert found[86, 1].descriptors == account_descriptors(
+    assert list(found.accounts) == [(84, 0), (86, 1)]
+    assert found.accounts[86, 1].used == ((), (4,))
+    assert found.accounts[86, 1].descriptors == account_descriptors(
         xpubs[86][1], "m/86h/0h/1h", _FINGERPRINT
     )
 
 
-def test_discover_accounts_refuses_to_stop_short_of_its_gap() -> None:
-    """Xpubs that end before `account_gap` unused accounts end nothing.
+def test_discover_accounts_cuts_short_a_purpose_whose_xpubs_end_first() -> None:
+    """A purpose whose every xpub is used keeps its accounts, and is cut short.
 
-    An account after them may be used, and the answer would not say so.
+    Purpose 84 is that purpose. An account after its xpubs may be used,
+    so the answer says so, and purpose 86 is read after it. Under 86
+    account 0 is used and account 1 is not: that ends the default gap of
+    1, and not a gap of 2.
     """
-    xpubs = {84: [_account_xpub("m/84h/0h/0h")]}
+    xpubs = {
+        84: [_account_xpub(f"m/84h/0h/{account}h") for account in range(2)],
+        86: [_account_xpub(f"m/86h/0h/{account}h") for account in range(2)],
+    }
     chain = _Chain()
-    receive, _ = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
-    chain.pay(receive.script_pub_key(0))
-    err_msg = "purpose 84: no xpub for account 1, and 0 of 1 unused accounts in a row"
-    with pytest.raises(BTClibValueError, match=err_msg):
-        discover_accounts(xpubs, chain, _FINGERPRINT)
+    for der_path in ("m/84h/0h/0h", "m/84h/0h/1h", "m/86h/0h/0h"):
+        receive, _ = account_descriptors(_XPRV_ROOT, der_path)
+        chain.pay(receive.script_pub_key(0))
+
+    found = discover_accounts(xpubs, chain, _FINGERPRINT, gap_limit=2)
+    assert list(found.accounts) == [(84, 0), (84, 1), (86, 0)]
+    assert all(use.used == ((0,), ()) for use in found.accounts.values())
+    assert found.cut_short == (84,)
+
+    found = discover_accounts(xpubs, chain, _FINGERPRINT, account_gap=2, gap_limit=2)
+    assert list(found.accounts) == [(84, 0), (84, 1), (86, 0)]
+    assert found.cut_short == (84, 86)
 
 
 def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
@@ -792,8 +827,8 @@ def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
     receive, _ = account_descriptors(tprv, "m/84h/1h/0h")
     chain.pay(receive.script_pub_key(1))
     found = discover_accounts({84: tpubs}, chain, fingerprint(tprv), gap_limit=2)
-    assert list(found) == [(84, 0)]
-    assert found[84, 0].descriptors[0] == receive
+    assert list(found.accounts) == [(84, 0)]
+    assert found.accounts[84, 0].descriptors[0] == receive
 
 
 @pytest.mark.parametrize(
@@ -821,14 +856,18 @@ def test_discover_accounts_reads_a_test_network_key_under_coin_type_1() -> None:
         (
             {84: [_account_xpub("m/84h/0h/1h")]},
             BTClibValueError,
-            "is not the path's 0h",
+            "key index an int of 32 bits at depth an int of 2 bits is not the path's 2147483648",
         ),
         (
             {84: [bip32.xpub_from_xprv(_XPRV_ROOT)]},
             BTClibValueError,
             "invalid hardened derivation from public key",
         ),
-        ({48: [_account_xpub("m/48h/0h/0h")]}, BTClibValueError, "purpose: 48"),
+        (
+            {48: [_account_xpub("m/48h/0h/0h")]},
+            BTClibValueError,
+            "purpose: an int of 6 bits",
+        ),
     ],
 )
 def test_discover_accounts_checks_every_argument_before_reading(
@@ -847,7 +886,9 @@ def test_discover_accounts_refuses_a_reader_and_the_limits() -> None:
     chain = _Chain()
     with pytest.raises(BTClibTypeError, match="not a HistoryReader: NoneType"):
         discover_accounts(xpubs, None, _FINGERPRINT)  # type: ignore[arg-type]
-    with pytest.raises(BTClibValueError, match="invalid account_gap: 0 is below 1"):
+    with pytest.raises(
+        BTClibValueError, match="invalid account_gap: an int of 0 bits is below 1"
+    ):
         discover_accounts(xpubs, chain, _FINGERPRINT, account_gap=0)
     with pytest.raises(BTClibTypeError, match="invalid gap_limit type: float"):
         discover_accounts(xpubs, chain, _FINGERPRINT, gap_limit=1.5)  # type: ignore[arg-type]
@@ -856,6 +897,32 @@ def test_discover_accounts_refuses_a_reader_and_the_limits() -> None:
     with pytest.raises(BTClibValueError, match="instead of 4"):
         discover_accounts(xpubs, chain, "00")
     assert not chain.reads
+
+
+def test_a_fetch_error_of_the_callers_reader_is_refused_by_its_class() -> None:
+    """The reader is the caller's code, so its text is not relayed (issue #935).
+
+    The first read, of a window, and the last, of every position found,
+    are refused in turn.
+    """
+    pair = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
+    chain = _Chain()
+    chain.pay(pair[0].script_pub_key(0))
+    assert discover_account(pair, chain, gap_limit=2) is not None
+    for refused in (0, len(chain.reads) - 1):
+        chain.reads.clear()
+
+        def refuse(_scripts: frozenset[bytes], refused: int = refused) -> None:
+            if len(chain.reads) == refused:
+                raise FetchError(f"no history for {HEX}")
+
+        chain.on_read = refuse
+        err_msg = "^get_history: no usable answer from the server: FetchError$"
+        with pytest.raises(FetchError, match=err_msg) as e:
+            discover_account(pair, chain, gap_limit=2)
+        assert e.value.__cause__ is None
+        assert e.value.__context__ is None
+        assert_secret_free(e.value, SPELLINGS)
 
 
 def test_an_account_use_is_a_value() -> None:

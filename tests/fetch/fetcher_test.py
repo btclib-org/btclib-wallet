@@ -6,8 +6,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import TypeVar
+
 import bitcoin_core_rpc as rpc
 import pytest
+from btclib.alias import Octets
 from btclib.block.block_header import BlockHeader
 from btclib.exceptions import (
     BTClibRuntimeError,
@@ -17,8 +22,15 @@ from btclib.exceptions import (
 from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxOut
+from typing_extensions import override
 
-from btclib_wallet.exceptions import FetchError, RpcError
+from btclib_wallet.exceptions import FetchError, HttpError, RpcError
+from btclib_wallet.fetch import peer_transport as peer_transport_module
+from btclib_wallet.fetch import transport as transport_module
+from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
+from btclib_wallet.fetch.decorators import CachingFetcher, FallbackFetcher
+from btclib_wallet.fetch.electrum import ElectrumFetcher
+from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import (
     Fetcher,
     NetworkVerifyingFetcher,
@@ -30,6 +42,14 @@ from btclib_wallet.fetch.fetcher import (
     tx_from_raw,
     tx_id_hex,
 )
+from btclib_wallet.fetch.history import start_height_for_time
+from btclib_wallet.fetch.peer_transport import TcpPeerTransport, V2PeerTransport
+from btclib_wallet.fetch.transport import (
+    PersistentTlsLineTransport,
+    TcpLineTransport,
+    TlsLineTransport,
+)
+from tests import raises_alone
 from tests.fetch import (
     REGTEST_GENESIS_HEADER_RAW,
     SIGNET_GENESIS_HEADER_RAW,
@@ -37,9 +57,26 @@ from tests.fetch import (
     TIP_HEIGHT,
     TIP_ID,
     TX_ID,
+    Recorded,
     StubFetcher,
     recorded_body,
 )
+from tests.fetch.bitcoin_core_rest_test import fetcher as rest_fetcher
+from tests.fetch.bitcoin_core_test import fetcher as core_fetcher
+from tests.fetch.compact_filters_test import build as compact_filters_fetcher
+from tests.fetch.electrum_history_test import FIRST, FUNDING, MINE, SPEND, FakeServer
+from tests.fetch.electrum_history_test import _chain as electrum_chain
+from tests.fetch.electrum_history_test import _fetcher as electrum_history_fetcher
+from tests.fetch.electrum_test import MERKLE_TX_ID
+from tests.fetch.electrum_test import fetcher as electrum_fetcher
+from tests.fetch.esplora_history_test import FakeEsplora
+from tests.fetch.esplora_history_test import _explorer as esplora_explorer
+from tests.fetch.esplora_history_test import _fetcher as esplora_history_fetcher
+from tests.fetch.esplora_test import BASE
+from tests.fetch.esplora_test import fetcher as esplora_fetcher
+from tests.fetch.history_test import OURS, _tx
+from tests.refused_value_test import HEX, SCALAR, SPELLINGS
+from tests.secret_free import assert_secret_free
 
 RAW = recorded_body("esplora_tx_hex.txt").decode().strip()
 # the coinbase of the same block, which is a different transaction with
@@ -57,20 +94,34 @@ OTHER_ID = "b1fea52486ce0c62bb442b530a3f0132b826c74e473d1f2c220bfa78111c5082"
     ],
 )
 def test_fetch_errors_names_the_source(error: Exception) -> None:
-    """Wrap parse-time exceptions in a FetchError naming the call."""
+    """Wrap parse-time exceptions in a FetchError naming the call.
+
+    A builtin's text can hold the answer it refused, and so can btclib's,
+    so neither is relayed nor chained (issue #821): a builtin's type is
+    named.
+    """
     with (
-        pytest.raises(FetchError, match=f"getblockcount: {error}"),
+        pytest.raises(FetchError, match="^'getblockcount': a malformed answer") as e,
         fetch_errors("getblockcount"),
     ):
         raise error
+    if not isinstance(error, BTClibRuntimeError):
+        assert str(e.value).endswith(f", as {type(error).__name__}")
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
 
 
 def test_fetch_errors_lets_a_fetch_error_through() -> None:
-    """It is a RuntimeError, so a nested one is not re-wrapped."""
-    with (
-        pytest.raises(FetchError, match="^the node is down$"),
-        fetch_errors("getblockcount"),
-    ):
+    """It is a RuntimeError, so a nested one is not re-wrapped.
+
+    One the package built passes as it is, and one the caller's code built
+    is refused by its class (issue #935).
+    """
+    err_msg = "^transaction: the answer is another transaction than the one asked$"
+    with pytest.raises(FetchError, match=err_msg), fetch_errors("getblockcount"):
+        tx_from_raw(RAW, OTHER_ID, "mainnet")
+    err_msg = "^'getblockcount': no usable answer from the server: FetchError$"
+    with pytest.raises(FetchError, match=err_msg), fetch_errors("getblockcount"):
         raise FetchError("the node is down")
 
 
@@ -81,6 +132,11 @@ def test_fetch_errors_is_transparent_when_nothing_is_raised() -> None:
     assert value == 481824
 
 
+# what `client_errors` answers for any rpc error, the client's text not
+# relayed
+_AN_RPC_ERROR = r"^the server answered an rpc error \(rpc error code {}\)$"
+
+
 def test_client_errors_raises_this_packages_rpc_error_with_the_code() -> None:
     """The client's `RpcError` leaves as this package's, its code kept.
 
@@ -88,8 +144,13 @@ def test_client_errors_raises_this_packages_rpc_error_with_the_code() -> None:
     attributes of the release installed.
     """
     error = rpc.RpcError("sendrawtransaction: the node answered an error", -26)
-    with pytest.raises(RpcError) as exc, client_errors():
+    with (
+        pytest.raises(RpcError, match=_AN_RPC_ERROR.format(-26)) as exc,
+        client_errors(),
+    ):
         raise error
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
     assert exc.value.code == -26
     assert exc.value.data is None
     assert not isinstance(exc.value, rpc.RpcError)
@@ -103,13 +164,536 @@ class _RpcErrorWithData(rpc.RpcError):
         self.data = data
 
 
-def test_client_errors_keeps_the_data_a_client_release_carries() -> None:
-    """`data` reaches this package's `RpcError` where the client has one."""
-    error = _RpcErrorWithData("getrawtransaction: not found", -5, {"tx": 1})
-    with pytest.raises(RpcError) as exc, client_errors():
+def test_client_errors_drops_the_data_a_client_release_carries() -> None:
+    """`data` does not reach this package's `RpcError`, nor its text.
+
+    Section 7 of the btclib-org standard, *A refusal carries no secret*:
+    `data` is the node's, and can quote the request.
+    """
+    error = _RpcErrorWithData("getrawtransaction: not found", -5, {"tx": "key"})
+    with (
+        pytest.raises(RpcError, match=_AN_RPC_ERROR.format(-5)) as exc,
+        client_errors(),
+    ):
         raise error
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
     assert exc.value.code == -5
-    assert exc.value.data == {"tx": 1}
+    assert exc.value.data is None
+
+
+def _peer_refusing(refusal: Exception) -> object:
+    """Ask a `CompactFilterFetcher` whose peer transport raises `refusal`."""
+    fetcher, peer = compact_filters_fetcher()
+
+    def send(_message: object, _timeout: float) -> None:
+        raise refusal
+
+    setattr(peer, "send", send)  # noqa: B010
+    return fetcher.get_block_count()
+
+
+# what `client_errors` answers for a plain `FetchError`
+_NO_ANSWER = "no usable answer from the server: FetchError$"
+
+# a client or a transport of the caller's raising a refusal, and what
+# `client_errors` answers through it for a plain `FetchError`
+_REFUSING = pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (lambda e: core_fetcher(e).get_block_count(), f"^getblockcount: {_NO_ANSWER}"),
+        (lambda e: rest_fetcher(e).get_block_count(), f"^{_NO_ANSWER}"),
+        (lambda e: electrum_fetcher(e).get_block_count(), f"^{_NO_ANSWER}"),
+        (lambda e: esplora_fetcher(e).get_block_count(), f"^{_NO_ANSWER}"),
+        (_peer_refusing, f"^{_NO_ANSWER}"),
+    ],
+    ids=["rpc client", "rest client", "line transport", "http transport", "peer"],
+)
+
+
+@_REFUSING
+def test_a_fetch_error_of_the_callers_own_is_refused_by_its_class(
+    call: Callable[[Exception], object], err_msg: str
+) -> None:
+    """The census does not read the caller's code, so its text is dropped.
+
+    Each client or transport is the caller's, and raises this package's
+    `FetchError` (issue #935).
+    """
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call(FetchError(f"no answer for {HEX}"))
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert e.value.failure_type is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+class _CallersTimeoutError(TimeoutError):
+    """A failure of a class of the caller's, deriving from the builtin's."""
+
+
+class _UnreadFailureError(rpc.FetchError):
+    """A refusal whose `failure_type` cannot be read."""
+
+    @property
+    @override
+    def failure_type(self) -> type[BaseException] | None:  # type: ignore[override]
+        """Raise, as a field of the caller's can."""
+        raise ValueError(HEX)
+
+
+@_REFUSING
+@pytest.mark.parametrize(
+    "refusal, held",
+    [
+        (rpc.FetchError, _CallersTimeoutError),
+        (FetchError, _CallersTimeoutError),
+        (rpc.FetchError, "TimeoutError"),
+        (rpc.FetchError, None),
+    ],
+    ids=["client's class", "package's class", "no class", "none"],
+)
+def test_a_failure_type_of_the_callers_own_is_held_as_the_one_it_derives_from(
+    call: Callable[[Exception], object],
+    err_msg: str,
+    refusal: type[Exception],
+    held: object,
+) -> None:
+    """The refusal holds a class of the standard library, or None.
+
+    A class of the caller's is held as the builtin it derives from, a
+    value that is no class as `BaseException`, and None as None.
+    """
+    error = refusal(f"no answer for {HEX}")
+    setattr(error, "failure_type", held)  # noqa: B010
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call(error)
+    expected = {_CallersTimeoutError: TimeoutError, "TimeoutError": BaseException}
+    assert e.value.failure_type is expected.get(held)
+
+
+@_REFUSING
+def test_a_failure_type_that_cannot_be_read_is_none(
+    call: Callable[[Exception], object], err_msg: str
+) -> None:
+    """What reading it raises is dropped, and nothing is held.
+
+    The refusal names the caller's class, as for any other.
+    """
+    err_msg = err_msg.replace("FetchError$", "_UnreadFailureError$")
+    with raises_alone(FetchError, match=err_msg) as caught:
+        call(_UnreadFailureError(f"no answer for {HEX}"))
+    assert isinstance(caught.value, FetchError)
+    assert caught.value.failure_type is None
+
+
+@pytest.mark.parametrize(
+    "call, err_msg, field, value",
+    [
+        (
+            lambda: rest_fetcher(HttpError(HEX, 503)).get_block_count(),
+            r"^the server answered HTTP 503$",
+            "status",
+            503,
+        ),
+        (
+            lambda: core_fetcher(RpcError(HEX, -5, HEX)).get_block_count(),
+            r"^getblockcount: the server answered an rpc error \(rpc error code -5\)$",
+            "code",
+            -5,
+        ),
+        (
+            lambda: core_fetcher(RpcError(HEX, SCALAR)).get_block_count(),
+            r"^getblockcount: the server answered an rpc error \(rpc error code 0\)$",
+            "code",
+            0,
+        ),
+    ],
+    ids=["status", "code", "scalar code"],
+)
+def test_an_http_or_rpc_error_of_the_callers_own_keeps_its_field_alone(
+    call: Callable[[], object], err_msg: str, field: str, value: int
+) -> None:
+    """Refused as `bitcoin_core_rpc`'s are: the field kept, the text dropped.
+
+    The server answered, so nothing failed: `failure_type` is None.
+    """
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call()
+    assert getattr(e.value, field) == value
+    assert e.value.failure_type is None
+    assert getattr(e.value, "data", None) is None
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+class _CallersFetcher(StubFetcher):
+    """A `Fetcher` of the caller's own, raising `refusal` for each question.
+
+    The tip height is answered where `tip` is True, so that the header
+    asked after it is the question refused.
+    """
+
+    def __init__(self, refusal: Exception, *, tip: bool) -> None:
+        super().__init__(Tx.parse(RAW))
+        self.refusal = refusal
+        self.tip = tip
+
+    @override
+    def get_tx(self, tx_id: Octets) -> Tx:
+        """Raise the refusal."""
+        raise self.refusal
+
+    @override
+    def get_block_count(self) -> int:
+        """Answer the tip height, or raise the refusal."""
+        if self.tip:
+            return super().get_block_count()
+        raise self.refusal
+
+    @override
+    def get_best_block_id(self) -> bytes:
+        """Raise the refusal."""
+        raise self.refusal
+
+    @override
+    def get_block_header(self, height: int) -> BlockHeader:
+        """Raise the refusal."""
+        raise self.refusal
+
+
+# a time no block header is past, so that every height is asked for
+_BORN = datetime(2100, 1, 1, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "call, tip, err_msg",
+    [
+        (lambda f: CachingFetcher(f).get_tx(TX_ID), False, "get_tx"),
+        (lambda f: CachingFetcher(f).get_block_header(1), False, "get_block_header"),
+        (lambda f: CachingFetcher(f).get_block_count(), False, "get_block_count"),
+        (lambda f: CachingFetcher(f).get_best_block_id(), False, "get_best_block_id"),
+        (lambda f: f.get_tx_out(OutPoint(TX_ID, 0)), False, "get_tx"),
+        (lambda f: start_height_for_time(f, _BORN), False, "get_block_count"),
+        (lambda f: start_height_for_time(f, _BORN), True, "get_block_header"),
+    ],
+    ids=[
+        "cached tx",
+        "cached header",
+        "cached tip height",
+        "cached tip id",
+        "tx out",
+        "start height's tip",
+        "start height's header",
+    ],
+)
+def test_a_fetch_error_of_the_callers_own_fetcher_is_refused_by_its_class(
+    call: Callable[[Fetcher], object], tip: bool, err_msg: str
+) -> None:
+    """A call of the package that asks the caller's `Fetcher` (issue #935).
+
+    What it relays is refused by its class, as `client_errors` refuses a
+    client's.
+    """
+    fetcher = _CallersFetcher(FetchError(f"no answer for {HEX}"), tip=tip)
+    with pytest.raises(FetchError, match=f"^{err_msg}: {_NO_ANSWER}") as e:
+        call(fetcher)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_fallback_fetcher_names_the_class_of_the_callers_refusal() -> None:
+    """It relays no backend's text already, and so none of the caller's."""
+    fetcher = _CallersFetcher(FetchError(f"no answer for {HEX}"), tip=False)
+    err_msg = "^get_tx: every backend failed -- _CallersFetcher: FetchError$"
+    with pytest.raises(FetchError, match=err_msg) as e:
+        FallbackFetcher([fetcher]).get_tx(TX_ID)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_package_fetchers_refusal_passes_a_caching_fetcher_as_it_is() -> None:
+    """Composed where the census reads it, the text is relayed (issue #935)."""
+    with pytest.raises(FetchError, match="^transaction: a malformed answer$"):
+        CachingFetcher(electrum_fetcher(5)).get_tx(TX_ID)
+
+
+class _ProxyError(FetchError):
+    """A `FetchError` of the caller's whose `__class__` answers `RpcError`."""
+
+    __class__ = property(lambda _self: RpcError)
+
+
+class _NoCodeError(RpcError):
+    """An `RpcError` of the caller's whose `code` raises where it is read."""
+
+    def __init__(self, message: str) -> None:
+        FetchError.__init__(self, message)
+
+    @property
+    @override
+    def code(self) -> int:  # type: ignore[override]
+        """Raise, quoting the message."""
+        raise AttributeError(self.args[0])
+
+
+class _NoRpcCodeError(rpc.RpcError):
+    """A `bitcoin_core_rpc.RpcError` whose `code` raises where it is read."""
+
+    def __init__(self, message: str) -> None:
+        rpc.FetchError.__init__(self, message)
+
+    @property
+    @override
+    def code(self) -> int:  # type: ignore[override]
+        """Raise, quoting the message."""
+        raise AttributeError(self.args[0])
+
+
+class _Nameless(type):
+    """A metaclass whose classes raise where their name is read."""
+
+    @property
+    @override
+    def __name__(cls) -> str:  # type: ignore[override]
+        """Raise, as a class of the caller's can."""
+        raise AttributeError(HEX)
+
+
+class _UnnamedError(FetchError, metaclass=_Nameless):
+    """A `FetchError` of the caller's whose class has no name to read."""
+
+
+@pytest.mark.parametrize(
+    "refusal, err_msg",
+    [
+        (_ProxyError, "_ProxyError"),
+        (_NoCodeError, "_NoCodeError"),
+        (_NoRpcCodeError, "_NoRpcCodeError"),
+        (_UnnamedError, "an unnamed class"),
+    ],
+    ids=["class answered", "code that raises", "rpc code that raises", "no name"],
+)
+def test_a_refusal_is_classified_by_its_type_and_reads_nothing_that_raises(
+    refusal: Callable[[str], Exception], err_msg: str
+) -> None:
+    """Its kind is its type's, and a read that raises chains nothing (#935).
+
+    The class's name stands in for a field that could not be read.
+    """
+    with pytest.raises(FetchError) as e:
+        rest_fetcher(refusal(f"no answer for {HEX}")).get_block_count()
+    assert type(e.value) is FetchError
+    assert str(e.value) == f"no usable answer from the server: {err_msg}"
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+class _CallersEsplora(EsploraFetcher):
+    """An `EsploraFetcher` of the caller's own, refusing the chain question."""
+
+    @override
+    def assert_network(self) -> None:
+        """Raise a refusal holding the key."""
+        raise FetchError(f"no chain for {HEX}")
+
+
+_F = TypeVar("_F", bound=Fetcher)
+
+
+def _overridden(fetcher: _F, method: str, refused: object = None) -> _F:
+    """Return `fetcher` with `method` answered as a caller's subclass can.
+
+    It raises a refusal holding the key where its first argument is
+    `refused`, or at every call where `refused` is None, and otherwise
+    answers as the method it replaces.
+    """
+    original = getattr(fetcher, method)
+
+    def _answer(*args: object) -> object:
+        if refused is None or args[0] == refused:
+            raise FetchError(f"no answer for {HEX}")
+        return original(*args)
+
+    setattr(fetcher, method, _answer)
+    return fetcher
+
+
+def _listing_first() -> FakeServer:
+    """Return the chain of `electrum_chain`, listing FIRST in OURS's history."""
+    server = electrum_chain()
+    listed = {"tx_hash": FIRST.id.hex(), "height": 4}
+    server.edit = lambda method, _params, result: (
+        [*result, listed] if method == "blockchain.scripthash.get_history" else result
+    )
+    return server
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda: _overridden(
+                esplora_history_fetcher(esplora_explorer()), "get_tx"
+            ).get_history([OURS, MINE]),
+            "get_tx",
+        ),
+        (
+            lambda: _overridden(
+                esplora_history_fetcher(
+                    FakeEsplora(
+                        FakeServer([[FUNDING]], [_tx([OutPoint(SPEND.id, 0)], [MINE])])
+                    )
+                ),
+                "get_tx",
+            ).get_history([MINE]),
+            "get_tx",
+        ),
+        (
+            lambda: _overridden(
+                electrum_history_fetcher(electrum_chain()), "get_tx"
+            ).get_history([OURS, MINE]),
+            "get_tx",
+        ),
+        (
+            lambda: _overridden(electrum_fetcher(5), "get_block_header").verify_tx(
+                MERKLE_TX_ID, TIP_HEIGHT
+            ),
+            "get_block_header",
+        ),
+        (
+            lambda: _overridden(
+                electrum_history_fetcher(electrum_chain()), "get_tx_merkle"
+            ).verify_tx(FUNDING.id, 1),
+            "get_tx_merkle",
+        ),
+        (
+            lambda: _overridden(
+                esplora_history_fetcher(esplora_explorer()), "text"
+            ).get_block_header(1),
+            "text",
+        ),
+        (
+            lambda: _overridden(
+                electrum_history_fetcher(electrum_chain()), "get_tx_merkle"
+            ).get_history([OURS, MINE]),
+            "get_tx_merkle",
+        ),
+        (
+            lambda: _overridden(
+                electrum_history_fetcher(electrum_chain()), "get_block_headers"
+            ).get_history([MINE], 2),
+            "get_block_headers",
+        ),
+        (
+            # FIRST pays MINE alone, so whether it touches OURS is read off
+            # the transaction its input spends, which no history lists
+            lambda: _overridden(
+                electrum_history_fetcher(_listing_first()), "get_tx", bytes(32)
+            ).get_history([OURS]),
+            "get_tx",
+        ),
+    ],
+    ids=[
+        "esplora confirmed",
+        "esplora mempool",
+        "electrum history",
+        "electrum proof",
+        "electrum proof merkle",
+        "esplora header",
+        "electrum merkle",
+        "electrum headers",
+        "spent output",
+    ],
+)
+def test_a_method_of_the_callers_own_subclass_is_refused_by_its_class(
+    call: Callable[[], object], err_msg: str
+) -> None:
+    """A package method asking a method a subclass overrides (issue #935)."""
+    with pytest.raises(FetchError, match=f"^{err_msg}: {_NO_ANSWER}") as e:
+        call()
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_the_chain_question_of_the_callers_own_subclass_is_refused() -> None:
+    """`assert_network` is asked again at each question it refuses (#935)."""
+    fetcher = _CallersEsplora(BASE, transport=Recorded((200, b"1")))
+    for _ in range(2):
+        err_msg = f"^assert_network: {_NO_ANSWER}"
+        with pytest.raises(FetchError, match=err_msg) as e:
+            fetcher.get_block_count()
+        assert e.value.__cause__ is None
+        assert e.value.__context__ is None
+        assert_secret_free(e.value, SPELLINGS)
+
+
+def _v2_peer_fetcher(host: str) -> object:
+    """Ask a `CompactFilterFetcher` over a `V2PeerTransport`."""
+    pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+    transport = V2PeerTransport(host, 1)
+    return CompactFilterFetcher("regtest", transport=transport).get_block_count()
+
+
+def _line_fetcher(transport: Callable[[bytes, float], bytes]) -> object:
+    """Ask an `ElectrumFetcher` over one of the line transports shipped."""
+    return ElectrumFetcher(
+        "mainnet", transport=transport, verify_network=False
+    ).get_block_count()
+
+
+@pytest.mark.parametrize(
+    "call, err_msg",
+    [
+        (
+            lambda host: _line_fetcher(TcpLineTransport(host, 1)),
+            r"^no answer from a value of 65 characters:1: ConnectionRefusedError$",
+        ),
+        (
+            lambda host: _line_fetcher(TlsLineTransport(host, 1)),
+            r"^no answer from a value of 65 characters:1: ConnectionRefusedError$",
+        ),
+        (
+            lambda host: _line_fetcher(PersistentTlsLineTransport(host, 1)),
+            r"^no answer from a value of 65 characters:1: ConnectionRefusedError$",
+        ),
+        (
+            lambda host: CompactFilterFetcher(
+                "regtest", transport=TcpPeerTransport(host, 1)
+            ).get_block_count(),
+            r"^no connection to a value of 65 characters:1$",
+        ),
+        (_v2_peer_fetcher, r"^no connection to a value of 65 characters:1$"),
+    ],
+    ids=["tcp line", "tls line", "persistent tls", "tcp peer", "v2 peer"],
+)
+def test_a_shipped_transports_refusal_reaches_the_caller_as_it_is(
+    call: Callable[[str], object], err_msg: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`client_errors` relays a `_TransportError` with its text (issue #935).
+
+    The text is composed where the census reads it, and describes the host.
+    """
+    host = f"{HEX[:32]}.{HEX[32:]}"
+
+    def open_connection(
+        address: tuple[str, int], _deadline: float, _timeout: float, _where: str
+    ) -> object:
+        raise ConnectionRefusedError(f"cannot reach {address[0]}")
+
+    monkeypatch.setattr(transport_module, "_open_connection", open_connection)
+    monkeypatch.setattr(peer_transport_module, "_open_connection", open_connection)
+    with pytest.raises(FetchError, match=err_msg) as e:
+        call(host)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert e.value.failure_type is ConnectionRefusedError
+    assert_secret_free(e.value, SPELLINGS)
 
 
 def test_tx_id_hex_takes_whatever_octets_takes() -> None:
@@ -276,7 +860,7 @@ def test_block_header_from_raw_returns_a_checked_header() -> None:
     ],
 )
 def test_block_header_from_raw_reports_what_is_not_a_header(raw: str) -> None:
-    """Wrap an unparsable body in a FetchError naming the height."""
+    """Wrap an unparsable body in a FetchError naming a block header."""
     with pytest.raises(FetchError, match="^block header:"):
         block_header_from_raw(raw, network="mainnet")
 
@@ -285,7 +869,7 @@ def test_block_header_from_raw_checks_the_work_against_the_network_given() -> No
     """Regtest's genesis is within regtest's limit and beyond mainnet's."""
     header = block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="regtest")
     assert header.hash == NETWORKS["regtest"].genesis_block
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="mainnet")
 
 
@@ -293,13 +877,13 @@ def test_block_header_from_raw_holds_signet_to_signets_limit() -> None:
     """Signet's genesis is within signet's limit and beyond mainnet's."""
     header = block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, network="signet")
     assert header.hash == NETWORKS["signet"].genesis_block
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(SIGNET_GENESIS_HEADER_RAW, network="mainnet")
 
 
 def test_block_header_from_raw_refuses_a_regtest_header_for_signet() -> None:
     """Signet's limit is not regtest's."""
-    with pytest.raises(FetchError, match="^block header: .*above the limit"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(REGTEST_GENESIS_HEADER_RAW, network="signet")
 
 
@@ -310,7 +894,7 @@ def test_block_header_from_raw_holds_the_hash_to_the_target_its_bits_claim() -> 
     below regtest's limit, and above the target those bits name.
     """
     claimed = f"{REGTEST_GENESIS_HEADER_RAW[:-16]}ffff001d01000000"
-    with pytest.raises(FetchError, match="^block header: invalid proof-of-work"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(claimed, network="regtest")
 
 
@@ -330,7 +914,7 @@ def test_block_header_from_raw_refuses_a_header_with_no_proof_of_work() -> None:
     this exists to enforce.
     """
     forged = f"{TIP_HEADER_RAW[:-8]}00000000"
-    with pytest.raises(FetchError, match="^block header: invalid proof"):
+    with pytest.raises(FetchError, match="^block header: a malformed answer"):
         block_header_from_raw(forged, network="mainnet")
 
 

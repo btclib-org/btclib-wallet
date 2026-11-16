@@ -438,7 +438,7 @@ REFUSED_EXPRESSIONS = [
     ("older(2147483648)", "invalid older.. value"),
     ("after(-1)", "invalid after.. number"),
     ("after(+1)", "invalid after.. number"),
-    ("older(1x)", "invalid older.. number"),
+    ("older(1x)", r"invalid older\(\) number: digits expected"),
     # what a thresh() may not be
     (f"thresh(1,pk({KEY})", "unbalanced brackets in thresh"),
     (f"thresh(pk({KEY}))", "thresh.. takes a threshold"),
@@ -860,7 +860,7 @@ REFUSED_SCRIPTS = [
     # what no fragment writes
     ("75", "closes no fragment"),
     ("", "expression is expected"),
-    ("6b5168", "op code 0x6b before an OP_ENDIF"),
+    ("6b5168", "not a miniscript: op code an int of 7 bits before an OP_ENDIF"),
     ("635168", "an OP_IF wrapping nothing known"),
     ("5168", "the script ends inside an OP_IF"),
     ("51ac", "ill-typed miniscript"),
@@ -885,9 +885,9 @@ REFUSED_SCRIPTS = [
     ("515287", "invalid thresh.. threshold: 2 of 1"),
     ("645168", "ends inside an OP_NOTIF"),
     ("51675168", "ends inside an OP_ELSE"),
-    ("7c51675168", "op code 0x7c before OP_ELSE"),
+    ("7c51675168", "not a miniscript: op code an int of 7 bits before OP_ELSE"),
     ("6b51", "more than one expression"),
-    (f"21{KEY}ad", "is a V, not a B"),
+    (f"21{KEY}ad", "not a miniscript script: a 'V', not a B"),
     ("6b9a", "closes no fragment"),
     ("7c516c9a", "its first op code is missing"),
     ("6b519a", "its first op code is missing"),
@@ -926,10 +926,57 @@ def test_a_key_hash_without_its_key_cannot_be_read() -> None:
     no signing provider to ask.
     """
     script = parse(f"pkh({KEY})").script()
-    with pytest.raises(BTClibValueError, match="no public key for the hash160"):
+    with pytest.raises(
+        BTClibValueError,
+        match="no public key for a hash160 the script holds",
+    ):
         from_script(script)
     node = from_script(script, P2WSH, {hash160(bytes.fromhex(KEY)): KEY})
     assert str(node) == f"pkh({KEY})"
+
+
+@pytest.mark.parametrize(
+    "context, key",
+    [
+        pytest.param(P2WSH, KEY, id="P2WSH"),
+        pytest.param(TAPSCRIPT, XONLY, id="tapscript"),
+    ],
+)
+def test_a_script_lacking_a_key_is_refused_for_what_else_is_wrong_first(
+    context: str, key: str
+) -> None:
+    """Name the missing key only where nothing else is wrong with the script.
+
+    The rest of the script is read past the hash, so a script that is no
+    miniscript is refused for that, which no key could change.
+    """
+    script = parse(f"and_v(v:pkh({key}),older(36))", context).script()
+    with pytest.raises(
+        BTClibValueError, match="no public key for a hash160 the script holds"
+    ):
+        from_script(script, context)
+    with pytest.raises(BTClibValueError, match="ill-typed miniscript: and_v"):
+        from_script(serialize(["OP_1"]) + script, context)
+
+
+def test_a_multi_count_out_of_bounds_is_refused_before_a_key_is_read() -> None:
+    """Refuse a CHECKMULTISIG whose count Bitcoin Core's decoder refuses.
+
+    The count is an offset into the script's entries, so it is bounded
+    before it is used: a negative one would read them from the other end.
+    A script lacking a key is read past the key, so it reaches the count
+    too.
+    """
+    pkh = parse(f"pkh({KEY})").script()
+    key_hashes: dict[Octets, Octets] = {hash160(bytes.fromhex(KEY)): KEY}
+    # -100, minimally encoded in one byte, and then 0
+    for prefix in ("5101e4ae", "5100ae"):
+        script = bytes.fromhex(prefix) + pkh
+        for mapping in (None, key_hashes):
+            with pytest.raises(
+                BTClibValueError, match=r"not a multi\(\): invalid number of keys:"
+            ):
+                from_script(script, P2WSH, mapping)
 
 
 def test_a_key_answered_for_a_hash_that_is_not_its_own_is_refused() -> None:
@@ -945,7 +992,10 @@ def test_a_key_answered_for_a_hash_that_is_not_its_own_is_refused() -> None:
     script = parse(f"pkh({KEY})").script()
     key_hash = hash160(bytes.fromhex(KEY))
     lying: dict[Octets, Octets] = {key_hash: CUSTODY_KEYS[1]}
-    with pytest.raises(BTClibValueError, match="the key answered for the hash160"):
+    with pytest.raises(
+        BTClibValueError,
+        match="the key answered for a hash160 hashes to another",
+    ):
         from_script(script, P2WSH, lying)
     assert not reads_back(script, P2WSH, lying)
     assert reads_back(script, P2WSH, {key_hash: KEY})

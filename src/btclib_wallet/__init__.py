@@ -69,6 +69,7 @@ __all__ = [
     "psbt",
     "psbt_signer",
     "psbt_signer_contract",
+    "recovery_paths",
     "silent_payments",
     "slip132",
     "tx_builder",

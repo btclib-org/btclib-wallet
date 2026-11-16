@@ -25,6 +25,7 @@ from btclib.utils import (
     fields_from_json_object,
 )
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.bip32 import (
     BIP32KeyOrigin,
     HdKeyPaths,
@@ -270,7 +271,9 @@ class PsbtOut:
 
         assert_valid_sp_v0_info(self.sp_v0_info)
         if self.sp_v0_label is not None and not 0 <= self.sp_v0_label <= 0xFFFFFFFF:
-            raise BTClibValueError(f"invalid silent payment label: {self.sp_v0_label}")
+            raise BTClibValueError(
+                f"invalid silent payment label: {_quoted(self.sp_v0_label)}"
+            )
         # BIP375: "If this field is not included in the output, then the
         # field PSBT_OUT_SP_V0_INFO must be included" is said of the
         # script, and the label is the other way round -- it names the

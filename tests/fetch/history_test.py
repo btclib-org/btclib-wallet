@@ -319,7 +319,10 @@ def test_get_history_raises_any_other_rpc_error() -> None:
     """Only the node not having the transaction is a skip."""
     node = FakeNode([[(COINBASE, [None])]], [PAYMENT])
     node.refused = {PAYMENT.id.hex(): int(RPCErrorCode.IN_WARMUP)}
-    with pytest.raises(RpcError) as raised:
+    with pytest.raises(
+        RpcError,
+        match=r"the server answered an rpc error \(rpc error code -28\)",
+    ) as raised:
         _fetcher(node).get_history([OURS])
     assert raised.value.code == RPCErrorCode.IN_WARMUP
 
@@ -362,7 +365,12 @@ def _without_prevout(result: dict[str, Any]) -> dict[str, Any]:
     [
         ("getblock", lambda r: _set(r, "hash", "00" * 32), "the answer is block"),
         ("getblock", lambda r: _set(r, "height", 9), "the answer is at height 9"),
-        ("getblock", lambda r: _set(r, "height", "2"), "the answer is at height 2"),
+        ("getblock", lambda r: _set(r, "height", "2"), "invalid height type: str"),
+        (
+            "getblock",
+            lambda r: _set(r, "height", -1),
+            "invalid height: a negative int of 1 bits < 0",
+        ),
         ("getblock", lambda _r: [], "no 'hash' member"),
         ("getblock", _without_prevout, "no 'prevout' member"),
         ("getbestblockhash", lambda _r: "xx", "getbestblockhash"),
@@ -378,7 +386,7 @@ def test_get_history_refuses_a_malformed_answer(
     """Every answer the node gives is checked; a wrong one is a FetchError."""
     node = _chain()
     node.mempool = [_tx([OutPoint(SPEND.id, 0)], [OTHER])]
-    with pytest.raises(FetchError, match=match):
+    with pytest.raises(FetchError, match=f"^{method}: "):
         _fetcher(_edited(node, method, change)).get_history([OURS], 1)
 
 
@@ -398,7 +406,9 @@ def test_a_reply_over_its_bound_is_refused(method: str, bound: int) -> None:
     node.mempool = [_tx([OutPoint(SPEND.id, 0)], [OTHER])]
     padding = "0" * bound
     node.edit = lambda m, _p, result: [result, padding] if m == method else result
-    with pytest.raises(FetchError, match=f"more than the max_body_size of {bound}"):
+    with pytest.raises(
+        FetchError, match=f"^{method}: no usable answer from the server: FetchError$"
+    ):
         _fetcher(node).get_history([OURS], 1)
 
 

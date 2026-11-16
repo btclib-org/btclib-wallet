@@ -45,6 +45,7 @@ from btclib_wallet.ledger import MAX_UNLOCK_TIME, Ledger, TxState, crypto
 from btclib_wallet.ledger import ledger as ledger_module
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet import DescriptorWallet
+from tests import raises_alone
 from tests.ledger.conftest import (
     LOOKAHEAD,
     XPRV,
@@ -1106,7 +1107,7 @@ def test_another_constraint_on_the_master_key_is_no_ledgers(
             " BEGIN SELECT RAISE(ABORT, 'refused'); END"
         )
     with _loaded(path, chain) as ledger:
-        with pytest.raises(BTClibValueError, match="not a ledger file: refused"):
+        with pytest.raises(BTClibValueError, match="not a ledger file: IntegrityError"):
             ledger.encrypt(PASSPHRASE)
         assert ledger.unlocked_until is None
 
@@ -1265,8 +1266,8 @@ def test_every_refusal_a_secret_reaches_holds_none(
     path = tmp_path / "hardened.sqlite"
     with _created(path, chain, _wallet(XPRV), _hardened(XPRV2)) as ledger:
         refused(lambda: ledger.encrypt(SECRET), "a locked ledger cannot watch")
-        # raised `from None`: the context walked is the parser's refusal
-        assert len(list(chained(refusals[-1]))) == 2
+        # raised after the `except` block, so that it chains nothing
+        assert len(list(chained(refusals[-1]))) == 1
     path = tmp_path / "encrypted.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)
@@ -1281,7 +1282,7 @@ def test_every_refusal_a_secret_reaches_holds_none(
             lambda: ledger.add_source(_wallet(XPRV2), birth_height=-1),
             "negative birth_height",
         )
-        refused(lambda: ledger.add_source(testnet), "a testnet wallet")
+        refused(lambda: ledger.add_source(testnet), "the wallet's network, testnet")
         refused(lambda: ledger.bump(bytes(32)), "the ledger is locked")
         refused(lambda: ledger.bump_psbt(bytes(32)), "the ledger is locked")
         refused(lambda: ledger.unlock_keys(WRONG, 10), "the passphrase is wrong")
@@ -1305,7 +1306,7 @@ def test_every_refusal_a_secret_reaches_holds_none(
     with _loaded(path, chain) as ledger:
         refused(lambda: ledger.unlock_keys(SECRET, 10), "keys do not decrypt")
         names = [type(e).__name__ for e in chained(refusals[-1])]
-        assert names == ["BTClibValueError", "_WrongKeyError", "InvalidTag"]
+        assert names == ["BTClibValueError", "_WrongKeyError"]
     path = tmp_path / "unciphered.sqlite"
     with _created(path, chain, _wallet(XPRV)) as ledger:
         ledger.encrypt(SECRET)
@@ -1424,6 +1425,49 @@ def test_a_damaged_ciphertext_is_told_from_a_wrong_passphrase(
         pytest.raises(BTClibValueError, match="the passphrase is wrong"),
     ):
         ledger.unlock_keys(PASSPHRASE, 10)
+
+
+_UNREADABLE = "^not a ledger file: source 0's keys are unreadable$"
+
+
+@pytest.mark.parametrize(
+    "plaintext, err_msg",
+    [
+        (b'{"prv_keys": ["' + HEX.encode(), _UNREADABLE),
+        (b"\xff" + HEX.encode(), _UNREADABLE),
+        (b"[]", _UNREADABLE),
+        (
+            b'{"descriptors": {"' + HEX.encode() + b'": "x"}, "prv_keys": {}}',
+            "^not a ledger file: source 0's descriptors are not keyed by branch$",
+        ),
+        (
+            b'{"descriptors": {}}',
+            "^not a ledger file: source 0's prv_keys is not a JSON object$",
+        ),
+    ],
+    ids=["cut short", "no utf-8", "no object", "descriptors map key", "no prv_keys"],
+)
+def test_keys_that_decrypt_to_no_ledger_json_are_refused_alone(
+    chain: FakeChain, path: Path, clock: Clock, plaintext: bytes, err_msg: str
+) -> None:
+    """The codec's, `json`'s or `int`'s error holds the keys decrypted.
+
+    So the refusal names the source alone and chains nothing (issues #821
+    and #900).
+    """
+    with _created(path, chain, _wallet(XPRV)) as ledger:
+        ledger.encrypt(PASSPHRASE)
+        ledger.unlock_keys(PASSPHRASE, 10)
+        key = ledger._key
+        assert key is not None
+        sealed = crypto._sealed(key, plaintext, ledger_module._aad(0))
+    _damaged(path, "UPDATE sources SET encrypted = ?", sealed)
+    with (
+        _loaded(path, chain) as ledger,
+        raises_alone(BTClibValueError, err_msg) as e,
+    ):
+        ledger.unlock_keys(PASSPHRASE, 10)
+    assert_secret_free(e.value, SPELLINGS)
 
 
 class _Recorded(bytearray):

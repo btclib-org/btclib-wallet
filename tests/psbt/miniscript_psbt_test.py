@@ -12,13 +12,17 @@ miniscript descriptor.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
+from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
-from btclib.hashes import sha256
+from btclib.hashes import hash160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import sig_hash
 from btclib.script.engine import verify_transaction
-from btclib.script.script import serialize
+from btclib.script.limits import MAX_SCRIPT_SIZE
+from btclib.script.script import op_code_spans, serialize
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.script.taproot import leaf_hash
 from btclib.tx.out_point import OutPoint
@@ -31,12 +35,24 @@ from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import WshDescriptor
 from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.descriptors.miniscript import (
+    P2WSH,
     TAPSCRIPT,
     Miniscript,
     SpendContext,
+    from_script,
     parse,
 )
-from btclib_wallet.psbt.psbt import Psbt, finalize, miniscript_solver, taproot_sig_hash
+from btclib_wallet.descriptors.miniscript import (
+    _lacks_only_keys as decoder_lacks_only_keys,
+)
+from btclib_wallet.psbt import psbt as psbt_module
+from btclib_wallet.psbt.psbt import (
+    Psbt,
+    _lacks_only_keys,
+    finalize,
+    miniscript_solver,
+    taproot_sig_hash,
+)
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import (
     estimated_input_sizes,
@@ -213,19 +229,155 @@ def test_the_solver_reads_a_key_the_input_knows_by_its_hash() -> None:
 
     The keys an input carries are what makes that readable: the ones that
     signed, and the ones a key origin names. Without either the witness
-    script is not a miniscript as far as anything can tell, and the solver
-    says so by answering None.
+    script cannot be read, and the solver refuses it, though the branch
+    these signatures open needs nothing of that key: so does Bitcoin
+    Core's ``finalizepsbt``.
     """
     node = parse(f"or_d(pk({KEYS[0]}),and_v(v:pkh({KEYS[1]}),older(1008)))")
     psbt, _ = signed_psbt(node, [KEYS[1]], 499999999, 1008)
     assert miniscript_solver(psbt, 0) is not None
     # the origin of a key is enough, the psbt knowing the key from it
     psbt, _ = signed_psbt(node, [KEYS[0]], 499999999, 0x0000FFFF)
-    assert miniscript_solver(psbt, 0) is None
+    with pytest.raises(BTClibValueError, match=UNKNOWN_KEY):
+        miniscript_solver(psbt, 0)
     psbt.inputs[0].hd_key_paths = {
         bytes.fromhex(KEYS[1]): BIP32KeyOrigin("deadbeef", [0])
     }
     assert miniscript_solver(psbt, 0) is not None
+
+
+UNKNOWN_KEY = "input 0: no public key for a hash160 the witness script holds"
+
+
+def test_no_witness_is_guessed_for_a_key_hash_the_input_does_not_name() -> None:
+    """Refuse a miniscript whose pk_h() key the input names nowhere.
+
+    Answered None, `finalize` would build its guess for a script of no
+    standard kind: the two signatures and the script, without the empty
+    element OP_CHECKMULTISIG pops, which the engine refuses. The key's origin
+    makes the script readable, and the witness is then the one that
+    verifies.
+    """
+    node = parse(
+        f"or_d(multi(2,{KEYS[0]},{KEYS[1]}),and_v(v:pkh({KEYS[2]}),older(144)))"
+    )
+    psbt, prevouts = signed_psbt(node, KEYS[:2], 499999999, 0xFFFFFFFD)
+    with pytest.raises(BTClibValueError, match=UNKNOWN_KEY):
+        finalize(psbt, solver=miniscript_solver)
+    psbt.inputs[0].hd_key_paths = {
+        bytes.fromhex(KEYS[2]): BIP32KeyOrigin("deadbeef", [0])
+    }
+    final = finalize(psbt, solver=miniscript_solver)
+    spending = final.tx
+    spending.vin[0].script_witness = final.inputs[0].final_script_witness
+    verify_transaction(prevouts, spending)
+
+
+def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> None:
+    """Answer None for a script that is no miniscript, whatever key it lacks.
+
+    The pk_h() at its end is read with a stand-in key, and what is left
+    before it is no expression: the input is not this solver's business.
+    The second script's CHECKMULTISIG counts -100 keys, which the walk
+    past the missing key reaches.
+    """
+    pkh = parse(f"pkh({KEYS[2]})").script()
+    psbt, _ = signed_psbt(parse(f"pk({KEYS[0]})"), [KEYS[0]], 499999999, 0)
+    for prefix in (serialize(["OP_DROP"]), bytes.fromhex("5101e4ae")):
+        psbt.inputs[0].witness_script = prefix + pkh
+        assert miniscript_solver(psbt, 0) is None
+
+
+def _known(*keys: str) -> dict[Octets, Octets]:
+    """Return the keys an input names, each filed under its hash160."""
+    return {hash160(bytes.fromhex(key)): bytes.fromhex(key) for key in keys}
+
+
+_PKH = parse(f"pkh({KEYS[2]})").script()
+_OR_D = parse(
+    f"or_d(multi(2,{KEYS[0]},{KEYS[1]}),and_v(v:pkh({KEYS[2]}),older(144)))"
+).script()
+# a hash160() digest is a 20-byte push the input names no key for too
+_HASH_LOCK = parse(
+    f"and_v(v:hash160({hash160(PRV_KEYS[3]).hex()}),pkh({KEYS[2]}))"
+).script()
+
+
+@pytest.mark.parametrize(
+    "script, key_hashes",
+    [
+        pytest.param(_OR_D, _known(KEYS[0], KEYS[1]), id="lacks-one"),
+        pytest.param(_OR_D, _known(), id="lacks-all"),
+        pytest.param(_HASH_LOCK, _known(), id="beside-a-hash-lock"),
+        pytest.param(_HASH_LOCK + serialize(["OP_DROP"]), _known(), id="no-miniscript"),
+        pytest.param(serialize(["OP_DROP"]) + _PKH, _known(), id="drop-first"),
+        pytest.param(bytes.fromhex("5101e4ae") + _PKH, _known(), id="multi-count"),
+        pytest.param(_PKH.replace(b"\x88", b"\x87\x69"), _known(), id="split-verify"),
+        pytest.param(_OR_D[:-3], _known(), id="truncated"),
+        pytest.param(_OR_D[:40], _known(), id="push-past-end"),
+        # a key filed under a hash that is not its own is the decoder's
+        # refusal, not a missing key
+        pytest.param(_PKH, {hash160(bytes.fromhex(KEYS[2])): KEYS[0]}, id="wrong-key"),
+        # KEYS[0] is G, whose hash160 the first stand-in would be filed under
+        pytest.param(
+            parse(f"pkh({KEYS[0]})").script(),
+            {hash160(bytes.fromhex(KEYS[0])): KEYS[1]},
+            id="wrong-key-under-the-stand-in-hash",
+        ),
+        pytest.param(_OR_D, _known(KEYS[0]), id="lacks-one-beside-g"),
+        # Octets admits hex strings, which from_script reads as their bytes
+        pytest.param(
+            _PKH, {hash160(bytes.fromhex(KEYS[2])).hex(): KEYS[0]}, id="hex-wrong-key"
+        ),
+        pytest.param(
+            _OR_D,
+            {hash160(bytes.fromhex(key)).hex(): key for key in KEYS[:2]},
+            id="hex-lacks-one",
+        ),
+        pytest.param(_PKH, {"zz": KEYS[2]}, id="no-hex"),
+    ],
+)
+def test_the_solver_tells_a_missing_key_as_the_decoder_does(
+    script: bytes, key_hashes: dict[Octets, Octets]
+) -> None:
+    """`psbt` tells a missing key as `descriptors.miniscript` tells it.
+
+    Asked where `from_script` refuses the script, which is where the solver
+    asks it: whether the refusal is only for a pk_h() whose key the input
+    does not name.
+    """
+    with pytest.raises(BTClibValueError):
+        from_script(script, P2WSH, key_hashes)
+    assert _lacks_only_keys(script, key_hashes) == decoder_lacks_only_keys(
+        script, P2WSH, key_hashes
+    )
+
+
+def test_a_script_past_consensus_size_is_answered_before_it_is_walked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A witness script past `MAX_SCRIPT_SIZE` is no miniscript, at no walk.
+
+    A parsed psbt can carry a witness script of any length, and both
+    decoders refuse one past their own, smaller bound.
+    """
+    script = _PKH * (MAX_SCRIPT_SIZE // len(_PKH) + 1)
+    with pytest.raises(BTClibValueError, match="script too large"):
+        from_script(script, P2WSH, {})
+    assert not decoder_lacks_only_keys(script, P2WSH, {})
+
+    walked: list[bytes] = []
+
+    def walk(script: bytes) -> Iterator[tuple[int, int, int]]:
+        walked.append(script)
+        return op_code_spans(script)
+
+    monkeypatch.setattr(psbt_module, "op_code_spans", walk)
+    assert not _lacks_only_keys(script, {})
+    assert not walked
+    # and a script within the bound is walked
+    assert _lacks_only_keys(_PKH, {})
+    assert walked == [_PKH]
 
 
 # a tr() whose script tree holds a miniscript leaf beside a key one: the
@@ -273,8 +425,7 @@ def psbt_input(node: Miniscript) -> tuple[PsbtIn, TxIn]:
     With the key origins an Updater writes, which is what a `pkh()`
     fragment needs to be readable at all: its script holds the hash of its
     key, so an input carrying neither a signature nor an origin for that
-    key is one whose witness script is not miniscript as far as anything
-    can tell.
+    key is one whose witness script cannot be read.
     """
     script = node.script()
     psbt_in = PsbtIn(

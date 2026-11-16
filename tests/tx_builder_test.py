@@ -36,6 +36,7 @@ from btclib.script import ScriptPubKey
 from btclib.script.engine import verify_transaction
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
+from btclib_wallet._refusal import _quoted
 from btclib_wallet.descriptors import Descriptor
 from btclib_wallet.psbt.psbt import extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
@@ -43,6 +44,7 @@ from btclib_wallet.psbt.psbt_size import SIG_SIZE
 from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.psbt_signer import SoftwareSigner, export_account, request_signatures
 from btclib_wallet.tx_builder import DEFAULT_MAX_FEE, DEFAULT_MAX_FEE_RATE, build_psbt
+from tests import raises_alone
 
 # BIP39's "abandon abandon ... about" root, which BIP84 publishes and
 # `tests/software_signer_test.py` signs with
@@ -154,7 +156,7 @@ def test_a_lock_time_every_final_sequence_voids_is_refused() -> None:
     final = spendable(100_000)
     explicit = spendable(100_000, tx_id=b"\x07" * 32)
     explicit.sequence = 0xFFFFFFFF
-    with pytest.raises(BTClibValueError, match="lock_time 800000 is void"):
+    with pytest.raises(BTClibValueError, match="lock_time an int of 20 bits is void"):
         build_psbt(
             [final, explicit],
             [TxOut(60_000, PAY_SCRIPT)],
@@ -396,7 +398,7 @@ def test_an_input_of_no_readable_type_is_answered_by_a_sizer() -> None:
     psbt_in = spendable(100_000, ScriptPubKey.p2wsh(witness_script))
     psbt_in.witness_script = witness_script
 
-    with pytest.raises(BTClibValueError, match="no estimate"):
+    with raises_alone(BTClibValueError, match="input 0: no size estimate"):
         build_psbt([psbt_in], [TxOut(60_000, PAY_SCRIPT)], TEN_SAT_PER_VBYTE, None)
 
     small = build_psbt(
@@ -478,7 +480,10 @@ def test_an_output_below_its_dust_threshold_is_refused() -> None:
     so an `OP_RETURN` carrying no value is paid.
     """
     threshold = dust_threshold(PAY_SCRIPT.script)
-    with pytest.raises(BTClibValueError, match=f"output 1 of {threshold - 1} "):
+    with pytest.raises(
+        BTClibValueError,
+        match=f"output 1 is dust: its value, {_quoted(threshold - 1)}, ",
+    ):
         build_psbt(
             [spendable(100_000)],
             [TxOut(threshold, PAY_SCRIPT), TxOut(threshold - 1, PAY_SCRIPT)],
@@ -525,7 +530,7 @@ def test_a_fee_above_max_fee_is_refused() -> None:
         max_fee_rate=NO_RATE_CEILING,
     )
     assert built.fee == DEFAULT_MAX_FEE
-    with pytest.raises(BTClibValueError, match="a fee of 10000001 satoshi exceeds"):
+    with pytest.raises(BTClibValueError, match=f"a fee of {_quoted(10000001)} exceeds"):
         build_psbt(
             [spendable(value)],
             [TxOut(value - DEFAULT_MAX_FEE - 1, PAY_SCRIPT)],

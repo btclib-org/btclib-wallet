@@ -22,7 +22,7 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger import Balances, Ledger, TxState
-from tests.ledger.conftest import FakeChain, script_of
+from tests.ledger.conftest import REFUSED_BROADCAST, FakeChain, script_of
 from tests.ledger.ledger_test import _funded, _outside, _signed
 
 
@@ -114,7 +114,10 @@ def test_a_block_conflicts_with_a_spend_and_its_child(
     # the second coin, spent only by the conflicted spend, is spendable again
     assert ledger.balances() == Balances(50_000, 0, 0, 0)
     assert [utxo.outpoint for utxo in ledger.utxos()] == [y]
-    with pytest.raises(BTClibValueError, match="a conflicted transaction cannot"):
+    with pytest.raises(
+        BTClibValueError,
+        match="a conflicted transaction cannot be abandoned",
+    ):
         ledger.abandon(spend.id)
     # a later sync changes nothing, and a load answers the same
     assert ledger.sync().changed == frozenset()
@@ -222,11 +225,16 @@ def test_a_double_spend_paying_elsewhere_leaves_a_payment_inactive(
 def test_abandon_refuses_what_is_not_inactive(ledger: Ledger, chain: FakeChain) -> None:
     """wallet_abandonconflict.py lines 41-56: Core's -5 cases."""
     payment = _funded(ledger, chain)
-    with pytest.raises(BTClibValueError, match="a confirmed transaction cannot"):
+    with pytest.raises(
+        BTClibValueError,
+        match="a confirmed transaction cannot be abandoned",
+    ):
         ledger.abandon(payment.id)
     pending = chain.pay([TxOut(1_000, script_of(ledger.new_address()))])
     ledger.sync()
-    with pytest.raises(BTClibValueError, match="a mempool transaction cannot"):
+    with pytest.raises(
+        BTClibValueError, match="a mempool transaction cannot be abandoned"
+    ):
         ledger.abandon(pending.id)
     with pytest.raises(BTClibValueError, match="not a ledger transaction"):
         ledger.abandon(b"\xff" * 32)
@@ -340,7 +348,7 @@ def test_resubmit_broadcasts_again_what_is_neither_abandoned_nor_in_a_block(
     refused = ledger.resubmit()
     assert list(refused) == [second.id]
     assert isinstance(refused[second.id], FetchError)
-    assert str(refused[second.id]) == "mempool full"
+    assert str(refused[second.id]) == REFUSED_BROADCAST
     assert _state(ledger, second) is TxState.INACTIVE
     chain.refuse = ""
     assert ledger.resubmit() == {}

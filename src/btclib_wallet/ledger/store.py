@@ -19,7 +19,7 @@ when the file is opened.
 
 The file holds everything a load answers from: the sources, the
 positions handed out, every transaction with its state, block, comments
-and the bump that links it to another, the blocks synced through, the
+and the bump that links it to another, the blocks the ledger holds, the
 tip, and the labels. Each source's private keys are written in plain
 text, as an unencrypted Core wallet writes its own, until
 `Ledger.encrypt` encrypts them. In an encrypted file a source
@@ -66,6 +66,14 @@ connection is collected.
 Every write a sync makes is one SQLite transaction, so a process killed
 mid-write leaves the file as the last whole sync left it.
 
+`sqlite3` binds a value of a subclass of int, str or bytes through the
+value's own `__conform__` where it has one, on CPython and on PyPy, and
+PyPy's `_sqlite3` reads its `__class__` and its methods as well. So
+what the store binds of an argument a caller handed a `Ledger`, and of
+a block height or id a reader answered, is what `_exact` returns: of
+such a subclass, the int, str or bytes the value holds, read with none
+of its methods.
+
 A backup is a new file written through SQLite's backup API, as Core's
 `SQLiteDatabase::Backup` writes one (src/wallet/sqlite.cpp:356-381 at
 bitcoin/bitcoin@f0de87f040): a copy of every page of the file as one
@@ -79,17 +87,27 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
+import sys
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
+from typing import TypeGuard
 from urllib.parse import quote
 
 from btclib.exceptions import BTClibValueError
+from btclib.network import NETWORKS
 from btclib.tx import Tx
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import (
+    _exact,
+    _label,
+    _message_text,
+    _position,
+    _quoted,
+)
 from btclib_wallet.fetch.fetcher import tx_for_network
 from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger.crypto import _assert_cost, _MasterKey
@@ -185,7 +203,7 @@ class _SyncWrite:
 
     upserted: tuple[WalletTx, ...]
     deleted: tuple[bytes, ...]
-    fork_height: int | None
+    dropped: tuple[int, ...]
     blocks: tuple[BlockRef, ...]
     tip: BlockRef
     scanned: tuple[int, ...]
@@ -200,15 +218,19 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
     refused at once: `timeout=0` waits for no lock.
     """
     uri = f"file:{quote(str(Path(path)))}?mode={mode}"
-    try:
+    # each refusal of SQLite's failure is raised after the `except` block
+    # that sees it, so that it chains nothing
+    db = None
+    with contextlib.suppress(sqlite3.OperationalError):
         db = sqlite3.connect(uri, uri=True, timeout=0)
-    except sqlite3.OperationalError as e:
-        raise BTClibValueError(f"cannot open the ledger file {path}: {e}") from None
+    if db is None:
+        raise BTClibValueError("cannot open the ledger file: OperationalError")
     # each pragma's row is read: SQLite refuses a commit while a statement
     # that writes is unfinished, and PyPy finishes an unread one only when
     # it collects its cursor
     db.execute("PRAGMA secure_delete = ON").fetchall()
     if mode != "ro":
+        refusal = None
         try:
             # in exclusive locking mode the lock a transaction takes is
             # kept after it ends
@@ -217,24 +239,28 @@ def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
             db.execute("COMMIT")
             db.execute("PRAGMA journal_mode = TRUNCATE").fetchall()
         except sqlite3.DatabaseError as e:
-            db.close()
-            _assert_not_held(e, path)
             if isinstance(e, sqlite3.OperationalError):
-                err_msg = f"cannot open the ledger file {path}: {e}"
-                raise BTClibValueError(err_msg) from None
-            raise BTClibValueError(f"not a ledger file: {e}") from None
+                refusal = _database_refusal(e, "cannot open the ledger file")
+            else:
+                refusal = _database_refusal(e, "not a ledger file")
+        # closed after the block, where no exception is handled
+        if refusal is not None:
+            db.close()
+            raise BTClibValueError(refusal)
     return db
 
 
-def _assert_not_held(e: sqlite3.DatabaseError, path: str | PathLike[str]) -> None:
-    """Refuse a file whose lock another connection holds.
+def _database_refusal(e: sqlite3.DatabaseError, what: str) -> str:
+    """Return what a refusal says of a failure of SQLite's.
 
-    An error with no `sqlite_errorname` is not this refusal's: not every
-    `sqlite3.DatabaseError` carries one.
+    A file whose lock another connection holds is said to be held. An
+    error with no `sqlite_errorname` is not that one: not every
+    `sqlite3.DatabaseError` carries one. Any other failure is `what` and
+    the class of SQLite's error, whose text is not relayed.
     """
     if getattr(e, "sqlite_errorname", None) == "SQLITE_BUSY":
-        err_msg = f"the ledger file {path} is open in another ledger or program"
-        raise BTClibValueError(err_msg) from None
+        return "the ledger file is open in another ledger or program"
+    return f"{what}: {type(e).__name__}"
 
 
 def _release(db: sqlite3.Connection) -> None:
@@ -255,7 +281,7 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     application_id = _pragma(db, "application_id")
     version = _pragma(db, "user_version")
     if application_id != APPLICATION_ID:
-        err_msg = f"not a ledger file: application id {application_id:#x}"
+        err_msg = f"not a ledger file: application id {_quoted(application_id)}"
         raise BTClibValueError(err_msg)
     _assert_not_newer(version)
     # every format has `meta`: a file of another network is refused before
@@ -264,14 +290,20 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
     if row is None:
         raise BTClibValueError("not a ledger file: it names no network")
     if row[0] != network:
-        raise BTClibValueError(f"a {row[0]} ledger file, not a {network} one")
+        # the file's network after a colon, where no article stands before
+        # what `_label` writes of one it does not know
+        err_msg = f"not a {_label(network, NETWORKS)} ledger file: its network is"
+        err_msg += f" {_label(row[0], NETWORKS)}"
+        raise BTClibValueError(err_msg)
     while version < FORMAT_VERSION:
         # an explicit BEGIN: the sqlite3 module opens a transaction before
         # a DML statement alone, so a step's DDL would commit as it runs
         with db:
             db.execute("BEGIN")
             if version not in _MIGRATIONS:
-                raise BTClibValueError(f"no migration from ledger format {version}")
+                raise BTClibValueError(
+                    f"no migration from ledger format {_quoted(version)}"
+                )
             _MIGRATIONS[version](db)
             version += 1
             db.execute(f"PRAGMA user_version = {version}")
@@ -280,7 +312,7 @@ def _check_and_migrate(db: sqlite3.Connection, network: str) -> None:
 def _assert_not_newer(version: int) -> None:
     """Refuse a file of a format a later release writes."""
     if version > FORMAT_VERSION:
-        err_msg = f"ledger format {version} is newer than this release's"
+        err_msg = f"ledger format {_quoted(version)} is newer than this release's"
         err_msg += f" {FORMAT_VERSION}"
         raise BTClibValueError(err_msg)
 
@@ -297,16 +329,100 @@ def _decoded(text: str, source_id: int, column: str) -> dict[str, str]:
     except ValueError:
         decoded = None
     if not isinstance(decoded, dict):
-        err_msg = f"not a ledger file: source {source_id}'s {column}"
+        err_msg = f"not a ledger file: source {_position(source_id)}'s {column}"
         err_msg += " is not a JSON object"
         raise BTClibValueError(err_msg)
     return decoded
 
 
+# a branch as the file writes it: the decimal `str` writes of an int that
+# is not negative. The store reads that shape back wherever `int` can read
+# it (`_is_branch`): an upper bound, where a wallet puts one on its
+# branches, is the wallet's to check
+_BRANCH = re.compile(r"0|[1-9][0-9]*")
+# a height: any int an SQLite INTEGER holds, since a sync writes what a
+# backend answers, a negative height included. A sync writes its tip's
+# height into `blocks` too, in the transaction that writes the tip's text
+# into `meta`, so that text is in the range as well
+_INTEGERS = range(-(2**63), 2**63)
+_HEIGHT = re.compile(r"-?(0|[1-9][0-9]{0,18})")
+# a block id: any bytes, as `hex` writes them into the tip's text
+_HEX = re.compile(r"(?:[0-9a-f]{2})*")
+_STATES = {state.value: state for state in TxState}
+
+
+def _is_branch(key: object) -> bool:
+    """Return whether a key of a descriptors map is a branch `int` can read.
+
+    The interpreter's limit on the digits of an int holds for `str` and
+    `int` alike: a key past it is none `str` wrote, and `int` would raise
+    on it.
+    """
+    limit = sys.get_int_max_str_digits()
+    return (
+        isinstance(key, str)
+        and _BRANCH.fullmatch(key) is not None
+        and (limit == 0 or len(key) <= limit)
+    )
+
+
+def _branches(value: object, source_id: int) -> dict[int, str]:
+    """Return a source's descriptors by branch, from the object the file holds.
+
+    `int` quotes the literal it refuses, and a key of the file can be
+    anything, so a key that is not a branch is refused here, by the
+    source alone, before `int` reads it (issue #900).
+    """
+    if not isinstance(value, dict) or not all(_is_branch(b) for b in value):
+        err_msg = f"not a ledger file: source {_position(source_id)}'s descriptors"
+        err_msg += " are not keyed by branch"
+        raise BTClibValueError(err_msg)
+    return {int(b): text for b, text in value.items()}
+
+
+def _height(value: object) -> TypeGuard[int]:
+    """Return whether a column holds a height as the file writes it."""
+    return type(value) is int and value in _INTEGERS
+
+
+def _counted(value: object) -> TypeGuard[int]:
+    """Return whether a column holds a seq as the file writes it.
+
+    Each seq the ledger writes counts on from 0: one past the highest it
+    holds, or 0 where it holds none.
+    """
+    return _height(value) and value >= 0
+
+
+def _tx_block(height: object, block_id: object) -> BlockRef | None:
+    """Return the block a transaction's row confirms it in, None for none.
+
+    `BlockRef` checks nothing, so a row is read where its height and its
+    block id are as `_upsert_txs` writes them: both None, or a height and
+    the bytes of an id, of whatever length the backend answered.
+    """
+    if height is None and block_id is None:
+        return None
+    if not (_height(height) and isinstance(block_id, bytes)):
+        raise BTClibValueError("not a ledger file: a transaction in a malformed block")
+    return BlockRef(height, block_id)
+
+
+def _tx_state(value: object) -> TxState:
+    """Return the state a transaction's row holds.
+
+    `TxState` quotes a value it does not know, so one is refused here.
+    """
+    state = _STATES.get(value) if isinstance(value, str) else None
+    if state is None:
+        raise BTClibValueError("not a ledger file: a transaction in no state")
+    return state
+
+
 def _encrypted(value: object, source_id: int) -> bytes | None:
     """Return a source's ciphertext, None where it has none."""
     if value is not None and not isinstance(value, bytes):
-        err_msg = f"not a ledger file: source {source_id}'s encrypted keys"
+        err_msg = f"not a ledger file: source {_position(source_id)}'s encrypted keys"
         err_msg += " are no blob"
         raise BTClibValueError(err_msg)
     return value
@@ -322,37 +438,88 @@ def _new_file(path: str | PathLike[str]) -> None:
 
     A directory and a link are refused too. The file is its owner's
     alone where the system has POSIX permissions.
+
+    A failure of the system is refused by the class of its `OSError`,
+    raised after the `except` block: the error's own text and `filename`
+    are the caller's path, which can hold anything.
     """
+    failure = ""
+    exists = False
     try:
         Path(path).touch(mode=0o600, exist_ok=False)
     except OSError as e:
+        failure = type(e).__name__
+        exists = isinstance(e, FileExistsError)
+    if not failure:
+        return
+    if not exists:
         # Windows refuses to make a file over a directory as a
-        # PermissionError, not a FileExistsError
-        if not (isinstance(e, FileExistsError) or Path(path).exists()):
-            raise
-        raise BTClibValueError(f"the ledger file exists: {path}") from None
+        # PermissionError, not a FileExistsError. Asked after the `except`
+        # block, and a question the system refuses -- as Python before
+        # 3.14 raises for a parent this process may not search -- is no
+        # file found: its error names the path too
+        with contextlib.suppress(OSError):
+            exists = Path(path).exists()
+    if exists:
+        raise BTClibValueError("the ledger file exists")
+    raise BTClibValueError(f"cannot make the ledger file: {failure}")
 
 
 def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
     """Write the pages of `db` into a new file at `path`.
 
-    A copy that fails after making the file removes it. A failure of
-    SQLite's is refused naming `path`, SQLite's own text saying what
-    failed, as a full disk or a file it cannot write.
+    A copy that fails after making the file removes it, as
+    `_remove_new_file` says. An `sqlite3.DatabaseError` is refused by its
+    class, whose text is not relayed, and the refusal names a removal that
+    fails by the class of its error. Any other failure, `_connect`'s
+    refusal included, is raised as it is.
     """
     _new_file(path)
     target: sqlite3.Connection | None = None
+    failure: str
     try:
         target = _connect(path, "rw")
         db.backup(target)
-    except BaseException as e:
-        if target is not None:
-            _release(target)
-        Path(path).unlink(missing_ok=True)
-        if isinstance(e, sqlite3.DatabaseError):
-            raise BTClibValueError(f"cannot copy into {path}: {e}") from None
+    except sqlite3.DatabaseError as e:
+        failure = f"cannot copy the ledger file: {type(e).__name__}"
+    except BaseException:
+        _undo_copy(target, path)
         raise
-    _release(target)
+    else:
+        _release(target)
+        return
+    # undone after the block, where no exception is handled
+    left = _undo_copy(target, path)
+    if left is not None:
+        failure += f"; cannot remove the copy: {left}"
+    raise BTClibValueError(failure)
+
+
+def _undo_copy(
+    target: sqlite3.Connection | None, path: str | PathLike[str]
+) -> str | None:
+    """Close the copy where it was opened, and remove its file.
+
+    Return what `_remove_new_file` returns.
+    """
+    if target is not None:
+        _release(target)
+    return _remove_new_file(path)
+
+
+def _remove_new_file(path: str | PathLike[str]) -> str | None:
+    """Remove the file at `path`, for a step that failed after making it.
+
+    Return None where the file is gone. Where the removal fails, return
+    the class name of its `OSError` and leave the file. That error is not
+    raised: its text and `filename` are the caller's path, which can hold
+    anything, and it would replace the failure being undone.
+    """
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError as e:
+        return type(e).__name__
+    return None
 
 
 def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None:
@@ -364,11 +531,13 @@ def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None
     """
     source = _connect(backup, "ro")
     try:
+        refusal = None
         try:
             source.execute("SELECT count(*) FROM sqlite_master").fetchone()
         except sqlite3.DatabaseError as e:
-            _assert_not_held(e, backup)
-            raise BTClibValueError(f"not a ledger file: {e}") from None
+            refusal = _database_refusal(e, "not a ledger file")
+        if refusal is not None:
+            raise BTClibValueError(refusal)
         _copy(source, path)
     finally:
         source.close()
@@ -388,7 +557,8 @@ class _Store:
         the system has POSIX permissions; SQLite gives its journal the
         same permissions. The header, the tables and the network are
         written in one SQLite transaction. A create that fails after
-        making the file removes it, so nothing is left at `path`.
+        making the file removes it, as `_remove_new_file` says, and raises
+        its failure as it is.
         """
         _new_file(path)
         db: sqlite3.Connection | None = None
@@ -408,7 +578,7 @@ class _Store:
         except BaseException:
             if db is not None:
                 _release(db)
-            Path(path).unlink(missing_ok=True)
+            _remove_new_file(path)
             raise
         return cls(db)
 
@@ -416,16 +586,20 @@ class _Store:
     def open(cls, path: str | PathLike[str], network: str) -> _Store:
         """Open a file of this package for `network`, migrating an older one."""
         db = _connect(path, "rw")
+        failure = None
         try:
             _check_and_migrate(db, network)
         except sqlite3.DatabaseError as e:
-            _release(db)
-            raise BTClibValueError(f"not a ledger file: {e}") from None
+            failure = f"not a ledger file: {type(e).__name__}"
         except BaseException:
             # a refusal, or a migration step that failed: the file is
             # closed either way
             _release(db)
             raise
+        # closed after the block, where no exception is handled
+        if failure is not None:
+            _release(db)
+            raise BTClibValueError(failure)
         return cls(db)
 
     def close(self) -> None:
@@ -446,12 +620,9 @@ class _Store:
             (
                 source_id,
                 _Source(
-                    {
-                        int(b): text
-                        for b, text in _decoded(
-                            descriptors, source_id, "descriptors"
-                        ).items()
-                    },
+                    _branches(
+                        _decoded(descriptors, source_id, "descriptors"), source_id
+                    ),
                     _decoded(prv_keys, source_id, "prv_keys"),
                     _encrypted(encrypted, source_id),
                     lookahead,
@@ -496,32 +667,39 @@ class _Store:
             "SELECT raw, state, height, block_id, seq, comment, comment_to,"
             " replaces, replaced_by FROM txs ORDER BY seq"
         )
-        return [
-            WalletTx(
-                tx_for_network(Tx.parse(raw), network),
-                TxState(state),
-                None if height is None else BlockRef(height, block_id),
-                seq,
-                comment,
-                comment_to,
-                replaces,
-                replaced_by,
+        txs: list[WalletTx] = []
+        for (
+            raw,
+            state,
+            height,
+            block_id,
+            seq,
+            comment,
+            comment_to,
+            replaces,
+            replaced_by,
+        ) in rows:
+            # `WalletTx` checks nothing either
+            if not _counted(seq):
+                raise BTClibValueError(
+                    "not a ledger file: a transaction with a malformed seq"
+                )
+            txs.append(
+                WalletTx(
+                    tx_for_network(Tx.parse(raw), network),
+                    _tx_state(state),
+                    _tx_block(height, block_id),
+                    seq,
+                    comment,
+                    comment_to,
+                    replaces,
+                    replaced_by,
+                )
             )
-            for (
-                raw,
-                state,
-                height,
-                block_id,
-                seq,
-                comment,
-                comment_to,
-                replaces,
-                replaced_by,
-            ) in rows
-        ]
+        return txs
 
     def blocks(self) -> dict[int, bytes]:
-        """Return the id of each block synced through, by height."""
+        """Return the id of each block the ledger holds, by height."""
         rows = self._db.execute("SELECT height, block_id FROM blocks")
         return dict(rows.fetchall())
 
@@ -535,7 +713,18 @@ class _Store:
             )
         ):
             return None
-        return BlockRef(int(rows["tip_height"]), bytes.fromhex(rows["tip_id"]))
+        height, block_id = rows.get("tip_height"), rows.get("tip_id")
+        # `int` quotes the literal it refuses: a tip is read where it is
+        # spelled as `_write_tip` writes it, and refused otherwise
+        if not (
+            isinstance(height, str)
+            and _HEIGHT.fullmatch(height)
+            and int(height) in _INTEGERS
+            and isinstance(block_id, str)
+            and _HEX.fullmatch(block_id)
+        ):
+            raise BTClibValueError("not a ledger file: a malformed tip")
+        return BlockRef(int(height), bytes.fromhex(block_id))
 
     def labels(self) -> dict[bytes, tuple[str, str]]:
         """Return the label and the purpose of each script given one."""
@@ -547,7 +736,7 @@ class _Store:
         with self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO labels VALUES (?, ?, ?)",
-                (script, label, purpose),
+                (script, _exact(label), purpose),
             )
 
     def next_source_id(self) -> int:
@@ -561,7 +750,10 @@ class _Store:
     def add_source(self, source_id: int, source: _Source) -> None:
         """Write a source under the id `next_source_id` returned."""
         with self._db:
-            try:
+            # refused inside the transaction, which it rolls back, and
+            # after `suppress`, so that it chains nothing
+            written = False
+            with contextlib.suppress(sqlite3.IntegrityError):
                 self._db.execute(
                     "INSERT INTO sources (id, descriptors, prv_keys, encrypted,"
                     " lookahead, birth, scanned) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -570,13 +762,14 @@ class _Store:
                         _descriptors_text(source.descriptors),
                         json.dumps(dict(source.prv_keys)),
                         source.encrypted,
-                        source.lookahead,
-                        source.birth,
+                        _exact(source.lookahead),
+                        _exact(source.birth),
                         int(source.scanned),
                     ),
                 )
-            except sqlite3.IntegrityError as e:
-                raise BTClibValueError(f"not a ledger file: {e}") from None
+                written = True
+            if not written:
+                raise BTClibValueError("not a ledger file: IntegrityError")
 
     def encrypt(
         self,
@@ -590,13 +783,16 @@ class _Store:
         transaction with the master key.
         """
         with self._db:
-            try:
+            # refused inside the transaction, as `add_source` refuses
+            written = False
+            with contextlib.suppress(sqlite3.IntegrityError):
                 self._db.execute(
                     "INSERT INTO master_key VALUES (0, 'scrypt', ?, ?, ?, ?, ?)",
                     _master_key_row(master_key),
                 )
-            except sqlite3.IntegrityError as e:
-                raise BTClibValueError(f"not a ledger file: {e}") from None
+                written = True
+            if not written:
+                raise BTClibValueError("not a ledger file: IntegrityError")
             self._db.executemany(
                 "UPDATE sources SET descriptors = ?, prv_keys = '{}', encrypted = ?"
                 " WHERE id = ?",
@@ -621,7 +817,8 @@ class _Store:
 
     def _insert_handed_out(self, positions: Iterable[tuple[int, int, int]]) -> None:
         self._db.executemany(
-            "INSERT OR IGNORE INTO handed_out VALUES (?, ?, ?)", list(positions)
+            "INSERT OR IGNORE INTO handed_out VALUES (?, ?, ?)",
+            [(_exact(s), _exact(b), i) for s, b, i in positions],
         )
 
     def upsert_txs(self, txs: Iterable[WalletTx]) -> None:
@@ -637,11 +834,11 @@ class _Store:
                     wtx.tx.id,
                     wtx.tx.serialize(include_witness=True),
                     wtx.state.value,
-                    None if wtx.block is None else wtx.block.height,
-                    None if wtx.block is None else wtx.block.block_id,
+                    None if wtx.block is None else _exact(wtx.block.height),
+                    None if wtx.block is None else _exact(wtx.block.block_id),
                     wtx.seq,
-                    wtx.comment,
-                    wtx.comment_to,
+                    _exact(wtx.comment),
+                    _exact(wtx.comment_to),
                     wtx.replaces,
                     wtx.replaced_by,
                 )
@@ -659,13 +856,16 @@ class _Store:
     def write_sync(self, write: _SyncWrite) -> None:
         """Write what a sync decided, in one SQLite transaction."""
         with self._db:
-            if write.fork_height is not None:
-                self._db.execute(
-                    "DELETE FROM blocks WHERE height > ?", (write.fork_height,)
-                )
+            self._db.executemany(
+                "DELETE FROM blocks WHERE height = ?",
+                [(_exact(height),) for height in write.dropped],
+            )
             self._db.executemany(
                 "INSERT OR REPLACE INTO blocks VALUES (?, ?)",
-                [(block.height, block.block_id) for block in write.blocks],
+                [
+                    (_exact(block.height), _exact(block.block_id))
+                    for block in write.blocks
+                ],
             )
             self._db.executemany(
                 "DELETE FROM txs WHERE txid = ?", [(txid,) for txid in write.deleted]
@@ -698,7 +898,7 @@ def _descriptors_text(descriptors: Mapping[int, str]) -> str:
 def _write_tip(db: sqlite3.Connection, tip: BlockRef) -> None:
     """Write the tip into `meta`."""
     rows: Mapping[str, str] = {
-        "tip_height": str(tip.height),
-        "tip_id": tip.block_id.hex(),
+        "tip_height": str(_exact(tip.height)),
+        "tip_id": _exact(tip.block_id).hex(),
     }
     db.executemany("INSERT OR REPLACE INTO meta VALUES (?, ?)", list(rows.items()))
