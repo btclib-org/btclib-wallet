@@ -1969,9 +1969,8 @@ class Ledger:
         address once it creates the transaction
         (src/wallet/spend.cpp:1432-1434).
         """
-        assert_type(comment, (str, type(None)), "comment")
-        assert_type(comment_to, (str, type(None)), "comment_to")
-        comment, comment_to = _exact(comment), _exact(comment_to)
+        comment = _checked_comment(comment, "comment")
+        comment_to = _checked_comment(comment_to, "comment_to")
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
         if self._master_key is not None:
@@ -2803,15 +2802,29 @@ def _int_held(value: int, name: str) -> int:
 def _checked_label(label: str) -> str:
     """Refuse what is not a label, and the name `*`; return the str held.
 
-    The str is the one `_exact` copies, compared and kept as `_int_held`
-    says of an int.
+    Its type decides, as `_quoted` says, since a `__class__` can claim
+    str, or raise. The str is the one `_exact` copies, compared and kept
+    as `_int_held` says of an int.
     """
-    if not isinstance(label, str):
-        raise BTClibTypeError(f"invalid label type: {type(label).__name__}")
+    kind = type(label)
+    if not issubclass(kind, str):
+        raise BTClibTypeError(f"invalid label type: {kind.__name__}")
     text = _exact(label)
     if text == "*":
         raise BTClibValueError("invalid label name: *")
     return text
+
+
+def _checked_comment(comment: str | None, name: str) -> str | None:
+    """Refuse what is not a str or None; return the str held, or None.
+
+    Its type decides, as `_checked_label` says, and the str is the one
+    `_exact` copies.
+    """
+    kind = type(comment)
+    if comment is not None and not issubclass(kind, str):
+        raise BTClibTypeError(f"invalid {name} type: {kind.__name__}")
+    return _exact(comment)
 
 
 def _assert_height(value: int, name: str) -> None:
@@ -2825,12 +2838,10 @@ def _assert_height(value: int, name: str) -> None:
 def _checked_height(value: int, name: str) -> int:
     """Refuse what is not a non-negative integer; return the int held.
 
-    The int is the one `_exact` reads, compared and kept as `_int_held`
-    says.
+    Its type decides, as `_int_held` says, and the int is the one
+    `_exact_int` reads, compared and kept as `_int_held` says.
     """
-    if not is_integer(value):
-        raise BTClibTypeError(f"invalid {name} type: {type(value).__name__}")
-    number = _exact(value)
+    number = _int_held(value, name)
     if number < 0:
         raise BTClibValueError(f"negative {name}: {_quoted(number)}")
     return number

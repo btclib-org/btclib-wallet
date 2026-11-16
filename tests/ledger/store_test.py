@@ -10,6 +10,7 @@ import contextlib
 import errno
 import functools
 import json
+import operator
 import os
 import sqlite3
 import stat
@@ -1046,7 +1047,14 @@ def test_a_subclass_is_bound_as_the_value_it_holds_not_as_it_answers() -> None:
     )
     assert arithmetic == (99,) * 6
     assert str(text) == "str"
-    texts = (text + "", "" + text, text[:], text * 1, 1 * text)
+    # operator.add is `+`, the dispatch under test, either way round
+    texts = (
+        operator.add(text, ""),
+        operator.add("", text),
+        text[:],
+        text * 1,
+        1 * text,
+    )
     assert (texts, len(text)) == (("wrong",) * 5, 0)
     assert (bytes(octets), octets.hex()) == (b"bytes", "beef")
     assert octets.__buffer__(0).tobytes() == b"buffer"
@@ -1061,7 +1069,8 @@ def test_a_subclass_is_bound_as_the_value_it_holds_not_as_it_answers() -> None:
         copied = _exact(empty)
         assert (type(copied), copied) == (type(copy), copy)
     other = 5.0
-    assert _exact(other) is other
+    # the very object, which `==` would not tell from a copy
+    assert _exact(other) is other  # sourcery skip: compare-via-equals
 
 
 def test_the_store_writes_the_value_held_whatever_reaches_it(

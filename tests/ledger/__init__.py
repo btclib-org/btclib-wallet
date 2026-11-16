@@ -222,3 +222,35 @@ class ClaimsStr(bytes):
     """Bytes whose `__class__` claims str."""
 
     __class__ = _claims_str
+
+
+def _no_class(_self: object) -> type:
+    raise RuntimeError("no __class__")
+
+
+_raises_class: Any = property(_no_class)
+
+
+class ObjectClaimingStr:
+    """An object that is no str, whose `__class__` claims str."""
+
+    __class__ = _claims_str
+
+
+class ObjectClaimingInt:
+    """An object that is no int, whose `__class__` claims int."""
+
+    __class__ = _claims_int
+
+
+class StrWithNoClass(str):
+    """A str whose `__class__` raises."""
+
+    __slots__ = ()
+    __class__ = _raises_class
+
+
+class IntWithNoClass(int):
+    """An int whose `__class__` raises."""
+
+    __class__ = _raises_class

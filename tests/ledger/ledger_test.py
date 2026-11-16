@@ -46,7 +46,14 @@ from btclib_wallet.ledger.ledger import _KEEP_SPAN, _SYNC_ATTEMPTS, _parents_fir
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
-from tests.ledger import Alias, Below, NotBelow, Twin
+from tests.ledger import (
+    Alias,
+    Below,
+    IntWithNoClass,
+    NotBelow,
+    ObjectClaimingInt,
+    Twin,
+)
 from tests.ledger.conftest import LOOKAHEAD as SMALL_LOOKAHEAD
 from tests.ledger.conftest import (
     REFUSED_BROADCAST,
@@ -340,6 +347,30 @@ def test_a_lookahead_and_a_birth_height_are_the_ints_they_hold(
     with contextlib.closing(sqlite3.connect(path)) as db:
         rows = db.execute("SELECT lookahead, birth FROM sources").fetchall()
     assert rows == [(2, 0)]
+
+
+def test_a_height_is_an_int_by_its_type_whatever_its_class_claims(
+    chain: FakeChain, path: Path
+) -> None:
+    """An object that claims int is refused, an int whose class raises is not.
+
+    `isinstance`, which `is_integer` asks, reads `__class__`.
+    """
+    claimant = ObjectClaimingInt()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        with pytest.raises(BTClibTypeError, match="^invalid lookahead type: Object"):
+            ledger.add_source(source(), lookahead=claimant)  # type: ignore[arg-type]
+        with pytest.raises(BTClibTypeError, match="^invalid birth_height type: Obj"):
+            ledger.add_source(source(), claimant)  # type: ignore[arg-type]
+        source_id = ledger.add_source(
+            source(), IntWithNoClass(3), lookahead=IntWithNoClass(2)
+        )
+        held = (ledger._lookahead[source_id], ledger._birth[source_id])
+        assert [(type(value), value) for value in held] == [(int, 2), (int, 3)]
+    # what isinstance reads of each, which the ledger must not ask
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(IntWithNoClass(3), bool)
+    assert isinstance(claimant, int)
 
 
 def test_a_ledger_with_no_source_does_not_sync(chain: FakeChain, path: Path) -> None:

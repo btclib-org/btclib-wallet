@@ -22,7 +22,13 @@ from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.ledger import GroupedAddress, Ledger, TxDetail
 from btclib_wallet.wallet import DescriptorWallet
-from tests.ledger import ClaimsInt, Star, TwinStr
+from tests.ledger import (
+    ClaimsInt,
+    ObjectClaimingStr,
+    Star,
+    StrWithNoClass,
+    TwinStr,
+)
 from tests.ledger.conflict_test import _conflicted, _spend_and_child, _two_coins
 from tests.ledger.conftest import (
     LOOKAHEAD,
@@ -186,6 +192,42 @@ def test_a_label_is_the_str_it_holds(ledger: Ledger) -> None:
     ]
     assert ledger.addresses_by_label(TwinStr("a")) == {own: "receive"}
     assert ledger.received_by_label(TwinStr("a")) == 0
+
+
+def test_a_label_is_a_str_by_its_type_whatever_its_class_claims(
+    ledger: Ledger,
+) -> None:
+    """An object that claims str is refused, a str whose class raises is not.
+
+    `isinstance` reads `__class__`, at each of the five places a label
+    goes in.
+    """
+    claimant = ObjectClaimingStr()
+    for call in (
+        lambda: ledger.new_address(label=claimant),  # type: ignore[arg-type]
+        lambda: ledger.set_label(FOREIGN, claimant),  # type: ignore[arg-type]
+        lambda: ledger.add_source(_fixed(), label=claimant),  # type: ignore[arg-type]
+        lambda: ledger.addresses_by_label(claimant),  # type: ignore[arg-type]
+        lambda: ledger.received_by_label(claimant),  # type: ignore[arg-type]
+    ):
+        with pytest.raises(BTClibTypeError, match="^invalid label type: Object"):
+            call()
+    own = ledger.new_address(label=StrWithNoClass("s"))
+    ledger.set_label(FOREIGN, StrWithNoClass("f"))
+    fixed = _fixed()
+    ledger.add_source(fixed, lookahead=LOOKAHEAD, label=StrWithNoClass("x"))
+    held = [ledger.label_of(a) for a in (own, FOREIGN, fixed.address(0, 0))]
+    assert [(type(label), label) for label in held] == [
+        (str, "s"),
+        (str, "f"),
+        (str, "x"),
+    ]
+    assert ledger.addresses_by_label(StrWithNoClass("s")) == {own: "receive"}
+    assert ledger.received_by_label(StrWithNoClass("s")) == 0
+    # what isinstance reads of each, which the ledger must not ask
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(StrWithNoClass("s"), bool)
+    assert isinstance(claimant, str)
 
 
 def test_a_source_not_ranged_takes_a_label(ledger: Ledger) -> None:
