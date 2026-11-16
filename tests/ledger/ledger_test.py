@@ -669,15 +669,16 @@ def _synced_each_block(ledger: Ledger, chain: FakeChain, tip: int) -> Tx:
 
 @pytest.fixture
 def span(monkeypatch: pytest.MonkeyPatch) -> int:
-    """Return the `_KEEP_SPAN` the test runs under, set to 16.
+    """Return the `_KEEP_SPAN` the test runs under.
 
     A test that syncs at each block across the spans writes one SQLite
     transaction per sync, so its cost grows with the span. The fork of
     `test_a_reorganization_at_the_deepest_block_kept_near_the_tip` below
     the blocks near the tip needs a span above 9.
     """
-    monkeypatch.setattr("btclib_wallet.ledger.ledger._KEEP_SPAN", 16)
-    return 16
+    span = 16
+    monkeypatch.setattr("btclib_wallet.ledger.ledger._KEEP_SPAN", span)
+    return span
 
 
 def test_the_span_kept_one_block_in_is_a_retarget_period() -> None:
