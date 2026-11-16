@@ -13,6 +13,8 @@ bitcoind's wallet.
 
 from __future__ import annotations
 
+import contextlib
+import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -44,6 +46,7 @@ from btclib_wallet.ledger.ledger import _KEEP_SPAN, _SYNC_ATTEMPTS, _parents_fir
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
+from tests.ledger import Alias, Below, NotBelow, Twin
 from tests.ledger.conftest import LOOKAHEAD as SMALL_LOOKAHEAD
 from tests.ledger.conftest import (
     REFUSED_BROADCAST,
@@ -284,6 +287,56 @@ def test_a_source_is_checked(ledger: Ledger) -> None:
     assert_secret_free(e.value, SPELLINGS)
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
         ledger.new_address(0, "0")  # type: ignore[arg-type]
+
+
+def test_a_source_and_a_branch_are_the_ints_they_hold(
+    chain: FakeChain, path: Path
+) -> None:
+    """Whatever an int subclass's own `==` and hash claim.
+
+    `Alias(1)` claims to be 0, and is source 1 in what is handed out and
+    in what is written: after a load neither source hands its change
+    address out again. A `Twin` equals nothing but itself, and is the
+    source or the branch it holds, the label it is given set on that
+    source's address.
+    """
+    assert (Alias(1) == 0, hash(Alias(1)) == hash(0), Twin(1) == 1) == (
+        True,
+        True,
+        False,
+    )
+    first, second = source(), source("wpkh({}/84h/1h/9h/{}/*)")
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(first, lookahead=SMALL_LOOKAHEAD)
+        ledger.add_source(second, lookahead=SMALL_LOOKAHEAD)
+        assert ledger.new_change_address(Alias(1)) == second.address(1, 0)
+        assert ledger.new_address(Twin(0), Twin(1)) == first.address(1, 0)
+        assert ledger.new_address(Twin(0), Twin(0), label="t") == first.address(0, 0)
+        assert ledger.label_of(first.address(0, 0)) == "t"
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        rows = db.execute("SELECT * FROM handed_out ORDER BY 1, 2").fetchall()
+    assert rows == [(0, 0, 0), (0, 1, 0), (1, 1, 0)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.new_change_address(0) == first.address(1, 1)
+        assert again.new_change_address(1) == second.address(1, 1)
+
+
+def test_a_lookahead_and_a_birth_height_are_the_ints_they_hold(
+    chain: FakeChain, path: Path
+) -> None:
+    """Checked and written as the int held, whatever `<` claims of it."""
+    assert (Below(2) < 0, NotBelow(-1) < 0) == (True, False)
+    with Ledger.create(path, "regtest", chain) as ledger:
+        with pytest.raises(BTClibValueError, match="negative lookahead"):
+            ledger.add_source(source(), lookahead=NotBelow(-1))
+        with pytest.raises(BTClibValueError, match="negative birth_height"):
+            ledger.add_source(source(), NotBelow(-1))
+        source_id = ledger.add_source(source(), Below(5), lookahead=Below(2))
+        held = (ledger._lookahead[source_id], ledger._birth[source_id])
+        assert [(type(value), value) for value in held] == [(int, 2), (int, 5)]
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        rows = db.execute("SELECT lookahead, birth FROM sources").fetchall()
+    assert rows == [(2, 5)]
 
 
 def test_a_ledger_with_no_source_does_not_sync(chain: FakeChain, path: Path) -> None:

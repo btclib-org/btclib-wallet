@@ -9,13 +9,20 @@ an argument in the wrong place may be a key. A refusal describes such a
 value with `_message_text`, and quotes a value refused where a name
 belongs only up to `_QUOTED_MAX` characters, too short for a key. It
 says where an item is, or how many there are, with `_position`.
+
+`_exact_int` and `_exact` read the int, str or bytes a value of a
+subclass holds, with none of its methods, which is how a refusal
+measures one and how a ledger reads and writes one.
 """
 
 from collections.abc import Collection
+from typing import TypeVar, cast
 
 __all__: list[str] = []
 
 _QUOTED_MAX = 16
+
+_T = TypeVar("_T")
 
 # A signed 16-bit integer: JSON-RPC 2.0's reserved codes, -32768 to -32000,
 # Bitcoin Core's, and the codes electrs, ElectrumX, Fulcrum and Floresta
@@ -32,6 +39,28 @@ def _exact_int(value: int) -> int:
     `int.__abs__`.
     """
     return int.__or__(value, 0)
+
+
+def _exact(value: _T) -> _T:
+    """Return a value of an int, str or bytes subclass as an int, str or bytes.
+
+    Its type decides, a bool being an int. The int is the one `_exact_int`
+    reads, the str a concatenation with an empty one, as `_quoted` copies
+    a str, and the bytes a slice of them all: none of the three reads any
+    method of the value, on CPython and on PyPy. A value of any other type
+    is returned as it is.
+    """
+    kind = type(value)
+    exact: object = value
+    if issubclass(kind, int):
+        exact = _exact_int(cast("int", value))
+    elif issubclass(kind, str):
+        exact = str.__add__(cast("str", value), "")
+    elif issubclass(kind, bytes):
+        # not a concatenation: since Python 3.12 that reads the bytes
+        # through the value's own `__buffer__`
+        exact = bytes.__getitem__(cast("bytes", value), slice(None))
+    return cast("_T", exact)
 
 
 def _code(value: object) -> int:

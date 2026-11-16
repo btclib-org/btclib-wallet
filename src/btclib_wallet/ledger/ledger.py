@@ -285,7 +285,7 @@ from btclib.tx.limits import COINBASE_MATURITY
 from btclib.tx.tx_in import input_weight
 from btclib.utils import assert_type, is_integer
 
-from btclib_wallet._refusal import _label, _position, _quoted
+from btclib_wallet._refusal import _exact, _exact_int, _label, _position, _quoted
 from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.coin_selection import Candidate, select_coins
 from btclib_wallet.descriptors import normalized, parse
@@ -788,8 +788,8 @@ class Ledger:
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
-            _assert_height(birth_height, "birth_height")
-        _assert_height(lookahead, "lookahead")
+            birth_height = _checked_height(birth_height, "birth_height")
+        lookahead = _checked_height(lookahead, "lookahead")
         if wallet.network != self.network:
             # each network between commas, where no article stands before
             # what `_label` writes of one it does not know: either
@@ -798,7 +798,7 @@ class Ledger:
             err_msg += f" is not the ledger's, {_label(self.network, NETWORKS)}"
             raise BTClibValueError(err_msg)
         if label is not None:
-            _assert_label(label)
+            label = _checked_label(label)
             if 0 not in wallet.branches or wallet.descriptor(0).is_ranged:
                 raise BTClibValueError("a label needs one address on branch 0")
         scanned = birth_height is None
@@ -864,8 +864,7 @@ class Ledger:
         return tuple(self._sources[i] for i in sorted(self._sources))
 
     def _source(self, source: int) -> DescriptorWallet:
-        """Return the source of an id, refusing an unknown one."""
-        _assert_int_type(source, "source")
+        """Return the source of an int id, refusing an unknown one."""
         if source not in self._sources:
             raise BTClibValueError(f"no source {_quoted(source)}")
         return self._sources[source]
@@ -913,9 +912,14 @@ class Ledger:
             self._txs = txs
 
     def _new_position(self, source: int, branch: int) -> _Position:
-        """Return the position the next address of a branch is at."""
+        """Return the position the next address of a branch is at.
+
+        The source and the branch are the ints they hold, as `_int_held`
+        reads them.
+        """
+        source = _int_held(source, "source")
         wallet = self._source(source)
-        _assert_int_type(branch, "branch")
+        branch = _int_held(branch, "branch")
         if branch not in wallet.branches:
             raise BTClibValueError(f"invalid branch: {_quoted(branch)}")
         if not wallet.descriptor(branch).is_ranged:
@@ -935,8 +939,9 @@ class Ledger:
         not given is "", as the module docstring says.
         """
         if label is not None:
-            _assert_label(label)
+            label = _checked_label(label)
         position = self._new_position(source, branch)
+        source, branch, _ = position
         address = self._hand_out(position)
         self._store.add_handed_out([position])
         self._extend_windows()
@@ -986,8 +991,7 @@ class Ledger:
         Core's `setlabel`. A label the address had is replaced.
         """
         script = self._script_of(address)
-        _assert_label(label)
-        self._write_label(script, label)
+        self._write_label(script, _checked_label(label))
 
     def _receive_ends(self) -> dict[int, int]:
         """Return the next index of each source's branch 0, by source id."""
@@ -1066,7 +1070,7 @@ class Ledger:
 
         Core's `getaddressesbylabel`. A label no address has is refused.
         """
-        _assert_label(label)
+        label = _checked_label(label)
         if not (
             found := {
                 self._address(script): purpose
@@ -1538,7 +1542,7 @@ class Ledger:
         Core's `getreceivedbylabel`. A label no address has is refused,
         and so is one that only addresses of others have.
         """
-        _assert_label(label)
+        label = _checked_label(label)
         _assert_height(min_depth, "min_depth")
         assert_type(include_immature_coinbase, bool, "include_immature_coinbase")
         scripts = {
@@ -1967,6 +1971,7 @@ class Ledger:
         """
         assert_type(comment, (str, type(None)), "comment")
         assert_type(comment_to, (str, type(None)), "comment_to")
+        comment, comment_to = _exact(comment), _exact(comment_to)
         if self._broadcaster is None:
             raise BTClibValueError("no broadcaster: the ledger cannot send")
         if self._master_key is not None:
@@ -2783,12 +2788,30 @@ def _script(tx_out: TxOut) -> bytes:
     return tx_out.script_pub_key.script
 
 
-def _assert_label(label: str) -> None:
-    """Refuse what is not a label, and the name `*`."""
+def _int_held(value: int, name: str) -> int:
+    """Refuse a value whose type is no int, or is bool; return the int held.
+
+    The int is the one `_exact_int` reads, as `DescriptorWallet` reads a
+    branch label: whatever a subclass's own `==` and hash claim, every
+    lookup and comparison, what the ledger holds and what it writes are
+    that int.
+    """
+    _assert_int_type(value, name)
+    return _exact_int(value)
+
+
+def _checked_label(label: str) -> str:
+    """Refuse what is not a label, and the name `*`; return the str held.
+
+    The str is the one `_exact` copies, compared and kept as `_int_held`
+    says of an int.
+    """
     if not isinstance(label, str):
         raise BTClibTypeError(f"invalid label type: {type(label).__name__}")
-    if label == "*":
+    text = _exact(label)
+    if text == "*":
         raise BTClibValueError("invalid label name: *")
+    return text
 
 
 def _assert_height(value: int, name: str) -> None:
@@ -2797,6 +2820,20 @@ def _assert_height(value: int, name: str) -> None:
         raise BTClibTypeError(f"invalid {name} type: {type(value).__name__}")
     if value < 0:
         raise BTClibValueError(f"negative {name}: {_quoted(value)}")
+
+
+def _checked_height(value: int, name: str) -> int:
+    """Refuse what is not a non-negative integer; return the int held.
+
+    The int is the one `_exact` reads, compared and kept as `_int_held`
+    says.
+    """
+    if not is_integer(value):
+        raise BTClibTypeError(f"invalid {name} type: {type(value).__name__}")
+    number = _exact(value)
+    if number < 0:
+        raise BTClibValueError(f"negative {name}: {_quoted(number)}")
+    return number
 
 
 def _next_index(handed: set[_Position], source: int, branch: int) -> int:

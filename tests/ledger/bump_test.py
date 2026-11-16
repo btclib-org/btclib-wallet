@@ -28,6 +28,7 @@ from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_size import miniscript_sizer
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.wallet import DescriptorWallet
+from tests.ledger import ConformingStr
 from tests.ledger.conftest import (
     ONE_SAT,
     REFUSED_BROADCAST,
@@ -122,6 +123,22 @@ def test_comments_are_kept_with_a_spend_and_in_the_file(
         ledger.spend([_outside()], comment=1)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid comment_to type"):
         ledger.spend([_outside()], comment_to=1)  # type: ignore[arg-type]
+
+
+def test_a_comment_is_written_as_the_str_it_holds(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """The str each holds, kept and written whatever its own methods answer."""
+    _funded(ledger, chain)
+    spent = ledger.spend(
+        [_outside()], comment=ConformingStr("c"), comment_to=ConformingStr("t")
+    )
+    kept = _wtx(ledger, spent)
+    assert (type(kept.comment), type(kept.comment_to)) == (str, str)
+    ledger.close()
+    with Ledger.load(path, "regtest", chain) as loaded:
+        held = _wtx(loaded, spent)
+        assert (held.comment, held.comment_to) == ("c", "t")
 
 
 def test_a_bump_replaces_the_spend_and_links_the_two(

@@ -22,6 +22,7 @@ from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.ledger import GroupedAddress, Ledger, TxDetail
 from btclib_wallet.wallet import DescriptorWallet
+from tests.ledger import Star, TwinStr
 from tests.ledger.conflict_test import _conflicted, _spend_and_child, _two_coins
 from tests.ledger.conftest import (
     LOOKAHEAD,
@@ -147,6 +148,31 @@ def test_the_name_star_and_what_is_no_label_are_refused(ledger: Ledger) -> None:
 def _fixed() -> DescriptorWallet:
     """Return a source whose branch 0 is one address."""
     return source("wpkh({}/84h/1h/5h/{}/0)", (0,))
+
+
+def test_a_label_is_the_str_it_holds(ledger: Ledger) -> None:
+    """Checked, kept and looked up as the str held, whatever `==` claims."""
+    assert (Star("a") == "*", TwinStr("*") == "*") == (True, False)
+    for call in (
+        lambda: ledger.new_address(label=TwinStr("*")),
+        lambda: ledger.set_label(FOREIGN, TwinStr("*")),
+        lambda: ledger.add_source(_fixed(), label=TwinStr("*")),
+    ):
+        with pytest.raises(BTClibValueError, match="invalid label name"):
+            call()
+    own = ledger.new_address(label=Star("a"))
+    assert own == ledger.sources[0].address(0, 0)
+    ledger.set_label(FOREIGN, Star("f"))
+    fixed = _fixed()
+    ledger.add_source(fixed, lookahead=LOOKAHEAD, label=Star("x"))
+    held = [ledger.label_of(a) for a in (own, FOREIGN, fixed.address(0, 0))]
+    assert [(type(label), label) for label in held] == [
+        (str, "a"),
+        (str, "f"),
+        (str, "x"),
+    ]
+    assert ledger.addresses_by_label(TwinStr("a")) == {own: "receive"}
+    assert ledger.received_by_label(TwinStr("a")) == 0
 
 
 def test_a_source_not_ranged_takes_a_label(ledger: Ledger) -> None:

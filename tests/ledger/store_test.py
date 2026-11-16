@@ -25,7 +25,7 @@ from btclib.script import ScriptPubKey
 from btclib.tx import Tx, TxOut
 from typing_extensions import override
 
-from btclib_wallet._refusal import _quoted
+from btclib_wallet._refusal import _exact, _exact_int, _quoted
 from btclib_wallet.descriptors import parse
 from btclib_wallet.fetch.history import (
     BlockRef,
@@ -33,9 +33,18 @@ from btclib_wallet.fetch.history import (
     ScriptHistory,
     history_scripts,
 )
-from btclib_wallet.ledger import APPLICATION_ID, FORMAT_VERSION, Ledger, crypto, store
+from btclib_wallet.ledger import (
+    APPLICATION_ID,
+    FORMAT_VERSION,
+    Ledger,
+    TxState,
+    WalletTx,
+    crypto,
+    store,
+)
 from btclib_wallet.wallet import DescriptorWallet
 from tests import raises_alone
+from tests.ledger import Conforming, ConformingBytes, ConformingStr
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
 from tests.refused_value_test import HEX, SPELLINGS
 from tests.secret_free import assert_secret_free, windows
@@ -919,3 +928,164 @@ def test_a_branch_past_10_digits_loads_again(chain: FakeChain, path: Path) -> No
     with Ledger.load(path, "regtest", chain) as again:
         [wallet] = again.sources
         assert wallet.branches == (branch,)
+
+
+def test_a_test_fails_that_binds_a_subclass() -> None:
+    """What `tests/conftest.py` makes of a connection `sqlite3.connect` opens.
+
+    `sqlite3` binds what each `__conform__` answers, where such a
+    connection fails the test first.
+    """
+    values = (Conforming(1), ConformingStr("a"), ConformingBytes(b"a"))
+    with contextlib.closing(sqlite3.Connection(":memory:")) as plain:
+        row = plain.execute("SELECT ?, ?, ?, ?", (*values, memoryview(b"a")))
+        assert row.fetchone() == ("conformed", "conformed", b"conformed", b"a")
+    with contextlib.closing(sqlite3.connect(":memory:")) as db:
+        db.execute("CREATE TABLE t(v)")
+        with pytest.raises(pytest.fail.Exception, match="binds a Conforming$"):
+            db.execute("INSERT INTO t VALUES (?)", (Conforming(1),))
+        with pytest.raises(pytest.fail.Exception, match="binds a ConformingStr$"):
+            db.executemany("INSERT INTO t VALUES (?)", [(ConformingStr("a"),)])
+        with pytest.raises(pytest.fail.Exception, match="binds a ConformingBytes$"):
+            db.execute("INSERT INTO t VALUES (?)", (ConformingBytes(b"a"),))
+        with pytest.raises(pytest.fail.Exception, match="binds a memoryview$"):
+            db.execute("INSERT INTO t VALUES (?)", (memoryview(b"a"),))
+        with pytest.raises(pytest.fail.Exception, match="binds a bool$"):
+            db.execute("INSERT INTO t VALUES (:v)", {"v": True})
+        assert db.execute("SELECT count(*) FROM t").fetchone() == (0,)
+
+
+def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        return db.execute(sql).fetchall()
+
+
+def test_a_caller_s_int_or_str_is_written_as_the_value_it_holds(
+    chain: FakeChain, path: Path
+) -> None:
+    """What `store` says it binds of a caller's arguments, read back.
+
+    Each of the subclass's own methods would write another value.
+    """
+    wallet = source()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(wallet, Conforming(3), lookahead=Conforming(2))
+        address = ledger.new_address(Conforming(0), Conforming(1))
+        ledger.new_address(0, 0, label=ConformingStr("a"))
+        ledger.set_label(address, ConformingStr("b"))
+    assert _rows(path, "SELECT lookahead, birth FROM sources") == [(2, 3)]
+    assert _rows(path, "SELECT * FROM handed_out ORDER BY branch") == [
+        (0, 0, 0),
+        (0, 1, 0),
+    ]
+    assert sorted(_rows(path, "SELECT label FROM labels")) == [("a",), ("b",)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.label_of(address) == "b"
+        assert again.new_address(0, 1) == wallet.address(1, 1)
+
+
+def test_a_subclass_is_bound_as_the_value_it_holds_not_as_it_answers() -> None:
+    """What `_exact` reads of each, and what its own methods answer.
+
+    The tests that read a ledger's file back rest on the difference.
+    """
+    number, text, octets = Conforming(1), ConformingStr("a"), ConformingBytes(b"a")
+    assert (int(number), number.__index__(), str(number)) == (99, 98, "97")
+    arithmetic = (
+        number | 0,
+        0 | number,
+        number + 0,
+        0 + number,
+        number * 1,
+        1 * number,
+    )
+    assert arithmetic == (99,) * 6
+    assert str(text) == "str"
+    texts = (text + "", "" + text, text[:], text * 1, 1 * text)
+    assert (texts, len(text)) == (("wrong",) * 5, 0)
+    assert (bytes(octets), octets.hex()) == (b"bytes", "beef")
+    assert octets.__buffer__(0).tobytes() == b"buffer"
+    octet_copies = (octets + b"", b"" + octets, octets[:], octets * 1, 1 * octets)
+    assert (octet_copies, len(octets)) == ((b"wrong",) * 5, 0)
+    for value, exact in ((number, 1), (text, "a"), (octets, b"a"), (True, 1)):
+        held = _exact(value)
+        assert (type(held), held) == (type(exact), exact)
+    other = 5.0
+    assert _exact(other) is other
+
+
+def test_the_store_writes_the_value_held_whatever_reaches_it(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """The store's own read, under the ledger's, which hands it the value.
+
+    Each of the subclass's own methods would write another value.
+    """
+    held = ledger._store
+    wallet = source("wpkh({}/84h/1h/9h/{}/*)")
+    source_id = held.next_source_id()
+    descriptors = {branch: str(wallet.descriptor(branch)) for branch in wallet.branches}
+    added = store._Source(descriptors, {}, None, Conforming(2), Conforming(3), False)
+    held.add_source(source_id, added)
+    held.add_handed_out([(Conforming(source_id), Conforming(1), 0)])
+    held.set_label(b"\x51", ConformingStr("b"), "send")
+    tx = chain.pay([TxOut(1_000, script_of(ledger.new_address()))])
+    comments = (ConformingStr("c"), ConformingStr("t"))
+    held.upsert_txs([WalletTx(tx, TxState.INACTIVE, None, 0, *comments, None, None)])
+    ledger.close()
+    sources = _rows(path, "SELECT id, lookahead, birth FROM sources ORDER BY id")
+    assert sources[-1] == (source_id, 2, 3)
+    assert (source_id, 1, 0) in _rows(path, "SELECT * FROM handed_out")
+    assert _rows(path, "SELECT label FROM labels WHERE script = x'51'") == [("b",)]
+    assert _rows(path, "SELECT comment, comment_to FROM txs") == [("c", "t")]
+
+
+class _ConformingChain(FakeChain):
+    """A reader answering each height and block id as a subclass of its own."""
+
+    @override
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        # the ledger asks from a height this reader answered
+        answer = super().get_history(scripts, _exact_int(start_height))
+
+        def theirs(block: BlockRef) -> BlockRef:
+            return BlockRef(Conforming(block.height), ConformingBytes(block.block_id))
+
+        return ScriptHistory(
+            theirs(answer.start),
+            theirs(answer.tip),
+            tuple(
+                HistoryTx(
+                    entry.tx, None if entry.block is None else theirs(entry.block)
+                )
+                for entry in answer.txs
+            ),
+        )
+
+
+def test_a_reader_s_heights_and_ids_are_written_as_the_values_they_hold(
+    path: Path,
+) -> None:
+    """What `store` says it binds of a reader's answers, read back.
+
+    A reorganization drops the block of the old tip by its height.
+    """
+    chain = _ConformingChain()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        payment = chain.pay([TxOut(100_000, script_of(ledger.new_address()))])
+        [block_id] = chain.mine([payment])
+        chain.mine(count=2)
+        ledger.sync()
+        chain.invalidate(2)
+        ledger.sync()
+    assert _rows(path, "SELECT height, block_id FROM blocks") == [(1, block_id)]
+    assert _rows(path, "SELECT height, block_id FROM txs") == [(1, block_id)]
+    tip = _rows(path, "SELECT value FROM meta WHERE key LIKE 'tip_%' ORDER BY key")
+    assert tip == [("1",), (block_id.hex(),)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert again.tip == BlockRef(1, block_id)
+        [info] = again.transactions
+        assert info.wallet_tx.block == BlockRef(1, block_id)
