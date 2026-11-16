@@ -4,6 +4,8 @@
 
 """Non-regression tests for btclib_wallet.ledger."""
 
+from typing import Any
+
 from typing_extensions import override
 
 
@@ -201,3 +203,22 @@ class Star(str):
     @override
     def __eq__(self, other: object) -> bool:
         return other == "*" or str.__eq__(self, other)
+
+
+# `isinstance` reads `__class__`, so each of these is believed to be what
+# it claims, where its type is a str or bytes
+_claims_int: Any = property(lambda _self: int)
+_claims_str: Any = property(lambda _self: str)
+
+
+class ClaimsInt(str):
+    """A str whose `__class__` claims int."""
+
+    __slots__ = ()
+    __class__ = _claims_int
+
+
+class ClaimsStr(bytes):
+    """Bytes whose `__class__` claims str."""
+
+    __class__ = _claims_str

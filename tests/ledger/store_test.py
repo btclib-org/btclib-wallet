@@ -44,7 +44,13 @@ from btclib_wallet.ledger import (
 )
 from btclib_wallet.wallet import DescriptorWallet
 from tests import raises_alone
-from tests.ledger import Conforming, ConformingBytes, ConformingStr
+from tests.ledger import (
+    ClaimsInt,
+    ClaimsStr,
+    Conforming,
+    ConformingBytes,
+    ConformingStr,
+)
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
 from tests.refused_value_test import HEX, SPELLINGS
 from tests.secret_free import assert_secret_free, windows
@@ -953,6 +959,9 @@ def test_a_test_fails_that_binds_a_subclass() -> None:
         with pytest.raises(pytest.fail.Exception, match="binds a bool$"):
             db.execute("INSERT INTO t VALUES (:v)", {"v": True})
         assert db.execute("SELECT count(*) FROM t").fetchone() == (0,)
+        # a cursor's own execute is not the connection's, and is not checked
+        row = db.cursor().execute("SELECT ?", (Conforming(1),)).fetchone()
+        assert row == ("conformed",)
 
 
 def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:
@@ -984,6 +993,42 @@ def test_a_caller_s_int_or_str_is_written_as_the_value_it_holds(
         assert again.new_address(0, 1) == wallet.address(1, 1)
 
 
+def test_a_value_is_copied_by_its_type_whatever_its_class_claims() -> None:
+    """`_exact` and `_exact_int` read the type, and never `__class__`.
+
+    `isinstance` reads `__class__`, which can claim another type, or
+    raise.
+    """
+
+    def no_class(_self: object) -> type:
+        raise RuntimeError("no __class__")
+
+    claims_bytes: Any = property(lambda _self: bytes)
+
+    class ClaimsBytes:
+        __class__ = claims_bytes
+
+    class RaisesClass(int):
+        __class__ = property(no_class)
+
+    claimant = ClaimsBytes()
+    # what isinstance reads of each, which a copy must not ask
+    assert isinstance(ClaimsInt("a"), int)
+    assert isinstance(ClaimsStr(b"a"), str)
+    assert isinstance(claimant, bytes)
+    with pytest.raises(RuntimeError, match="no __class__"):
+        isinstance(RaisesClass(5), bool)
+    copies = (_exact(ClaimsInt("a")), _exact(ClaimsStr(b"a")), _exact(RaisesClass(5)))
+    assert [(type(held), held) for held in copies] == [
+        (str, "a"),
+        (bytes, b"a"),
+        (int, 5),
+    ]
+    assert _exact(claimant) is claimant
+    held = _exact_int(RaisesClass(5))
+    assert (type(held), held) == (int, 5)
+
+
 def test_a_subclass_is_bound_as_the_value_it_holds_not_as_it_answers() -> None:
     """What `_exact` reads of each, and what its own methods answer.
 
@@ -1010,6 +1055,11 @@ def test_a_subclass_is_bound_as_the_value_it_holds_not_as_it_answers() -> None:
     for value, exact in ((number, 1), (text, "a"), (octets, b"a"), (True, 1)):
         held = _exact(value)
         assert (type(held), held) == (type(exact), exact)
+    # an empty copy is still the exact type, not the subclass
+    empties = (Conforming(0), ConformingStr(""), ConformingBytes(b""))
+    for empty, copy in zip(empties, (0, "", b""), strict=True):
+        copied = _exact(empty)
+        assert (type(copied), copied) == (type(copy), copy)
     other = 5.0
     assert _exact(other) is other
 
@@ -1019,7 +1069,9 @@ def test_the_store_writes_the_value_held_whatever_reaches_it(
 ) -> None:
     """The store's own read, under the ledger's, which hands it the value.
 
-    Each of the subclass's own methods would write another value.
+    Each of the subclass's own methods would write another value, a 0 and
+    an empty one included, and bytes whose `__class__` claims str are
+    copied as bytes.
     """
     held = ledger._store
     wallet = source("wpkh({}/84h/1h/9h/{}/*)")
@@ -1027,17 +1079,23 @@ def test_the_store_writes_the_value_held_whatever_reaches_it(
     descriptors = {branch: str(wallet.descriptor(branch)) for branch in wallet.branches}
     added = store._Source(descriptors, {}, None, Conforming(2), Conforming(3), False)
     held.add_source(source_id, added)
-    held.add_handed_out([(Conforming(source_id), Conforming(1), 0)])
+    held.add_handed_out([(Conforming(source_id), Conforming(0), 0)])
     held.set_label(b"\x51", ConformingStr("b"), "send")
     tx = chain.pay([TxOut(1_000, script_of(ledger.new_address()))])
-    comments = (ConformingStr("c"), ConformingStr("t"))
-    held.upsert_txs([WalletTx(tx, TxState.INACTIVE, None, 0, *comments, None, None)])
+    block = BlockRef(Conforming(0), ConformingBytes(b""))
+    comments = (ConformingStr("c"), ConformingStr(""))
+    wtx = WalletTx(tx, TxState.CONFIRMED, block, 0, *comments, None, None)
+    other = chain.pay([TxOut(2_000, script_of(ledger.new_address()))])
+    claimed = BlockRef(1, ClaimsStr(b"\x01"))
+    claiming = WalletTx(other, TxState.CONFIRMED, claimed, 1, None, None, None, None)
+    held.upsert_txs([wtx, claiming])
     ledger.close()
     sources = _rows(path, "SELECT id, lookahead, birth FROM sources ORDER BY id")
     assert sources[-1] == (source_id, 2, 3)
-    assert (source_id, 1, 0) in _rows(path, "SELECT * FROM handed_out")
+    assert (source_id, 0, 0) in _rows(path, "SELECT * FROM handed_out")
     assert _rows(path, "SELECT label FROM labels WHERE script = x'51'") == [("b",)]
-    assert _rows(path, "SELECT comment, comment_to FROM txs") == [("c", "t")]
+    sql = "SELECT height, block_id, comment, comment_to FROM txs ORDER BY seq"
+    assert _rows(path, sql) == [(0, b"", "c", ""), (1, b"\x01", None, None)]
 
 
 class _ConformingChain(FakeChain):

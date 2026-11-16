@@ -128,17 +128,20 @@ def test_comments_are_kept_with_a_spend_and_in_the_file(
 def test_a_comment_is_written_as_the_str_it_holds(
     ledger: Ledger, chain: FakeChain, path: Path
 ) -> None:
-    """The str each holds, kept and written whatever its own methods answer."""
+    """The str each holds, kept and written whatever its own methods answer.
+
+    An empty comment is the exact "" too.
+    """
     _funded(ledger, chain)
     spent = ledger.spend(
-        [_outside()], comment=ConformingStr("c"), comment_to=ConformingStr("t")
+        [_outside()], comment=ConformingStr("c"), comment_to=ConformingStr("")
     )
     kept = _wtx(ledger, spent)
     assert (type(kept.comment), type(kept.comment_to)) == (str, str)
     ledger.close()
     with Ledger.load(path, "regtest", chain) as loaded:
         held = _wtx(loaded, spent)
-        assert (held.comment, held.comment_to) == ("c", "t")
+        assert (held.comment, held.comment_to) == ("c", "")
 
 
 def test_a_bump_replaces_the_spend_and_links_the_two(

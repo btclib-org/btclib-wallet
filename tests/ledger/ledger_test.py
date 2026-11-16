@@ -324,19 +324,22 @@ def test_a_source_and_a_branch_are_the_ints_they_hold(
 def test_a_lookahead_and_a_birth_height_are_the_ints_they_hold(
     chain: FakeChain, path: Path
 ) -> None:
-    """Checked and written as the int held, whatever `<` claims of it."""
-    assert (Below(2) < 0, NotBelow(-1) < 0) == (True, False)
+    """Checked and written as the int held, whatever `<` claims of it.
+
+    A birth height of 0 is the exact 0 too.
+    """
+    assert (Below(0) < 0, NotBelow(-1) < 0) == (True, False)
     with Ledger.create(path, "regtest", chain) as ledger:
         with pytest.raises(BTClibValueError, match="negative lookahead"):
             ledger.add_source(source(), lookahead=NotBelow(-1))
         with pytest.raises(BTClibValueError, match="negative birth_height"):
             ledger.add_source(source(), NotBelow(-1))
-        source_id = ledger.add_source(source(), Below(5), lookahead=Below(2))
+        source_id = ledger.add_source(source(), Below(0), lookahead=Below(2))
         held = (ledger._lookahead[source_id], ledger._birth[source_id])
-        assert [(type(value), value) for value in held] == [(int, 2), (int, 5)]
+        assert [(type(value), value) for value in held] == [(int, 2), (int, 0)]
     with contextlib.closing(sqlite3.connect(path)) as db:
         rows = db.execute("SELECT lookahead, birth FROM sources").fetchall()
-    assert rows == [(2, 5)]
+    assert rows == [(2, 0)]
 
 
 def test_a_ledger_with_no_source_does_not_sync(chain: FakeChain, path: Path) -> None:

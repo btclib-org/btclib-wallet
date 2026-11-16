@@ -400,8 +400,9 @@ def _bound_as_is(monkeypatch: pytest.MonkeyPatch) -> None:
     own connections are opened through `sqlite3.connect`. A connection
     built as `sqlite3.Connection`, or with a `factory` of the test's own,
     is not one, and neither is any connection of a test that replaces
-    `sqlite3.connect` itself. A memoryview fails the test too, though
-    SQLite would bind it.
+    `sqlite3.connect` itself. A value bound through a cursor's own
+    `execute` or `executemany` is not checked. A memoryview fails the
+    test too, though SQLite would bind it.
     """
     connect = functools.partial(sqlite3.connect, factory=_BoundAsIs)
     monkeypatch.setattr(sqlite3, "connect", connect)
