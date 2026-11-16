@@ -3932,8 +3932,8 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     from the signatures and the script, which is the satisfaction of a
     multisig and a guess for anything else, so a caller with a script of
     their own has to be able to answer over it rather than after it.
-    `miniscript_solver` is that answer wherever the witness script is a
-    BIP379 miniscript.
+    `miniscript_solver` is that answer wherever the witness script, or a
+    taproot leaf script a signature names, is a BIP379 miniscript.
 
     What the solver does not take over is the bookkeeping: what is kept
     and dropped at serialization, and the verification of whatever
@@ -3972,7 +3972,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
 
 
 def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
-    """Spend a psbt input whose witness script is a miniscript.
+    """Spend a psbt input whose witness script or taproot leaf is a miniscript.
 
     An `InputSolver`, which is what `finalize` takes for the inputs whose
     spend is the caller's to know, and a miniscript is one of them. A
@@ -3980,29 +3980,68 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
 
         final = finalize(unsigned, solver=miniscript_solver)
 
-    Everything it needs is in the psbt. The witness script is read back
-    into the expression it is -- which is what `miniscript.from_script`
-    is for, and what makes a signer able to spend a script nobody handed
-    it a descriptor for -- and the satisfaction reads the input's own
-    fields: the signatures of `partial_sigs`, the four preimage mappings
-    BIP174 gave fields to, and the lock times of the transaction the psbt
-    is building. A ``pk_h()`` names its key by a hash160, so the keys the
-    input knows are offered for that lookup.
+    Everything it needs is in the psbt. The script is read back into the
+    expression it is -- which is what `miniscript.from_script` is for,
+    and what makes a signer able to spend a script nobody handed it a
+    descriptor for -- and the satisfaction reads the input's own fields:
+    its signatures, the four preimage mappings BIP174 gave fields to, and
+    the lock times of the transaction the psbt is building. A ``pk_h()``
+    names its key by a hash160, so the keys the input knows are offered
+    for that lookup.
 
-    A miniscript holding a ``pk_h()`` whose key the input does not name,
-    in `partial_sigs` or in `hd_key_paths`, is refused, whichever branch
-    the signatures open: the script cannot be read without that key, and
-    None would leave `finalize` to guess a witness. Bitcoin Core's
+    A p2wsh input is spent with its witness script, read as a `P2WSH`
+    miniscript and satisfied by the signatures of `partial_sigs`. A
+    miniscript holding a ``pk_h()`` whose key the input does not name, in
+    `partial_sigs` or in `hd_key_paths`, is refused, whichever branch the
+    signatures open: the script cannot be read without that key, and None
+    would leave `finalize` to guess a witness. Bitcoin Core's
     ``finalizepsbt`` leaves such an input unfinalized, and its
     ``analyzepsbt`` names the missing key's hash.
 
-    None where the input is not this solver's business: no witness script,
-    or one that is not a miniscript, both of which `finalize` then answers
-    for as it did before. Where the script *is* a miniscript and the
-    signatures do not satisfy it, the refusal is the satisfier's and says
-    so -- a witness built from a guess would be worse, being one the
-    network refuses after the transaction is broadcast rather than one
-    this refuses while it is built.
+    A taproot input is spent by a script path, and only where it carries
+    no key path signature: with one, `finalize` builds the key path, which
+    it prefers, as Bitcoin Core does. The leaves to spend are those of
+    `taproot_leaf_scripts` whose tapleaf hash a signature of
+    `taproot_script_spend_signatures` names, at BIP342's leaf version,
+    each read as a `TAPSCRIPT` miniscript and satisfied with the
+    signatures made for it, keyed by x-only key. A ``pk_h()`` is read
+    with the x-only keys that signed and those `taproot_hd_key_paths`
+    names. Where several leaves are satisfied, the witness is the smallest
+    serialized one, control block included, and on a tie the one of the
+    smaller leaf script, then of the smaller control block: Bitcoin Core's
+    choice in ``SignTaproot`` (``src/script/sign.cpp``), which keeps the
+    first smallest witness over leaves ordered by script, each with its
+    shortest control block. So signatures that satisfy two leaves spend
+    the cheaper one, where `finalize` alone refuses them.
+
+    Once a signed leaf at BIP342's leaf version reads as a miniscript, or
+    would but for a ``pk_h()`` key, and before any is satisfied, the
+    input's taproot fields are held to the output being spent, as `sign`
+    holds them: an internal key, tweaked by the merkle root the input
+    names, has to be the output key, and every control block of
+    `taproot_leaf_scripts`, at a leaf version BIP341 defines, has to prove
+    its leaf against that key. An input carrying one that does not is
+    refused, whichever of those leaves is signed: a control block that
+    proves nothing would otherwise be the smallest witness, and one the
+    network refuses. And every script path signature of the input is
+    verified, against the hash its type commits to, as `finalize`
+    verifies the signatures it builds a spend from. `finalize` checks
+    neither of a spend a solver answers. Where no leaf is
+    satisfied, a leaf whose ``pk_h()`` key the input does not name is the
+    refusal, and otherwise the satisfier's for the first leaf in the
+    order above.
+
+    None where the input is not this solver's business: a p2wsh script
+    that is not a miniscript, an input with no witness script that spends
+    no taproot output, and a taproot input with a key path signature, with
+    no script path signature, or none of whose signed leaves is a
+    miniscript. `finalize` then answers for each as it does without a
+    solver.
+    Where the script *is* a miniscript and the signatures do not satisfy
+    it, the refusal is the satisfier's and says so -- a witness built from
+    a guess would be worse, being one the network refuses after the
+    transaction is broadcast rather than one this refuses while it is
+    built.
     """
     # the guard `update_psbt_input` carries, for the same reason: an
     # IndexError out of a public function is not an answer, and a
@@ -4011,6 +4050,8 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     if not 0 <= vin_i < len(psbt.inputs):
         raise BTClibValueError(f"invalid input index: {_quoted(vin_i)}")
     psbt_in = psbt.inputs[vin_i]
+    if _is_taproot(psbt_in):
+        return _tapscript_spend(psbt, vin_i)
     if not psbt_in.witness_script:
         return None
     # a pk_h() holds the hash of its key and not the key, so the keys the
@@ -4025,14 +4066,29 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
             psbt_in.witness_script, miniscript.P2WSH, key_hashes
         )
     if node is None:
-        if _lacks_only_keys(psbt_in.witness_script, key_hashes):
+        if _lacks_only_keys(psbt_in.witness_script, miniscript.P2WSH, key_hashes):
             err_msg = f"input {_position(vin_i)}: no public key for a hash160 "
             err_msg += "the witness script holds"
             raise BTClibValueError(err_msg)
         # not a miniscript, which is not an error: it is the answer "not mine"
         return None
+    spend = _spend_context(psbt, vin_i)
+    stack = node.satisfy(cast("Mapping[Octets, Octets]", psbt_in.partial_sigs), spend)
+    # the redeem script of a wrapped p2wsh, and the empty script_sig BIP141
+    # requires of a native one
+    script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []
+    return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
+
+
+def _spend_context(psbt: Psbt, vin_i: int) -> miniscript.SpendContext:
+    """Return what a satisfaction of the input reads beside its signatures.
+
+    The input's four preimage mappings, and the lock times of the
+    transaction the psbt is building.
+    """
+    psbt_in = psbt.inputs[vin_i]
     tx = psbt.tx
-    spend = miniscript.SpendContext(
+    return miniscript.SpendContext(
         sha256_preimages=psbt_in.sha256_preimages,
         hash256_preimages=psbt_in.hash256_preimages,
         ripemd160_preimages=psbt_in.ripemd160_preimages,
@@ -4041,29 +4097,109 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
         sequence=tx.vin[vin_i].sequence,
         version=tx.version,
     )
-    stack = node.satisfy(cast("Mapping[Octets, Octets]", psbt_in.partial_sigs), spend)
-    # the redeem script of a wrapped p2wsh, and the empty script_sig BIP141
-    # requires of a native one
-    script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []
-    return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
 
 
-def _stand_in_key(known: Mapping[Octets, Octets]) -> tuple[bytes, bytes]:
-    """Return the hash160 and the SEC bytes of a key whose hash `known` lacks.
+# BIP342's leaf version, the only one whose scripts are tapscripts
+_TAPSCRIPT_LEAF_VERSION = 0xC0
+
+
+def _tapscript_spend(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
+    """Spend a taproot input by its smallest satisfied miniscript leaf.
+
+    `miniscript_solver`'s answer for a taproot input, whose docstring
+    states the rules. A leaf is held as its script, its control block, its
+    tapleaf hash and the miniscript it reads as.
+    """
+    psbt_in = psbt.inputs[vin_i]
+    signatures = psbt_in.taproot_script_spend_signatures
+    if psbt_in.taproot_key_spend_signature or not signatures:
+        return None
+    known = (
+        *(key_data[:LEAF_HASH_SIZE] for key_data in signatures),
+        *psbt_in.taproot_hd_key_paths,
+    )
+    key_hashes: dict[Octets, Octets] = {hash160(key): key for key in known}
+    signed = {key_data[LEAF_HASH_SIZE:] for key_data in signatures}
+    leaves: list[tuple[bytes, bytes, bytes, miniscript.Miniscript]] = []
+    lacks_keys = False
+    for control_block, (script, version) in psbt_in.taproot_leaf_scripts.items():
+        if version != _TAPSCRIPT_LEAF_VERSION:
+            continue
+        leaf_hash = taproot.leaf_hash(version, script)
+        if leaf_hash not in signed:
+            continue
+        # refused after `suppress`, so that it chains nothing
+        node = None
+        with suppress(BTClibValueError):
+            node = miniscript.from_script(script, miniscript.TAPSCRIPT, key_hashes)
+        if node is None:
+            lacks_keys |= _lacks_only_keys(script, miniscript.TAPSCRIPT, key_hashes)
+        else:
+            leaves.append((script, control_block, leaf_hash, node))
+    if not leaves and not lacks_keys:
+        return None
+
+    _assert_taproot_signable(psbt_in)
+    _assert_taproot_sigs_verify(psbt, vin_i, None)
+    # the order a tie is broken in: by leaf script, then by control block
+    leaves.sort(key=lambda leaf: (leaf[0], leaf[1]))
+    spend = _spend_context(psbt, vin_i)
+    witnesses: list[Witness] = []
+    for leaf in leaves:
+        with suppress(BTClibValueError):
+            witnesses.append(_leaf_witness(leaf, signatures, spend))
+    if witnesses:
+        # `min` keeps the first of equal sizes, which is the order above
+        return b"", min(witnesses, key=lambda witness: len(witness.serialize()))
+    if lacks_keys:
+        err_msg = f"input {_position(vin_i)}: no public key for a hash160 "
+        err_msg += "a leaf script holds"
+        raise BTClibValueError(err_msg)
+    # the first leaf again, outside `suppress`: its refusal is the answer
+    return b"", _leaf_witness(leaves[0], signatures, spend)
+
+
+def _leaf_witness(
+    leaf: tuple[bytes, bytes, bytes, miniscript.Miniscript],
+    signatures: Mapping[bytes, bytes],
+    spend: miniscript.SpendContext,
+) -> Witness:
+    """Return a leaf's witness: its satisfaction, script and control block.
+
+    The satisfaction reads the script path signatures of that leaf alone,
+    keyed by x-only key.
+    """
+    script, control_block, leaf_hash, node = leaf
+    offered: dict[Octets, Octets] = {
+        key_data[:LEAF_HASH_SIZE]: signature
+        for key_data, signature in signatures.items()
+        if key_data[LEAF_HASH_SIZE:] == leaf_hash
+    }
+    return Witness([*node.satisfy(offered, spend), script, control_block])
+
+
+def _stand_in_key(known: Mapping[Octets, Octets], context: str) -> tuple[bytes, bytes]:
+    """Return the hash160 and the bytes of a key whose hash `known` lacks.
 
     The first of G, 2G, 3G and on whose hash160 is not a key of `known`, so
-    that a stand-in replaces no entry of the caller's.
+    that a stand-in replaces no entry of the caller's. Its SEC bytes in the
+    `P2WSH` context, and its x-only bytes in the `TAPSCRIPT` one, which is
+    the key a ``pk_h()`` hashes there.
     """
     multiple = 1
     while True:
         key = sec_point.bytes_from_point(mult(multiple))
+        if context == miniscript.TAPSCRIPT:
+            key = key[1:]
         if (key_hash := hash160(key)) not in known:
             return key_hash, key
         multiple += 1
 
 
-def _lacks_only_keys(script: bytes, key_hashes: Mapping[Octets, Octets]) -> bool:
-    """Whether a P2WSH script is a miniscript but for a ``pk_h()`` key.
+def _lacks_only_keys(
+    script: bytes, context: str, key_hashes: Mapping[Octets, Octets]
+) -> bool:
+    """Whether a script is a miniscript of the context but for a ``pk_h()`` key.
 
     Asked once `miniscript.from_script` has refused the script with
     `key_hashes`: True says the refusal is only for a hash160 under which
@@ -4075,10 +4211,11 @@ def _lacks_only_keys(script: bytes, key_hashes: Mapping[Octets, Octets]) -> bool
     its size, except where a ``pk_h()`` looks up its key, so writing one
     over changes the reading only where that key was missing.
 
-    A script longer than consensus allows is no miniscript, and is
-    answered before it is walked.
+    A P2WSH script longer than consensus allows is no miniscript, and is
+    answered before it is walked. Consensus bounds no tapscript, so one is
+    walked at any length, and `from_script` refuses it past its own bound.
     """
-    if len(script) > MAX_SCRIPT_SIZE:
+    if context == miniscript.P2WSH and len(script) > MAX_SCRIPT_SIZE:
         return False
     try:
         known: dict[Octets, Octets] = {
@@ -4087,7 +4224,7 @@ def _lacks_only_keys(script: bytes, key_hashes: Mapping[Octets, Octets]) -> bool
         }
     except BTClibValueError:
         return False
-    stand_in_hash, stand_in_key = _stand_in_key(known)
+    stand_in_hash, stand_in_key = _stand_in_key(known, context)
     stood_in = bytearray(script)
     for op_code, start, stop in op_code_spans(script):
         # op code 20 pushes the 20 bytes after it
@@ -4095,7 +4232,7 @@ def _lacks_only_keys(script: bytes, key_hashes: Mapping[Octets, Octets]) -> bool
             stood_in[start + 1 : stop] = stand_in_hash
     known[stand_in_hash] = stand_in_key
     try:
-        miniscript.from_script(bytes(stood_in), miniscript.P2WSH, known)
+        miniscript.from_script(bytes(stood_in), context, known)
     except BTClibValueError:
         return False
     return True
