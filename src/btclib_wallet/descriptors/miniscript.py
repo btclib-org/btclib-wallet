@@ -2650,6 +2650,12 @@ class _Decoder:
             elif hash160(sec) != key_hash:
                 err_msg = "the key answered for a hash160 hashes to another"
                 raise BTClibValueError(err_msg)
+            elif self.context == TAPSCRIPT and len(sec) != 32:
+                err_msg = (
+                    "not a tapscript public key for a hash160 the script"
+                    f" holds: {len(sec)} bytes"
+                )
+                raise BTClibValueError(err_msg)
             self.pos += 5
             key = _key_from_sec(sec, self.context)
             return Miniscript("pk_h", self.context, keys=(key,))
@@ -2985,6 +2991,12 @@ def from_script(
     the same question, and the answer is held to it: a key filed under a
     hash that is not its own is refused rather than read, that being the
     one input for which the inverse above did not hold.
+
+    In a tapscript, a key supplied this way is refused unless it is 32
+    bytes long, the length of the x-only key `parse` writes there. BIP342
+    reads a key of any other length but zero as an unknown key type,
+    which any signature satisfies: a ``pk_h()`` read with such a key
+    would ask for its signature where the script checks none.
 
     `reads_back` is this question asked without the refusal, for a caller
     that holds a script and wants to know whether any language reads it.

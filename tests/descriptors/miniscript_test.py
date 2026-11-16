@@ -38,15 +38,16 @@ and `deriveaddresses` gives the address of the script computed here.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
-from btclib.alias import Octets, ScriptList
+from btclib.alias import Octets, ScriptList, TaprootScriptTree
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.network import NETWORKS
-from btclib.script import sig_hash
+from btclib.script import sig_hash, taproot
 from btclib.script.engine import verify_transaction
 from btclib.script.script import serialize
 from btclib.script.script_pub_key import ScriptPubKey
@@ -56,6 +57,7 @@ from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
+from ecc.curves import bytes_from_point, point_from_pub_key
 
 from btclib_wallet.bip32.bip32 import (
     derive,
@@ -999,6 +1001,118 @@ def test_a_key_answered_for_a_hash_that_is_not_its_own_is_refused() -> None:
         from_script(script, P2WSH, lying)
     assert not reads_back(script, P2WSH, lying)
     assert reads_back(script, P2WSH, {key_hash: KEY})
+
+
+UNCOMPRESSED = bytes_from_point(point_from_pub_key(KEY), compressed=False).hex()
+# a byte short of an x-only key
+SHORT = XONLY[2:]
+
+
+def exactly(message: str) -> str:
+    """Return the pattern `pytest.raises` matches against this message alone."""
+    return f"^{re.escape(message)}$"
+
+
+def parsed_script(expression: str, context: str) -> bytes:
+    """Return the script `parse` writes, empty where it refuses it."""
+    try:
+        return parse(expression, context).script()
+    except BTClibValueError:
+        return b""
+
+
+def pkh_leaf(key: bytes) -> ScriptList:
+    """Return the commands of a ``pk_h()`` of the key, its hash160 alone."""
+    return ["OP_DUP", "OP_HASH160", hash160(key), "OP_EQUALVERIFY", "OP_CHECKSIG"]
+
+
+@pytest.mark.parametrize(
+    "key, size",
+    [
+        pytest.param(SHORT, 31, id="31-bytes"),
+        pytest.param(KEY, 33, id="compressed"),
+        pytest.param(UNCOMPRESSED, 65, id="uncompressed"),
+    ],
+)
+def test_a_tapscript_key_answered_for_a_hash_is_32_bytes(key: str, size: int) -> None:
+    """Refuse a tapscript pk_h() key supplied in a length other than 32.
+
+    The key is believed for its hash, so it is held to what `parse` writes
+    into a tapscript: the 32 bytes of an x-only key. `parse` writes no such
+    script from ``pkh()`` of the key.
+    """
+    key_hash = hash160(bytes.fromhex(key))
+    script = serialize(pkh_leaf(bytes.fromhex(key)))
+    message = f"not a tapscript public key for a hash160 the script holds: {size} bytes"
+    with pytest.raises(BTClibValueError, match=exactly(message)):
+        from_script(script, TAPSCRIPT, {key_hash: key})
+    assert not reads_back(script, TAPSCRIPT, {key_hash: key})
+    assert parsed_script(f"pkh({key})", TAPSCRIPT) != script
+
+
+@pytest.mark.parametrize(
+    "context, key",
+    [
+        pytest.param(P2WSH, KEY, id="P2WSH-03"),
+        pytest.param(P2WSH, CUSTODY_KEYS[2], id="P2WSH-02"),
+        pytest.param(TAPSCRIPT, XONLY, id="tapscript"),
+    ],
+)
+def test_a_key_answered_in_the_context_s_form_is_read(context: str, key: str) -> None:
+    """Read a pk_h() key supplied in the form `parse` writes it in."""
+    script = serialize(pkh_leaf(bytes.fromhex(key)))
+    key_hashes: dict[Octets, Octets] = {hash160(bytes.fromhex(key)): key}
+    assert str(from_script(script, context, key_hashes)) == f"pkh({key})"
+    assert reads_back(script, context, key_hashes)
+    assert parse(f"pkh({key})", context).script() == script
+
+
+def unsigned_leaf_spend(key: bytes) -> tuple[list[TxOut], Tx]:
+    """Return a spend of a tapscript ``pk_h()`` leaf with 64 zero bytes.
+
+    The leaf is the only one of a tree under BIP341's unspendable internal
+    key, and the zero bytes stand where the key's signature goes.
+    """
+    tree: TaprootScriptTree = [(0xC0, pkh_leaf(key))]
+    output_key = taproot.output_pubkey(None, tree)[0]
+    prevout = TxOut(50_000, ScriptPubKey(b"\x51\x20" + output_key))
+    leaf, control_block = taproot.input_script_sig(None, tree, 0)
+    tx = Tx(
+        version=2,
+        vin=[TxIn(OutPoint(b"\x07" * 32, 0))],
+        vout=[TxOut(49_000, prevout.script_pub_key)],
+    )
+    tx.vin[0].script_witness = Witness(
+        [b"\x00" * 64, key, serialize(leaf), control_block]
+    )
+    return [prevout], tx
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(SHORT, id="31-bytes"),
+        pytest.param(KEY, id="compressed"),
+        pytest.param(UNCOMPRESSED, id="uncompressed"),
+    ],
+)
+def test_a_tapscript_key_refused_is_one_no_signature_is_checked_for(key: str) -> None:
+    """Spend a leaf whose pk_h() key is refused, with no signature at all.
+
+    BIP342 reads a key that is neither empty nor 32 bytes as an unknown
+    key type, and the engine accepts 64 zero bytes in place of its
+    signature. Read as ``pkh(key)``, the leaf would say a signature of the
+    key spends it. The same zero bytes do not spend the leaf of the 32-byte
+    key `XONLY`, which is read.
+    """
+    sec = bytes.fromhex(key)
+    leaf = serialize(pkh_leaf(sec))
+    assert not reads_back(leaf, TAPSCRIPT, {hash160(sec): sec})
+    verify_transaction(*unsigned_leaf_spend(sec))
+    x_only = bytes.fromhex(XONLY)
+    assert reads_back(serialize(pkh_leaf(x_only)), TAPSCRIPT, {hash160(x_only): x_only})
+    with pytest.raises(BTClibValueError, match="invalid signature"):
+        verify_transaction(*unsigned_leaf_spend(x_only))
 
 
 def test_a_script_says_whether_it_is_the_expression_it_reads_as() -> None:
