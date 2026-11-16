@@ -511,8 +511,13 @@ _PUB_KEY = PrvKeyData(1).pub.sec.hex()
 # asks, and its WIF
 _PRV_KEY = BIP32KeyData.b58decode(_XPRV).key[1:]
 _WIF = wif_from_prv_key(_PRV_KEY, "mainnet")
-# A and the same xpub under another origin
-_OTHER_ORIGIN = f"[00000000/1h]{A.split(']')[1]}"
+# A and the same xpub under another origin: another fingerprint and
+# another path, another fingerprint alone, another path alone
+_A_FINGERPRINT, _A_PATH = A[1:].split("]")[0].split("/", 1)
+_A_XPUB = A.split("]")[1]
+_OTHER_ORIGIN = f"[00000000/1h]{_A_XPUB}"
+_OTHER_FINGERPRINT = f"[00000000/{_A_PATH}]{_A_XPUB}"
+_OTHER_PATH = f"[{_A_FINGERPRINT}/1h]{_A_XPUB}"
 
 
 def _respellings(key: str) -> dict[str, str]:
@@ -792,6 +797,20 @@ _REFUSED: dict[str, tuple[object, object, object, type[Exception], str]] = {
     "a key under two origins": (
         _P,
         [(1, [_OTHER_ORIGIN], 144)],
+        "mainnet",
+        BTClibValueError,
+        "invalid key 0 of recovery path 0: its xpub has another origin before it",
+    ),
+    "a key under another fingerprint alone": (
+        _P,
+        [(1, [_OTHER_FINGERPRINT], 144)],
+        "mainnet",
+        BTClibValueError,
+        "invalid key 0 of recovery path 0: its xpub has another origin before it",
+    ),
+    "a key under another path alone": (
+        _P,
+        [(1, [_OTHER_PATH], 144)],
         "mainnet",
         BTClibValueError,
         "invalid key 0 of recovery path 0: its xpub has another origin before it",
@@ -1176,7 +1195,7 @@ def test_what_is_no_tuple_or_list_is_refused(kind: str, position: str) -> None:
 
 
 class _ChangingQuorum(list[object]):
-    """The fourth review's quorum: 2-of-2 when first read, 1-of-2 after."""
+    """A quorum that is 2-of-2 when first read, and 1-of-2 after."""
 
     reads = 0
 
@@ -1188,7 +1207,7 @@ class _ChangingQuorum(list[object]):
 
 
 class _SelfIterator(list[object]):
-    """The fourth review's sequence: its own iterator, and no length."""
+    """A sequence that is its own iterator, and whose length raises."""
 
     reads = 0
 
@@ -1205,13 +1224,13 @@ class _SelfIterator(list[object]):
         raise RuntimeError(_WIF)
 
 
-def test_the_fourth_reviews_sequences_are_refused_unread() -> None:
+def test_a_sequence_that_changes_or_iterates_itself_is_refused_unread() -> None:
     """Each is refused with its position, and none of it is read.
 
-    The changing quorum made the function emit a 1-of-2 for the 2-of-2 it
-    validated; the self iterator's `__len__` escaped as a bare
-    RuntimeError. The control: the 2-of-2 the quorum shows first needs
-    both signatures.
+    Read, the changing quorum would have the function emit a 1-of-2 for
+    the 2-of-2 it validated, and the self iterator's `__len__` would
+    leave as a bare RuntimeError. The control: the 2-of-2 the quorum
+    shows first needs both signatures.
     """
     quorum = _ChangingQuorum([2, _SIGNER_KEYS[:2]])
     message = "invalid primary quorum 0 type: '_ChangingQuorum'"
@@ -1464,7 +1483,7 @@ def test_a_name_left_out_of_str_is_still_copied() -> None:
 
 
 class _EqualsAnything(type):
-    """The fifth review's metaclass: equal to every type."""
+    """A metaclass equal to every type."""
 
     __hash__ = type.__hash__
 
@@ -1474,7 +1493,7 @@ class _EqualsAnything(type):
 
 
 class _OneOfTwo(list[object], metaclass=_EqualsAnything):
-    """The fifth review's quorum: [2, keys] held, (1, keys) iterated."""
+    """A quorum that holds [2, keys] and whose iteration gives (1, keys)."""
 
     reads = 0
 
@@ -1485,7 +1504,7 @@ class _OneOfTwo(list[object], metaclass=_EqualsAnything):
 
 
 class _EqualsRaises(type):
-    """The fifth review's other metaclass: its equality raises."""
+    """A metaclass whose equality raises with the WIF."""
 
     __hash__ = type.__hash__
 
@@ -1499,11 +1518,12 @@ class _RaisingList(list[object], metaclass=_EqualsRaises):
 
 
 @pytest.mark.parametrize("position", _SEQUENCE_POSITIONS)
-def test_the_fifth_reviews_sequences_are_refused_unread(position: str) -> None:
+def test_a_metaclass_equality_decides_no_type(position: str) -> None:
     """A metaclass's equality decides no type, in each sequence position.
 
-    The one equal to every type made a 2-of-2 a 1-of-2 through `in`; the
-    one whose equality raises let the WIF out bare.
+    Asked through `in`, the one equal to every type would make a 2-of-2
+    a 1-of-2, and the one whose equality raises would let the WIF out
+    bare.
     """
     where, call = _EVERY_POSITION[position]
     weaker = _OneOfTwo([2, _SIGNER_KEYS[:2]])
