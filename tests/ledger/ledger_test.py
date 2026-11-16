@@ -65,7 +65,7 @@ from tests.ledger.conftest import (
     source,
     tampered,
 )
-from tests.refused_value_test import HEX, SPELLINGS
+from tests.refused_value_test import HEX, SCALAR, SPELLINGS
 from tests.secret_free import assert_secret_free
 
 
@@ -273,15 +273,19 @@ def test_a_new_source_paid_at_the_tip_still_reads_its_history(
 def test_a_source_height_too_large_for_the_file_is_refused(ledger: Ledger) -> None:
     """A birth_height or lookahead the SQLite INTEGER column cannot hold.
 
-    A lookahead that large is above `MAX_LOOKAHEAD`, and refused as one.
+    A refused birth_height adds no source, and its refusal names no
+    secret passed as one. A lookahead that large is above
+    `MAX_LOOKAHEAD`, and refused as one.
     """
-    too_large_to_format = 10**5000
-    with pytest.raises(BTClibValueError, match="birth_height too large"):
-        ledger.add_source(source(), too_large_to_format)
-    with pytest.raises(BTClibValueError, match="birth_height too large"):
-        ledger.add_source(source(), 2**63)
-    with pytest.raises(BTClibValueError, match="lookahead above MAX_LOOKAHEAD"):
+    before = ledger.sources
+    err_msg = "^birth_height too large: an int of [0-9]+ bits$"
+    for birth_height in (2**63, 10**5000, SCALAR):
+        with pytest.raises(BTClibValueError, match=err_msg) as e:
+            ledger.add_source(source(), birth_height)
+        assert_secret_free(e.value, SPELLINGS)
+    with pytest.raises(BTClibValueError, match="^lookahead above MAX_LOOKAHEAD"):
         ledger.add_source(source(), lookahead=2**63)
+    assert ledger.sources == before
     assert ledger.add_source(source(), 2**63 - 1, lookahead=SMALL_LOOKAHEAD) >= 0
 
 
