@@ -7013,7 +7013,7 @@ def test_finalize_spends_a_pay_to_anchor_input_with_nothing() -> None:
 
 
 def test_finalize_verifies_a_signature_a_pay_to_anchor_input_carries() -> None:
-    """A signature on a pay-to-anchor input is verified, and refused.
+    """A partial signature on a pay-to-anchor input is verified, and refused.
 
     No sighash rule covers the anchor's witness program, so the signature
     cannot be checked: finalize refuses it, with a solver's spend or
