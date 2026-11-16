@@ -421,6 +421,10 @@ def _appended_an_arg(error: FetchError) -> None:
     error.args = (*error.args, HEX)
 
 
+def _cut_the_args(error: FetchError) -> None:
+    error.args = error.args[:-1]
+
+
 class _Text(str):
     """A text of the caller's, equal to the one it stands for."""
 
@@ -455,11 +459,21 @@ def _set_the_status(error: FetchError) -> None:
         (_set_an_attribute, "the server answered HTTP 503"),
         (_set_the_args, "the server answered HTTP 503"),
         (_appended_an_arg, "the server answered HTTP 503"),
+        (_cut_the_args, "the server answered HTTP 503"),
         (_set_an_equal_text, "the server answered HTTP 503"),
         (_set_the_class, "no usable answer from the server: _RenamedError"),
         (_set_the_status, "the server answered HTTP 0"),
     ],
-    ids=["note", "attribute", "args", "appended", "equal text", "class", "status"],
+    ids=[
+        "note",
+        "attribute",
+        "args",
+        "appended",
+        "prefix",
+        "equal text",
+        "class",
+        "status",
+    ],
 )
 def test_a_refusal_the_callers_code_changed_is_refused_by_its_class(
     change: Callable[[FetchError], None], err_msg: str
@@ -843,8 +857,9 @@ _built_in_the_package = FunctionType(
         (_UnrelatedError(),),
         (_InterruptOfTheCallers(f"no answer for {HEX}"),),
         ("the package's text", _UnrelatedError()),
+        ("the package's text", None, _UnrelatedError()),
     ],
-    ids=["exception", "base exception", "after a text"],
+    ids=["exception", "base exception", "after a text", "third"],
 )
 def test_a_refusal_holding_an_exception_is_the_callers_wherever_built(
     held: tuple[object, ...],
@@ -929,6 +944,81 @@ def test_a_close_of_the_callers_giving_its_error_another_class_quotes_nothing(
     )
     assert (refused is not None) is pypy
     assert (e.value.__cause__, e.value.__context__) == (None, None)
+
+
+# `_refuse_after`, raising the error handled again
+def _raise_again(
+    first: Callable[[], None], hook: Callable[[BaseException], None]
+) -> None:
+    try:
+        first()
+    except FetchError as error:
+        hook(error)
+        raise
+
+
+# `_raise_again`, as a function of a module of the package
+_raised_again_in_the_package = FunctionType(
+    _raise_again.__code__,
+    {"__name__": "btclib_wallet._test", "FetchError": FetchError},
+)
+
+
+@pytest.mark.parametrize(
+    "refuse, missing",
+    [(_package_refusal, "status"), (_rpc_refusal, "code")],
+    ids=["http", "rpc"],
+)
+@pytest.mark.parametrize("bare", [True, False], ids=["bare raise", "new refusal"])
+def test_a_refusal_given_another_class_where_handled_is_a_type_error_on_pypy(
+    refuse: Callable[[], None], missing: str, bare: bool
+) -> None:
+    """The caller's code gives an `HttpError` or `RpcError` another class.
+
+    It does so in the package's `except` handling it. PyPy cannot build
+    the class handled from the error alone, and raises a `TypeError` in
+    place of what the `except` raises, its text naming the arg missing.
+    After a bare `raise`, that `TypeError` takes the error handled as its
+    context, and PyPy keeps that error as the one its thread handles: every
+    exception the thread raises later takes it as its context, so the call
+    is made in a thread of its own. CPython raises what the `except` raises:
+    the caller's error as it is, or the package's new refusal.
+    """
+    handled: list[BaseException] = []
+
+    def hook(error: BaseException) -> None:
+        handled.append(error)
+        _give_another_class(error)
+
+    package_frame = _raised_again_in_the_package if bare else _refused_in_the_package
+
+    def ask() -> tuple[BaseException, BaseException | None]:
+        with pytest.raises(Exception) as e:
+            _through(lambda: package_frame(refuse, hook))
+        return e.value, sys.exception()
+
+    with ThreadPoolExecutor(1) as pool:
+        error, left = pool.submit(ask).result()
+    pypy = platform.python_implementation() == "PyPy"
+    raised = "TypeError" if bare else "FetchError"
+    type_error = (
+        f"couldn't record exception context for exception '{raised}', got: "
+        rf"TypeError\(\"\w+\.__init__\(\) missing 1 required positional "
+        rf"argument: '{missing}'\"\)"
+    )
+    expected = _UnrelatedError if bare else FetchError
+    assert type(error) is (TypeError if pypy else expected)
+    text = re.escape(f"no answer for {HEX}") if bare else "the second refusal"
+    assert re.fullmatch(type_error if pypy else text, str(error))
+    assert (error is handled[0]) is (bare and not pypy)
+    assert error.__cause__ is None
+    kept = handled[0] if bare and pypy else None
+    assert error.__context__ is kept
+    assert left is kept
+    if pypy or not bare:
+        # a context, checked above, is the caller's own error
+        error.__context__ = None
+        assert_secret_free(error, SPELLINGS)
 
 
 class _HidingGroup(ExceptionGroup[Exception]):
