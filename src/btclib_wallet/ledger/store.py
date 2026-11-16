@@ -113,7 +113,7 @@ from btclib_wallet.fetch.history import BlockRef
 from btclib_wallet.ledger.crypto import _assert_cost, _MasterKey
 from btclib_wallet.ledger.records import TxState, WalletTx
 
-__all__ = ["APPLICATION_ID", "FORMAT_VERSION"]
+__all__ = ["APPLICATION_ID", "FORMAT_VERSION", "MAX_LOOKAHEAD"]
 
 # "btlw" in ASCII, big-endian: what `PRAGMA application_id` reads in a
 # file this package wrote
@@ -121,6 +121,15 @@ APPLICATION_ID = 0x62746C77
 
 # the format this release writes; a file carries it in `PRAGMA user_version`
 FORMAT_VERSION = 2
+
+# the largest lookahead `Ledger.add_source` takes and a load reads: the
+# ledger derives and holds a script for each index a ranged branch
+# watches, so the time and the memory a source costs grow with its
+# lookahead. A hundred times `ledger.LOOKAHEAD`, and not the million
+# indexes Core's importdescriptors takes in one range (src/rpc/util.cpp at
+# bitcoin/bitcoin@f0de87f040, the v32.1 tag), which a source takes ten
+# times as long to watch
+MAX_LOOKAHEAD = 100_000
 
 # format 1's tables, as v2026.11.11 wrote them: a new file is written as
 # format 1 and taken through `_MIGRATIONS`, so that it and a migrated file
@@ -449,6 +458,15 @@ def _encrypted(value: object, source_id: int) -> bytes | None:
     return value
 
 
+def _lookahead(value: object, source_id: int) -> int:
+    """Return a source's lookahead, refusing one `Ledger.add_source` refuses."""
+    if type(value) is int and 0 <= value <= MAX_LOOKAHEAD:
+        return value
+    err_msg = f"not a ledger file: source {_position(source_id)}'s lookahead"
+    err_msg += f" is no int from 0 to MAX_LOOKAHEAD, {MAX_LOOKAHEAD}"
+    raise BTClibValueError(err_msg)
+
+
 def _pragma(db: sqlite3.Connection, name: str) -> int:
     """Return the integer a pragma reads."""
     return int(db.execute(f"PRAGMA {name}").fetchone()[0])
@@ -646,7 +664,7 @@ class _Store:
                     ),
                     _decoded(prv_keys, source_id, "prv_keys"),
                     _encrypted(encrypted, source_id),
-                    lookahead,
+                    _lookahead(lookahead, source_id),
                     _birth(birth, source_id),
                     _scanned(scanned, source_id),
                 ),

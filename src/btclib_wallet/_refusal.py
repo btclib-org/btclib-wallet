@@ -11,10 +11,10 @@ belongs only up to `_QUOTED_MAX` characters, too short for a key. It
 says where an item is, or how many there are, with `_position`.
 
 `_exact_int` and `_exact` read the int, str or bytes a value of a
-subclass holds, with none of its methods, which is how a refusal
-measures one and how a ledger reads and writes one. `_assert_int_type`
-refuses a value whose type is no int, or is bool, deciding by the type
-as `_quoted` does.
+subclass holds, with none of its methods, so that what is measured,
+kept or run is that value, whatever the subclass's methods answer.
+`_assert_int_type` refuses a value whose type is no int, or is bool,
+deciding by the type as `_quoted` does.
 
 `_type_name` names a value's type, and `_refused_type` refuses a value
 by it, running no code of the caller's.
