@@ -24,6 +24,126 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.16
+
+### `bip139` and `bip329` read and write a wallet's policy backup and labels
+
+BIP139's Wallet Metadata Export Format, and BIP329's JSON Lines, as text
+(issue #927).
+
+### `recovery_paths` builds the descriptors of timelocked recovery paths
+
+`recovery_descriptors` writes the receive and change `wsh()` descriptors of
+primary and recovery quorums (issue #928).
+
+### `bip44.discover_account` takes descriptor text
+
+Each branch as a `Descriptor` or as a text `descriptors.parse` reads, under a
+keyword-only `network`; each type is decided by identity (closes #992).
+
+### `discover_accounts` keeps what it found where a purpose's xpubs end first
+
+It returns an `AccountDiscovery`: `accounts` is the dict it returned, and
+`cut_short` names those purposes (closes #859).
+
+### A `FetchError` holds the class of what failed as `failure_type`
+
+Where an exchange did not complete; bitcoin-core-rpc's floor rises to
+2026.11.15 (closes #967).
+
+### A `FetchError` the caller's code built is refused by its class
+
+Its text is dropped, and one built in C code the package calls is the
+package's (closes #935) (closes #971); PyPy relays the package's (issue #994).
+
+### A ledger reads and writes the int, str or bytes a subclass holds
+
+(closes #998).
+
+### A `DescriptorWallet` refuses a WIF key expression by name
+
+Where it built a watch-only wallet for it (closes #894).
+
+### A wallet refuses a branch that is no int, or that a ledger cannot write
+
+A label negative or `2**63` or more, two labels of one int (closes #902), a
+position's branch (closes #923); `Ledger` decides its types alike (closes #939).
+
+### A wallet position's branch is read as the exact int it holds
+
+Whatever an int subclass's own `==`, hash, `__class__` or `str()` answer, and
+`next_address` checks the branch first (closes #1006) (closes #1004).
+
+### `Ledger.add_source` refuses a lookahead above `MAX_LOOKAHEAD`
+
+`btclib_wallet.ledger.MAX_LOOKAHEAD` is public; a file that holds a larger one
+still loads (closes #1005).
+
+### `Ledger.fund` spends confirmed coins first, as Core's `send` does
+
+It tries Core's coin eligibility passes in order (closes #895).
+
+### A ledger bounds the blocks it holds
+
+The recent ones, each held transaction's, and the lowest of each retarget
+period (closes #881); its span tests sync under a smaller span (closes #999).
+
+### `miniscript_solver` refuses an input that does not name a `pk_h()` key
+
+As Core's `finalizepsbt` leaves it unfinalized; `from_script` refuses a
+`multi()` count outside 1 to 20 before it reads a key (closes #950).
+
+### `update_psbt_output` refuses a taproot merkle root with no tree
+
+And psbt reads witness scripts through public names alone (issue #634).
+
+### A psbt's silent-payment ECDH share is parsed as a point when it is read
+
+(closes #979).
+
+### A backend's negative tip height is refused
+
+(closes #901).
+
+### A refusal prints no caller's or server's value
+
+Nor a damaged ledger file's (closes #821) (closes #900); a refused int is
+described (closes #951); a failed copy or create keeps out a failed removal's
+path (closes #907); PyPy's own-int case is tested (closes #889).
+
+### The refusal census reads the package's source as UTF-8
+
+(closes #993).
+
+### Each connect attempt gets what is left of the deadline
+
+(closes #896).
+
+### `TcpPeerTransport` closes its connection when an exchange is interrupted
+
+(closes #891).
+
+### The tests fund, match and share what they need
+
+The session node's wallets are funded from a bank (closes #911); the electrs and
+floresta tests match the reworded wrong-chain refusal (#956); the scripted peer
+moves into a test package (issue btclib-org/.github#2275).
+
+### Shared files follow btclib-org/.github
+
+A port batch, to btclib-org/.github@7369e8a (#949); every push to main
+starts the suite (#916); the reusable workflows' pins move up (#918).
+
+### The bestpractices.dev answers follow each criterion's text
+
+They state the admin bypass (#916) (#948), count the security issues (#965) and
+the published advisories (#972), and apply the maintainer's rulings (#982);
+SECURITY.md names the fund class (#965).
+
+### The dev tooling moves to newer releases
+
+Dependabot's hypothesis and ruff bump (#919).
+
 ## v2026.11.14.1
 
 ### A node's RPC error raises `RpcError` with bitcoin-core-rpc 2026.11.14
