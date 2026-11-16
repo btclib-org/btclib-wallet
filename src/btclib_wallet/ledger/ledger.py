@@ -801,10 +801,9 @@ class Ledger:
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
-            birth_height = _checked_height(
-                birth_height, "birth_height", _SQLITE_INT_MAX
-            )
-        lookahead = _checked_height(lookahead, "lookahead", _SQLITE_INT_MAX)
+            birth_height = _checked_height(birth_height, "birth_height")
+            _assert_birth_height(birth_height)
+        lookahead = _checked_height(lookahead, "lookahead")
         _assert_lookahead(lookahead)
         if wallet.network != self.network:
             # each network between commas, where no article stands before
@@ -2843,9 +2842,6 @@ def _checked_comment(comment: str | None, name: str) -> str | None:
     return _exact(comment)
 
 
-_SQLITE_INT_MAX = 2**63 - 1  # the largest SQLite INTEGER
-
-
 def _assert_height(value: int, name: str) -> None:
     """Refuse what is not a non-negative integer."""
     if not is_integer(value):
@@ -2854,19 +2850,27 @@ def _assert_height(value: int, name: str) -> None:
         raise BTClibValueError(f"negative {name}: {_quoted(value)}")
 
 
-def _checked_height(value: int, name: str, largest: int) -> int:
-    """Refuse what is not a non-negative integer, or above `largest`.
+def _checked_height(value: int, name: str) -> int:
+    """Refuse what is not a non-negative integer; return the int held.
 
-    Return the int held. Its type decides, as `_int_held` says, and the
-    int is the one `_exact_int` reads, compared and kept as `_int_held`
-    says.
+    Its type decides, as `_int_held` says, and the int is the one
+    `_exact_int` reads, compared and kept as `_int_held` says.
     """
     number = _int_held(value, name)
     if number < 0:
         raise BTClibValueError(f"negative {name}: {_quoted(number)}")
-    if number > largest:
-        raise BTClibValueError(f"{name} too large: {_quoted(number)}")
     return number
+
+
+# the largest SQLite INTEGER, signed and 64 bits wide: the most the
+# `birth` column of the `sources` table holds
+_SQLITE_INT_MAX = 2**63 - 1
+
+
+def _assert_birth_height(birth_height: int) -> None:
+    """Refuse a birth_height the ledger file cannot hold."""
+    if birth_height > _SQLITE_INT_MAX:
+        raise BTClibValueError(f"birth_height too large: {_quoted(birth_height)}")
 
 
 def _assert_lookahead(lookahead: int) -> None:
