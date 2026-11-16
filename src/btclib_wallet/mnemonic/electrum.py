@@ -93,7 +93,11 @@ def descriptors_from_mnemonic(
         origin += "/0h"
         script = "wpkh"
     origin += "]"
-    xpub = xpub_from_xprv(mxprv)
+    # The segwit Electrum master key uses SLIP132 version bytes. Descriptors
+    # carry their script type separately, so use the network's BIP32 version
+    # for the extended key they contain.
+    bip32_mxprv = derive(mxprv, [], network_from_name(network).bip32_prv)
+    xpub = xpub_from_xprv(bip32_mxprv)
     receive = add_checksum(f"{script}({origin}{xpub}/0/*)")
     change = add_checksum(f"{script}({origin}{xpub}/1/*)")
     return receive, change

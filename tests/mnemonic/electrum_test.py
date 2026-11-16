@@ -239,16 +239,24 @@ def test_descriptors_from_mnemonic() -> None:
         "/1/*)", ""
     )
 
-    # the first "segwit" vector, with a passphrase, and its master key at m/0h
-    segwit, passphrase, rmxprv = ELECTRUM_VECTORS[4].values[:3]
+    # the first "segwit" vector with a nonempty passphrase, at m/0h
+    segwit, passphrase, rmxprv = ELECTRUM_VECTORS[5].values[:3]
     assert isinstance(segwit, str)
     assert isinstance(passphrase, str)
     assert isinstance(rmxprv, str)
     receive, change = electrum.descriptors_from_mnemonic(segwit, passphrase)
-    mxpub = bip32.xpub_from_xprv(rmxprv)
+    normalized_xprv = bip32.derive(rmxprv, [], NETWORKS["mainnet"].bip32_prv)
+    mxpub = bip32.xpub_from_xprv(normalized_xprv)
     assert receive.startswith("wpkh([") and "/0h]" in receive
     assert f"{mxpub}/0/*)#" in receive
     assert f"{mxpub}/1/*)#" in change
+
+    testnet_receive, _ = electrum.descriptors_from_mnemonic(
+        segwit, passphrase, "testnet"
+    )
+    testnet_mxprv = bip32.derive(rmxprv, [], NETWORKS["testnet"].bip32_prv)
+    testnet_mxpub = bip32.xpub_from_xprv(testnet_mxprv)
+    assert f"{testnet_mxpub}/0/*)#" in testnet_receive
 
 
 def test_descriptors_refuse_other_versions() -> None:
