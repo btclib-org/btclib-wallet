@@ -51,7 +51,7 @@ def test_the_psbt_is_read(number: int) -> None:
     (origin,) = psbt.hd_key_paths.values()
     fingerprint, der_path = _ORIGINS[number]
     assert origin.master_fingerprint.hex() == fingerprint
-    assert origin.der_path == der_path
+    assert origin.der_path == tuple(der_path)
 
 
 @pytest.mark.parametrize("number", _ORIGINS)

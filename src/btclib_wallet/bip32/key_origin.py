@@ -50,7 +50,7 @@ class BIP32KeyOrigin:
     """
 
     master_fingerprint: bytes
-    der_path: Sequence[int]
+    der_path: tuple[int, ...]
 
     @property
     def description(self) -> str:
@@ -67,7 +67,9 @@ class BIP32KeyOrigin:
         object.__setattr__(
             self, "master_fingerprint", bytes_from_octets(master_fingerprint)
         )
-        object.__setattr__(self, "der_path", indexes_from_der_path(der_path))
+        # a tuple, not the list indexes_from_der_path returns: the hash
+        # is taken over the serialized path, so the path cannot change
+        object.__setattr__(self, "der_path", tuple(indexes_from_der_path(der_path)))
 
         if check_validity:
             self.assert_valid()

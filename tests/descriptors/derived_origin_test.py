@@ -42,7 +42,7 @@ def test_an_origin_is_extended_by_the_derivation() -> None:
 def test_a_hardened_wildcard_adds_its_offset() -> None:
     """`/*h` steps to the index plus 2**31."""
     key = _key(f"[deadbeef]{_XPUB}/*h")
-    assert derived_origin(key, 3).der_path == [3 + _H]
+    assert derived_origin(key, 3).der_path == (3 + _H,)
 
 
 def test_a_key_without_an_origin_is_its_own_master() -> None:

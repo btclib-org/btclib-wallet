@@ -2231,7 +2231,7 @@ def test_a_path_step_holds_no_whitespace() -> None:
     key_expression = parse(f"pkh([deadbeef/0h]{XPUB}/0)").key_expressions[0]
     assert key_expression.der_path == (0,)
     assert key_expression.origin is not None
-    assert key_expression.origin.der_path == [0x80000000]
+    assert key_expression.origin.der_path == (0x80000000,)
 
 
 def test_a_key_holds_no_whitespace() -> None:
@@ -2369,7 +2369,7 @@ def test_a_slash_introduces_a_path_step() -> None:
         assert str(parse(descriptor)).partition("#")[0] == descriptor
     # the lenient reading of a key origin drops an empty step, where the
     # descriptor parser holds the path to BIP380
-    assert BIP32KeyOrigin.from_description("deadbeef/").der_path == []
+    assert BIP32KeyOrigin.from_description("deadbeef/").der_path == ()
 
 
 def test_key_origin_is_kept() -> None:

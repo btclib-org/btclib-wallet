@@ -6,7 +6,6 @@
 
 import dataclasses
 import string
-from typing import cast
 
 import pytest
 from btclib.alias import Octets
@@ -54,14 +53,13 @@ def test_bip32_key_origin() -> None:
         BIP32KeyOrigin("deadbeef", [-1])
     # the upper boundary itself: `<= 0xffffffff` weakened to `<
     # 0xffffffff` or to `<= 0xfffffffe` would refuse it
-    assert BIP32KeyOrigin("deadbeef", [0xFFFFFFFF]).der_path == [0xFFFFFFFF]
+    assert BIP32KeyOrigin("deadbeef", [0xFFFFFFFF]).der_path == (0xFFFFFFFF,)
 
-    # and assert_valid still asks. The field is annotated Sequence[int]
-    # and holds the list `indexes_from_der_path` built, so the dataclass
-    # being frozen stops a rebinding and not an append: the constructor
-    # is not the only way an out-of-range index reaches the field
+    # and assert_valid still asks. The constructor refuses an out-of-range
+    # index, so the field is set past it, as a bypass of the frozen
+    # dataclass would
     key_origin = BIP32KeyOrigin("deadbeef", [0])
-    cast("list[int]", key_origin.der_path).append(0xFFFFFFFF + 1)
+    object.__setattr__(key_origin, "der_path", (0xFFFFFFFF + 1,))
     with pytest.raises(BTClibValueError, match="invalid der_path element"):
         key_origin.assert_valid()
 
@@ -92,13 +90,13 @@ def test_bip32_key_origin() -> None:
     assert key_origin == key_origin2
     assert key_origin.description == description
     assert key_origin.master_fingerprint == bytes.fromhex(master_fingerprint)
-    assert key_origin.der_path == [
+    assert key_origin.der_path == (
         44 + 0x80000000,
         0 + 0x80000000,
         1 + 0x80000000,
         0,
         10,
-    ]
+    )
     assert BIP32KeyOrigin.parse(key_origin.serialize()) == key_origin
     assert BIP32KeyOrigin.from_dict(key_origin.to_dict()) == key_origin
     assert len(key_origin) == 5
@@ -384,7 +382,7 @@ def test_from_description_reads_a_slash_after_the_fingerprint() -> None:
     empty = BIP32KeyOrigin("deadbeef", [])
     assert BIP32KeyOrigin.from_description("deadbeef") == empty
     assert BIP32KeyOrigin.from_description("deadbeef/") == empty
-    assert BIP32KeyOrigin.from_description("deadbeef/1").der_path == [1]
+    assert BIP32KeyOrigin.from_description("deadbeef/1").der_path == (1,)
 
 
 def test_from_description_refuses_padding_after_the_path() -> None:
@@ -399,3 +397,15 @@ def test_from_description_refuses_padding_after_the_path() -> None:
             BIP32KeyOrigin.from_description(f"deadbeef/0h/{pad}1")
     ws = string.whitespace
     assert BIP32KeyOrigin.from_description(f"deadbeef/{ws}0h{ws}/1{ws}") == expected
+
+
+def test_a_hashed_origin_cannot_change_its_path_in_place() -> None:
+    """The path is a tuple, so a set keeps finding an origin it holds."""
+    origin = BIP32KeyOrigin("deadbeef", [0, 1])
+    assert isinstance(origin.der_path, tuple), type(origin.der_path).__name__
+    with pytest.raises(TypeError):
+        origin.der_path[0] = 1  # type: ignore[index]
+    fresh = BIP32KeyOrigin("deadbeef", [0, 1])
+    assert origin == fresh
+    assert {origin: "held"}.get(fresh) == "held"
+    assert len({origin, fresh}) == 1
