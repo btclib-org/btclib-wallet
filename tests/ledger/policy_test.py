@@ -1035,7 +1035,7 @@ def test_a_restore_refuses_a_wrong_argument_and_a_file_at_its_path(
         (
             lambda: Ledger.restore_policy(unread, 1, "regtest", chain),  # type: ignore[arg-type]
             BTClibTypeError,
-            "^invalid path type: int$",
+            "^invalid path type: 'int'$",
         ),
         (
             lambda: Ledger.restore_policy(unread, path, "nonet", chain),

@@ -328,7 +328,7 @@ from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from math import ceil
-from os import PathLike
+from os import PathLike, fspath
 from types import TracebackType
 from typing import Any, Concatenate, ParamSpec, Self, TypeVar, cast
 
@@ -350,6 +350,7 @@ from btclib_wallet._refusal import (
     _label,
     _position,
     _quoted,
+    _refused_type,
 )
 from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.bip139 import parse as _parse_policy
@@ -681,7 +682,7 @@ class Ledger:
 
         Core's `createwallet`. A file already at `path` is refused.
         """
-        assert_type(path, (str, PathLike), "path")
+        path = _path_held(path, "path")
         assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
         network = validated_network_name(network)
         store = _Store.create(path, network)
@@ -713,7 +714,7 @@ class Ledger:
         them one another ledger holds, and that the ledger holds its file
         until `close`.
         """
-        assert_type(path, (str, PathLike), "path")
+        path = _path_held(path, "path")
         assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
         network = validated_network_name(network)
         store = _Store.open(path, network)
@@ -775,8 +776,8 @@ class Ledger:
         fails that sync with a `FetchError`, where Core refuses the
         restore itself.
         """
-        assert_type(backup, (str, PathLike), "backup")
-        assert_type(path, (str, PathLike), "path")
+        backup = _path_held(backup, "backup")
+        path = _path_held(path, "path")
         assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
         network = validated_network_name(network)
         _copy_backup(backup, path)
@@ -824,7 +825,7 @@ class Ledger:
         kind = type(policy)
         if not issubclass(kind, str):
             raise BTClibTypeError(f"invalid policy type: {kind.__name__}")
-        assert_type(path, (str, PathLike), "path")
+        path = _path_held(path, "path")
         assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
         network = validated_network_name(network)
         lookahead = _checked_height(lookahead, "lookahead")
@@ -983,8 +984,7 @@ class Ledger:
         the copy holds, and why the file is copied this way while the
         ledger holds it; `restore` reads it.
         """
-        assert_type(path, (str, PathLike), "path")
-        self._store.backup(path)
+        self._store.backup(_path_held(path, "path"))
 
     @_relocking
     def close(self) -> None:
@@ -3226,6 +3226,37 @@ def _int_held(value: int, name: str) -> int:
     """
     _assert_int_type(value, name)
     return _exact_int(value)
+
+
+def _path_held(path: str | PathLike[str], name: str) -> str:
+    """Refuse what is no str or `PathLike` of a str; return the str held.
+
+    Its type decides, as `_checked_label` says. Any other value is read
+    through `os.fspath` once, and its answer is decided the same way:
+    bytes, and a value `os.fspath` refuses, are refused, by the type of
+    `path` alone. Any other exception its `__fspath__` raises is raised
+    as it is. The str is the one `_exact` copies, so every step that
+    makes, opens, copies or removes the file reads that str, whatever a
+    subclass's own methods answer, its `__fspath__` included.
+
+    A str holding a NUL is refused too, before any file is made: `os`
+    refuses one in a path with a `ValueError` of its own, which
+    `Path.touch` lets out.
+    """
+    held: object = path
+    if not issubclass(type(path), str):
+        held = None
+        # the TypeError of `os.fspath` names the value's type, and one of
+        # the caller's `__fspath__` can hold anything: the refusal is
+        # raised after the block, chaining neither
+        with suppress(TypeError):
+            held = fspath(path)
+    if not issubclass(type(held), str):
+        raise _refused_type(path, name)
+    text = _exact(cast("str", held))
+    if "\0" in text:
+        raise BTClibValueError(f"invalid {name}: it holds a NUL character")
+    return text
 
 
 def _checked_label(label: str) -> str:
