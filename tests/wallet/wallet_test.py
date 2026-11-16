@@ -244,7 +244,8 @@ def test_next_address_refuses_an_unhashable_branch(
     Python's own TypeError out.
     """
     wallet = build()
-    for wrong in ([], {}):
+    unhashable: tuple[object, ...] = ([], {})
+    for wrong in unhashable:
         with pytest.raises(BTClibTypeError, match="invalid branch type: "):
             wallet.next_address(wrong)  # type: ignore[arg-type]
 
