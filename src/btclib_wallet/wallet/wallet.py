@@ -351,6 +351,7 @@ class RangedWallet(Wallet, ABC):
 
     def next_address(self, branch: int = 0) -> str:
         """Hand out the next address of a branch not yet asked for."""
+        _assert_int_type(branch, "branch")
         return self.address(branch, self._next_index.get(branch, 0))
 
     def position_of(

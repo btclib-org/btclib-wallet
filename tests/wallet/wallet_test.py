@@ -219,9 +219,14 @@ def test_position_of_refuses_a_negative_last_index(
 def test_a_position_refuses_a_branch_that_is_no_integer(
     build: Callable[[], RangedWallet],
 ) -> None:
-    """`True == 1` and `1.0 == 1` pass membership in `branches` (issue #923)."""
+    """`True == 1` and `1.0 == 1` pass membership in `branches` (issue #923).
+
+    `[]` and `{}` are not even a dictionary key, so `next_address` met
+    them at the lookup before any check (issue #1004).
+    """
     wallet = build()
-    for wrong in ("0", None, b"\x00", 1.0, True, False):
+    wrongs: tuple[object, ...] = ("0", None, b"\x00", 1.0, True, False, [], {})
+    for wrong in wrongs:
         for method in (
             wallet.address,
             wallet.script_pub_key,
