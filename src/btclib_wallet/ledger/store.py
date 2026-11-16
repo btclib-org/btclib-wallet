@@ -420,7 +420,7 @@ def _tx_state(value: object) -> TxState:
 
 
 def _birth(value: object, source_id: int) -> int:
-    """Return a source's birth height, refusing what the ledger never writes."""
+    """Return a source's birth height, refusing any but a non-negative int."""
     if not _counted(value):
         err_msg = f"not a ledger file: source {_position(source_id)}'s birth"
         err_msg += " is not a non-negative integer"
@@ -431,7 +431,7 @@ def _birth(value: object, source_id: int) -> int:
 def _scanned(value: object, source_id: int) -> bool:
     """Return whether a source's history was read, refusing what is no flag.
 
-    The ledger writes `int(source.scanned)`, so 0 or 1 and nothing else.
+    The ledger writes 0 or 1 and nothing else.
     """
     if type(value) is not int or value not in {0, 1}:
         err_msg = f"not a ledger file: source {_position(source_id)}'s scanned"
