@@ -98,7 +98,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     "btclib_wallet.bip38:encrypt": ["compressed"],
     "btclib_wallet.bip38:intermediate_code": ["lot", "sequence", "owner_salt"],
     "btclib_wallet.bip38:new_key_pair": ["compressed", "seed_b"],
-    "btclib_wallet.bip44:discover_account": ["gap_limit"],
+    "btclib_wallet.bip44:discover_account": ["gap_limit", "network"],
     "btclib_wallet.bip44:discover_accounts": ["account_gap", "gap_limit"],
     "btclib_wallet.bolt11:Bolt11Invoice.__init__": ["check_validity"],
     "btclib_wallet.bolt11:Bolt11Invoice.from_invoice": ["check_validity"],
@@ -384,6 +384,7 @@ KEYWORD_ONLY: dict[str, list[str]] = {
     ],
     "btclib_wallet.psbt_signer:request_signatures": ["allowed_sig_hash_types"],
     "btclib_wallet.psbt_signer_contract:assert_psbt_signer": ["der_path", "signable"],
+    "btclib_wallet.recovery_paths:recovery_descriptors": ["script_type"],
     "btclib_wallet.tx_builder:build_psbt": [
         "tx_version",
         "lock_time",

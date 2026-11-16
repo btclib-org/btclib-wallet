@@ -15,6 +15,9 @@ subclass holds, with none of its methods, which is how a refusal
 measures one and how a ledger reads and writes one. `_assert_int_type`
 refuses a value whose type is no int, or is bool, deciding by the type
 as `_quoted` does.
+
+`_type_name` names a value's type, and `_refused_type` refuses a value
+by it, running no code of the caller's.
 """
 
 from collections.abc import Collection
@@ -155,6 +158,34 @@ def _quoted(value: object) -> str:
             return f"a value of {len(text)} characters"
         return repr(text)
     return _message_text(value)
+
+
+# the name a class holds, read by `type`'s own descriptor: a metaclass of
+# the caller's can define a `__name__` of its own, which would run
+_NAME = vars(type)["__name__"]
+
+
+def _type_name(value: object) -> str:
+    """Return the name of a value's type as a refusal may print it.
+
+    The type is read by `type()`, not asked of the value as `__class__`,
+    and its name by `_NAME`; it is shown as `_quoted` shows a name, since
+    a class can be named by any text. None of the value's methods runs.
+    """
+    # a class's name is a str, or a subclass of str a caller assigned,
+    # whose metaclass's `mro` can leave str out: `str.__add__` then
+    # refuses it, and `_quoted` asks its metaclass for its name. `join`
+    # copies any str, by the flag CPython keeps, into an exact str
+    return _quoted("".join((_NAME.__get__(type(value), type),)))
+
+
+def _refused_type(value: object, name: str) -> BTClibTypeError:
+    """Return the refusal of a value of a type other than exactly its own.
+
+    It names where the value is, and its type as `_type_name` does, and
+    nothing of the value.
+    """
+    return BTClibTypeError(f"invalid {name} type: {_type_name(value)}")
 
 
 def _label(value: object, known: Collection[str]) -> str:

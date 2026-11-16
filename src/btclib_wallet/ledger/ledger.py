@@ -408,11 +408,19 @@ from btclib_wallet.tx_builder import (
 )
 from btclib_wallet.wallet.descriptor_wallet import DescriptorWallet
 
-__all__ = ["LOOKAHEAD", "MAX_UNLOCK_TIME", "Ledger"]
+__all__ = ["LOOKAHEAD", "MAX_LOOKAHEAD", "MAX_UNLOCK_TIME", "Ledger"]
 
 # Core's DEFAULT_KEYPOOL_SIZE: how many indexes past the next one to
 # hand out the ledger watches on each ranged branch
 LOOKAHEAD = 1000
+
+# the largest lookahead `add_source` takes: the ledger derives and holds
+# a script for each index a ranged branch watches, so the time and the
+# memory a source costs grow with its lookahead. A hundred times
+# LOOKAHEAD, and not the million indexes Core's importdescriptors takes
+# in one range (src/rpc/util.cpp at bitcoin/bitcoin@f0de87f040, the
+# v32.1 tag), which a source takes ten times as long to watch
+MAX_LOOKAHEAD = 100_000
 
 # Core's DEFAULT_TX_CONFIRM_TARGET (src/wallet/wallet.h at
 # bitcoin/bitcoin@f0de87f040, the v32.1 tag): the target a fee estimate
@@ -1005,23 +1013,25 @@ class Ledger:
         `sync` reads its history from, and `None` reads none before the
         tip the ledger holds, as Core's `timestamp: "now"` does;
         `fetch.start_height_for_time` turns a birth time into a height.
-        The wallet is written to the file whole, its private keys
-        included, and `load` builds it again from its descriptors and
-        keys. In an encrypted ledger its keys are written encrypted, as
-        `store` says, and a wallet holding keys is refused while the
-        ledger is locked, where another thread zeroed the master key
-        while its keys were encrypted, and where its scripts need a
-        private key at every index (a hardened ``/*h``), which a locked
-        ledger could not derive. `label` is set on the one address
-        of branch 0, where its script has one, and refused where that
-        branch is ranged or missing, as Core refuses a label on a ranged
-        descriptor (src/wallet/rpc/backup.cpp:213-216 at
+        A `lookahead` above `MAX_LOOKAHEAD` is refused. The wallet is
+        written to the file whole, its private keys included, and `load`
+        builds it again from its descriptors and keys. In an encrypted
+        ledger its keys are written encrypted, as `store` says, and a
+        wallet holding keys is refused while the ledger is locked, where
+        another thread zeroed the master key while its keys were
+        encrypted, and where its scripts need a private key at every
+        index (a hardened ``/*h``), which a locked ledger could not
+        derive. `label` is set on the one address of branch 0, where its
+        script has one, and refused where that branch is ranged or
+        missing, as Core refuses a label on a ranged descriptor
+        (src/wallet/rpc/backup.cpp:213-216 at
         bitcoin/bitcoin@f0de87f040, the v32.1 tag).
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
             birth_height = _checked_height(birth_height, "birth_height")
         lookahead = _checked_height(lookahead, "lookahead")
+        _assert_lookahead(lookahead)
         if wallet.network != self.network:
             # each network between commas, where no article stands before
             # what `_label` writes of one it does not know: either
@@ -3205,6 +3215,13 @@ def _checked_height(value: int, name: str) -> int:
     if number < 0:
         raise BTClibValueError(f"negative {name}: {_quoted(number)}")
     return number
+
+
+def _assert_lookahead(lookahead: int) -> None:
+    """Refuse a lookahead above `MAX_LOOKAHEAD`."""
+    if lookahead > MAX_LOOKAHEAD:
+        err_msg = f"lookahead above MAX_LOOKAHEAD, {MAX_LOOKAHEAD}"
+        raise BTClibValueError(f"{err_msg}: {_quoted(lookahead)}")
 
 
 def _next_index(handed: set[_Position], source: int, branch: int) -> int:

@@ -32,8 +32,9 @@ discovery*: which accounts and positions have history, read through a
 What imports this module is what the mapping and the checks are for:
 `wallet` takes the encoders and the purpose lookup rather than keeping a
 second copy of either. This module imports `descriptors` for the
-fragments of the account pair; ARCHITECTURE.md says why the edge runs
-that way.
+fragments of the account pair, and for the `parse` of the text
+`discover_account` takes; ARCHITECTURE.md says why the edge runs that
+way.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ import json
 from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from btclib import b32, b58
 from btclib.alias import NetworkType, Octets
@@ -52,11 +53,19 @@ from btclib.network import (
     NETWORKS,
     network_from_xkeyversion,
     network_type_from_xkeyversion,
+    validated_network_name,
 )
 from btclib.script.taproot import output_pubkey
 from btclib.utils import bytes_from_octets, is_integer
+from ecc.exceptions import EccValueError
+from typing_extensions import TypeIs
 
-from btclib_wallet._refusal import _position, _quoted
+from btclib_wallet._refusal import (
+    _position,
+    _quoted,
+    _refused_type,
+    _type_name,
+)
 from btclib_wallet.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
@@ -78,9 +87,10 @@ from btclib_wallet.descriptors.descriptors import (
     ShDescriptor,
     TrDescriptor,
     WpkhDescriptor,
+    parse,
 )
 from btclib_wallet.descriptors.key_expression import KeyExpression
-from btclib_wallet.exceptions import _caller_errors, _guarded
+from btclib_wallet.exceptions import _MRO, _caller_errors, _guarded
 
 # under TYPE_CHECKING: `btclib_wallet.fetch` imports every fetcher, and
 # `urllib`, `ssl` and `socket` behind them, which a caller deriving an
@@ -597,19 +607,104 @@ def _assert_reader(reader: HistoryReader) -> None:
         raise BTClibTypeError(f"not a HistoryReader: {type(reader).__name__}")
 
 
-def _branches(descriptors: object) -> tuple[Descriptor, ...]:
-    """Return the descriptors as a tuple, refusing any that ranges nothing."""
-    if not isinstance(descriptors, Sequence):
-        err_msg = f"invalid descriptors type: {type(descriptors).__name__}"
-        raise BTClibTypeError(err_msg)
-    for i, descriptor in enumerate(descriptors):
-        if not isinstance(descriptor, Descriptor):
-            raise BTClibTypeError(f"not a Descriptor: {type(descriptor).__name__}")
-        if not descriptor.is_ranged:
+def _wif_read(keys: tuple[KeyExpression, ...]) -> bool:
+    """Answer whether a key, or a ``musig()`` participant of one, was a WIF.
+
+    `parse` keeps the public key of a WIF, and `wif_prefix` is what is
+    left of the WIF.
+    """
+    return any(key.wif_prefix or _wif_read(key.participants) for key in keys)
+
+
+def _parsed(
+    text: str, network: str, prv_keys: dict[str, str]
+) -> Descriptor | BTClibValueError | EccValueError:
+    """Return the Descriptor of a text, or `parse`'s refusal of it.
+
+    The refusal is returned and not raised, so that what raises it again
+    does so outside this `except` block: nothing of `parse`'s refusal is
+    chained to it. An exception the caller is handling, where it calls
+    `discover_account` inside an `except` of its own, stays its context,
+    as for any exception raised there.
+    """
+    try:
+        return parse(text, network, prv_keys)
+    except (BTClibValueError, EccValueError) as err:
+        return err
+
+
+def _is_descriptor(value: object) -> TypeIs[Descriptor]:
+    """Answer whether `Descriptor` is in the order of the value's type.
+
+    The type is read by `type()` and its order by `_MRO`, and each class
+    in it is told by identity: `isinstance` would ask the value for its
+    `__class__`, and both it and `issubclass` look the type up among the
+    classes `Descriptor` has met, by hash and then `==`. A class of the
+    caller's met before, its hash forged as one of the package's, then
+    has its metaclass's `__eq__` run, even for a value `parse` built.
+    """
+    return any(base is Descriptor for base in _MRO.__get__(type(value)))
+
+
+def _network_name(network: object) -> str:
+    """Return the name of `network`, normalized, or refuse it.
+
+    It is exactly a str: a subclass is refused, as any other type, before
+    `validated_network_name` reads it.
+    """
+    if type(network) is not str:
+        raise _refused_type(network, "network")
+    return validated_network_name(network)
+
+
+def _branch(descriptor: object, i: int, network: str) -> Descriptor:
+    """Return descriptor `i`, its text parsed, refusing an xprv or a WIF.
+
+    A text is exactly a str: a subclass is refused, as any other type
+    that is no `Descriptor`, so that none of its methods runs.
+
+    `parse` neuters each xprv it reads and files it in `prv_keys`, so an
+    xprv is found there and a WIF by `_wif_read`.
+
+    `parse`'s refusal is raised again as a new one of its class, its text
+    after the position, with nothing of `parse`'s refusal chained: the
+    cause `parse` gives some refusals, as a `Base58Bech32ValueError`, is
+    text another library writes.
+    """
+    if type(descriptor) is not str:
+        if _is_descriptor(descriptor):
+            return descriptor
+        err_msg = f"descriptor {i}: not a Descriptor or a str:"
+        raise BTClibTypeError(f"{err_msg} {_type_name(descriptor)}")
+    prv_keys: dict[str, str] = {}
+    parsed = _parsed(descriptor, network, prv_keys)
+    if not _is_descriptor(parsed):
+        refusal = type(parsed)(f"descriptor {i}: {parsed}")
+        raise refusal
+    if prv_keys or _wif_read(parsed.key_expressions):
+        err_msg = f"descriptor {i}: a private key: pass the public descriptor"
+        raise BTClibValueError(err_msg)
+    return parsed
+
+
+def _branches(descriptors: object, network: str) -> tuple[Descriptor, ...]:
+    """Return the descriptors as a tuple, refusing any that ranges nothing.
+
+    The descriptors are exactly a tuple or a list: a str, bytes, a
+    subclass or any other sequence is refused, so that what is read is
+    what the built-in type holds and none of the caller's methods runs.
+    """
+    if type(descriptors) is not tuple and type(descriptors) is not list:
+        raise _refused_type(descriptors, "descriptors")
+    branches: list[Descriptor] = []
+    for i, descriptor in enumerate(cast("Sequence[object]", descriptors)):
+        branch = _branch(descriptor, i, network)
+        if not branch.is_ranged:
             raise BTClibValueError(f"descriptor {i}: not a ranged descriptor")
-    if not descriptors:
+        branches.append(branch)
+    if not branches:
         raise BTClibValueError("no descriptor to discover")
-    return tuple(descriptors)
+    return tuple(branches)
 
 
 def _paid(answer: ScriptHistory, scripts: Container[bytes]) -> set[bytes]:
@@ -693,10 +788,11 @@ def _discover_account(
 
 @_guarded
 def discover_account(
-    descriptors: Sequence[Descriptor],
+    descriptors: Sequence[Descriptor | str],
     reader: HistoryReader,
     *,
     gap_limit: int = _GAP_LIMIT,
+    network: str = "mainnet",
 ) -> AccountUse | None:
     """Return the positions of an account that have history, and that history.
 
@@ -711,10 +807,25 @@ def discover_account(
     what the receive branch spent. Every branch is read here: a payment
     to a change address is history too, and a recovery has to find it.
 
-    A descriptor holds no private key, as `descriptors.KeyExpression`
-    refuses one, and none is taken: what the scan derives is public.
+    `descriptors` is exactly a tuple or a list. A branch is a
+    `Descriptor`, or a text `descriptors.parse` reads under `network`,
+    with or without its checksum; a `Descriptor` carries its own network.
+    A text and `network` are exactly a str: a subclass is refused, a
+    `StrEnum` member included, whose `str()` is the str to pass.
+    `network` is checked on every call. `AccountUse.descriptors` holds
+    the branches as `Descriptor` objects.
+
+    Each branch is checked before the chain is read: its type, its text,
+    a private key in it and its range, and that refusal names its
+    position. A branch that fails while it is scanned, as one with a
+    hardened step after an xpub, is refused as the scan refuses it.
+
+    A `Descriptor` holds no private key, as `descriptors.KeyExpression`
+    refuses one, and a text holding an xprv or a WIF is refused: what the
+    scan derives is public. A key written in hex is read as a public key,
+    whatever it is.
     """
-    branches = _branches(descriptors)
+    branches = _branches(descriptors, _network_name(network))
     _assert_reader(reader)
     _assert_gap_limit(gap_limit)
     return _discover_account(branches, reader, gap_limit)
