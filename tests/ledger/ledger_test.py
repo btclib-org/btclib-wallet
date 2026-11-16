@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 from btclib.alias import Octets
+from btclib.consensus import CONSENSUS_PARAMS
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.script import ScriptPubKey
@@ -666,15 +667,39 @@ def _synced_each_block(ledger: Ledger, chain: FakeChain, tip: int) -> Tx:
     return payment
 
 
+@pytest.fixture
+def span(monkeypatch: pytest.MonkeyPatch) -> int:
+    """Return the `_KEEP_SPAN` the test runs under, set to 16.
+
+    A test that syncs at each block across the spans writes one SQLite
+    transaction per sync, so its cost grows with the span. The fork of
+    `test_a_reorganization_at_the_deepest_block_kept_near_the_tip` below
+    the blocks near the tip needs a span above 9.
+    """
+    monkeypatch.setattr("btclib_wallet.ledger.ledger._KEEP_SPAN", 16)
+    return 16
+
+
+def test_the_span_kept_one_block_in_is_a_retarget_period() -> None:
+    """`_KEEP_SPAN` is mainnet's retarget period, as its comment says.
+
+    The tests that sync across the spans run under `span` instead.
+    """
+    mainnet = CONSENSUS_PARAMS["mainnet"]
+    assert mainnet.difficulty_adjustment_interval == _KEEP_SPAN
+
+
 def test_the_blocks_held_grow_with_the_chain_not_with_the_syncs(
-    ledger: Ledger, chain: FakeChain, path: Path
+    ledger: Ledger, chain: FakeChain, path: Path, span: int
 ) -> None:
     """The file keeps the blocks *The blocks held* names, and no other.
 
     A walk down from a tip no longer on the chain asks from each block
     held below it, so its reads list them.
     """
-    tip = 2 * _KEEP_SPAN + 100
+    # the tip's span starts 5 blocks below it, so the 5 blocks above the
+    # lowest of the second span are not near the tip
+    tip = 2 * span + 5
     _synced_each_block(ledger, chain, tip)
     ledger.close()
     loaded = Ledger.load(path, "regtest", chain)
@@ -683,10 +708,10 @@ def test_the_blocks_held_grow_with_the_chain_not_with_the_syncs(
     chain.reads.clear()
     with loaded:
         assert loaded.sync().fork_height == -1
-    near = list(range(tip - 1, tip - _KEEP_SPAN, -1))
+    near = list(range(tip - 1, tip - span, -1))
     # the lowest of the second span, the payment's block, the lowest of
     # the first span, and then height 0 once nothing held is on the chain
-    assert chain.reads == [tip, *near, _KEEP_SPAN, 1, 0, 0]
+    assert chain.reads == [tip, *near, span, 1, 0, 0]
 
 
 @pytest.mark.parametrize(
@@ -695,7 +720,7 @@ def test_the_blocks_held_grow_with_the_chain_not_with_the_syncs(
     ids=["the-lowest-block-near-the-tip", "below-it"],
 )
 def test_a_reorganization_at_the_deepest_block_kept_near_the_tip(
-    ledger: Ledger, chain: FakeChain, fork: int, found: int
+    ledger: Ledger, chain: FakeChain, span: int, fork: int, found: int
 ) -> None:
     """A fork at the lowest block near the tip is found there.
 
@@ -703,7 +728,7 @@ def test_a_reorganization_at_the_deepest_block_kept_near_the_tip(
     which stays where it is.
     """
     # the lowest block near the tip is at height 10
-    tip = _KEEP_SPAN + 9
+    tip = span + 9
     payment = _synced_each_block(ledger, chain, tip)
     chain.invalidate(fork + 1)
     chain.mine(count=tip - fork + 1)
