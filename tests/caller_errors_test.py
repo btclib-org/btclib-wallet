@@ -700,27 +700,50 @@ def test_a_refusal_given_a_field_once_counted_is_refused_by_its_class(
     assert_secret_free(e.value, SPELLINGS)
 
 
-def test_a_refusal_given_many_fields_is_refused_without_a_copy() -> None:
+@pytest.mark.parametrize(
+    "added, copied, err_msg",
+    [
+        (0, 1, "^HTTP 503 from the path asked$"),
+        (10**5, 0, "^<lambda>: the server answered HTTP 503$"),
+    ],
+    ids=["as built", "many fields"],
+)
+def test_a_refusal_given_many_fields_is_refused_without_a_copy(
+    monkeypatch: pytest.MonkeyPatch, added: int, copied: int, err_msg: str
+) -> None:
     """The fields are counted off the refusal's own `dict`, before a copy.
 
-    A copy of every field the caller's code added would cost the guard
-    their size in memory at each call. PyPy has no `tracemalloc`.
+    `dict` there stands for a class whose `copy` notes each copy it makes,
+    and `type` answers that class for a `dict`. A refusal as built is
+    copied once, and one given fields of the caller's is refused with no
+    copy, however many it was given.
     """
-    tracemalloc = pytest.importorskip("tracemalloc")
     with pytest.raises(HttpError) as built:
         _package_refusal()
     fields = vars(built.value)
-    fields |= dict.fromkeys(f"field{i}" for i in range(10**5))
-    tracemalloc.start()
-    try:
-        with pytest.raises(
-            FetchError, match="^<lambda>: the server answered HTTP 503$"
-        ) as e:
-            _through(lambda: _raise(built.value))
-        _, peak = tracemalloc.get_traced_memory()
-    finally:
-        tracemalloc.stop()
-    assert peak < sys.getsizeof(fields) // 10
+    fields |= dict.fromkeys(f"field{i}" for i in range(added))
+    copies: list[dict[str, Any]] = []
+
+    class _NotedCopies:
+        """What the guard reads as `dict`, noting each copy it makes."""
+
+        @staticmethod
+        def copy(value: dict[str, Any]) -> dict[str, Any]:
+            copies.append(value)
+            return dict.copy(value)
+
+    def read_type(value: object) -> type:
+        kind = builtins.type(value)
+        return _NotedCopies if kind is dict else kind
+
+    monkeypatch.setattr(exceptions, "dict", _NotedCopies, raising=False)
+    monkeypatch.setattr(exceptions, "type", read_type, raising=False)
+    with pytest.raises(FetchError, match=err_msg) as e:
+        _through(lambda: _raise(built.value))
+    monkeypatch.undo()
+    assert len(copies) == copied
+    assert all(each is fields for each in copies)
+    assert (e.value is built.value) is (added == 0)
     assert_secret_free(e.value, SPELLINGS)
 
 
