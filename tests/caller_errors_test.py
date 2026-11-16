@@ -38,7 +38,7 @@ import platform
 import re
 import sys
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sized
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import is_dataclass
 from enum import Enum, IntEnum
@@ -672,6 +672,58 @@ def test_a_refusal_whose_fields_change_while_read_is_read_once(
     assert_secret_free(e.value, SPELLINGS)
 
 
+def test_a_refusal_given_a_field_once_counted_is_refused_by_its_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A thread of the caller's adds a note between the count and the copy.
+
+    The note is added once the count of the refusal's own `dict` is read,
+    which `len` reads there: the copy holds the note, and is counted again.
+    """
+    with pytest.raises(FetchError) as built:
+        _rpc_refusal()
+    live = vars(built.value)
+    counted: list[int] = []
+
+    def count(value: Sized) -> int:
+        size = builtins.len(value)
+        if value is live and not counted:
+            counted.append(size)
+            live["__notes__"] = [HEX]
+        return size
+
+    monkeypatch.setattr(exceptions, "len", count, raising=False)
+    with pytest.raises(FetchError, match=f"^<lambda>: {_RPC_REFUSED}$") as e:
+        _through(lambda: _raise(built.value))
+    monkeypatch.undo()
+    assert counted == [len(live) - 1]
+    assert_secret_free(e.value, SPELLINGS)
+
+
+def test_a_refusal_given_many_fields_is_refused_without_a_copy() -> None:
+    """The fields are counted off the refusal's own `dict`, before a copy.
+
+    A copy of every field the caller's code added would cost the guard
+    their size in memory at each call. PyPy has no `tracemalloc`.
+    """
+    tracemalloc = pytest.importorskip("tracemalloc")
+    with pytest.raises(HttpError) as built:
+        _package_refusal()
+    fields = vars(built.value)
+    fields |= dict.fromkeys(f"field{i}" for i in range(10**5))
+    tracemalloc.start()
+    try:
+        with pytest.raises(
+            FetchError, match="^<lambda>: the server answered HTTP 503$"
+        ) as e:
+            _through(lambda: _raise(built.value))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < sys.getsizeof(fields) // 10
+    assert_secret_free(e.value, SPELLINGS)
+
+
 class _RaisingClient(bitcoin_core_rpc.BitcoinCoreRestClient):
     """A client of the caller's that raises one refusal it holds, every call."""
 
@@ -979,10 +1031,10 @@ def test_a_refusal_given_another_class_where_handled_is_a_type_error_on_pypy(
     the class handled from the error alone, and raises a `TypeError` in
     place of what the `except` raises, its text naming the arg missing.
     After a bare `raise`, that `TypeError` takes the error handled as its
-    context, and PyPy keeps that error as the one its thread handles: every
-    exception the thread raises later takes it as its context, so the call
-    is made in a thread of its own. CPython raises what the `except` raises:
-    the caller's error as it is, or the package's new refusal.
+    context, and PyPy leaves that error as `sys.exception()` once the call
+    is over, so the call is made in a thread of its own. CPython raises
+    what the `except` raises: the caller's error as it is, or the package's
+    new refusal.
     """
     handled: list[BaseException] = []
 

@@ -316,18 +316,21 @@ def _as_built(error: FetchError) -> bool:
     reads with other attributes than those it holds, or change them while
     they are read.
 
-    The args and the attributes are each read once, the attributes as a
-    copy that `dict.copy` makes in one step, and checked on what was read:
-    a thread of the caller's can change them while they are checked. That
-    thread can still change the error once it is checked, before the caller
-    catches it, which no check here can prevent.
+    The attributes are counted first off the `dict` itself, which runs no
+    code of the caller's: a count other than the one built refuses them
+    without a copy, however many the caller's code added. Then the args
+    and the attributes are each read once, the attributes as a copy that
+    `dict.copy` makes in one step, counted again and checked on what was
+    read: a thread of the caller's can change them while they are checked.
+    That thread can still change the error once it is checked, before the
+    caller catches it, which no check here can prevent.
     """
     entry = _BUILT.get(id(error))
     if entry is None or entry[0]() is not error or type(error) is not entry[1]:
         return False
     args = error.args
     fields = vars(error)
-    if type(fields) is not dict:
+    if type(fields) is not dict or len(fields) != len(entry[3]):
         return False
     fields = dict.copy(fields)
     return (
