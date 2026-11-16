@@ -216,6 +216,41 @@ def test_position_of_refuses_a_negative_last_index(
 
 
 @BUILDERS
+def test_a_position_refuses_a_branch_that_is_no_integer(
+    build: Callable[[], RangedWallet],
+) -> None:
+    """`True == 1` and `1.0 == 1` pass membership in `branches` (issue #923)."""
+    wallet = build()
+    for wrong in ("0", None, b"\x00", 1.0, True, False):
+        for method in (
+            wallet.address,
+            wallet.script_pub_key,
+            wallet.redeem_script,
+            wallet.witness_script,
+        ):
+            with pytest.raises(BTClibTypeError, match="invalid branch type: "):
+                method(wrong, 0)  # type: ignore[arg-type]
+        with pytest.raises(BTClibTypeError, match="invalid branch type: "):
+            wallet.next_address(wrong)  # type: ignore[arg-type]
+
+
+@BUILDERS
+def test_next_address_refuses_an_unhashable_branch(
+    build: Callable[[], RangedWallet],
+) -> None:
+    """The branch is checked before `_next_index` is read (issue #1004).
+
+    A list or a dict cannot be a dict key, so a lookup first would let
+    Python's own TypeError out.
+    """
+    wallet = build()
+    unhashable: tuple[object, ...] = ([], {})
+    for wrong in unhashable:
+        with pytest.raises(BTClibTypeError, match="invalid branch type: "):
+            wallet.next_address(wrong)  # type: ignore[arg-type]
+
+
+@BUILDERS
 def test_a_position_outside_the_wallet_is_refused(
     build: Callable[[], RangedWallet],
 ) -> None:

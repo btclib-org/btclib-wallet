@@ -17,18 +17,22 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from collections.abc import Callable, Iterable
+import platform
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, NoReturn, cast, get_args
 
 import pytest
-from btclib import b32
+from btclib import b32, b58
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PubKeyData
 from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
+from ecc.exceptions import EccValueError
+from typing_extensions import override
 
 from btclib_wallet.bip32 import bip32, fingerprint
 from btclib_wallet.bip44 import (
@@ -44,6 +48,8 @@ from btclib_wallet.bip44 import (
 from btclib_wallet.descriptors import (
     Descriptor,
     WpkhDescriptor,
+    add_checksum,
+    checksum,
     parse,
     wallet_policy,
     wallet_policy_address,
@@ -611,6 +617,21 @@ def _account_xpub(account_path: str) -> str:
 _FINGERPRINT = fingerprint(_XPRV_ROOT)
 # somebody else's script, which a spend from the account pays
 _FOREIGN = ScriptPubKey(b"\x51")
+# the account keys of purpose 84, the WIF of a key below them, and a test
+# network root: the private keys a text handed to discovery may hold
+_XPRV_84 = bip32.derive(_XPRV_ROOT, "m/84h/0h/0h")
+_XPUB_84 = bip32.xpub_from_xprv(_XPRV_84)
+_WIF_KEY = bip32.BIP32KeyData.b58decode(bip32.derive(_XPRV_84, "m/0/0")).key[1:]
+_WIF = b58.wif_from_prv_key(_WIF_KEY)
+_TPRV = bip32.rootxprv_from_seed(b"\x02" * 32, NETWORKS["testnet"].bip32_prv)
+# the receive branch of that account, as text
+_TEXT_84 = f"wpkh([{_FINGERPRINT.hex()}/84h/0h/0h]{_XPUB_84}/0/*)"
+
+
+class _Text(str):
+    """A str subclass, which a branch's text may be."""
+
+    __slots__ = ()
 
 
 def test_discover_account_reads_each_branch_to_its_gap_limit() -> None:
@@ -720,27 +741,881 @@ def test_an_unused_account_is_none() -> None:
 @pytest.mark.parametrize(
     "descriptors, error, match",
     [
-        (None, BTClibTypeError, "invalid descriptors type: NoneType"),
-        ("wpkh()", BTClibTypeError, "not a Descriptor: str"),
-        ([], BTClibValueError, "no descriptor to discover"),
+        (None, BTClibTypeError, "invalid descriptors type: 'NoneType'"),
+        ({0: "wpkh()"}, BTClibTypeError, "invalid descriptors type: 'dict'"),
+        # an iterator of a type both CPython and PyPy name alike
+        (map(str, ["wpkh()"]), BTClibTypeError, "invalid descriptors type: 'map'"),
+        # a text, and its bytes, where the sequence of them belongs, empty
+        # or not: a str is no sequence of branches, whatever its length
+        (_TEXT_84, BTClibTypeError, "^invalid descriptors type: 'str'$"),
+        (_TEXT_84.encode(), BTClibTypeError, "^invalid descriptors type: 'bytes'$"),
+        ("", BTClibTypeError, "^invalid descriptors type: 'str'$"),
+        (b"", BTClibTypeError, "^invalid descriptors type: 'bytes'$"),
         (
-            [parse(f"wpkh({_account_xpub('m/84h/0h/0h')}/0/7)")],
+            [84, _TEXT_84],
+            BTClibTypeError,
+            "^descriptor 0: not a Descriptor or a str: 'int'$",
+        ),
+        (
+            [_TEXT_84, 84],
+            BTClibTypeError,
+            "^descriptor 1: not a Descriptor or a str: 'int'$",
+        ),
+        ([], BTClibValueError, "no descriptor to discover"),
+        ((), BTClibValueError, "no descriptor to discover"),
+        # exactly a tuple or a list: a subclass or another sequence is refused
+        (range(1), BTClibTypeError, "^invalid descriptors type: 'range'$"),
+        (bytearray(b"w"), BTClibTypeError, "^invalid descriptors type: 'bytearray'$"),
+        (
+            type("_Branches", (list,), {})([_TEXT_84]),
+            BTClibTypeError,
+            "^invalid descriptors type: '_Branches'$",
+        ),
+        (
+            [parse(f"wpkh({_XPUB_84}/0/7)"), _TEXT_84],
             BTClibValueError,
-            "not a ranged descriptor",
+            "^descriptor 0: not a ranged descriptor$",
+        ),
+        (
+            [_TEXT_84, parse(f"wpkh({_XPUB_84}/0/7)")],
+            BTClibValueError,
+            "^descriptor 1: not a ranged descriptor$",
+        ),
+        (
+            [f"wpkh({_XPUB_84}/0/7)", _TEXT_84],
+            BTClibValueError,
+            "^descriptor 0: not a ranged descriptor$",
+        ),
+        (
+            [_TEXT_84, f"wpkh({_XPUB_84}/0/7)"],
+            BTClibValueError,
+            "^descriptor 1: not a ranged descriptor$",
         ),
     ],
 )
 def test_discover_account_refuses_what_is_no_branch(
     descriptors: Any, error: type[Exception], match: str
 ) -> None:
-    """The branches are ranged descriptors, at least one."""
+    """The branches are ranged descriptors or their text, at least one."""
     with pytest.raises(error, match=match):
         discover_account(descriptors, _Chain())
 
 
-def test_discover_account_refuses_a_reader_and_a_limit() -> None:
-    """A reader with no `get_history`, and a gap limit that is no count."""
+@pytest.mark.parametrize(
+    "der_path", ["m/44h/0h/0h", "m/49h/0h/0h", "m/84h/0h/0h", "m/86h/0h/0h"]
+)
+def test_discover_account_reads_a_text_as_the_descriptor_it_parses_to(
+    der_path: str,
+) -> None:
+    """A text, with or without its checksum, and a `Descriptor` read alike.
+
+    The same answer and the same reads, whichever form each branch takes.
+    """
+    receive, change = account_descriptors(_XPRV_ROOT, der_path)
+    chain = _Chain()
+    chain.pay(receive.script_pub_key(0))
+    chain.pay(change.script_pub_key(3))
+    expected = discover_account([receive, change], chain, gap_limit=4)
+    assert expected is not None
+    assert expected.used == ((0,), (3,))
+    reads = list(chain.reads)
+    forms: list[Sequence[Descriptor | str]] = [
+        [str(receive), str(change)],
+        (add_checksum(str(receive)), add_checksum(str(change))),
+        [receive, str(change)],
+    ]
+    for branches in forms:
+        chain.reads.clear()
+        assert discover_account(branches, chain, gap_limit=4) == expected
+        assert chain.reads == reads
+
+
+def test_discover_account_parses_a_text_under_network() -> None:
+    """A text is read under `network`; a `Descriptor` carries its own.
+
+    The test networks share one extended-key version, so a tpub is
+    testnet's or regtest's as `network` says, and a key of the other
+    network type is refused.
+    """
+    receive, change = account_descriptors(_TPRV, "m/84h/1h/0h")
+    chain = _Chain()
+    chain.pay(receive.script_pub_key(1))
+    expected = discover_account([receive, change], chain, gap_limit=2)
+    assert expected is not None
+    texts = [str(receive), str(change)]
+    assert discover_account(texts, chain, gap_limit=2, network="testnet") == expected
+    regtest = discover_account(texts, chain, gap_limit=2, network="regtest")
+    assert regtest is not None
+    assert regtest.used == expected.used
+    assert [branch.network for branch in regtest.descriptors] == ["regtest"] * 2
+    with pytest.raises(
+        BTClibValueError, match="^descriptor 0: not a mainnet key: version$"
+    ):
+        discover_account(texts, chain, gap_limit=2)
+
     pair = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
+    assert discover_account(pair, _Chain(), gap_limit=2, network="testnet") is None
+    with pytest.raises(
+        BTClibValueError, match="^descriptor 1: not a testnet key: version$"
+    ):
+        discover_account([pair[0], str(pair[1])], _Chain(), network="testnet")
+
+
+@pytest.mark.parametrize("network", list(NETWORKS))
+def test_discover_account_reads_a_text_under_each_network(network: str) -> None:
+    """A text read under `network` is the `Descriptor` parsed under it.
+
+    The same answer and the same reads, and each branch of that network,
+    on every network btclib names.
+    """
+    root, path = (
+        (_XPRV_ROOT, "m/84h/0h/0h") if network == "mainnet" else (_TPRV, "m/84h/1h/0h")
+    )
+    texts = [str(branch) for branch in account_descriptors(root, path)]
+    objects = [parse(text, network) for text in texts]
+    chain = _Chain()
+    chain.pay(objects[0].script_pub_key(1))
+    expected = discover_account(objects, chain, gap_limit=2)
+    assert expected is not None
+    reads = list(chain.reads)
+    chain.reads.clear()
+    use = discover_account(texts, chain, gap_limit=2, network=network)
+    assert use == expected
+    assert chain.reads == reads
+    assert [branch.network for branch in use.descriptors] == [network] * 2
+
+
+# each private key the texts below hold, and the bytes of each
+_SECRETS = [
+    secret
+    for key in (_XPRV_84, _XPRV_ROOT, _TPRV)
+    for secret in (key, bip32.BIP32KeyData.b58decode(key).key[1:])
+] + [_WIF, _WIF_KEY]
+# an xprv a character off, which no checksum accepts
+_DAMAGED = _XPRV_84[:40] + ("a" if _XPRV_84[40] != "a" else "b") + _XPRV_84[41:]
+# a compressed key whose x is past the field's prime, so that no point has it
+_NO_POINT = "02" + "ff" * 32
+_PRIVATE = "a private key: pass the public descriptor"
+_RECEIVE_84 = parse(_TEXT_84)
+# each branch refused, by name, and the end of its refusal, after the
+# position: most hold a private key, and those `parse` refuses are each
+# of a class or a chain of its own
+_REFUSED: list[tuple[str, str | bytes, str]] = [
+    ("xprv", f"wpkh({_XPRV_84}/0/*)", _PRIVATE),
+    ("hardened-xprv", f"wpkh({_XPRV_ROOT}/84h/0h/0h/0/*)", _PRIVATE),
+    ("unranged-xprv", f"wpkh({_XPRV_84}/0/7)", _PRIVATE),
+    ("xprv-in-a-leaf", f"tr({_XPUB_84}/0/*,pk({_XPRV_84}/1/*))", _PRIVATE),
+    ("wif", add_checksum(f"wsh(multi(1,{_WIF},{_XPUB_84}/0/*))"), _PRIVATE),
+    (
+        "wif-in-a-musig-leaf",
+        f"tr({_XPUB_84}/0/*,pk(musig({_WIF},{_XPUB_84}/0)))",
+        _PRIVATE,
+    ),
+    (
+        "wif-in-a-musig-internal-key",
+        f"tr(musig({_WIF},{_XPUB_84}/0),pk({_XPUB_84}/1/*))",
+        _PRIVATE,
+    ),
+    ("checksum", f"wpkh({_XPRV_84}/0/*)#aaaaaaaa", "invalid descriptor checksum"),
+    (
+        "damaged-xprv",
+        f"wpkh({_DAMAGED}/0/*)",
+        "derivation path after a key that cannot derive",
+    ),
+    (
+        "multipath",
+        f"wpkh({_XPRV_84}/<0;1>/*)",
+        "multipath key expression: use multipath_descriptors first",
+    ),
+    ("tprv", f"wpkh({_TPRV}/0/*)", "not a mainnet key: version"),
+    (
+        "non-ascii",
+        f"wpkh({_XPRV_84}/0/*\N{LATIN SMALL LETTER E WITH ACUTE})",
+        "invalid descriptor character at position [0-9]+",
+    ),
+    (
+        "unbalanced",
+        f"wpkh({_XPRV_84}/0/*",
+        r"not a descriptor expression: expected name\(arguments\)",
+    ),
+    ("two-keys", f"wpkh({_WIF},{_XPRV_84})", "invalid key expression"),
+    ("no-key", "wpkh()", "No key provided"),
+    # `parse` chains a `_CoreFallbackError` to this refusal
+    (
+        "chained-by-parse",
+        f"wsh(and_v(v:pk({_XPRV_84}/0/*),older(0)))",
+        "A function is needed within P2WSH",
+    ),
+    # an `EccValueError`, no `BTClibValueError`
+    ("no-point", f"wsh(multi(1,{_XPRV_84}/0/*,{_NO_POINT}))", "not a public key"),
+    # `parse` chains a `Base58Bech32ValueError` to this refusal
+    (
+        "address-checksum",
+        "addr(bc1qcr8te4kr609gcawutmrza06j4xv80jy8z306fyu)",
+        "invalid checksum",
+    ),
+    ("bytes", _XPRV_84.encode(), "not a Descriptor or a str: 'bytes'"),
+]
+
+
+def _parse_refusal(text: object) -> Exception | None:
+    """Return `parse`'s refusal of a text, or None where it reads one."""
+    if not isinstance(text, str):
+        return None
+    try:
+        parse(text)
+    except (BTClibValueError, EccValueError) as err:
+        return err
+    return None
+
+
+@pytest.mark.parametrize(
+    "descriptors, position, match",
+    [
+        pytest.param(descriptors, i, f"^descriptor {i}: {end}$", id=f"{name}-{i}")
+        for name, text, end in _REFUSED
+        for i, descriptors in enumerate(([text, _RECEIVE_84], [_RECEIVE_84, text]))
+    ],
+)
+def test_discover_account_refuses_a_private_key_without_quoting_it(
+    descriptors: list[Any], position: int, match: str
+) -> None:
+    """A branch is refused by its position, and no refusal quotes a key.
+
+    `parse` would read an xprv or a WIF as its public key, and none is
+    taken. A text `parse` refuses is refused as a new refusal of its
+    class, its text after the position, with nothing of `parse`'s refusal
+    chained. Nothing is read.
+    """
+    chain = _Chain()
+    with pytest.raises(
+        (BTClibTypeError, BTClibValueError, EccValueError), match=match
+    ) as e:
+        discover_account(descriptors, chain)
+    assert not chain.reads
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, _SECRETS)
+    refused = _parse_refusal(descriptors[position])
+    if refused is None:
+        kind = (
+            BTClibValueError
+            if isinstance(descriptors[position], str)
+            else BTClibTypeError
+        )
+        assert type(e.value) is kind
+    else:
+        assert type(e.value) is type(refused)
+        assert str(e.value) == f"descriptor {position}: {refused}"
+
+
+@pytest.mark.parametrize(
+    "descriptors, match",
+    [
+        (f"wpkh({_XPRV_84}/0/*)", "^invalid descriptors type: 'str'$"),
+        (_Text(f"wpkh({_XPRV_84}/0/*)"), "^invalid descriptors type: '_Text'$"),
+        (f"wpkh({_XPRV_84}/0/*)".encode(), "^invalid descriptors type: 'bytes'$"),
+        (
+            bytearray(f"wpkh({_XPRV_84}/0/*)".encode()),
+            "^invalid descriptors type: 'bytearray'$",
+        ),
+    ],
+)
+def test_discover_account_refuses_a_bare_private_text_without_quoting_it(
+    descriptors: Any, match: str
+) -> None:
+    """A text holding a key, where the sequence of branches belongs."""
+    chain = _Chain()
+    with pytest.raises(BTClibTypeError, match=match) as e:
+        discover_account(descriptors, chain)
+    assert not chain.reads
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, _SECRETS)
+
+
+def _raise_a_key(*_args: object, **_kwargs: object) -> NoReturn:
+    """Raise with a key, as a method of a caller's class may."""
+    raise RuntimeError(_XPRV_84)  # pragma: no cover -- never runs
+
+
+class _NameRaises(type):
+    """A metaclass whose `__name__` raises with a key."""
+
+    @override
+    def __getattribute__(cls, name: str) -> Any:  # pragma: no cover -- never runs
+        if name == "__name__":
+            raise RuntimeError(_XPRV_84)
+        return super().__getattribute__(name)
+
+
+class _NameIsAKey(type):
+    """A metaclass whose `__name__` answers a key."""
+
+    @override
+    def __getattribute__(cls, name: str) -> Any:  # pragma: no cover -- never runs
+        return _XPRV_84 if name == "__name__" else super().__getattribute__(name)
+
+
+# what a metaclass is asked for, about the class, by a check that asks
+_TYPE_ATTRIBUTES = frozenset(
+    (
+        "__bases__",
+        "__class__",
+        "__dict__",
+        "__module__",
+        "__mro__",
+        "__name__",
+        "__qualname__",
+        "__subclasses__",
+    )
+)
+
+
+class _TypeAttributesRaise(type):
+    """A metaclass whose class attributes, `__mro__` first, raise with a key."""
+
+    @override
+    def __getattribute__(cls, name: str) -> Any:  # pragma: no cover -- never runs
+        if name in _TYPE_ATTRIBUTES:
+            raise RuntimeError(_XPRV_84)
+        return super().__getattribute__(name)
+
+
+class _ClaimsDescriptorOrder(type):
+    """A metaclass whose `__mro__` claims `Descriptor`."""
+
+    @override
+    def __getattribute__(cls, name: str) -> Any:  # pragma: no cover -- never runs
+        if name == "__mro__":
+            return (cls, Descriptor, object)
+        return super().__getattribute__(name)
+
+
+class _HashRaises(type):
+    """A metaclass whose `__hash__` raises with a key."""
+
+    @override
+    def __hash__(cls) -> int:
+        raise RuntimeError(_XPRV_84)  # pragma: no cover -- never runs
+
+
+class _EqualsAll(type):
+    """A metaclass equal to every type, hashed as `type` hashes a class."""
+
+    __hash__ = type.__hash__
+
+    @override
+    def __eq__(cls, other: object) -> bool:
+        return True  # pragma: no cover -- never runs
+
+
+class _ForgesDescriptor(_EqualsAll):
+    """A metaclass equal to every type, hashed as a `Descriptor` class is.
+
+    An abstract class's check finds a class it has met by its hash, then
+    compares: this one would be taken for `WpkhDescriptor`.
+    """
+
+    @override
+    def __hash__(cls) -> int:
+        return hash(type(_RECEIVE_84))  # pragma: no cover -- never runs
+
+
+class _EqualsAllNameRaises(_EqualsAll, _NameRaises):
+    """A metaclass equal to every type, whose `__name__` raises."""
+
+
+class _EqualsAllNameIsAKey(_EqualsAll, _NameIsAKey):
+    """A metaclass equal to every type, whose `__name__` answers a key."""
+
+
+class _ClassLie:
+    """An object whose `__class__` raises with a key."""
+
+    __class__ = property(_raise_a_key)
+
+
+def _claim_str(_self: object) -> type:
+    """Answer str, as the `__class__` of an object claiming to be one."""
+    return str  # pragma: no cover -- never runs
+
+
+class _ClaimsStr:
+    """An object whose `__class__` claims str."""
+
+    __class__ = property(_claim_str)
+
+
+class _Twice(list[str]):
+    """A list that shows one branch when walked first, and another after."""
+
+    walks = 0
+
+    @override
+    def __iter__(self) -> Iterator[str]:  # pragma: no cover -- never runs
+        type(self).walks += 1
+        return iter([_TEXT_84 if type(self).walks == 1 else _PRIVATE_TEXT])
+
+    @override
+    def __len__(self) -> int:
+        return 0  # pragma: no cover -- never runs
+
+
+class _Shown(str):
+    """A text holding a key, whose `partition` shows a public one."""
+
+    __slots__ = ()
+
+    @override
+    def partition(self, sep: str, /) -> tuple[str, str, str]:
+        return _TEXT_84.partition(sep)  # pragma: no cover -- never runs
+
+
+# the change branch of that account, as text
+_CHANGE_84 = _TEXT_84.replace("/0/*", "/1/*")
+
+
+class _Switched(str):
+    """A text whose `partition` shows another one past its checksum."""
+
+    __slots__ = ()
+
+    @override
+    def partition(self, sep: str, /) -> tuple[str, str, str]:
+        return _CHANGE_84, "#", checksum(_TEXT_84)  # pragma: no cover -- never runs
+
+
+class _Branch(StrEnum):
+    """A branch's text as a `StrEnum` member."""
+
+    RECEIVE = _TEXT_84
+
+
+class _Network(StrEnum):
+    """A network's name as a `StrEnum` member."""
+
+    MAINNET = "mainnet"
+
+
+_PRIVATE_TEXT = f"wpkh({_XPRV_84}/0/*)"
+# a class named by a key, as `_quoted` describes a name past its length
+_KEY_NAMED = f"a value of {len(_XPRV_84)} characters"
+
+
+def _refusal(call: Callable[[], object]) -> BaseException:
+    """Return what `call` raised, failing where it returns.
+
+    The test asserts on what is returned, so that a refusal of the wrong
+    kind fails an assertion: left to propagate, pytest's report would
+    read the caller's class, whose `__name__` may raise in turn.
+    """
+    try:
+        call()
+    except BaseException as err:  # noqa: BLE001
+        return err
+    pytest.fail("no refusal")  # pragma: no cover -- every call here refuses
+
+
+# where a value is handed: as the branches, as branch 0 or 1, as network
+_PLACES = ["bare", "item-0", "item-1", "network"]
+
+
+def _assert_refused(build: Callable[[], Any], place: str, shown: str) -> None:
+    """Assert what `build` returns is refused where `place` says, by its type.
+
+    The refusal names the type as `shown`, holds no key anywhere, chains
+    nothing where no exception is being handled, and comes before the
+    chain is read. The value is built here, and is no argument: pytest's
+    report of a failure would show it, and read its type's name.
+    """
+    value = build()
+    chain = _Chain()
+    item = "not a Descriptor or a str:"
+    calls: dict[str, tuple[Callable[[], object], str]] = {
+        "bare": (
+            lambda: discover_account(value, chain),
+            f"invalid descriptors type: {shown}",
+        ),
+        "item-0": (
+            lambda: discover_account([value, _RECEIVE_84], chain),
+            f"descriptor 0: {item} {shown}",
+        ),
+        "item-1": (
+            lambda: discover_account((_RECEIVE_84, value), chain),
+            f"descriptor 1: {item} {shown}",
+        ),
+        "network": (
+            lambda: discover_account([_RECEIVE_84], chain, network=value),
+            f"invalid network type: {shown}",
+        ),
+    }
+    call, expected = calls[place]
+    refusal = _refusal(call)
+    assert type(refusal) is BTClibTypeError
+    assert str(refusal) == expected
+    assert not chain.reads
+    assert refusal.__cause__ is None
+    assert refusal.__context__ is None
+    assert_secret_free(refusal, _SECRETS)
+
+
+def _hostile(method: str) -> Callable[[], object]:
+    """Return what builds a text whose `method` raises with a key."""
+    return lambda: type("_Hostile", (str,), {method: _raise_a_key})(_PRIVATE_TEXT)
+
+
+_HOSTILE_METHODS = [
+    "__add__",
+    "__contains__",
+    "__eq__",
+    "__format__",
+    "__getitem__",
+    "__hash__",
+    "__iter__",
+    "__len__",
+    "__radd__",
+    "__repr__",
+    "__str__",
+    "encode",
+    "isascii",
+    "partition",
+    "split",
+    "startswith",
+    "strip",
+]
+
+_SHAPES = [
+    *[pytest.param(_hostile(m), "'_Hostile'", id=m) for m in _HOSTILE_METHODS],
+    pytest.param(lambda: _Text(_TEXT_84), "'_Text'", id="plain-subclass"),
+    pytest.param(lambda: _Shown(_PRIVATE_TEXT), "'_Shown'", id="shows-public"),
+    pytest.param(
+        lambda: _Switched(add_checksum(_TEXT_84)), "'_Switched'", id="switches"
+    ),
+    pytest.param(lambda: _Branch.RECEIVE, "'_Branch'", id="str-enum-text"),
+    pytest.param(lambda: _Network.MAINNET, "'_Network'", id="str-enum-network"),
+    pytest.param(
+        lambda: type(_XPRV_84, (str,), {})(_PRIVATE_TEXT), _KEY_NAMED, id="key-named"
+    ),
+    pytest.param(type(_XPRV_84, (), {}), _KEY_NAMED, id="key-named-object"),
+    pytest.param(
+        lambda: _NameRaises("_Named", (str,), {})(_PRIVATE_TEXT),
+        "'_Named'",
+        id="name-raises",
+    ),
+    pytest.param(
+        lambda: _NameIsAKey("_Named", (str,), {})(_PRIVATE_TEXT),
+        "'_Named'",
+        id="name-is-a-key",
+    ),
+    pytest.param(
+        lambda: _TypeAttributesRaise("_Asked", (str,), {})(_PRIVATE_TEXT),
+        "'_Asked'",
+        id="type-attributes-raise",
+    ),
+    pytest.param(
+        _TypeAttributesRaise("_Asked", (), {}),
+        "'_Asked'",
+        id="type-attributes-raise-object",
+    ),
+    pytest.param(
+        lambda: _ClaimsDescriptorOrder("_Claims", (str,), {})(_PRIVATE_TEXT),
+        "'_Claims'",
+        id="claims-descriptor-order",
+    ),
+    pytest.param(
+        lambda: _HashRaises("_Hashed", (str,), {})(_PRIVATE_TEXT),
+        "'_Hashed'",
+        id="hash-raises",
+    ),
+    pytest.param(
+        lambda: _EqualsAllNameRaises("_Equal", (str,), {})(_PRIVATE_TEXT),
+        "'_Equal'",
+        id="equals-all-name-raises",
+    ),
+    pytest.param(
+        lambda: _EqualsAllNameIsAKey("_Equal", (str,), {})(_PRIVATE_TEXT),
+        "'_Equal'",
+        id="equals-all-name-is-a-key",
+    ),
+    pytest.param(
+        _EqualsAllNameRaises("_Equal", (), {}), "'_Equal'", id="equals-all-object"
+    ),
+    pytest.param(
+        lambda: _ForgesDescriptor("_Forged", (str,), {})(_PRIVATE_TEXT),
+        "'_Forged'",
+        id="forges-a-descriptor",
+    ),
+    pytest.param(
+        lambda: type("_ClassRaises", (str,), {"__class__": property(_raise_a_key)})(
+            _PRIVATE_TEXT
+        ),
+        "'_ClassRaises'",
+        id="class-raises",
+    ),
+    pytest.param(_ClassLie, "'_ClassLie'", id="class-raises-object"),
+    pytest.param(_ClaimsStr, "'_ClaimsStr'", id="claims-str"),
+    pytest.param(lambda: _Twice([_TEXT_84]), "'_Twice'", id="walks-twice"),
+    pytest.param(
+        lambda: _NameRaises("_Named", (list,), {})([_PRIVATE_TEXT]),
+        "'_Named'",
+        id="list-name-raises",
+    ),
+    pytest.param(
+        lambda: _HashRaises("_Hashed", (tuple,), {})((_PRIVATE_TEXT,)),
+        "'_Hashed'",
+        id="tuple-hash-raises",
+    ),
+]
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize("build, shown", _SHAPES)
+def test_discover_account_refuses_a_value_of_another_type(
+    build: Callable[[], Any], shown: str, place: str
+) -> None:
+    """A value that is not exactly a str, a tuple or a list is refused.
+
+    Where the branches belong, as a branch and as the network: a str
+    subclass, a `StrEnum` member, a list or tuple subclass and an object
+    claiming str through `__class__` alike. No method of the value or of
+    its metaclass runs: each above raises with a key, or answers one, or
+    shows another text, and none of these reaches the refusal.
+    """
+    _assert_refused(build, place, shown)
+
+
+class _ForgesWpkh(type):
+    """A metaclass hashed as `WpkhDescriptor`, whose `==` raises once armed."""
+
+    armed = False
+
+    @override
+    def __hash__(cls) -> int:
+        return hash(type(_RECEIVE_84))
+
+    @override
+    def __eq__(cls, other: object) -> bool:  # pragma: no cover -- on a hash clash
+        if _ForgesWpkh.armed:
+            raise RuntimeError(_XPRV_84)
+        return cls is other
+
+
+def test_discover_account_runs_no_eq_of_a_class_descriptor_has_met() -> None:
+    """A class `Descriptor` has met, its hash forged, is never compared.
+
+    An abstract class's check looks a type up among those it has met by
+    hash and then `==`: once `Descriptor` has refused a class whose
+    metaclass hashes it as `WpkhDescriptor`, checking a value `parse`
+    built would run that metaclass's `__eq__`. A branch is told by its
+    type's order instead, a text and a `Descriptor` alike.
+    """
+    foreign = _ForgesWpkh("_Foreign", (), {})
+    # what `Descriptor` has met is the interpreter's: a class it took, kept
+    # by an earlier test, would be found before the one it refused
+    descriptor = cast("Any", Descriptor)
+    descriptor._abc_caches_clear()
+    try:
+        # `Descriptor` meets the class, and keeps it among those it refused
+        assert not issubclass(foreign, Descriptor)
+        _ForgesWpkh.armed = True
+        for branch in (_TEXT_84, _RECEIVE_84):
+            chain = _Chain()
+            chain.pay(_RECEIVE_84.script_pub_key(0))
+            use = discover_account([branch], chain, gap_limit=1)
+            assert use is not None
+            assert use.used == ((0,),)
+    finally:
+        _ForgesWpkh.armed = False
+        descriptor._abc_caches_clear()
+
+
+@pytest.mark.parametrize(
+    "text", ["wpkh()", f"wsh(and_v(v:pk({_XPUB_84}/0/*),older(0)))"]
+)
+def test_discover_account_keeps_the_exception_its_caller_handles(text: str) -> None:
+    """The exception a caller handles stays the context of a refusal.
+
+    Python chains that exception, as to any raised there, and it is the
+    caller's own object: what the refusal leaves out is `parse`'s refusal,
+    which `parse` itself chains to some.
+    """
+    handled = RuntimeError("the caller's own")
+    try:
+        raise handled
+    except RuntimeError:
+        refusal = _refusal(lambda: discover_account([text], _Chain()))
+    assert type(refusal) is BTClibValueError
+    assert str(refusal).startswith("descriptor 0: ")
+    assert refusal.__cause__ is None
+    assert refusal.__context__ is handled
+    assert handled.__context__ is None
+
+
+def test_discover_account_takes_the_str_of_a_str_enum() -> None:
+    """A `StrEnum` member's `str()` is the exact str a branch or network is."""
+    chain = _Chain()
+    chain.pay(_RECEIVE_84.script_pub_key(0))
+    expected = discover_account([_RECEIVE_84], chain, gap_limit=1)
+    assert expected is not None
+    use = discover_account(
+        [str(_Branch.RECEIVE)], chain, gap_limit=1, network=str(_Network.MAINNET)
+    )
+    assert use == expected
+
+
+# the classes `_LateMro` leaves str out of the order of, by id
+_LEFT_OUT: set[int] = set()
+
+
+class _LateMro(type):
+    """A metaclass that leaves str out of a class's order once told to.
+
+    Told only after the class has made its instances: on PyPy a class
+    without str in its order takes no argument.
+    """
+
+    @override
+    def mro(cls) -> list[type]:
+        return [cls, object] if id(cls) in _LEFT_OUT else type.mro(cls)
+
+    @property
+    @override
+    def __name__(cls) -> str:  # type: ignore[override]
+        raise RuntimeError(_XPRV_84)
+
+
+class _LeftOutText(str, metaclass=_LateMro):
+    """A str whose methods raise, str left out of its order below."""
+
+    __slots__ = ()
+    __str__ = __repr__ = __len__ = __format__ = __iter__ = _raise_a_key
+    __add__ = __radd__ = __getitem__ = _raise_a_key
+
+
+# a name a class is given, and a text
+_LEFT_OUT_NAME = _LeftOutText("_Renamed")
+_LEFT_OUT_PRIVATE = _LeftOutText(_PRIVATE_TEXT)
+# assigning the bases asks `mro` again: str leaves _LeftOutText's order
+_LEFT_OUT.add(id(_LeftOutText))
+_LeftOutText.__bases__ = (str,)
+
+_PYPY = platform.python_implementation() == "PyPy"
+
+
+def _renamed(name: str) -> type:
+    """Return a class whose `__name__` is assigned `name`."""
+    renamed = type("_Original", (), {})
+    renamed.__name__ = name
+    return renamed
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize(
+    "build, shown",
+    [
+        pytest.param(_renamed(_LEFT_OUT_NAME), "'_Renamed'", id="named"),
+        pytest.param(lambda: _LEFT_OUT_PRIVATE, "'_LeftOutText'", id="text"),
+    ],
+)
+def test_discover_account_names_a_type_left_out_of_str(
+    build: Callable[[], Any], shown: str, place: str
+) -> None:
+    """A class named by a str whose class left str out of its order.
+
+    The refusal names it all the same: neither the metaclass's `__name__`
+    nor a method of the name runs. A text whose class left str out is
+    refused as any other type.
+    """
+    _assert_refused(build, place, shown)
+
+
+@pytest.mark.skipif(_PYPY, reason="PyPy keeps a str copied from a class's name")
+def test_a_name_left_out_of_str_is_one_str_add_refuses() -> None:
+    """The control of the test above, where CPython keeps the name.
+
+    Once str has left its class's order, `isinstance` denies the name and
+    the text are str, and `str.__add__` refuses them: `"".join` is what
+    copies the name.
+    """
+    stored = vars(type)["__name__"].__get__(_renamed(_LEFT_OUT_NAME), type)
+    assert type(stored) is _LeftOutText
+    # objects to mypy, which would take a `_LeftOutText` for a str
+    values: tuple[object, ...] = (stored, _LEFT_OUT_PRIVATE)
+    for value in values:
+        assert not isinstance(value, str)
+        with pytest.raises(TypeError, match="^descriptor '__add__' requires"):
+            str.__add__(cast("str", value), "")
+    with pytest.raises(RuntimeError):
+        _ = type(stored).__name__
+    copied = "".join((stored,))  # noqa: FLY002
+    assert type(copied) is str
+    assert copied == "_Renamed"
+
+
+class _NominalStr(type):
+    """A metaclass whose classes claim str's order without its storage."""
+
+    @override
+    def mro(cls) -> list[type]:
+        return [cls, str, object]
+
+
+def _nominal_str() -> object | None:
+    """Return a value of a class claiming str's order, named by a key.
+
+    None where the interpreter refuses to build the class, as CPython
+    does: PyPy builds it.
+    """
+    try:
+        nominal = cast("type[object]", _NominalStr("_Nominal", (), {}))
+    except TypeError:
+        return None
+    nominal.__name__ = _XPRV_84  # pragma: no cover -- PyPy builds the class
+    return object.__new__(nominal)  # pragma: no cover -- PyPy builds the class
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_discover_account_refuses_a_class_claiming_str_s_order(place: str) -> None:
+    """A value whose class claims str's order is refused by its type.
+
+    Its type is not str, whatever `isinstance` answers for it on PyPy.
+    """
+    if _nominal_str() is None:
+        assert not _PYPY
+        return
+    _assert_refused(_nominal_str, place, _KEY_NAMED)  # pragma: no cover -- PyPy
+
+
+@pytest.mark.parametrize("tail", ["/*h", "/0h/*"])
+def test_discover_account_refuses_a_branch_as_its_scan_refuses_it(tail: str) -> None:
+    """A branch that fails while it is scanned names no position.
+
+    A hardened step after an xpub parses, and the scan refuses it once
+    the branch before it has been read, text and `Descriptor` alike.
+    """
+    text = f"wpkh({_XPUB_84}{tail})"
+    for branch in (text, parse(text)):
+        chain = _Chain()
+        with pytest.raises(
+            BTClibValueError, match="^invalid hardened derivation from public key$"
+        ):
+            discover_account([_RECEIVE_84, branch], chain, gap_limit=2)
+        assert chain.reads
+
+
+def test_discover_account_refuses_a_reader_and_a_limit() -> None:
+    """A reader with no `get_history`, a gap limit that is no count, no network.
+
+    The network is checked where every branch is a `Descriptor` too.
+    """
+    pair = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
+    with pytest.raises(BTClibValueError, match="^unknown network: 'nonet'"):
+        discover_account(pair, _Chain(), network="nonet")
+    with pytest.raises(BTClibTypeError, match="^invalid network type: 'float'$"):
+        discover_account(pair, _Chain(), network=1.5)  # type: ignore[arg-type]
+    with pytest.raises(BTClibTypeError, match="^invalid network type: 'NoneType'$"):
+        discover_account(pair, _Chain(), network=None)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="not a HistoryReader: object"):
         discover_account(pair, object())  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid gap_limit type: bool"):

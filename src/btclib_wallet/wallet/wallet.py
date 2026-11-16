@@ -69,7 +69,7 @@ from btclib.network import validated_network_name
 from btclib.script.script_pub_key import ScriptPubKey, script_from_script_pub_key
 from btclib.utils import is_integer, str_from_string
 
-from btclib_wallet._refusal import _position, _quoted
+from btclib_wallet._refusal import _assert_int_type, _exact_int, _position, _quoted
 
 __all__ = [
     "AddressInfo",
@@ -278,25 +278,33 @@ class RangedWallet(Wallet, ABC):
         """
         return ""
 
-    def _assert_position(self, branch: int, index: int) -> None:
-        """Refuse a position this wallet has no output at.
+    def _branch_held(self, branch: int, index: int) -> int:
+        """Refuse a position this wallet has no output at; return the branch.
 
-        The branch against `branches`, which is the one bound every
-        subclass shares; the index only for the sign, its upper bound
-        being the subclass's own -- 65535 from
+        The branch first as an int, by `_assert_int_type`, since
+        `True == 1` and `1.0 == 1` pass membership in `branches`; then as
+        the exact int `_exact_int` reads, against `branches`, which is the
+        one bound every subclass shares. That int is what is returned, and
+        each caller uses it in place of the branch it was handed: the
+        branch's own `__eq__`, `__hash__`, `__str__` or `__class__` then
+        decides no lookup and no derivation. The index only for the
+        sign, its upper bound being the subclass's own -- 65535 from
         `bip32.derive_from_account` where the branch is derived, and
         BIP32's own limit where a descriptor derives it.
         """
-        if branch not in self.branches:
+        _assert_int_type(branch, "branch")
+        held = _exact_int(branch)
+        if held not in self.branches:
             branches = ", ".join(_position(b) for b in self.branches)
-            err_msg = f"invalid branch: {_quoted(branch)} not in ({branches})"
+            err_msg = f"invalid branch: {_quoted(held)} not in ({branches})"
             raise BTClibValueError(err_msg)
         if index < 0:
             raise BTClibValueError(f"invalid index: {_quoted(index)}")
+        return held
 
     def script_pub_key(self, branch: int = 0, index: int = 0) -> ScriptPubKey:
         """Return the output this wallet pays to at a position."""
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return self._script_pub_key(branch, index)
 
     def redeem_script(self, branch: int = 0, index: int = 0) -> bytes:
@@ -307,7 +315,7 @@ class RangedWallet(Wallet, ABC):
         looks like everywhere else here, as `ScriptPubKey.address` is ""
         for a script with no address.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return b""
 
     def witness_script(self, branch: int = 0, index: int = 0) -> bytes:
@@ -316,7 +324,7 @@ class RangedWallet(Wallet, ABC):
         BIP174's PSBT_IN_WITNESS_SCRIPT, and `b""` where the output is
         not a p2wsh, wrapped in a p2sh or not.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         return b""
 
     def address(self, branch: int = 0, index: int = 0) -> str:
@@ -327,7 +335,7 @@ class RangedWallet(Wallet, ABC):
         out nothing, and `script_pub_key` is what such a wallet answers
         with.
         """
-        self._assert_position(branch, index)
+        branch = self._branch_held(branch, index)
         address = self._address(branch, index)
         if not address:
             err_msg = (
@@ -347,7 +355,12 @@ class RangedWallet(Wallet, ABC):
         )
 
     def next_address(self, branch: int = 0) -> str:
-        """Hand out the next address of a branch not yet asked for."""
+        """Hand out the next address of a branch not yet asked for.
+
+        The branch is checked, and read as the exact int, before it is
+        looked up in the record of how far each branch has been asked.
+        """
+        branch = self._branch_held(branch, 0)
         return self.address(branch, self._next_index.get(branch, 0))
 
     def position_of(
@@ -431,7 +444,7 @@ class RangedWallet(Wallet, ABC):
         them, as in `position_of`, and the wallet's record is left alone --
         checking what was handed out is not handing it out again.
         """
-        self._assert_position(branch, first_index)
+        branch = self._branch_held(branch, first_index)
         if not addresses:
             err_msg = f"no addresses to check against branch {_position(branch)}"
             raise BTClibValueError(err_msg)
