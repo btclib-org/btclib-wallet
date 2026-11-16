@@ -1901,6 +1901,9 @@ CLEANUPS = {
     ("ledger/ledger.py", "load", "store.close"): (
         "`_Store.close` runs `_release`, which closes an SQLite connection"
     ),
+    ("ledger/ledger.py", "restore_policy", "ledger._store.close"): (
+        "`_Store.close` runs `_release`, which closes an SQLite connection"
+    ),
     ("ledger/store.py", "_copy", "_undo_copy"): (
         "`_release`, which closes an SQLite connection, and"
         " `_remove_new_file`, which holds no `raise`"

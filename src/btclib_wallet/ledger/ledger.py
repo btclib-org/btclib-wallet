@@ -257,6 +257,60 @@ another one calls, as `spend` calls `fund` and `sign` and `fund` calls
 relock likewise waits for the wallet lock, which a call such as
 `sendtoaddress` holds to its end (src/wallet/rpc/encrypt.cpp:104 and
 src/wallet/rpc/spend.cpp:301 and 322 at the same commit).
+
+**The policy backup.** `export_policy` writes, through `bip139`, what
+another wallet needs to find the ledger's coins on the chain: the
+network and, for each source in id order, one account. Its `descriptor`
+is branch 0's and its `change_descriptor` branch 1's, each as
+`descriptors.normalized` writes it, which derives every script with no
+private key. Its `birth_block` is the source's birth height, and its
+`receive_index` and `change_index` the highest index handed out on each
+branch. Its `keys` are the key names the caller passes. Its `labels` are
+the labels set on addresses, each on the account of the source that
+watches its script, or on the first account where none does; the label
+"" that *Labels* gives an address with none set is not written, and a
+restore gives it again. The export holds no private key.
+
+The export refuses a source it cannot write: one with no branch 0, or
+with a branch other than 0 and 1, which BIP139 has no field for, and one
+whose scripts need a private key at every index (a hardened ``/*h``).
+
+The export leaves out the transactions, the blocks and the tip, and
+what the ledger holds that BIP139 does not carry: the comments of a
+transaction, the purpose of a label and the lookahead of each source. A
+restore loses the second kind. Of the first, its next sync reads again
+what the backend still serves, and nothing else: a transaction that no
+block and no mempool holds any more, which the ledger keeps as
+`TxState.INACTIVE`, is not recovered.
+
+The export reads its text back as `restore_policy` does, and refuses
+what a restore refuses, below, so that no backup is written that its
+restore refuses: a ledger can hand out an index a restore does not take.
+
+`restore_policy` writes such text into a new ledger, in a new file, as
+`create` makes one; it adds nothing to a ledger that exists. Each
+account is a source, in the order of the file, read from its
+`birth_block`, or from height 0 where it gives none, and watching the
+lookahead the caller gives. Its indexes are handed out, and its labels
+set with the purpose `set_label` gives them. The key names come back
+beside the ledger. The restore reads no backend: the next `sync` reads
+each source from its birth height.
+
+The restore reads the text with `bip139.parse` first, which discards
+what its docstring and `bip329`'s say they discard. Among that are a
+field BIP139 says to discard, a label record of a type BIP329 does not
+define or of type ``spscan``, whatever label it holds, and a record left
+with a `type` and a `ref` alone. The restore never sees them, and the
+next export does not write them.
+
+Of what `bip139.parse` returns, what the ledger cannot hold is refused
+before the file is made, so that a restore holds all of it or nothing: a
+text of another network; an account that no `DescriptorWallet` holds, or
+whose descriptor expands to more than two paths; an index on a branch
+the account does not have, past the one address of a branch that is not
+ranged, or of a million or more, which Core's `importdescriptors`
+refuses; a label record of another type than ``addr``, or with an
+``origin``; two records of one address; and the label ``*``.
 """
 
 from __future__ import annotations
@@ -272,7 +326,7 @@ from dataclasses import dataclass, replace
 from math import ceil
 from os import PathLike
 from types import TracebackType
-from typing import Concatenate, ParamSpec, Self, TypeVar
+from typing import Any, Concatenate, ParamSpec, Self, TypeVar, cast
 
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
@@ -294,6 +348,9 @@ from btclib_wallet._refusal import (
     _quoted,
 )
 from btclib_wallet.bip32.bip32 import fingerprint
+from btclib_wallet.bip139 import parse as _parse_policy
+from btclib_wallet.bip139 import serialize as _serialize_policy
+from btclib_wallet.bip329 import TYPES
 from btclib_wallet.coin_selection import Candidate, select_coins
 from btclib_wallet.descriptors import normalized, parse
 from btclib_wallet.exceptions import FetchError, _caller_errors, _guarded_methods
@@ -378,6 +435,12 @@ _KEEP_SPAN = 2016
 # MAX_SLEEP_TIME (src/wallet/rpc/encrypt.cpp:63-67 at
 # bitcoin/bitcoin@f0de87f040, the v32.1 tag)
 MAX_UNLOCK_TIME = 100_000_000
+
+# the indexes a restore takes on a branch, from 0: Core's
+# `ParseDescriptorRange` refuses a range of more for `importdescriptors`
+# (src/rpc/util.cpp:1335-1340 at bitcoin/bitcoin@f0de87f040, the v32.1
+# tag). A restore watches every index up to the one it hands out
+_RESTORED_INDEXES = 1_000_000
 
 # the states a refusal names as they stand
 _STATES = frozenset(state.value for state in TxState)
@@ -480,9 +543,10 @@ def _relocking(
 
     *The relock* is a paragraph of the module's docstring. This
     decorator wraps every public method and property of `Ledger` but
-    the constructors `create`, `load` and `restore`. The count of calls
-    running and the check of the timeout are under one lock, so that the
-    count is exact where threads run without the GIL.
+    the constructors `create`, `load`, `restore` and `restore_policy`.
+    The count of calls running and the check of the timeout are under
+    one lock, so that the count is exact where threads run without the
+    GIL.
     """
 
     @functools.wraps(method)
@@ -543,10 +607,10 @@ class _Read:
 class Ledger:
     """A set of descriptor wallets, their transactions, and their file.
 
-    Made by `create`, `load` or `restore`, never directly. The reader is
-    the backend `sync` reads the chain from. The broadcaster, the fee
-    estimator and the relay fee reader are what `fund` and `spend` use,
-    each where the backend has it.
+    Made by `create`, `load`, `restore` or `restore_policy`, never
+    directly. The reader is the backend `sync` reads the chain from. The
+    broadcaster, the fee estimator and the relay fee reader are what
+    `fund` and `spend` use, each where the backend has it.
     """
 
     def __init__(
@@ -724,6 +788,170 @@ class Ledger:
             _remove_new_file(path)
             raise
 
+    @classmethod
+    def restore_policy(
+        cls,
+        policy: str,
+        path: str | PathLike[str],
+        network: str,
+        reader: HistoryReader,
+        *,
+        lookahead: int = LOOKAHEAD,
+        broadcaster: Broadcaster | None = None,
+        fee_estimator: FeeEstimator | None = None,
+        relay_fee_reader: RelayFeeReader | None = None,
+        fallback_fee_rate: FeeRate | None = None,
+    ) -> tuple[Ledger, dict[int, dict[str, dict[str, str]]]]:
+        """Return a new ledger in a new file at `path`, from a policy backup.
+
+        `policy` is the BIP139 text `export_policy` writes, which
+        `bip139.parse` reads. The module docstring's *The policy backup*
+        says what becomes of it, and what is refused. Each source watches
+        `lookahead` indexes, as `add_source` takes it. Beside the ledger
+        is returned the `keys` of each account that has them, by source
+        id, as `export_policy` takes them. A file already at `path` is
+        refused, as `create` refuses it, and a restore that fails after
+        making the file removes it, as `store`'s `_remove_new_file` says.
+        """
+        kind = type(policy)
+        if not issubclass(kind, str):
+            raise BTClibTypeError(f"invalid policy type: {kind.__name__}")
+        assert_type(path, (str, PathLike), "path")
+        assert_type(fallback_fee_rate, (FeeRate, type(None)), "fallback_fee_rate")
+        network = validated_network_name(network)
+        lookahead = _checked_height(lookahead, "lookahead")
+        accounts, labels = _restored_policy(_exact(policy), network)
+        ledger = cls.create(
+            path,
+            network,
+            reader,
+            broadcaster=broadcaster,
+            fee_estimator=fee_estimator,
+            relay_fee_reader=relay_fee_reader,
+            fallback_fee_rate=fallback_fee_rate,
+        )
+        key_names: dict[int, dict[str, dict[str, str]]] = {}
+        try:
+            handed: list[_Position] = []
+            for account in accounts:
+                source_id = ledger.add_source(
+                    account.wallet, account.birth, lookahead=lookahead
+                )
+                handed += [(source_id, b, i) for b, i in account.indexes.items()]
+                if account.keys is not None:
+                    key_names[source_id] = account.keys
+            ledger._handed.update(handed)
+            ledger._store.add_handed_out(handed)
+            ledger._extend_windows()
+            for script, label in labels.items():
+                ledger._write_label(script, label)
+        except BaseException:
+            # a new ledger holds no key: its file is closed and removed
+            ledger._store.close()
+            _remove_new_file(path)
+            raise
+        return ledger, key_names
+
+    @_relocking
+    def export_policy(
+        self,
+        key_names: Mapping[int, Mapping[str, Mapping[str, str | None]]] | None = None,
+    ) -> str:
+        """Return the BIP139 text of the ledger's policy, for `restore_policy`.
+
+        The module docstring's *The policy backup* says what it holds, and
+        what is refused. `key_names` maps a source id to that account's
+        `keys`, as `bip139` takes them: a key's fingerprint to its
+        `alias` and `role`. A key a source's descriptors do not name is
+        refused. A ledger with no source is refused, as BIP139 asks for an
+        account.
+        """
+        if not self._sources:
+            raise BTClibValueError("no source: add one before the export")
+        names = self._checked_key_names(key_names)
+        labels = self._policy_labels()
+        accounts = []
+        for source_id in sorted(self._sources):
+            wallet = self._sources[source_id]
+            if set(wallet.branches) not in ({0}, {0, 1}):
+                err_msg = f"source {_position(source_id)}: BIP139 carries a branch 0"
+                raise BTClibValueError(f"{err_msg} and a branch 1 beside it, no other")
+            refusal = "a policy backup, which holds no private key, cannot carry"
+            descriptors = _watched(wallet, f"{refusal} source {_position(source_id)}")
+            account: dict[str, object] = {
+                "descriptor": descriptors[0],
+                "birth_block": self._birth[source_id],
+            }
+            if 1 in descriptors:
+                account["change_descriptor"] = descriptors[1]
+            for branch, field in ((0, "receive_index"), (1, "change_index")):
+                if (end := self._next_index(source_id, branch)) > 0:
+                    account[field] = end - 1
+            if source_id in names:
+                account["keys"] = names[source_id]
+            if source_id in labels:
+                account["labels"] = labels[source_id]
+            accounts.append(account)
+        policy = _serialize_policy(accounts, self.network)
+        # read as a restore reads it, so that no backup is written that its
+        # restore refuses
+        _restored_policy(policy, self.network)
+        return policy
+
+    def _checked_key_names(
+        self, key_names: Mapping[int, Mapping[str, Mapping[str, str | None]]] | None
+    ) -> dict[int, dict[str, dict[str, str | None]]]:
+        """Return a copy of the key names `export_policy` is handed.
+
+        Each type decides, as `_int_held` and `_checked_label` say: a
+        source id is the int it holds and has to be a source of the
+        ledger, and each fingerprint, field and text is the str it holds,
+        or None for a text, which `bip139` leaves out. What the names say
+        is `bip139`'s to check.
+        """
+        if key_names is None:
+            return {}
+        _assert_mapping(key_names, "key_names")
+        names: dict[int, dict[str, dict[str, str | None]]] = {}
+        for source, keys in key_names.items():
+            source_id = _int_held(source, "source")
+            self._source(source_id)
+            if source_id in names:
+                raise BTClibValueError(f"source {_position(source_id)} named twice")
+            _assert_mapping(keys, "keys")
+            copied: dict[str, dict[str, str | None]] = {}
+            for key, entry in keys.items():
+                fingerprint_hex = _checked_text(key, "fingerprint")
+                if fingerprint_hex in copied:
+                    raise BTClibValueError("a fingerprint named twice")
+                _assert_mapping(entry, "key names")
+                fields: dict[str, str | None] = {}
+                for name, text in entry.items():
+                    field = _checked_text(name, "key field")
+                    if field in fields:
+                        raise BTClibValueError("a key field named twice")
+                    fields[field] = (
+                        None if text is None else _checked_text(text, "key name")
+                    )
+                copied[fingerprint_hex] = fields
+            names[source_id] = copied
+        return names
+
+    def _policy_labels(self) -> dict[int, list[dict[str, str]]]:
+        """Return the address book's labels as BIP329 records, by source id.
+
+        Each on the source that watches its script, or on source 0, in
+        the order of the scripts. A label is set on an address only, so
+        each script has one.
+        """
+        labels: dict[int, list[dict[str, str]]] = {}
+        for script, (label, _) in sorted(self._labels.items()):
+            position = self._scripts.get(script)
+            source_id = 0 if position is None else position[0]
+            record = {"type": "addr", "ref": self._address(script), "label": label}
+            labels.setdefault(source_id, []).append(record)
+        return labels
+
     @_relocking
     def backup(self, path: str | PathLike[str]) -> None:
         """Write a copy of the ledger's file into a new file at `path`.
@@ -841,7 +1069,7 @@ class Ledger:
         it as `_holds` says: they may be under zeros.
         """
         key = self._assert_unlocked()
-        descriptors = _watched(wallet)
+        descriptors = _watched(wallet, "a locked ledger cannot watch it")
         encrypted = _sealed(key, _plaintext(wallet), _aad(source_id))
         if not self._holds(key):
             raise BTClibValueError(_LOCKED_DURING)
@@ -2392,7 +2620,10 @@ class Ledger:
             raise BTClibValueError("the ledger is encrypted already")
         if not passphrase:
             raise BTClibValueError("the passphrase is empty")
-        watched = {source_id: _watched(wallet) for source_id, wallet in keyed.items()}
+        watched = {
+            source_id: _watched(wallet, "a locked ledger cannot watch it")
+            for source_id, wallet in keyed.items()
+        }
         key = _new_key()
         try:
             master_key = _master_key(passphrase, key)
@@ -2751,11 +2982,12 @@ def _wallet(
     )
 
 
-def _watched(wallet: DescriptorWallet) -> dict[int, str]:
+def _watched(wallet: DescriptorWallet, refusal: str) -> dict[int, str]:
     """Return the descriptors of a wallet that derive with no private key.
 
     `descriptors.normalized`, refused where a script still needs one:
-    each branch's first is derived with no key.
+    each branch's first is derived with no key. `refusal` says what
+    cannot then hold the wallet.
     """
     watched = {
         branch: normalized(wallet.descriptor(branch), wallet.prv_keys)
@@ -2770,8 +3002,132 @@ def _watched(wallet: DescriptorWallet) -> dict[int, str]:
         watchable = False
     if not watchable:
         err_msg = "a descriptor needs a private key at every index:"
-        raise BTClibValueError(f"{err_msg} a locked ledger cannot watch it")
+        raise BTClibValueError(f"{err_msg} {refusal}")
     return {branch: str(descriptor) for branch, descriptor in watched.items()}
+
+
+@dataclass(frozen=True)
+class _PolicyAccount:
+    """A source as `restore_policy` adds it, read from an account.
+
+    `indexes` is the highest index handed out on each branch that has
+    one, and `keys` the account's `keys`, None where it has none.
+    """
+
+    wallet: DescriptorWallet
+    birth: int
+    indexes: dict[int, int]
+    keys: dict[str, dict[str, str]] | None
+
+
+def _restored_policy(
+    policy: str, network: str
+) -> tuple[list[_PolicyAccount], dict[bytes, str]]:
+    """Return the sources and the labels of a policy backup, or refuse it.
+
+    The labels are by script. What is refused is the module docstring's
+    *The policy backup*. A refusal of this module's names the account or
+    the label by its position; one of `DescriptorWallet`'s is its own.
+    """
+    parsed = _parse_policy(policy)
+    if parsed["network"] != network:
+        err_msg = f"the policy's network, {_label(parsed['network'], NETWORKS)},"
+        err_msg += f" is not the ledger's, {_label(network, NETWORKS)}"
+        raise BTClibValueError(err_msg)
+    accounts = []
+    labels: dict[bytes, str] = {}
+    for position, account in enumerate(parsed["accounts"]):
+        at = f"accounts[{_position(position)}]"
+        accounts.append(_policy_account(account, at, network))
+        for index, record in enumerate(account.get("labels", ())):
+            where = f"{at}.labels[{_position(index)}]"
+            script, label = _policy_label(record, where, network)
+            if script in labels:
+                raise BTClibValueError(f"{where}: an address labelled twice")
+            labels[script] = label
+    return accounts, labels
+
+
+def _policy_account(
+    account: Mapping[str, Any], at: str, network: str
+) -> _PolicyAccount:
+    """Return the source of an account `bip139.parse` read, or refuse it.
+
+    A `change_descriptor` is branch 1 beside `descriptor`'s branch 0, and
+    a multipath `descriptor` the branches it expands to, two at most:
+    what `export_policy` writes back.
+    """
+    descriptor = account["descriptor"]
+    if (change := account.get("change_descriptor")) is not None:
+        wallet = DescriptorWallet([parse(descriptor, network), parse(change, network)])
+    else:
+        wallet = DescriptorWallet.from_descriptor(descriptor, network)
+    if len(wallet.branches) > 2:
+        err_msg = f"{at}.descriptor: more than two paths, which an export"
+        raise BTClibValueError(f"{err_msg} cannot write back")
+    indexes = {}
+    for branch, field in ((0, "receive_index"), (1, "change_index")):
+        if (index := account.get(field)) is None:
+            continue
+        if branch not in wallet.branches:
+            raise BTClibValueError(f"{at}.{field}: no change descriptor")
+        if index >= _RESTORED_INDEXES:
+            err_msg = f"{at}.{field}: not below {_RESTORED_INDEXES},"
+            raise BTClibValueError(
+                f"{err_msg} the range Core's importdescriptors takes"
+            )
+        if index > 0 and not wallet.descriptor(branch).is_ranged:
+            err_msg = f"{at}.{field}: past the one address of a descriptor"
+            raise BTClibValueError(f"{err_msg} that is not ranged")
+        indexes[branch] = index
+    return _PolicyAccount(
+        wallet, account.get("birth_block", 0), indexes, account.get("keys")
+    )
+
+
+def _policy_label(
+    record: Mapping[str, Any], where: str, network: str
+) -> tuple[bytes, str]:
+    """Return the script and the label of a label record, or refuse it.
+
+    A ledger holds the label of an address, so a record of another type
+    is refused, and so is one with an `origin`, which it does not hold.
+    `bip329` reads a record of an address with no `origin` only where it
+    has a `label`.
+    """
+    kind = record["type"]
+    if kind != "addr":
+        err_msg = f"{where}: a label of type {_label(kind, TYPES)},"
+        raise BTClibValueError(f"{err_msg} which a ledger does not hold")
+    if "origin" in record:
+        err_msg = f"{where}.origin: an origin, which a ledger does not hold"
+        raise BTClibValueError(err_msg)
+    label = record["label"]
+    if label == "*":
+        raise BTClibValueError(f"{where}.label: the name *, which a ledger refuses")
+    return script_pub_key_for_network(record["ref"], network).script, label
+
+
+def _assert_mapping(value: object, name: str) -> None:
+    """Refuse a value whose type is no `Mapping`.
+
+    The type decides, as `_quoted` says.
+    """
+    kind = type(value)
+    if not issubclass(kind, Mapping):
+        raise BTClibTypeError(f"invalid {name} type: {kind.__name__}")
+
+
+def _checked_text(value: object, name: str) -> str:
+    """Refuse a value whose type is no str; return the str held.
+
+    Its type decides, and the str is the one `_exact` copies, as
+    `_checked_label` says.
+    """
+    kind = type(value)
+    if not issubclass(kind, str):
+        raise BTClibTypeError(f"invalid {name} type: {kind.__name__}")
+    return _exact(cast("str", value))
 
 
 def _plaintext(wallet: DescriptorWallet) -> bytes:
