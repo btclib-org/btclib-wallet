@@ -419,6 +419,27 @@ def _tx_state(value: object) -> TxState:
     return state
 
 
+def _birth(value: object, source_id: int) -> int:
+    """Return a source's birth height, refusing what the ledger never writes."""
+    if not _counted(value):
+        err_msg = f"not a ledger file: source {_position(source_id)}'s birth"
+        err_msg += " is not a non-negative integer"
+        raise BTClibValueError(err_msg)
+    return value
+
+
+def _scanned(value: object, source_id: int) -> bool:
+    """Return whether a source's history was read, refusing what is no flag.
+
+    The ledger writes `int(source.scanned)`, so 0 or 1 and nothing else.
+    """
+    if type(value) is not int or value not in {0, 1}:
+        err_msg = f"not a ledger file: source {_position(source_id)}'s scanned"
+        err_msg += " is neither 0 nor 1"
+        raise BTClibValueError(err_msg)
+    return bool(value)
+
+
 def _encrypted(value: object, source_id: int) -> bytes | None:
     """Return a source's ciphertext, None where it has none."""
     if value is not None and not isinstance(value, bytes):
@@ -626,8 +647,8 @@ class _Store:
                     _decoded(prv_keys, source_id, "prv_keys"),
                     _encrypted(encrypted, source_id),
                     lookahead,
-                    birth,
-                    bool(scanned),
+                    _birth(birth, source_id),
+                    _scanned(scanned, source_id),
                 ),
             )
             for source_id, descriptors, prv_keys, encrypted, lookahead, birth, scanned in (

@@ -805,6 +805,31 @@ def test_every_statement_of_the_store_is_read_to_its_end(
             HEX[:-1],
             "^not a ledger file: a malformed tip$",
         ),
+        (
+            "UPDATE sources SET birth = ?",
+            "x",
+            "^not a ledger file: source 0's birth is not a non-negative integer$",
+        ),
+        (
+            "UPDATE sources SET birth = ?",
+            "-3",
+            "^not a ledger file: source 0's birth is not a non-negative integer$",
+        ),
+        (
+            "UPDATE sources SET scanned = ?",
+            "x",
+            "^not a ledger file: source 0's scanned is neither 0 nor 1$",
+        ),
+        (
+            "UPDATE sources SET scanned = ?",
+            "2",
+            "^not a ledger file: source 0's scanned is neither 0 nor 1$",
+        ),
+        (
+            "UPDATE sources SET scanned = ?",
+            "-1",
+            "^not a ledger file: source 0's scanned is neither 0 nor 1$",
+        ),
     ],
     ids=[
         "network",
@@ -822,6 +847,11 @@ def test_every_statement_of_the_store_is_read_to_its_end(
         "tx height below -2**63",
         "negative tx seq",
         "tip id of odd length",
+        "text birth",
+        "negative birth",
+        "text scanned",
+        "scanned of 2",
+        "negative scanned",
     ],
 )
 def test_a_key_in_a_damaged_file_is_in_no_refusal(
