@@ -359,7 +359,10 @@ LOOKAHEAD = 1000
 
 # the largest lookahead `add_source` takes: the ledger derives and holds
 # a script for each index a ranged branch watches, so the time and the
-# memory a source costs grow with its lookahead
+# memory a source costs grow with its lookahead. A hundred times
+# LOOKAHEAD, and not the million indexes Core's importdescriptors takes
+# in one range (src/rpc/util.cpp at bitcoin/bitcoin@f0de87f040, the
+# v32.1 tag), which a source takes ten times as long to watch
 MAX_LOOKAHEAD = 100_000
 
 # Core's DEFAULT_TX_CONFIRM_TARGET (src/wallet/wallet.h at
