@@ -12,10 +12,15 @@ decaying multisig. What the issue says of those templates is their only
 source here, so what they pin is the policy, not the other wallet's
 descriptor. The keys are read off the custody descriptors, or derived at
 run time where a test signs, so this file spells no key of its own.
+
+The ``tr()`` vectors have no deployment behind them: Bitcoin Core gave
+their checksums and addresses from the text the function writes, and
+`_CORE_VECTORS` says how.
 """
 
 from __future__ import annotations
 
+import hashlib
 import operator
 import platform
 import re
@@ -25,17 +30,20 @@ from enum import IntEnum
 from typing import Any
 
 import pytest
+from btclib.alias import Octets
 from btclib.b58 import wif_from_prv_key
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData
 from btclib.network import NETWORKS
 from btclib.script import sig_hash
 from btclib.script.engine import verify_transaction
+from btclib.script.taproot import leaf_hash, output_prvkey_from_merkle_root
+from btclib.script.witness import Witness
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
-from ecc import dsa
+from ecc import dsa, ssa
 from typing_extensions import override
 
 from btclib_wallet.bip32 import BIP32KeyData
@@ -47,6 +55,7 @@ from btclib_wallet.bip32.bip32 import (
 )
 from btclib_wallet.descriptors import (
     Descriptor,
+    TrDescriptor,
     WshDescriptor,
     add_checksum,
     miniscript,
@@ -54,6 +63,8 @@ from btclib_wallet.descriptors import (
 )
 from btclib_wallet.descriptors.miniscript import SpendContext
 from btclib_wallet.psbt import Psbt, finalize, miniscript_solver
+from btclib_wallet.psbt.psbt import leaf_script, taproot_sig_hash
+from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.recovery_paths import recovery_descriptors
 from tests.secret_free import assert_secret_free
 from tests.wallet.custody_wallet_test import (
@@ -96,8 +107,20 @@ def _other_chain_code(key: str) -> str:
     return other.b58encode()
 
 
+def _other_public_key(key: str, other: str) -> str:
+    """Return `other`'s public key under `key`'s chain code, with no origin."""
+    d = BIP32KeyData.b58decode(key.split("]")[1])
+    public = BIP32KeyData.b58decode(other.split("]")[1]).key
+    data = BIP32KeyData(
+        d.version, d.depth, d.parent_fingerprint, d.index, d.chain_code, public
+    )
+    return data.b58encode()
+
+
 # the public key of A under another chain code: another account key
 _A_OTHER_CHAIN_CODE = _other_chain_code(A)
+# B's public key under A's chain code: another account key too
+_A_OTHER_PUBLIC_KEY = _other_public_key(A, B)
 # A with its origin's hardened steps written ' rather than h
 _A_APOSTROPHE = "]".join((A.split("]")[0].replace("h", "'"), A.split("]")[1]))
 
@@ -226,6 +249,24 @@ _POLICIES: dict[
             f"and_v(v:pk({_keys(c, (_A_OTHER_CHAIN_CODE, 0))}),older(144))))"
         ),
     ),
+    # the same two account keys in one quorum: a key is its public key
+    # and its chain code, and each pair differs in one of the two
+    "one public key, two chain codes, in one quorum": (
+        [(2, [A, _A_OTHER_CHAIN_CODE])],
+        [(1, [B], 144)],
+        lambda c: (
+            f"wsh(or_i(multi(2,{_keys(c, (A, 0), (_A_OTHER_CHAIN_CODE, 0))}),"
+            f"and_v(v:pk({_keys(c, (B, 0))}),older(144))))"
+        ),
+    ),
+    "one chain code, two public keys, in one quorum": (
+        [(2, [A, _A_OTHER_PUBLIC_KEY])],
+        [(1, [C], 144)],
+        lambda c: (
+            f"wsh(or_i(multi(2,{_keys(c, (A, 0), (_A_OTHER_PUBLIC_KEY, 0))}),"
+            f"and_v(v:pk({_keys(c, (C, 0))}),older(144))))"
+        ),
+    ),
     # the bounds of the blocks, both taken
     "blocks at 1 and at 65535": (
         [(1, [A])],
@@ -331,19 +372,31 @@ def test_each_network_takes_its_own_keys(network: str) -> None:
             assert descriptor.address(index).startswith(f"{net.hrp}1q")
 
 
-def test_a_network_is_read_whatever_its_case_and_spaces() -> None:
+# the two values `script_type` takes
+_SCRIPT_TYPES: list[Any] = ["p2wsh", "p2tr"]
+
+
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
+def test_a_network_is_read_whatever_its_case_and_spaces(script_type: Any) -> None:
     """A network in capitals and between spaces is the network.
 
     As `validated_network_name` reads it: " MAINNET " is mainnet.
     """
-    respelled = recovery_descriptors(_P, _R, " MAINNET ")
-    assert respelled == recovery_descriptors(_P, _R, "mainnet")
+    respelled = recovery_descriptors(_P, _R, " MAINNET ", script_type=script_type)
+    assert respelled == recovery_descriptors(_P, _R, script_type=script_type)
 
 
-def test_a_sequence_of_any_kind_is_taken() -> None:
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
+def test_a_sequence_of_any_kind_is_taken(script_type: Any) -> None:
     """Tuples are what the annotation says, and lists answer the same."""
-    as_tuples = recovery_descriptors(((1, (A,)),), ((1, (B,), 52560),))
-    as_lists = recovery_descriptors([[1, [A]]], [[1, [B], 52560]])  # type: ignore[list-item]
+    as_tuples = recovery_descriptors(
+        ((1, (A,)),), ((1, (B,), 52560),), script_type=script_type
+    )
+    as_lists = recovery_descriptors(
+        [[1, [A]]],  # type: ignore[list-item]
+        [[1, [B], 52560]],  # type: ignore[list-item]
+        script_type=script_type,
+    )
     assert as_tuples == as_lists
 
 
@@ -911,8 +964,20 @@ for _field, _xpub in _RESPELLED.items():
     )
 
 
-@pytest.mark.parametrize("case", _REFUSED)
-def test_what_it_refuses(case: str) -> None:
+# the refusals of `parse` that only ``wsh()`` makes
+_WSH_ONLY = {"parse's own rules", "a script too large", "beyond the resource limits"}
+
+
+@pytest.mark.parametrize(
+    "case,script_type",
+    [
+        (case, script_type)
+        for case in _REFUSED
+        for script_type in _SCRIPT_TYPES
+        if script_type == "p2wsh" or case not in _WSH_ONLY
+    ],
+)
+def test_what_it_refuses(case: str, script_type: Any) -> None:
     """Each refusal, of its class and with its whole message."""
     primary, recovery, network, refused, message = _REFUSED[case]
     pattern = f"^{re.escape(message)}"
@@ -920,7 +985,7 @@ def test_what_it_refuses(case: str) -> None:
     if case != "network":
         pattern += "$"
     with pytest.raises(refused, match=pattern):
-        recovery_descriptors(primary, recovery, network)  # type: ignore[arg-type]
+        recovery_descriptors(primary, recovery, network, script_type=script_type)  # type: ignore[arg-type]
 
 
 def _deep_xpubs() -> dict[int, str]:
@@ -962,8 +1027,11 @@ _POSITIONS: dict[str, tuple[str, Callable[[object], tuple[object, object]]]] = {
 }
 
 
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
 @pytest.mark.parametrize("position", ["primary", "recovery"])
-def test_a_key_has_room_for_the_branch_and_the_index(position: str) -> None:
+def test_a_key_has_room_for_the_branch_and_the_index(
+    position: str, script_type: Any
+) -> None:
     """Depth 253 derives addresses; 254 and 255 are refused, not returned.
 
     BIP32's depth is one byte, so a key at 254 or 255 parses, and both
@@ -971,18 +1039,22 @@ def test_a_key_has_room_for_the_branch_and_the_index(position: str) -> None:
     """
     where, call = _POSITIONS[position]
     primary, recovery = call(_DEEP[253])
-    for descriptor in recovery_descriptors(primary, recovery):  # type: ignore[arg-type]
+    descriptors = recovery_descriptors(primary, recovery, script_type=script_type)  # type: ignore[arg-type]
+    for descriptor in descriptors:
         assert descriptor.address(0)
     message = f"invalid {where}: too deep for the branch and the index"
     for depth in (254, 255):
         primary, recovery = call(_DEEP[depth])
         with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
-            recovery_descriptors(primary, recovery)  # type: ignore[arg-type]
+            recovery_descriptors(primary, recovery, script_type=script_type)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
 @pytest.mark.parametrize("position", _POSITIONS)
 @pytest.mark.parametrize("secret", ["xprv", "WIF", "damaged xprv"])
-def test_a_private_key_refused_is_not_quoted(position: str, secret: str) -> None:
+def test_a_private_key_refused_is_not_quoted(
+    position: str, secret: str, script_type: Any
+) -> None:
     """No piece of a private key is in the refusal, nor in its chain.
 
     The damaged xprv is one `parse` refuses, so it is refused through
@@ -992,7 +1064,7 @@ def test_a_private_key_refused_is_not_quoted(position: str, secret: str) -> None
     _, call = _POSITIONS[position]
     primary, recovery = call(key)
     with pytest.raises(BTClibValueError) as refusal:
-        recovery_descriptors(primary, recovery)  # type: ignore[arg-type]
+        recovery_descriptors(primary, recovery, script_type=script_type)  # type: ignore[arg-type]
     assert refusal.value.__cause__ is None
     assert refusal.value.__context__ is None
     assert_secret_free(refusal.value, [key, _XPRV, _WIF, _PRV_KEY, _PRV_KEY.hex()])
@@ -1113,44 +1185,59 @@ def test_a_private_key_anywhere_else_is_not_quoted(case: str) -> None:
 
 
 # every position a value has: where the refusal says it is, and a call
-# with the value there and plain values everywhere else
-_EVERY_POSITION: dict[str, tuple[str, Callable[[object], tuple[Any, Any, Any]]]] = {
-    "primary": ("primary", lambda v: (v, _R, "mainnet")),
-    "recovery": ("recovery", lambda v: (_P, v, "mainnet")),
-    "quorum": ("primary quorum 0", lambda v: ([v], _R, "mainnet")),
-    "path": ("recovery path 0", lambda v: (_P, [v], "mainnet")),
+# with the value there, the script type given, and plain values
+# everywhere else
+_EVERY_POSITION: dict[
+    str, tuple[str, Callable[[object, Any], tuple[Any, Any, Any, Any]]]
+] = {
+    "primary": ("primary", lambda v, t: (v, _R, "mainnet", t)),
+    "recovery": ("recovery", lambda v, t: (_P, v, "mainnet", t)),
+    "quorum": ("primary quorum 0", lambda v, t: ([v], _R, "mainnet", t)),
+    "path": ("recovery path 0", lambda v, t: (_P, [v], "mainnet", t)),
     "keys of a quorum": (
         "keys of primary quorum 0",
-        lambda v: ([(1, v)], _R, "mainnet"),
+        lambda v, t: ([(1, v)], _R, "mainnet", t),
     ),
     "keys of a path": (
         "keys of recovery path 0",
-        lambda v: (_P, [(1, v, 144)], "mainnet"),
+        lambda v, t: (_P, [(1, v, 144)], "mainnet", t),
     ),
     "threshold of a quorum": (
         "threshold of primary quorum 0",
-        lambda v: ([(v, [A])], _R, "mainnet"),
+        lambda v, t: ([(v, [A])], _R, "mainnet", t),
     ),
     "threshold of a path": (
         "threshold of recovery path 0",
-        lambda v: (_P, [(v, [B], 144)], "mainnet"),
+        lambda v, t: (_P, [(v, [B], 144)], "mainnet", t),
     ),
-    "blocks": ("blocks of recovery path 0", lambda v: (_P, [(1, [B], v)], "mainnet")),
+    "blocks": (
+        "blocks of recovery path 0",
+        lambda v, t: (_P, [(1, [B], v)], "mainnet", t),
+    ),
     "key of a quorum": (
         "key 0 of primary quorum 0",
-        lambda v: ([(1, [v])], _R, "mainnet"),
+        lambda v, t: ([(1, [v])], _R, "mainnet", t),
     ),
     "key of a path": (
         "key 0 of recovery path 0",
-        lambda v: (_P, [(1, [v], 144)], "mainnet"),
+        lambda v, t: (_P, [(1, [v], 144)], "mainnet", t),
     ),
-    "network": ("network", lambda v: (_P, _R, v)),
+    "network": ("network", lambda v, t: (_P, _R, v, t)),
+    "script_type": ("script_type", lambda v, _t: (_P, _R, "mainnet", v)),
 }
 
 
+def _called(primary: Any, recovery: Any, network: Any, script_type: Any) -> object:
+    """Call `recovery_descriptors`, the script type by its keyword."""
+    return recovery_descriptors(primary, recovery, network, script_type=script_type)
+
+
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
 @pytest.mark.parametrize("position", _EVERY_POSITION)
 @pytest.mark.parametrize("kind", _SUBCLASSES)
-def test_a_subclass_is_refused_in_every_position(kind: str, position: str) -> None:
+def test_a_subclass_is_refused_in_every_position(
+    kind: str, position: str, script_type: Any
+) -> None:
     """A subclass of int, str, tuple or list, or an IntEnum, is refused.
 
     With its position and its type's name, and nothing of it run: each
@@ -1160,7 +1247,7 @@ def test_a_subclass_is_refused_in_every_position(kind: str, position: str) -> No
     where, call = _EVERY_POSITION[position]
     message = f"invalid {where} type: '{_SUBCLASS_NAMES[kind]}'"
     with pytest.raises(BTClibTypeError, match=f"^{re.escape(message)}$") as refusal:
-        recovery_descriptors(*call(_SUBCLASSES[kind]()))
+        _called(*call(_SUBCLASSES[kind](), script_type))
     assert refusal.value.__cause__ is None
     assert refusal.value.__context__ is None
     assert_secret_free(refusal.value, _SECRETS)
@@ -1184,14 +1271,17 @@ _SEQUENCE_POSITIONS = [
 ]
 
 
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
 @pytest.mark.parametrize("position", _SEQUENCE_POSITIONS)
 @pytest.mark.parametrize("kind", _NO_SEQUENCES)
-def test_what_is_no_tuple_or_list_is_refused(kind: str, position: str) -> None:
+def test_what_is_no_tuple_or_list_is_refused(
+    kind: str, position: str, script_type: Any
+) -> None:
     """A generator, a dict, a set, a range and bytes, each with its position."""
     where, call = _EVERY_POSITION[position]
     message = f"invalid {where} type: '{kind}'"
     with pytest.raises(BTClibTypeError, match=f"^{re.escape(message)}$"):
-        recovery_descriptors(*call(_NO_SEQUENCES[kind]()))
+        _called(*call(_NO_SEQUENCES[kind](), script_type))
 
 
 class _ChangingQuorum(list[object]):
@@ -1244,13 +1334,16 @@ def test_a_sequence_that_changes_or_iterates_itself_is_refused_unread() -> None:
         _spend(two_of_two, [(0, 0)], _NO_LOCK)
     _spend(two_of_two, [(0, 0), (1, 0)], _NO_LOCK)
     for position in _SEQUENCE_POSITIONS:
-        where, call = _EVERY_POSITION[position]
-        sequence = _SelfIterator()
-        message = f"invalid {where} type: '_SelfIterator'"
-        with pytest.raises(BTClibTypeError, match=f"^{re.escape(message)}$") as refusal:
-            recovery_descriptors(*call(sequence))
-        assert sequence.reads == 0
-        assert_secret_free(refusal.value, _SECRETS)
+        for script_type in _SCRIPT_TYPES:
+            where, call = _EVERY_POSITION[position]
+            sequence = _SelfIterator()
+            message = f"invalid {where} type: '_SelfIterator'"
+            with pytest.raises(
+                BTClibTypeError, match=f"^{re.escape(message)}$"
+            ) as refusal:
+                _called(*call(sequence, script_type))
+            assert sequence.reads == 0
+            assert_secret_free(refusal.value, _SECRETS)
 
 
 def test_the_hostile_values_raise() -> None:
@@ -1358,9 +1451,10 @@ _EXPLODING = {
 }
 
 
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
 @pytest.mark.parametrize("position", _EVERY_POSITION)
 @pytest.mark.parametrize("kind", _EXPLODING)
-def test_a_metaclass_runs_nowhere(kind: str, position: str) -> None:
+def test_a_metaclass_runs_nowhere(kind: str, position: str, script_type: Any) -> None:
     """A subclass whose metaclass raises from every method is refused.
 
     By its position and its class's own name, read by `type`'s descriptor:
@@ -1371,7 +1465,7 @@ def test_a_metaclass_runs_nowhere(kind: str, position: str) -> None:
     cls, held = _EXPLODING[kind]
     message = f"invalid {where} type: '_Exploding{kind.title()}'"
     with pytest.raises(BTClibTypeError, match=f"^{re.escape(message)}$") as refusal:
-        recovery_descriptors(*call(cls(held)))
+        _called(*call(cls(held), script_type))
     assert refusal.value.__cause__ is None
     assert refusal.value.__context__ is None
     assert_secret_free(refusal.value, _SECRETS)
@@ -1517,8 +1611,9 @@ class _RaisingList(list[object], metaclass=_EqualsRaises):
     """A list whose metaclass's equality raises with the WIF."""
 
 
+@pytest.mark.parametrize("script_type", _SCRIPT_TYPES)
 @pytest.mark.parametrize("position", _SEQUENCE_POSITIONS)
-def test_a_metaclass_equality_decides_no_type(position: str) -> None:
+def test_a_metaclass_equality_decides_no_type(position: str, script_type: Any) -> None:
     """A metaclass's equality decides no type, in each sequence position.
 
     Asked through `in`, the one equal to every type would make a 2-of-2
@@ -1529,11 +1624,11 @@ def test_a_metaclass_equality_decides_no_type(position: str) -> None:
     weaker = _OneOfTwo([2, _SIGNER_KEYS[:2]])
     message = f"invalid {where} type: '_OneOfTwo'"
     with pytest.raises(BTClibTypeError, match=f"^{re.escape(message)}$"):
-        recovery_descriptors(*call(weaker))
+        _called(*call(weaker, script_type))
     assert weaker.reads == 0
     message = f"invalid {where} type: '_RaisingList'"
     with pytest.raises(BTClibTypeError, match=f"^{re.escape(message)}$") as refusal:
-        recovery_descriptors(*call(_RaisingList()))
+        _called(*call(_RaisingList(), script_type))
     assert_secret_free(refusal.value, _SECRETS)
 
 
@@ -1612,3 +1707,616 @@ def test_a_path_lengthens_the_witness_of_the_path_before_it(paths: int) -> None:
     spends += [_spend(descriptor, [(i, 0)], 144) for i in range(1, paths + 1)]
     elements = [len(s.inputs[0].final_script_witness.stack) for s in spends]
     assert elements == _WITNESS_ELEMENTS[paths - 1]
+
+
+# BIP341's NUMS point H, x-only, as the BIP spells it
+_H = bytes.fromhex("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0")
+
+
+def _unspendable(keys: list[str], network: str = "mainnet") -> str:
+    """Return the internal key nobody signs for, as the docstring defines it.
+
+    The xpub of H, its chain code the sha256 of the account keys' public
+    keys, each once in the order first named.
+    """
+    public = b"".join(
+        BIP32KeyData.b58decode(key.split("]")[-1]).key for key in dict.fromkeys(keys)
+    )
+    chain_code = hashlib.sha256(public).digest()
+    version = NETWORKS[network].bip32_pub
+    return BIP32KeyData(version, 0, bytes(4), 0, chain_code, b"\x02" + _H).b58encode()
+
+
+def _n(chain: int, *keys: str) -> str:
+    """Return the unspendable internal key of these account keys on a chain."""
+    return f"{_unspendable(list(keys))}/{chain}/*"
+
+
+# (primary, recovery, the receive and change descriptors as a function of
+# the chain), under tr(): the policies of _POLICIES that tell the shapes
+# apart, and two primary quorums of one key each
+_TR_POLICIES: dict[
+    str,
+    tuple[
+        list[tuple[int, list[str]]],
+        list[tuple[int, list[str], int]],
+        Callable[[int], str],
+    ],
+] = {
+    # the primary key is the internal key, and the tree is one leaf
+    "simple inheritance": (
+        [(1, [A])],
+        [(1, [B], 52560)],
+        lambda c: (
+            f"tr({_keys(c, (A, 0))},and_v(v:pk({_keys(c, (B, 0))}),older(52560)))"
+        ),
+    ),
+    # a primary quorum is a leaf beside the recovery leaf
+    "multisig security": (
+        [(2, [A, B])],
+        [(2, [A, B, C], 4320)],
+        lambda c: (
+            f"tr({_n(c, A, B, C)},{{multi_a(2,{_keys(c, (A, 0), (B, 0))}),"
+            f"and_v(v:multi_a(2,{_keys(c, (A, 2), (B, 2), (C, 0))}),older(4320))}})"
+        ),
+    ),
+    "expanding": (
+        [(2, [A, B, C])],
+        [(2, [A, B, C, D], 4320)],
+        lambda c: (
+            f"tr({_n(c, A, B, C, D)},{{multi_a(2,{_keys(c, (A, 0), (B, 0), (C, 0))}),"
+            f"and_v(v:multi_a(2,{_keys(c, (A, 2), (B, 2), (C, 2), (D, 0))}),"
+            "older(4320))})"
+        ),
+    ),
+    # the recovery leaves nest to the right below the primary leaf
+    "decaying twice": (
+        [(3, [A, B, C])],
+        [(2, [A, B, C], 144), (1, [A, B, C], 4320)],
+        lambda c: (
+            f"tr({_n(c, A, B, C)},{{multi_a(3,{_keys(c, (A, 0), (B, 0), (C, 0))}),"
+            f"{{and_v(v:multi_a(2,{_keys(c, (A, 2), (B, 2), (C, 2))}),older(144)),"
+            f"and_v(v:multi_a(1,{_keys(c, (A, 4), (B, 4), (C, 4))}),older(4320))}}}})"
+        ),
+    ),
+    # two primary quorums are one leaf that asks for both
+    "two primaries, three paths": (
+        [(1, [A]), (2, [A, B])],
+        [(1, [C], 144), (2, [D, E], 4320), (1, [F], 52560)],
+        lambda c: (
+            f"tr({_n(c, A, B, C, D, E, F)},"
+            f"{{and_v(v:pk({_keys(c, (A, 0))}),multi_a(2,{_keys(c, (A, 2), (B, 0))})),"
+            f"{{and_v(v:pk({_keys(c, (C, 0))}),older(144)),"
+            f"{{and_v(v:multi_a(2,{_keys(c, (D, 0), (E, 0))}),older(4320)),"
+            f"and_v(v:pk({_keys(c, (F, 0))}),older(52560))}}}}}})"
+        ),
+    ),
+    "two primaries of one key": (
+        [(1, [A]), (1, [B])],
+        [(1, [C], 144)],
+        lambda c: (
+            f"tr({_n(c, A, B, C)},{{and_v(v:pk({_keys(c, (A, 0))}),pk({_keys(c, (B, 0))})),"
+            f"and_v(v:pk({_keys(c, (C, 0))}),older(144))}})"
+        ),
+    ),
+    # the primary key is the internal key, and the recovery leaves nest
+    # to the right from the root
+    "one key, five quorums": (
+        [(1, [A])],
+        [(1, [A], 144), (1, [A], 288), (1, [A], 432), (1, [A], 576)],
+        lambda c: (
+            f"tr({_keys(c, (A, 0))},{{and_v(v:pk({_keys(c, (A, 2))}),older(144)),"
+            f"{{and_v(v:pk({_keys(c, (A, 4))}),older(288)),"
+            f"{{and_v(v:pk({_keys(c, (A, 6))}),older(432)),"
+            f"and_v(v:pk({_keys(c, (A, 8))}),older(576))}}}}}})"
+        ),
+    ),
+    "equal locks": (
+        [(1, [A])],
+        [(2, [B, C, D], 52560), (1, [E], 52560)],
+        lambda c: (
+            f"tr({_keys(c, (A, 0))},"
+            f"{{and_v(v:multi_a(2,{_keys(c, (B, 0), (C, 0), (D, 0))}),older(52560)),"
+            f"and_v(v:pk({_keys(c, (E, 0))}),older(52560))}})"
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("policy", _TR_POLICIES)
+def test_each_tr_policy_is_one_call(policy: str) -> None:
+    """Each policy is one call under tr(), which writes the shape it is owed.
+
+    And the text read back is the descriptor returned, checksum included.
+    """
+    primary, recovery, expected = _TR_POLICIES[policy]
+    descriptors = recovery_descriptors(primary, recovery, script_type="p2tr")
+    assert tuple(str(descriptor) for descriptor in descriptors) == (
+        expected(0),
+        expected(1),
+    )
+    for descriptor in descriptors:
+        assert isinstance(descriptor, TrDescriptor)
+        assert parse(add_checksum(str(descriptor))) == descriptor
+
+
+# (the checksum, the address at index 0 and the one at 2**31 - 1) of the
+# receive and the change descriptor of _TR_POLICIES that tell the shapes
+# apart. Bitcoin Core v32.1's `getdescriptorinfo` and `deriveaddresses`
+# gave them, on mainnet, for the text this function writes
+_CORE_VECTORS = {
+    "simple inheritance": (
+        (
+            "uujv02pc",
+            "bc1pnulajkzf2epqxurmz5wczxa943t26gkq8w3l4x58ctl6e038xheq6a64gs",
+            "bc1pvj7xncxaex2yw350tm3gyfgvzvf3ajk8qalfw8s6g3y27wqfhdyqpxwm5g",
+        ),
+        (
+            "5y6g9yua",
+            "bc1pmcvjpanauwwyjgl0t9vytentjhf3hlumhwyg7mjhwmq0gdz2l82qezzp2m",
+            "bc1psfejplu87s65mrpnjpq9nmdqs3fg6tv2lwf8jj58z9le6l5azt9q2rd9cx",
+        ),
+    ),
+    "multisig security": (
+        (
+            "7j4kwukq",
+            "bc1pqd2nqrk2z2ldqdvlyn7l55yncsm6m32p77yy2tz776c3hfnm8t0q7nda9k",
+            "bc1pe52ezc48c7rzarwu9c4fnrk2dvncjdmg5klc9zf9e6v2qgszst9qlgcwdq",
+        ),
+        (
+            "ufmzukc4",
+            "bc1pgyc2tn75g3r94clxd4gxyygr0wxsejh86gq70axa62j6tnsqxahqle2zx5",
+            "bc1pw445vhklgg80eyear4kssg5susxz8rx58kr4jpfht630fa2jrg2syx0htv",
+        ),
+    ),
+    "decaying twice": (
+        (
+            "5vdnuvz0",
+            "bc1pul9895m49jn556w8nrexucf4r6j2296mnwq6xt86prfptrhlpe4s0vkk2d",
+            "bc1pf6fdc73f3skp9mz5s025tzr8zagtdsz6qvvhrrcrhnjt9dwh09zqsq3nk2",
+        ),
+        (
+            "95n0rk0v",
+            "bc1pq9saqdttdvalpuwehrv8t8n8ayf9y4mjt2gst8vhcazpsnsw4wyqcy3ygy",
+            "bc1ptz0u4f7z076ag6a3ng7axgpk5ups5tjl37atcs5jpcwtghylk4mqxgckh5",
+        ),
+    ),
+    "two primaries, three paths": (
+        (
+            "38cyw9us",
+            "bc1pqvvqh77l06pukhmxsrdpfv0unf00f9jhg4wu24sav0xje7wgua4s2rdg2l",
+            "bc1prf7racjqh89l476juuylltaefqnnspe0ntkzx27304mzeez5sdtqvngsz9",
+        ),
+        (
+            "js0m0050",
+            "bc1p262kpkkhef254qgqr3xxhvv36cw4g3ve00tce5lyy7mkqqv7472quukaf6",
+            "bc1p7pmtzzjhq2qsdh489qqwd9j94ypy9dxrld6m7759emfjxaepq8qqgad0ez",
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("policy", _CORE_VECTORS)
+def test_the_tr_addresses_are_bitcoin_cores(policy: str) -> None:
+    """The checksum and the addresses Bitcoin Core derives from this text."""
+    primary, recovery, _ = _TR_POLICIES[policy]
+    descriptors = recovery_descriptors(primary, recovery, script_type="p2tr")
+    for descriptor, (checksum, first, last) in zip(
+        descriptors, _CORE_VECTORS[policy], strict=True
+    ):
+        assert add_checksum(str(descriptor)) == f"{descriptor}#{checksum}"
+        assert descriptor.address(0) == first
+        assert descriptor.address(2**31 - 1) == last
+
+
+def test_the_unspendable_key_is_bip341s_h_moved_at_each_index() -> None:
+    """The internal key's xpub holds H, and each address an H + rG of its own.
+
+    Its chain code is the sha256 of the account keys' public keys, each
+    once in the order first named, so a key named again does not change
+    it: B in the recovery path is in the primary quorum before.
+    """
+    for chain, descriptor in enumerate(
+        recovery_descriptors([(2, [A, B])], [(1, [B, C], 144)], script_type="p2tr")
+    ):
+        assert isinstance(descriptor, TrDescriptor)
+        internal = descriptor.internal_key
+        assert str(internal) == _n(chain, A, B, C)
+        data = BIP32KeyData.b58decode(internal.xkey)
+        assert data.key == b"\x02" + _H
+        assert (data.depth, data.parent_fingerprint, data.index) == (0, bytes(4), 0)
+        keys = {internal.sec(index)[1:] for index in (0, 1, 2**31 - 1)}
+        assert len(keys) == 3
+        assert _H not in keys
+
+
+@pytest.mark.parametrize("network", ["testnet", "regtest", "signet", "testnet4"])
+def test_each_network_takes_its_own_tr_keys(network: str) -> None:
+    """Under tr(), the unspendable key takes the network's xpub version too."""
+    net = NETWORKS[network]
+    roots = [rootxprv_from_seed(bytes([i]) * 16, net.bip32_prv) for i in (1, 2, 3)]
+    keys = [xpub_from_xprv(derive(root, "m/48h/1h/0h/2h")) for root in roots]
+    descriptors = recovery_descriptors(
+        [(2, keys[:2])], [(1, [keys[2]], 144)], network, script_type="p2tr"
+    )
+    for chain, descriptor in enumerate(descriptors):
+        unspendable = _unspendable(keys, network)
+        assert str(descriptor) == (
+            f"tr({unspendable}/{chain}/*,{{multi_a(2,{keys[0]}/{chain}/*,"
+            f"{keys[1]}/{chain}/*),and_v(v:pk({keys[2]}/{chain}/*),older(144))}})"
+        )
+        for index in (0, 2**31 - 1):
+            assert descriptor.address(index).startswith(f"{net.hrp}1p")
+
+
+def _leaf_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
+    """Satisfy a tapscript leaf that `finalize` does not finalize alone.
+
+    An `InputSolver`, for the leaf with a timelock or two quorums: the
+    one leaf the signatures name is read back into its miniscript and
+    satisfied at the transaction's sequence. None for the key path and
+    for a bare ``multi_a()``, which `finalize` builds itself.
+    """
+    psbt_in = psbt.inputs[vin_i]
+    signatures = psbt_in.taproot_script_spend_signatures
+    hashes = {key[32:] for key in signatures}
+    if not hashes:
+        return None
+    (hash_,) = hashes
+    script, control_block = leaf_script(psbt_in, hash_)
+    node = miniscript.from_script(script, miniscript.TAPSCRIPT, {})
+    if node.fragment == "multi_a":
+        return None
+    tx = psbt.tx
+    spend = SpendContext(sequence=tx.vin[vin_i].sequence, version=tx.version)
+    offered: dict[Octets, Octets] = {
+        key[:32]: signature for key, signature in signatures.items()
+    }
+    return b"", Witness([*node.satisfy(offered, spend), script, control_block])
+
+
+def _signed_tr(
+    descriptor: Descriptor,
+    signers: list[tuple[int, int]],
+    sequence: int,
+    leaf: int | None,
+) -> tuple[Psbt, TxOut]:
+    """Return the psbt spending index 3 of a tr() descriptor, signed.
+
+    `leaf` is the leaf's position in the tree, None for the key path;
+    `signers` are (signer, branch) pairs, as `_spend` takes them. The
+    Updater writes the taproot fields from the descriptor.
+    """
+    assert isinstance(descriptor, TrDescriptor)
+    index = 3
+    prevout = TxOut(50_000, descriptor.script_pub_key(index))
+    tx = Tx(
+        version=2,
+        vin=[TxIn(OutPoint(b"\x05" * 32, 0), sequence=sequence)],
+        vout=[TxOut(49_000, prevout.script_pub_key)],
+    )
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].witness_utxo = prevout
+    psbt = update_psbt_input(descriptor, psbt, 0, index)
+    hash_ = None
+    if leaf is not None:
+        hash_ = leaf_hash(0xC0, descriptor.taproot_tree(index)[leaf][2])
+    for signer, branch in signers:
+        xprv = derive(_ROOTS[signer], f"{_ACCOUNT}/{branch}/{index}")
+        prv_key = int.from_bytes(BIP32KeyData.b58decode(xprv).key[1:])
+        if hash_ is None:
+            tweaked = output_prvkey_from_merkle_root(
+                prv_key, descriptor.taproot_merkle_root(index)
+            )
+            signature = ssa.sign_(taproot_sig_hash(psbt, 0), tweaked).serialize()
+            psbt.inputs[0].taproot_key_spend_signature = signature
+            continue
+        msg_hash = taproot_sig_hash(psbt, 0, leaf_hash=hash_)
+        x_only = PrvKeyData(prv_key).pub.sec[1:]
+        signature = ssa.sign_(msg_hash, prv_key).serialize()
+        psbt.inputs[0].taproot_script_spend_signatures[x_only + hash_] = signature
+    return psbt, prevout
+
+
+def _tr_spend(
+    descriptor: Descriptor,
+    signers: list[tuple[int, int]],
+    sequence: int,
+    leaf: int | None,
+) -> Psbt:
+    """Return the finalized psbt of `_signed_tr`, which the engine runs.
+
+    And the control: with its first signature emptied, the same spend is
+    one the engine refuses.
+    """
+    psbt, prevout = _signed_tr(descriptor, signers, sequence, leaf)
+    final = finalize(psbt, solver=_leaf_solver)
+    stack = final.inputs[0].final_script_witness.stack
+    spending = final.tx
+    spending.vin[0].script_witness = Witness(stack)
+    verify_transaction([prevout], spending)
+    first = next(i for i, item in enumerate(stack) if len(item) == 64)
+    spending.vin[0].script_witness = Witness([*stack[:first], b"", *stack[first + 1 :]])
+    with pytest.raises(BTClibValueError):
+        verify_transaction([prevout], spending)
+    return final
+
+
+# (primary, recovery, and each path: the blocks it waits, none for the
+# primary path, and the (signer, branch pair) that sign it), under tr()
+_TR_SPENDS = {
+    "simple inheritance": (
+        [(1, [0])],
+        [(1, [1], 144)],
+        [(None, [(0, 0)]), (144, [(1, 0)])],
+    ),
+    "decaying twice": (
+        [(3, [0, 1, 2])],
+        [(2, [0, 1, 2], 144), (1, [0, 1, 2], 4320)],
+        [
+            (None, [(0, 0), (1, 0), (2, 0)]),
+            (144, [(0, 2), (2, 2)]),
+            (4320, [(1, 4)]),
+        ],
+    ),
+    "two primaries": (
+        [(1, [0]), (2, [1, 2])],
+        [(1, [3], 144)],
+        [(None, [(0, 0), (1, 0), (2, 0)]), (144, [(3, 0)])],
+    ),
+    "equal locks": (
+        [(1, [0])],
+        [(2, [1, 2, 3], 144), (1, [4], 144)],
+        [(None, [(0, 0)]), (144, [(1, 0), (3, 0)]), (144, [(4, 0)])],
+    ),
+    "20 of 20": (
+        [(20, list(range(20)))],
+        [(20, list(range(20)), 144)],
+        [
+            (None, [(s, 0) for s in range(20)]),
+            (144, [(s, 2) for s in range(20)]),
+        ],
+    ),
+    "one key, five quorums": (
+        [(1, [0])],
+        [(1, [0], 144), (1, [0], 288), (1, [0], 432), (1, [0], 576)],
+        [
+            (None, [(0, 0)]),
+            (144, [(0, 2)]),
+            (288, [(0, 4)]),
+            (432, [(0, 6)]),
+            (576, [(0, 8)]),
+        ],
+    ),
+}
+
+_TR_SPEND_CASES = [
+    pytest.param(policy, path, chain, id=f"{policy}-path {path}-chain {chain}")
+    for policy, (_, _, paths) in _TR_SPENDS.items()
+    for path in range(len(paths))
+    for chain in (0, 1)
+]
+
+# what `finalize` says of a spend one signature short: no signature at
+# all, a multi_a() short of its threshold, or a leaf the solver cannot
+# satisfy
+_SHORT = (
+    "^(input 0: missing taproot signature"
+    "|input 0: not enough taproot script path signatures: [0-9]+ < [0-9]+"
+    f"|{re.escape(_NO_SATISFACTION)})$"
+)
+
+
+def _tr_leaf(primary: list[tuple[int, list[int]]], path: int) -> int | None:
+    """Return the leaf of a path, None for the key path.
+
+    A primary path of one quorum, of one key, is the internal key, and
+    the recovery paths are the leaves; otherwise the primary path is the
+    first leaf.
+    """
+    if len(primary) == 1 and len(primary[0][1]) == 1:
+        return None if path == 0 else path - 1
+    return path
+
+
+@pytest.mark.parametrize("policy,path,chain", _TR_SPEND_CASES)
+def test_each_tr_path_spends_with_its_signatures_once_its_timelock_has_passed(
+    policy: str, path: int, chain: int
+) -> None:
+    """Sign along one path, and spend: with its signatures, at its timelock.
+
+    `finalize` builds the spend, with `_leaf_solver` for a leaf it does
+    not build alone, and the script engine runs it. One signature fewer
+    is refused, and so is a sequence one block short of the lock.
+    """
+    primary, recovery, paths = _TR_SPENDS[policy]
+    descriptors = recovery_descriptors(
+        [(t, [_SIGNER_KEYS[s] for s in signers]) for t, signers in primary],
+        [(t, [_SIGNER_KEYS[s] for s in signers], b) for t, signers, b in recovery],
+        script_type="p2tr",
+    )
+    blocks, signers = paths[path]
+    on_chain = [(signer, pair + chain) for signer, pair in signers]
+    leaf = _tr_leaf(primary, path)
+    sequence = _NO_LOCK if blocks is None else blocks
+    psbt, _ = _signed_tr(descriptors[chain], on_chain[:-1], sequence, leaf)
+    with pytest.raises(BTClibValueError, match=_SHORT):
+        finalize(psbt, solver=_leaf_solver)
+    if blocks is not None:
+        psbt, _ = _signed_tr(descriptors[chain], on_chain, blocks - 1, leaf)
+        with pytest.raises(BTClibValueError, match=f"^{re.escape(_NO_SATISFACTION)}$"):
+            finalize(psbt, solver=_leaf_solver)
+    final = _tr_spend(descriptors[chain], on_chain, sequence, leaf)
+    stack = final.inputs[0].final_script_witness.stack
+    if leaf is None:
+        # the key path: one signature, of the default sighash
+        assert [len(item) for item in stack] == [64]
+    else:
+        spent = descriptors[chain]
+        assert isinstance(spent, TrDescriptor)
+        depth = spent.taproot_tree(3)[leaf][0]
+        assert len(stack[-1]) == 33 + 32 * depth
+
+
+@pytest.mark.parametrize("primary", ["one key", "a quorum"])
+@pytest.mark.parametrize("paths", [1, 2, 3, 4])
+def test_a_tr_path_lengthens_the_control_blocks_of_the_path_before_it(
+    primary: str, paths: int
+) -> None:
+    """A path added last lengthens the spends of the path before it alone.
+
+    Measured on the spends: a primary leaf is at depth one, each recovery
+    leaf a level deeper than the one before it, the last two at the same
+    depth, and a primary path of one key spends by the key path.
+    """
+    keys = _SIGNER_KEYS
+    quorum = [(1, [keys[0]])] if primary == "one key" else [(2, keys[:2])]
+    signers = [(0, 0)] if primary == "one key" else [(0, 0), (1, 0)]
+    descriptor, _ = recovery_descriptors(
+        quorum,
+        [(1, [keys[i]], 144) for i in range(2, paths + 2)],
+        script_type="p2tr",
+    )
+    first = _tr_leaf([(1, [0])] if primary == "one key" else [(2, [0, 1])], 0)
+    spends = [_tr_spend(descriptor, signers, _NO_LOCK, first)]
+    offset = 0 if first is None else 1
+    spends += [
+        _tr_spend(descriptor, [(i, 0)], 144, i - 2 + offset)
+        for i in range(2, paths + 2)
+    ]
+    witnesses = [s.inputs[0].final_script_witness.stack for s in spends]
+    leaves = len(witnesses) - (first is None)
+    depths = [min(j + 1, leaves - 1) for j in range(leaves)]
+    expected = [33 + 32 * depth for depth in depths]
+    if first is None:
+        assert [len(item) for item in witnesses[0]] == [64]
+        witnesses = witnesses[1:]
+    assert [len(stack[-1]) for stack in witnesses] == expected
+
+
+def test_finalize_builds_a_timelocked_leaf_only_with_a_solver() -> None:
+    """The docstring's account of `psbt.finalize` under tr(), measured.
+
+    `miniscript_solver` answers None for the input, and `finalize` alone
+    refuses the leaf with a timelock: `_leaf_solver` is what builds it.
+    """
+    descriptor, _ = recovery_descriptors(
+        [(1, [_SIGNER_KEYS[0]])], [(1, [_SIGNER_KEYS[1]], 144)], script_type="p2tr"
+    )
+    psbt, _ = _signed_tr(descriptor, [(1, 0)], 144, 0)
+    assert miniscript_solver(psbt, 0) is None
+    message = (
+        "cannot finalize a taproot script path whose leaf script "
+        "is neither a single key and OP_CHECKSIG nor a multi_a"
+    )
+    with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
+        finalize(psbt, solver=miniscript_solver)
+    assert finalize(psbt, solver=_leaf_solver).inputs[0].final_script_witness
+
+
+def test_descriptor_satisfy_builds_every_tr_path() -> None:
+    """`Descriptor.satisfy` builds a recovery leaf's witness, at its timelock.
+
+    The same witness `finalize` builds through `_leaf_solver`.
+    """
+    descriptor, _ = recovery_descriptors(
+        [(2, _SIGNER_KEYS[:2])], [(1, [_SIGNER_KEYS[2]], 144)], script_type="p2tr"
+    )
+    psbt, _ = _signed_tr(descriptor, [(2, 0)], 144, 1)
+    final = finalize(psbt, solver=_leaf_solver)
+    signatures: dict[Octets, Octets] = {
+        key[:32]: signature
+        for key, signature in psbt.inputs[0].taproot_script_spend_signatures.items()
+    }
+    script_sig, witness = descriptor.satisfy(
+        signatures, index=3, spend=SpendContext(sequence=144, version=2)
+    )
+    assert script_sig == b""
+    assert witness == final.inputs[0].final_script_witness
+    with pytest.raises(BTClibValueError):
+        descriptor.satisfy(
+            signatures, index=3, spend=SpendContext(sequence=143, version=2)
+        )
+
+
+# a script type refused: (the value, the class refused, its message)
+_SCRIPT_TYPE_REFUSED: dict[str, tuple[object, type[Exception], str]] = {
+    "int": (1, BTClibTypeError, "invalid script_type type: 'int'"),
+    "None": (None, BTClibTypeError, "invalid script_type type: 'NoneType'"),
+    "unknown": (
+        "p2sh",
+        BTClibValueError,
+        "invalid script_type: 'p2sh', not 'p2wsh' or 'p2tr'",
+    ),
+    "in capitals": (
+        "P2TR",
+        BTClibValueError,
+        "invalid script_type: 'P2TR', not 'p2wsh' or 'p2tr'",
+    ),
+    "WIF": (
+        _WIF,
+        BTClibValueError,
+        "invalid script_type: a value of 52 characters, not 'p2wsh' or 'p2tr'",
+    ),
+    "bytes": (_PRV_KEY, BTClibTypeError, "invalid script_type type: 'bytes'"),
+    "private int": (_PRV_INT, BTClibTypeError, "invalid script_type type: 'int'"),
+}
+
+
+@pytest.mark.parametrize("case", _SCRIPT_TYPE_REFUSED)
+def test_what_it_refuses_as_the_script_type(case: str) -> None:
+    """Each refusal, with its whole message, quoting no private key."""
+    value, refused, message = _SCRIPT_TYPE_REFUSED[case]
+    with pytest.raises(refused, match=f"^{re.escape(message)}$") as refusal:
+        recovery_descriptors(_P, _R, script_type=value)  # type: ignore[arg-type]
+    assert refusal.value.__cause__ is None
+    assert refusal.value.__context__ is None
+    assert_secret_free(refusal.value, _SECRETS)
+
+
+def _children(count: int) -> list[str]:
+    """Return `count` xpubs, the children of one root, derived here."""
+    root = rootxprv_from_seed(bytes(16))
+    return [xpub_from_xprv(derive(root, f"m/{i}")) for i in range(count)]
+
+
+# what `parse` refuses of the whole tr() descriptor, in its own words
+_TR_REFUSED: dict[str, tuple[Callable[[], tuple[Any, Any]], str]] = {
+    # a primary leaf and 129 recovery leaves put the last two at depth 129
+    "a tree too deep": (
+        lambda: ([(2, [A, B])], [(1, [C], 144 + i) for i in range(129)]),
+        "tr() supports at most 128 nesting levels",
+    ),
+    "a tree too deep below an internal key": (
+        lambda: ([(1, [A])], [(1, [C], 144 + i) for i in range(130)]),
+        "tr() supports at most 128 nesting levels",
+    ),
+    "a multi_a() of 1000 keys": (
+        lambda: ([(1, _children(1000))], [(1, [A], 144)]),
+        "invalid n in k-of-n multi_a: 1000",
+    ),
+    # two quorums of 500 keys each put 1000 elements on the stack
+    "beyond the stack's limit": (
+        lambda: ([(1, _children(500)), (1, _children(500))], [(1, [A], 144)]),
+        "a sub-expression is not sane: satisfying it may exceed the resource limits",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", _TR_REFUSED)
+def test_what_parse_refuses_of_a_tr_descriptor(case: str) -> None:
+    """Each whole-descriptor refusal, with its whole message and no position.
+
+    The control: one leaf fewer, one key fewer, one key fewer in a
+    quorum, each is taken.
+    """
+    make, message = _TR_REFUSED[case]
+    primary, recovery = make()
+    with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
+        recovery_descriptors(primary, recovery, script_type="p2tr")
+    if len(recovery) > 1:
+        recovery = recovery[:-1]
+    else:
+        *rest, (threshold, keys) = primary
+        primary = [*rest, (threshold, keys[:-1])]
+    assert recovery_descriptors(primary, recovery, script_type="p2tr")
