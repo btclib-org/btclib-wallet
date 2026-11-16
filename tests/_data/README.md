@@ -45,8 +45,9 @@ file whose name they could take, or because the upstream name is taken:
 - the files under `tests/fetch/_data/` are response bodies, and a
   response has no name at all. Each takes the rpc method or the endpoint
   path that produces it.
-- `tests/psbt/_data/btcd/signed_psbts.json` is what a program printed,
-  and no upstream publishes it.
+- `tests/psbt/_data/btcd/signed_psbts.json` and
+  `tests/psbt/_data/core/recovery_psbts.json` are what a program printed,
+  and no upstream publishes them.
 
 The prefix of a psbt `*_test_vectors.json` file names the authority the
 cases answer to -- `bip174_`, `bip370_`, `bip371_`, `bip373_`, `bip375_`,
@@ -84,8 +85,8 @@ to compare against says so in prose instead. The verdicts used:
 btclib or into this repository. `behind` counts upstream revisions
 of that path since the pin. It is a staleness figure, not a defect: a
 vector file is a fixed set of cases and refreshing it is a decision, not a
-chore. `ref` names the branch a pin's path lives on, where that is not the
-repository's own default branch.
+chore. `ref` names the branch or tag a pin's path lives on, where that is not
+the repository's own default branch.
 
 A vector this package fails is vendored anyway and marked `xfail`, never
 left out: an absent vector hides the defect it would have shown, and
@@ -904,6 +905,44 @@ asserting that a taptree of exactly 128 nesting levels parses.
 The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, and
 that parse is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains
 nothing from it.
+
+### `tests/psbt/_data/core/recovery_psbts.json`
+
+```text
+repo    bitcoin/bitcoin
+path    src/psbt.cpp
+ref     v32.1
+commit  4c9d55a6125ad2c1dd7215e1790ef268f4fe735c  2026-09-09
+ours    18b9cfb17c21cc2f125ed062c41ed4da912e0f6d
+pulled  2026-11-16
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **recorded**. What Bitcoin Core made of the policies
+`recovery_descriptors` writes, under `wsh()` and `tr()`: the descriptors
+it imported, and the psbts and the transaction of a spend of each path,
+as the program below says. Core writes them as BIP370 psbts. The release
+is the one `integration-bitcoind.yml` pins, bitcoin/bitcoin@f0de87f040;
+`ref` is its tag, `path` its psbt codec and `commit` the last commit
+touching that path at the tag.
+
+`tests/integration/record_recovery_psbts_test.py` is the program, and is
+ours. Its node is its own, with a fixed `-mocktime`. Its funding
+transactions and Schnorr signatures differ from run to run, and so do
+the psbts. The descriptors Core lists are the same on every run, and
+each run that does not record holds them to this file's. The run, from
+this repository's root:
+
+```shell
+BTCLIB_INTEGRATION=1 BTCLIB_BITCOIND=/path/to/bitcoind \
+    BTCLIB_RECORD_RECOVERY_PSBTS=tests/psbt/_data/core/recovery_psbts.json \
+    uv run pytest tests/integration/record_recovery_psbts_test.py -n 0
+```
+
+`tests/psbt/core_recovery_psbts_test.py` reads each, as its docstring
+says.
+
+License: MIT, as Bitcoin Core's `COPYING` says.
 
 ## bitcoin-core/HWI
 
@@ -1873,6 +1912,88 @@ gh api graphql --jq .data.repository.issue.lastEditedAt -f query='
     issue(number: 610) { lastEditedAt } } }'
 ```
 
+### Not vendored as a file: Krux's timelocked miniscript psbts
+
+```text
+repo    selfcustody/krux
+path    tests/test_psbt.py
+commit  2fe2f5f5332d08f385480a76a91814e2e7477558  2026-07-31
+pulled  2026-11-16
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, and cited inline in `tests/krux_test.py`,
+under Krux's own names: the miniscript descriptors at the top of that
+file, the mnemonics of its test keys, and the base64 of each miniscript
+psbt, as a coordinator made it and as Krux returns it signed. Left out:
+the same psbts in Krux's other encodings, and the `_SD` psbts Krux writes
+to an SD card, which keep every field of the psbt it signed. The source's
+blob is `7c653bbdcf8454cc7e97f4d080d60dc8a6164bdd`. What our code reads
+of each, and what it does not, is the module's docstring.
+
+The commit is the tip of the path on Krux's `main`. Its descriptor
+checksums are wrong, and `tests/krux_test.py` asserts that each is
+refused. selfcustody/krux#973 corrects them on Krux's `develop`
+(merge commit `909284678142cead475cf1b1a90fc88c6dc5c09f`): a pin that
+includes it turns that test red, as the descriptors then carry the
+checksum we compute.
+
+The check, for this entry and the next: each constant of
+`tests/krux_test.py` that bears one of Krux's names, its pieces joined,
+is the string Krux's file assigns that name. From this repository's root,
+the commands print an empty list. Each file is read at its entry's own
+pin:
+
+```shell
+krux=$(mktemp -d)
+for pin in \
+    2fe2f5f5332d08f385480a76a91814e2e7477558:tests/test_psbt.py \
+    7a2fcd9e9381fc025695543213314eb7845def87:tests/pages/home_pages/test_home.py
+do
+    gh api -H 'Accept: application/vnd.github.raw' \
+        "repos/selfcustody/krux/contents/${pin#*:}?ref=${pin%%:*}" \
+        >> "$krux/source.py"
+done
+uv run python - "$krux/source.py" <<'PY'
+import re
+import sys
+
+from tests import krux_test as t
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    pattern = r"(?m)^ *([A-Z0-9_]+) = (?:\"|')(.*)(?:\"|')$"
+    upstream = dict(re.findall(pattern, source.read()))
+names = [n for n in vars(t) if re.fullmatch("[A-Z][A-Z0-9_]*", n)]
+print([n for n in names if upstream.get(n) != getattr(t, n)])
+PY
+rm -r "${krux:?}"
+```
+
+License: MIT, as Krux's `LICENSE.md` says of Krux's own code, whose
+notice the module keeps.
+
+### Not vendored as a file: the Specter wallet files of Krux's tests
+
+```text
+repo    selfcustody/krux
+path    tests/pages/home_pages/test_home.py
+commit  7a2fcd9e9381fc025695543213314eb7845def87  2026-10-02
+pulled  2026-11-16
+behind  0 revisions; that commit is the tip of the path
+```
+
+Verdict: **transcribed**, and cited inline in `tests/krux_test.py`: the
+Specter wallet files of miniscript policies, a single key inheritance, an
+expanding multisig and a joint custody, under Krux's own names. The
+singlesig and multisig files beside them hold no timelock and are left
+out. The source's blob is `52dca024bbba2d7340b7f2fbcc4dcba4ecff2595`, and
+the entry above has the check.
+
+The commit is the tip of the path on Krux's `main`. The expanding
+multisig's checksum is wrong, and `tests/krux_test.py` asserts that it
+is refused. selfcustody/krux#973 corrects it on `develop`, to the
+checksum we compute, so a pin that includes it turns that test red too.
+
 ## Chain data, not a repository
 
 These are consensus bytes. There is no upstream repository to pin and no
@@ -2147,6 +2268,8 @@ Not checked byte for byte against one:
   `bitcoin_s_oracle_vectors.json`.
 - recorded from btcd's MuSig2 code, pinned to the commit that ran:
   `signed_psbts.json`.
+- recorded from Bitcoin Core's wallet, pinned to the release that ran:
+  `recovery_psbts.json`.
 - chain data, identified by block hash: the blocks under
   `tests/block/_data/`.
 - response bodies under `tests/fetch/_data/`, whose envelopes are
