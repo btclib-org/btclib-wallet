@@ -3914,12 +3914,20 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
     same finalized state this function produces, which is where Bitcoin
     Core's own `PSBTInput::Serialize` does it too.
 
-    Deciding that an input has enough data is three checks beyond the
-    presence of a signature, all per input: the sighash type each
-    signature commits to is one the input accepts, each signature
-    verifies against the key it is filed under, and the key of a p2pkh
-    or p2wpkh input, wrapped or not, is the one its script commits to,
-    and compressed for a p2wpkh.
+    An input spending a bare pay-to-anchor output has enough data with
+    no signature at all: its spend is an empty scriptSig and an empty
+    witness, which verify (src/script/sign.cpp:722-723 and
+    src/script/interpreter.cpp:2000-2001 at bitcoin/bitcoin@f0de87f040,
+    the v32.1 tag). `PsbtIn.serialize` writes neither empty field, and
+    so drops nothing from that input, as Core's `PSBTInput::Serialize`
+    does (src/psbt.h:371 and 509-517).
+
+    For any other input, deciding that it has enough data is three
+    checks beyond the presence of a signature, all per input: the
+    sighash type each signature commits to is one the input accepts,
+    each signature verifies against the key it is filed under, and the
+    key of a p2pkh or p2wpkh input, wrapped or not, is the one its
+    script commits to, and compressed for a p2wpkh.
 
     What is then built is the spend the input's own kind asks for, which
     is what _finalized_input dispatches on: a witness script alone does
@@ -3971,6 +3979,7 @@ def finalize(psbt: Psbt, *, solver: InputSolver | None = None) -> Psbt:
             script_sig, witness = _finalized_taproot_input(psbt, vin_i)
         # a pay-to-anchor output is spent by nothing at all: Bitcoin Core's
         # SignStep solves it with no signature, and the spend is empty
+        # (src/script/sign.cpp:722-723 at bitcoin/bitcoin@f0de87f040)
         elif _spends_anchor(psbt_in):
             script_sig, witness = b"", Witness()
         else:

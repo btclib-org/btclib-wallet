@@ -7009,3 +7009,4 @@ def test_finalize_spends_a_pay_to_anchor_input_with_nothing() -> None:
     finalized = finalize(psbt)
     assert finalized.inputs[0].final_script_sig == b""
     assert finalized.inputs[0].final_script_witness.stack == ()
+    verify_transaction([TxOut(240, spk)], extract_tx(finalized, check_validity=False))
