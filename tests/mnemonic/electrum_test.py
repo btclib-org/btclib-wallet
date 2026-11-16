@@ -278,8 +278,10 @@ def test_descriptors_address_matches_electrum_vertical() -> None:
         "cycle rocket west magnet parrot shuffle foot correct salt library feed song"
     )
     receive, change = electrum.descriptors_from_mnemonic(standard)
-    assert descriptors.parse(receive).address(0) == "1NNkttn1YvVGdqBW4PR6zvc3Zx3H5owKRf"
-    assert descriptors.parse(change).address(0) == "1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D"
+    addr = "1NNkttn1YvVGdqBW4PR6zvc3Zx3H5owKRf"  # pragma: allowlist secret
+    assert descriptors.parse(receive).address(0) == addr
+    addr = "1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D"  # pragma: allowlist secret
+    assert descriptors.parse(change).address(0) == addr
 
     segwit = (
         "bitter grass shiver impose acquire brush forget axis eager alone wine silver"
@@ -287,5 +289,5 @@ def test_descriptors_address_matches_electrum_vertical() -> None:
     receive, change = electrum.descriptors_from_mnemonic(segwit)
     addr = "bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af"
     assert descriptors.parse(receive).address(0) == addr
-    addr = "bc1qdy94n2q5qcp0kg7v9yzwe6wvfkhnvyzje7nx2p"
+    addr = "bc1qdy94n2q5qcp0kg7v9yzwe6wvfkhnvyzje7nx2p"  # pragma: allowlist secret
     assert descriptors.parse(change).address(0) == addr
