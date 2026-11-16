@@ -600,7 +600,7 @@ class ScriptWallet(RangedWallet):
         `p2sh-p2wsh` is the witness program and not the script that
         program commits to.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         if self.script_type == "p2wsh":
             return b""
         script = self._script(branch, index)
@@ -616,7 +616,7 @@ class ScriptWallet(RangedWallet):
         a plain p2sh, where the template script is the redeem script
         instead.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         return b"" if self.script_type == "p2sh" else self._script(branch, index)
 
     def _hd_key_paths(self, branch: int, index: int) -> dict[bytes, BIP32KeyOrigin]:
@@ -674,7 +674,7 @@ class ScriptWallet(RangedWallet):
         the output being spent -- an input may not carry it yet, and
         `Psbt.assert_signable` is the role after this one.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         # an IndexError out of a public method is not an answer, and a
         # negative index would quietly update the input at the other end
         if not 0 <= vin_i < len(psbt.inputs):
@@ -705,7 +705,7 @@ class ScriptWallet(RangedWallet):
         an output is not a signing instruction, and what a reader wants of
         it is the whole script, the branch nobody is spending included.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         # an IndexError out of a public method is not an answer, and a
         # negative index would quietly update the output at the other end
         if not 0 <= vout_i < len(psbt.outputs):
