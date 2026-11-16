@@ -138,9 +138,13 @@ the last one.
   the lowest block of each retarget period**
   ([ISS 881](https://github.com/btclib-org/btclib-wallet/issues/881)),
   where it kept one more block per sync. After a reorganization deeper than
-  the recent blocks kept, `SyncResult.fork_height` is below the real fork,
-  and a backend that cannot read below its prune height fails that sync,
-  and each later one, with `FetchError`.
+  the recent blocks kept, `SyncResult.fork_height` is the highest block the
+  ledger holds that is still on the chain: the real fork where the ledger
+  holds the fork's block, and below it where it does not. The sync reads
+  from each block it holds, highest first, until one is still on the
+  chain, so a backend that cannot read below its prune height fails that
+  sync, and each later one, with `FetchError`, where a block read is below
+  it.
 - **`psbt.miniscript_solver` refuses a miniscript input whose `pk_h()` key
   the input names in neither `partial_sigs` nor `hd_key_paths`**
   ([ISS 950](https://github.com/btclib-org/btclib-wallet/issues/950)),
