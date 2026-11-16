@@ -21,7 +21,7 @@ from bip39_slip39.exceptions import (
 from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
 
-from btclib_wallet import slip132
+from btclib_wallet import descriptors, slip132
 from btclib_wallet.bip32 import bip32
 from btclib_wallet.mnemonic import bip39, electrum
 from tests import load, vector_id
@@ -220,3 +220,64 @@ def test_mxprv_refuses_a_falsy_passphrase_of_another_type(passphrase: object) ->
     err_msg = f"invalid passphrase type: {type(passphrase).__name__}"
     with pytest.raises(Bip39Slip39TypeError, match=err_msg):
         electrum.mxprv_from_mnemonic(mnemonic, passphrase)  # type: ignore[arg-type]
+
+
+def test_descriptors_from_mnemonic() -> None:
+    """A "standard" seed is pkh() at the root, a "segwit" one wpkh() at m/0h.
+
+    Both name the master key the mnemonic answers with, so each
+    descriptor carries that key's xpub, and the key origin with it. The
+    receive chain is /0 and the change chain /1.
+    """
+    xprv = "xprv9s21ZrQH143K2ASM657UjJdfQ83QaZcdZ1RVsmMbcZxTA3eyQP1arqav4L9TVQz1tf2kXhwy87vAxjngxL61rudpNqyDvtJv8LCxmzNrM2U"
+    xpub = bip32.xpub_from_xprv(xprv)
+    receive, change = electrum.descriptors_from_mnemonic(STANDARD)
+    assert receive.startswith("pkh([")
+    assert f"{xpub}/0/*)#" in receive
+    assert f"{xpub}/1/*)#" in change
+    assert receive.split("#")[0].replace("/0/*)", "") == change.split("#")[0].replace(
+        "/1/*)", ""
+    )
+
+    # the first "segwit" vector, with a passphrase, and its master key at m/0h
+    segwit, passphrase, rmxprv = ELECTRUM_VECTORS[4].values[:3]
+    assert isinstance(segwit, str)
+    assert isinstance(passphrase, str)
+    assert isinstance(rmxprv, str)
+    receive, change = electrum.descriptors_from_mnemonic(segwit, passphrase)
+    mxpub = bip32.xpub_from_xprv(rmxprv)
+    assert receive.startswith("wpkh([") and "/0h]" in receive
+    assert f"{mxpub}/0/*)#" in receive
+    assert f"{mxpub}/1/*)#" in change
+
+
+def test_descriptors_refuse_other_versions() -> None:
+    """The pre-2.0 version is refused, as mxprv refuses it."""
+    old = "cell dumb heartbeat north boom tease ship baby bright kingdom rare squeeze"
+    err_msg = "^unmanaged electrum mnemonic version: old; "
+    with pytest.raises(BTClibValueError, match=err_msg):
+        electrum.descriptors_from_mnemonic(old)
+
+
+def test_descriptors_address_matches_electrum_vertical() -> None:
+    """The first address of each descriptor is the one Electrum's test gives.
+
+    The vectors are from spesmilo/electrum's tests/test_wallet_vertical.py:
+    test_electrum_seed_standard (pkh) and test_electrum_seed_segwit (wpkh),
+    both without a passphrase, at receive and change index 0.
+    """
+    standard = (
+        "cycle rocket west magnet parrot shuffle foot correct salt library feed song"
+    )
+    receive, change = electrum.descriptors_from_mnemonic(standard)
+    assert descriptors.parse(receive).address(0) == "1NNkttn1YvVGdqBW4PR6zvc3Zx3H5owKRf"
+    assert descriptors.parse(change).address(0) == "1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D"
+
+    segwit = (
+        "bitter grass shiver impose acquire brush forget axis eager alone wine silver"
+    )
+    receive, change = electrum.descriptors_from_mnemonic(segwit)
+    addr = "bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af"
+    assert descriptors.parse(receive).address(0) == addr
+    addr = "bc1qdy94n2q5qcp0kg7v9yzwe6wvfkhnvyzje7nx2p"
+    assert descriptors.parse(change).address(0) == addr

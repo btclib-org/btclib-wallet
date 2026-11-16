@@ -20,8 +20,9 @@ from ecc.curves.curve import mult, secp256k1
 from ecc.curves.sec_point import bytes_from_point, scalar_from_prv_key
 
 from btclib_wallet._refusal import _label
-from btclib_wallet.bip32 import derive, rootxprv_from_seed
+from btclib_wallet.bip32 import derive, fingerprint, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip32.der_path import HARDENED_OFFSET
+from btclib_wallet.descriptors.descriptors import add_checksum
 
 # under TYPE_CHECKING, so that the alias annotates the signatures below
 # without this module binding a name of bip39_slip39's
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from bip39_slip39.mnemonic import Mnemonic
 
 __all__ = [
+    "descriptors_from_mnemonic",
     "mxprv_from_mnemonic",
     "old_master_pub_key_from_mnemonic",
 ]
@@ -67,6 +69,34 @@ def mxprv_from_mnemonic(
     xversion = network_from_name(network).slip132_p2wpkh_prv
     rootxprv = rootxprv_from_seed(seed, xversion)
     return derive(rootxprv, HARDENED_OFFSET)  # "m/0h"
+
+
+def descriptors_from_mnemonic(
+    mnemonic: Mnemonic, passphrase: str | None = None, network: str = "mainnet"
+) -> tuple[str, str]:
+    """Return the receive and change descriptors of an Electrum mnemonic.
+
+    A "standard" mnemonic is `pkh()` over the root key, `m/0/*` and
+    `m/1/*`; a "segwit" one is `wpkh()` over its `m/0h` key, `m/0h/0/*`
+    and `m/0h/1/*`. Each key carries its origin, the master fingerprint
+    and the path to its key, as an output descriptor does. The other
+    versions are refused by `mxprv_from_mnemonic`, with its message.
+    """
+    mxprv = mxprv_from_mnemonic(mnemonic, passphrase, network)
+    version, _ = bip39_slip39.electrum.version_from_mnemonic(mnemonic)
+    passphrase = "" if passphrase is None else passphrase
+    seed = bip39_slip39.electrum.seed_from_mnemonic(mnemonic, passphrase)
+    root = rootxprv_from_seed(seed, network_from_name(network).bip32_prv)
+    origin = f"[{fingerprint(root).hex()}"
+    script = "pkh"
+    if version == "segwit":
+        origin += "/0h"
+        script = "wpkh"
+    origin += "]"
+    xpub = xpub_from_xprv(mxprv)
+    receive = add_checksum(f"{script}({origin}{xpub}/0/*)")
+    change = add_checksum(f"{script}({origin}{xpub}/1/*)")
+    return receive, change
 
 
 def old_master_pub_key_from_mnemonic(
