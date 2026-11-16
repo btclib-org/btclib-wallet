@@ -25,12 +25,17 @@ from btclib.script.engine import verify_transaction
 from btclib.script.limits import MAX_SCRIPT_SIZE
 from btclib.script.script import op_code_spans, serialize
 from btclib.script.script_pub_key import ScriptPubKey
-from btclib.script.taproot import leaf_hash, output_prvkey_from_merkle_root
+from btclib.script.taproot import (
+    leaf_hash,
+    output_prvkey_from_merkle_root,
+    output_pubkey_from_merkle_root_var,
+)
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.descriptors import TrDescriptor, WshDescriptor
@@ -1014,3 +1019,150 @@ def test_a_key_leaf_beside_a_record_that_proves_nothing_is_refused() -> None:
     message = "^a control block does not prove its leaf script against the output key$"
     with pytest.raises(BTClibValueError, match=message):
         finalize(psbt, solver=miniscript_solver)
+
+
+def _x_only(prv_key: int) -> str:
+    """Return the x-only key of a private key, as hex."""
+    return PrvKeyData(prv_key).pub.sec[1:].hex()
+
+
+def _two_quorums(first: int, second: int) -> str:
+    """Return two 1-of-n ``multi_a()`` quorums of the keys of 1, 2, 3 and on."""
+    keys = [_x_only(prv_key) for prv_key in range(1, first + second + 1)]
+    return (
+        f"and_v(v:multi_a(1,{','.join(keys[:first])}),"
+        f"multi_a(1,{','.join(keys[first:])}))"
+    )
+
+
+def _hand_tr(scripts: list[bytes]) -> tuple[Psbt, TxOut]:
+    """Return the unsigned psbt of a NUMS output with one or two leaves.
+
+    Built by hand and not from a tr() descriptor, which refuses a leaf
+    that is not sane: these are not.
+    """
+    hashes = [leaf_hash(0xC0, script) for script in scripts]
+    root = hashes[0]
+    if len(hashes) == 2:
+        root = tagged_hash(b"TapBranch", b"".join(sorted(hashes)))
+    nums = bytes.fromhex(NUMS)
+    output_key, parity = output_pubkey_from_merkle_root_var(nums, root)
+    prevout = TxOut(50_000, ScriptPubKey(b"\x51\x20" + output_key))
+    tx = Tx(
+        version=2,
+        lock_time=0,
+        vin=[TxIn(OutPoint(b"\x0b" * 32, 0), sequence=NO_LOCK)],
+        vout=[TxOut(49_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[0])))],
+    )
+    psbt = Psbt.from_tx(tx)
+    psbt_in = psbt.inputs[0]
+    psbt_in.witness_utxo = prevout
+    psbt_in.taproot_internal_key = nums
+    psbt_in.taproot_merkle_root = root
+    for i, script in enumerate(scripts):
+        path = hashes[1 - i] if len(hashes) == 2 else b""
+        control_block = bytes([0xC0 + parity]) + nums + path
+        psbt_in.taproot_leaf_scripts[control_block] = (script, 0xC0)
+    return psbt, prevout
+
+
+def _sign_with(psbt: Psbt, script: bytes, prv_keys: list[int]) -> None:
+    """Add the script path signatures of `prv_keys` for one leaf script."""
+    hash_ = leaf_hash(0xC0, script)
+    msg_hash = taproot_sig_hash(psbt, 0, leaf_hash=hash_)
+    for prv_key in prv_keys:
+        key_data = bytes.fromhex(_x_only(prv_key)) + hash_
+        signature = ssa.sign_(msg_hash, prv_key).serialize()
+        psbt.inputs[0].taproot_script_spend_signatures[key_data] = signature
+
+
+def test_a_leaf_past_the_stack_limit_is_refused() -> None:
+    """Refuse a satisfied leaf whose stack passes a thousand elements.
+
+    Two 1-of-500 quorums are satisfied by a thousand elements, and the
+    first key the script pushes on them is the thousand and first, which
+    BIP342 refuses: the script engine's refusal is the answer. With one
+    key fewer the stack peaks at a thousand, and the leaf is spent.
+    """
+    node = parse(_two_quorums(500, 500), TAPSCRIPT)
+    assert node.max_exec_stack_items == 1001
+    script = node.script()
+    psbt, _ = _hand_tr([script])
+    _sign_with(psbt, script, [1, 501])
+    message = "^more than 1000 stack elements: 1001 "
+    with pytest.raises(BTClibValueError, match=message) as e:
+        finalize(psbt, solver=miniscript_solver)
+    # the engine's own refusal, raised from a fresh run and chained by it
+    assert_secret_free(e.value, [PRV_KEYS[0], (501).to_bytes(32, "big")])
+
+    node = parse(_two_quorums(499, 500), TAPSCRIPT)
+    assert node.max_exec_stack_items == 1000
+    script = node.script()
+    psbt, prevout = _hand_tr([script])
+    _sign_with(psbt, script, [1, 500])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == script
+
+
+def test_a_leaf_past_the_stack_limit_is_passed_over() -> None:
+    """Spend the larger of two satisfied leaves, the smaller being refused.
+
+    The leaf of two 1-of-500 quorums has the smaller witness, and one the
+    script engine refuses. The other leaf is an ``or_d()`` whose ``pk()``
+    branch spends with one signature beside two 1-of-600 quorums: its
+    miniscript is not within its resource limits, and its witness is one
+    the engine takes.
+    """
+    past = parse(_two_quorums(500, 500), TAPSCRIPT)
+    guarded = parse(f"or_d(pk({_x_only(1201)}),{_two_quorums(600, 600)})", TAPSCRIPT)
+    assert not guarded.is_within_resource_limits
+    psbt, prevout = _hand_tr([past.script(), guarded.script()])
+    _sign_with(psbt, past.script(), [1, 501])
+    _sign_with(psbt, guarded.script(), [1201])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == guarded.script()
+    # the witness passed over, built as the solver builds it
+    past_hash = leaf_hash(0xC0, past.script())
+    script_sigs = psbt.inputs[0].taproot_script_spend_signatures
+    signatures: dict[Octets, Octets] = {
+        key_data[:32]: signature
+        for key_data, signature in script_sigs.items()
+        if key_data[32:] == past_hash
+    }
+    records = psbt.inputs[0].taproot_leaf_scripts
+    (proof,) = (cb for cb, (script, _) in records.items() if script == past.script())
+    passed_over = Witness([*past.satisfy(signatures), past.script(), proof])
+    assert len(passed_over.serialize()) < len(Witness(list(stack)).serialize())
+
+
+def test_the_engine_runs_the_input_being_finalized() -> None:
+    """Spend a leaf on each of two inputs, the engine running each one.
+
+    Each input spends the timelocked leaf of an output of its own, and its
+    witness is run on that input of the transaction, not on another.
+    """
+    descriptor = parse_descriptor(SIMPLE_INHERITANCE)
+    assert isinstance(descriptor, TrDescriptor)
+    prevouts = [TxOut(50_000 + i, descriptor.script_pub_key(0)) for i in range(2)]
+    tx = Tx(
+        version=2,
+        lock_time=0,
+        vin=[TxIn(OutPoint(bytes([i + 1]) * 32, i), sequence=52560) for i in range(2)],
+        vout=[TxOut(99_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[0])))],
+    )
+    psbt = Psbt.from_tx(tx)
+    for i, prevout in enumerate(prevouts):
+        psbt.inputs[i].witness_utxo = prevout
+        psbt = update_psbt_input(descriptor, psbt, i, 0)
+    for i in range(2):
+        script = descriptor.taproot_tree(0)[0][2]
+        hash_ = leaf_hash(0xC0, script)
+        msg_hash = taproot_sig_hash(psbt, i, leaf_hash=hash_)
+        signature = ssa.sign_(msg_hash, 2).serialize()
+        key_data = bytes.fromhex(X[1]) + hash_
+        psbt.inputs[i].taproot_script_spend_signatures[key_data] = signature
+    final = finalize(psbt, solver=miniscript_solver)
+    spending = final.tx
+    for tx_in, psbt_in in zip(spending.vin, final.inputs, strict=True):
+        tx_in.script_witness = psbt_in.final_script_witness
+    verify_transaction(prevouts, spending)

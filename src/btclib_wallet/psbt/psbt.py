@@ -55,7 +55,7 @@ from btclib.script import (
     taproot,
     type_and_payload,
 )
-from btclib.script.engine import verify_transaction
+from btclib.script.engine import verify_input, verify_transaction
 from btclib.script.limits import MAX_SCRIPT_SIZE, MAX_STACK_SIZE
 from btclib.script.script import op_code_spans
 from btclib.script.sig_hash import (
@@ -4021,15 +4021,21 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     names, has to be the output key, and every control block of
     `taproot_leaf_scripts`, at a leaf version BIP341 defines, has to prove
     its leaf against that key. An input carrying one that does not is
-    refused, whichever of those leaves is signed: a control block that
-    proves nothing would otherwise be the smallest witness, and one the
-    network refuses. And every script path signature of the input is
-    verified, against the hash its type commits to, as `finalize`
-    verifies the signatures it builds a spend from. `finalize` checks
-    neither of a spend a solver answers. Where no leaf is
-    satisfied, a leaf whose ``pk_h()`` key the input does not name is the
-    refusal, and otherwise the satisfier's for the first leaf in the
-    order above.
+    refused, whichever of those leaves is signed: fields that describe
+    some other output are refused, not spent around. And every script
+    path signature of the input is verified, against the hash its type
+    commits to, as `finalize` verifies the signatures it builds a spend
+    from. `finalize` checks neither of a spend a solver answers.
+
+    A leaf's witness is a candidate once the script engine has run it on
+    the transaction the psbt is building, with
+    `btclib.script.engine.verify_input`: a satisfied leaf can still be
+    one consensus refuses, a leaf of two 1-of-500 ``multi_a()`` quorums
+    among them, whose stack passes the thousand elements BIP342 allows.
+    Such a leaf is passed over, as one the signatures do not satisfy is.
+    Where no leaf is left, a leaf whose ``pk_h()`` key the input does not
+    name is the refusal, and otherwise the first leaf's in the order
+    above, the satisfier's or the engine's.
 
     None where the input is not this solver's business: a p2wsh script
     that is not a miniscript, an input with no witness script that spends
@@ -4144,10 +4150,11 @@ def _tapscript_spend(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     # the order a tie is broken in: by leaf script, then by control block
     leaves.sort(key=lambda leaf: (leaf[0], leaf[1]))
     spend = _spend_context(psbt, vin_i)
+    spent = _spent_outputs(psbt.inputs, reason=_TAPROOT_NEEDS_UTXOS)
     witnesses: list[Witness] = []
     for leaf in leaves:
         with suppress(BTClibValueError):
-            witnesses.append(_leaf_witness(leaf, signatures, spend))
+            witnesses.append(_leaf_witness(psbt, vin_i, leaf, spend, spent))
     if witnesses:
         # `min` keeps the first of equal sizes, which is the order above
         return b"", min(witnesses, key=lambda witness: len(witness.serialize()))
@@ -4156,26 +4163,48 @@ def _tapscript_spend(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
         err_msg += "a leaf script holds"
         raise BTClibValueError(err_msg)
     # the first leaf again, outside `suppress`: its refusal is the answer
-    return b"", _leaf_witness(leaves[0], signatures, spend)
+    return b"", _leaf_witness(psbt, vin_i, leaves[0], spend, spent)
 
 
 def _leaf_witness(
+    psbt: Psbt,
+    vin_i: int,
     leaf: tuple[bytes, bytes, bytes, miniscript.Miniscript],
-    signatures: Mapping[bytes, bytes],
     spend: miniscript.SpendContext,
+    spent: list[TxOut],
 ) -> Witness:
-    """Return a leaf's witness: its satisfaction, script and control block.
+    """Return a leaf's witness, once the script engine has run it.
 
-    The satisfaction reads the script path signatures of that leaf alone,
-    keyed by x-only key.
+    The witness is the leaf's satisfaction, its script and its control
+    block. The satisfaction reads the script path signatures of that leaf
+    alone, keyed by x-only key. `spent` is the output each input of the
+    psbt spends.
+
+    The satisfier answers for the leaf's fragments, and consensus for the
+    script they make up: two 1-of-500 ``multi_a()`` quorums are satisfied
+    by a thousand elements, and the first key the script pushes on them
+    is the thousand and first, where BIP342 keeps a limit of a thousand
+    on the stack and the altstack together. So the witness is run on the
+    transaction the psbt is building, which is what Bitcoin Core's
+    ``ProduceSignature`` (``src/script/sign.cpp``) does before it calls an
+    input complete. `Miniscript.is_within_resource_limits` would answer
+    before the satisfaction, and for its worst case: it answers False for
+    an ``or_d()`` whose ``pk()`` branch spends with one signature beside
+    two such quorums.
     """
     script, control_block, leaf_hash, node = leaf
+    signatures = psbt.inputs[vin_i].taproot_script_spend_signatures
     offered: dict[Octets, Octets] = {
         key_data[:LEAF_HASH_SIZE]: signature
         for key_data, signature in signatures.items()
         if key_data[LEAF_HASH_SIZE:] == leaf_hash
     }
-    return Witness([*node.satisfy(offered, spend), script, control_block])
+    witness = Witness([*node.satisfy(offered, spend), script, control_block])
+    # a copy, computed from the psbt's fields
+    tx = psbt.tx
+    tx.vin[vin_i].script_witness = witness
+    verify_input(spent, tx, vin_i)
+    return witness
 
 
 def _stand_in_key(known: Mapping[Octets, Octets], context: str) -> tuple[bytes, bytes]:
