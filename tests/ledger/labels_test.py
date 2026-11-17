@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import ScriptPubKey
-from btclib.tx import TxIn, TxOut
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import COINBASE_MATURITY
 
 from btclib_wallet.descriptors import parse
@@ -474,6 +474,234 @@ def test_the_indexes_below_one_paid_are_labelled(
         wallet.address(0, index): "receive" for index in range(4)
     }
     assert ledger.label_of(wallet.address(0, 4)) is None
+
+
+def _sharing(
+    chain: FakeChain, path: Path, lookahead: int, branch: int, shared_first: bool
+) -> tuple[Ledger, int, DescriptorWallet]:
+    """Return a ledger of `source()` and a source sharing its scripts.
+
+    The second source's branch 0 is the first's `branch`, watched with
+    `LOOKAHEAD`, and `lookahead` is the first's. `shared_first` adds the
+    second source before the first. The second source's id and wallet
+    are returned beside the ledger.
+    """
+    ledger = Ledger.create(path, "regtest", chain)
+    shared = source(f"wpkh({{}}/84h/1h/0h/{branch}/*)", (0,))
+    if shared_first:
+        shared_id = ledger.add_source(shared, lookahead=LOOKAHEAD)
+        ledger.add_source(source(), lookahead=lookahead)
+    else:
+        ledger.add_source(source(), lookahead=lookahead)
+        shared_id = ledger.add_source(shared, lookahead=LOOKAHEAD)
+    return ledger, shared_id, shared
+
+
+@pytest.mark.parametrize(
+    "lookahead, branch, shared_first, hand_out, paid",
+    [
+        pytest.param(LOOKAHEAD, 0, False, True, 5, id="branch 0"),
+        pytest.param(20, 0, False, False, 5, id="branch 0, the first source labels"),
+        pytest.param(LOOKAHEAD, 1, False, True, 5, id="branch 1"),
+        pytest.param(20, 1, False, True, 5, id="branch 1 reached first"),
+        pytest.param(20, 1, True, True, 5, id="branch 1, the shared source first"),
+        pytest.param(20, 1, False, False, 3, id="branch 1, nothing handed out"),
+    ],
+)
+def test_a_script_two_sources_share_is_labelled_by_either(
+    chain: FakeChain,
+    tmp_path: Path,
+    lookahead: int,
+    branch: int,
+    shared_first: bool,
+    hand_out: bool,
+    paid: int,
+) -> None:
+    """Indexes up to the one paid have "", whatever the lookaheads.
+
+    `_sharing` says what each parameter makes of the two sources. The
+    shared source hands out index 0 where `hand_out` says so, and is
+    paid at `paid`. A restore watching 20 indexes, once synced, answers
+    the same.
+    """
+    ledger, shared_id, shared = _sharing(
+        chain, tmp_path / "l.sqlite", lookahead, branch, shared_first
+    )
+    with ledger:
+        if hand_out:
+            ledger.new_address(shared_id)
+        chain.mine([chain.pay([TxOut(10_000, shared.script_pub_key(0, paid))])])
+        ledger.sync()
+        addresses = [shared.address(0, index) for index in range(8)]
+        labels = [""] * (paid + 1) + [None] * (7 - paid)
+        assert [ledger.label_of(address) for address in addresses] == labels
+        assert ledger.addresses_by_label("") == dict.fromkeys(
+            addresses[: paid + 1], "receive"
+        )
+        text = ledger.export_policy()
+    restored, _ = Ledger.restore_policy(
+        text, tmp_path / "r.sqlite", "regtest", chain, lookahead=20
+    )
+    with restored:
+        restored.sync()
+        assert [restored.label_of(address) for address in addresses] == labels
+
+
+@pytest.mark.parametrize("shared_first", [False, True])
+@pytest.mark.parametrize("lookahead", [LOOKAHEAD, 20])
+def test_a_payment_to_a_shared_script_moves_each_source_on(
+    chain: FakeChain, tmp_path: Path, lookahead: int, shared_first: bool
+) -> None:
+    """Neither source hands out the paid address again, as Core does.
+
+    Core marks a paid script in each ScriptPubKeyMan that holds it.
+    """
+    ledger, shared_id, shared = _sharing(
+        chain, tmp_path / "l.sqlite", lookahead, 0, shared_first
+    )
+    with ledger:
+        chain.mine([chain.pay([TxOut(10_000, shared.script_pub_key(0, 3))])])
+        ledger.sync()
+        assert [ledger.new_address(shared_id) for _ in range(4)] == [
+            shared.address(0, index) for index in range(4, 8)
+        ]
+        assert ledger.new_address(1 - shared_id) == shared.address(0, 4)
+
+
+def test_a_window_grown_by_a_payment_marks_what_it_reaches(
+    chain: FakeChain, tmp_path: Path
+) -> None:
+    """A position a sync's read brings into a window is marked too.
+
+    One payment pays the shared source's indexes 1 and 3, and its window
+    of 2 reaches index 3 only once index 1 is marked. `source()` watches
+    index 3 from the start.
+    """
+    shared = source("wpkh({}/84h/1h/0h/{}/*)", (0,))
+    paid = [TxOut(10_000, shared.script_pub_key(0, index)) for index in (1, 3)]
+    chain.mine([chain.pay(paid)])
+    chain.mine(count=3)
+    with Ledger.create(tmp_path / "l.sqlite", "regtest", chain) as ledger:
+        ledger.add_source(source(), lookahead=20)
+        shared_id = ledger.add_source(shared, lookahead=2)
+        ledger.sync()
+        assert [ledger.new_address(shared_id) for _ in range(2)] == [
+            shared.address(0, index) for index in (4, 5)
+        ]
+
+
+def test_a_spend_to_a_shared_script_moves_each_source_on(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """A spend hands out the position of each source it pays."""
+    shared = source("wpkh({}/84h/1h/0h/{}/*)", (0,))
+    shared_id = ledger.add_source(shared, lookahead=LOOKAHEAD)
+    _funded(ledger, chain, 100_000)
+    ledger.spend([TxOut(30_000, shared.script_pub_key(0, 2))])
+    assert ledger.new_address(shared_id) == shared.address(0, 3)
+    assert ledger.new_address(0) == shared.address(0, 3)
+
+
+def test_the_ledgers_own_change_stays_change(
+    ledger: Ledger, chain: FakeChain, tmp_path: Path
+) -> None:
+    """A spend's change has no label, though a source receives at it.
+
+    Source 1's branch 0 is source 0's change branch. The spend's change
+    stays change through a bump, a payment from outside, a sync and a
+    restore, as *Labels* in the ledger's docstring says.
+    """
+    shared = source("wpkh({}/84h/1h/0h/1/*)", (0,))
+    ledger.add_source(shared, lookahead=LOOKAHEAD)
+    _funded(ledger, chain)
+    spent = ledger.spend([TxOut(30_000, script_of(FOREIGN))])
+    change = shared.address(0, 0)
+    assert spent.vout[1].script_pub_key.address == change
+    assert ledger.label_of(change) is None
+    # the fee comes from the change, with no coin added
+    bumped = ledger.bump(spent.id)
+    assert bumped.vout[1].script_pub_key.address == change
+    assert len(bumped.vin) == 1
+    chain.mine([bumped, chain.pay([TxOut(10_000, script_of(change))])])
+    ledger.sync()
+    assert ledger.label_of(change) is None
+    assert ledger.label_of(shared.address(0, 1)) is None
+    restored, _ = Ledger.restore_policy(
+        ledger.export_policy(), tmp_path / "r.sqlite", "regtest", chain
+    )
+    with restored:
+        restored.sync()
+        assert restored.label_of(change) is None
+
+
+def test_a_payment_from_outside_to_a_change_script_is_received(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """With no spend paying it, a source receiving at it labels it "".
+
+    Source 1's branch 0 is source 0's change branch.
+    """
+    shared = source("wpkh({}/84h/1h/0h/1/*)", (0,))
+    ledger.add_source(shared, lookahead=LOOKAHEAD)
+    _funded(ledger, chain)
+    chain.mine([chain.pay([TxOut(10_000, shared.script_pub_key(0, 0))])])
+    ledger.sync()
+    assert ledger.label_of(shared.address(0, 0)) == ""
+
+
+def test_a_spend_makes_change_only_of_the_script_it_pays(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """An outside payment beside the spend, to another change script.
+
+    Source 1's branch 0 is source 0's change branch. The spend's change
+    is index 0, and a payment from outside in the same block pays index
+    1: only index 0 is the ledger's own change.
+    """
+    shared = source("wpkh({}/84h/1h/0h/1/*)", (0,))
+    ledger.add_source(shared, lookahead=LOOKAHEAD)
+    _funded(ledger, chain)
+    spent = ledger.spend([TxOut(30_000, script_of(FOREIGN))])
+    chain.mine([spent, chain.pay([TxOut(10_000, shared.script_pub_key(0, 1))])])
+    ledger.sync()
+    assert ledger.label_of(shared.address(0, 1)) == ""
+    assert ledger.label_of(shared.address(0, 0)) is None
+    labelled = ledger.addresses_by_label("")
+    assert shared.address(0, 1) in labelled
+    assert shared.address(0, 0) not in labelled
+
+
+def test_a_spend_whose_only_output_is_change_keeps_it_change(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """Output 0 is read as any other, as in a bump where all is change.
+
+    Source 1's branch 0 is source 0's change branch. The transaction
+    spends the ledger's coin and pays source 0's change index 0 alone.
+    """
+    shared = source("wpkh({}/84h/1h/0h/1/*)", (0,))
+    ledger.add_source(shared, lookahead=LOOKAHEAD)
+    funding = _funded(ledger, chain)
+    change = ledger.sources[0].script_pub_key(1, 0)
+    vin = [TxIn(OutPoint(funding.id, 0))]
+    chain.mine([Tx(vin=vin, vout=[TxOut(funding.vout[0].value - 1_000, change)])])
+    ledger.sync()
+    assert ledger.label_of(change.address) is None
+    assert change.address not in ledger.addresses_by_label("")
+
+
+def test_a_spend_to_an_address_two_sources_receive_at_labels_it(
+    ledger: Ledger, chain: FakeChain
+) -> None:
+    """No source watches it on a branch other than 0, so it is no change.
+
+    Source 1's branch 0 is source 0's branch 0.
+    """
+    shared = source("wpkh({}/84h/1h/0h/{}/*)", (0,))
+    ledger.add_source(shared, lookahead=LOOKAHEAD)
+    _funded(ledger, chain)
+    ledger.spend([TxOut(30_000, shared.script_pub_key(0, 3))])
+    assert ledger.label_of(shared.address(0, 3)) == ""
 
 
 def test_a_refused_spend_to_its_own_address_hands_out_nothing(

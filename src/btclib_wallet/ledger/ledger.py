@@ -19,11 +19,13 @@ ledger watches each ranged branch from index 0 up to the next index it
 would hand out plus `lookahead`, that last one left out: with nothing
 handed out and a lookahead of 3, indexes 0, 1 and 2. `LOOKAHEAD` is
 Core's `DEFAULT_KEYPOOL_SIZE` (src/wallet/scriptpubkeyman.h at
-bitcoin/bitcoin@f0de87f040, the v32.1 tag). An output paid to a position
-marks it handed out, as Core's `MarkUnusedAddresses` does, which moves
-the window on. Ownership is computed from the scripts each time it is
-asked, so a source added later makes an output of a transaction already
-held the ledger's with no read of the chain
+bitcoin/bitcoin@f0de87f040, the v32.1 tag). An output paid to a script
+marks handed out each position watched at that script, of every source,
+as Core's `MarkUnusedAddresses` marks it in each ScriptPubKeyMan that
+holds it (src/wallet/wallet.cpp:1265-1280), which moves each window on.
+Ownership is computed from the scripts each time it is asked, so a
+source added later makes an output of a transaction already held the
+ledger's with no read of the chain
 (test/functional/wallet_balance.py:283-307 at the same commit).
 
 **The sync.** `HistoryReader` says how two answers are read together,
@@ -204,25 +206,31 @@ bitcoin/bitcoin@f0de87f040, the v32.1 tag). A label is kept by script,
 in the file, on an address of the ledger or of anybody else on its
 network. Its purpose is `receive` where the ledger watches the script
 when the label is set, and `send` otherwise, as `setlabel` sets it
-(src/wallet/rpc/addresses.cpp:146-150). Until one is set, an address of
-branch 0 has the label "" once it or a later index of its branch is
-handed out or paid to, or where its descriptor is not ranged, as Core
-labels each receiving address it hands out, imports, sees paid or skips
-below one paid (src/wallet/wallet.cpp:1275-1280 and 3849-3865, and
-src/wallet/scriptpubkeyman.cpp:1171-1197). `new_address` on a ranged
-branch 0 sets the label it is given, "" where it is given none, over any
-label the address had, with the purpose `receive`, as Core's
-`GetNewDestination` does (src/wallet/wallet.cpp:2640-2654). An address
-of another branch has no label until one is set. Change is an output to
-the ledger's script with no label, as Core's `ScriptIsChange` reads it
-(src/wallet/receive.cpp:52-72), so a label makes a change address a
-receiving one. A script with no address, as `pk()` pays to, has no
-label, is change, and is in no answer about labels or groupings. The
-name `*` is refused, as `LabelFromValue` refuses it
-(src/wallet/rpc/util.cpp:101-110). What an address or a label received
-is Core's `GetReceived` (src/wallet/rpc/coins.cpp:21-77): every output
-paying the ledger's scripts, change included, in each transaction deep
-enough. `address_groupings` is `GetAddressBalances` and
+(src/wallet/rpc/addresses.cpp:146-150). Until one is set, an address has
+the label "" where, on branch 0 of any source, it or a later index is
+handed out or paid to, or that source's branch 0 descriptor is not
+ranged, as Core labels each receiving address it hands out, imports,
+sees paid or skips below one paid (src/wallet/wallet.cpp:1275-1280 and
+3849-3865, and src/wallet/scriptpubkeyman.cpp:1171-1197). The ledger's
+own change is the exception: a script that a source watches on a branch
+other than 0, and that a transaction spending the ledger's coins pays,
+has no label, whichever source receives at it, as Core gives no label to
+an address that a payment marks in a ScriptPubKeyMan that is not active
+(src/wallet/wallet.cpp:1272-1273 and 3805-3808). It is read from the
+transactions held, so a restored ledger leaves it with no label once a
+sync reads the spend. `new_address` on a ranged branch 0 sets the label
+it is given, "" where it is given none, over any label the address had,
+with the purpose `receive`, as Core's `GetNewDestination` does
+(src/wallet/wallet.cpp:2640-2654). Any other address has no label until
+one is set. Change is an output to the ledger's script with no label, as
+Core's `ScriptIsChange` reads it (src/wallet/receive.cpp:52-72), so a
+label makes a change address a receiving one. A script with no address,
+as `pk()` pays to, has no label, is change, and is in no answer about
+labels or groupings. The name `*` is refused, as `LabelFromValue`
+refuses it (src/wallet/rpc/util.cpp:101-110). What an address or a label
+received is Core's `GetReceived` (src/wallet/rpc/coins.cpp:21-77): every
+output paying the ledger's scripts, change included, in each transaction
+deep enough. `address_groupings` is `GetAddressBalances` and
 `GetAddressGroupings` (src/wallet/receive.cpp:297-416).
 
 **Encryption.** `encrypt` encrypts the private keys of every source
@@ -271,10 +279,9 @@ its address, or on the first account where none did. An account hands
 out each index up to its `receive_index` and its `change_index`, and the
 one address of a branch that is not ranged counts as handed out. A label
 "" set, as `new_address` sets it, is written as any other, and a restore
-gives it again: left out, whether a restored ledger answers "" for it
-would depend on the lookahead each restored source watches. The label ""
-that *Labels* gives an address with none set is not written. The export
-holds no private key.
+gives it again; one set where *Labels* gives none, as on a change
+address, would be lost if left out. The label "" that *Labels* gives an
+address with none set is not written. The export holds no private key.
 
 The export refuses a source it cannot write: one with no branch 0, or
 with a branch other than 0 and 1, which BIP139 has no field for, and one
@@ -574,6 +581,13 @@ def _relocking(
 # where an output of the ledger is: its source, branch and index
 _Position = tuple[int, int, int]
 
+
+def _on_branch_0_and_another(positions: Iterable[_Position]) -> bool:
+    """Whether the positions of a script are on branch 0 and on another."""
+    branches = {branch for _, branch, _ in positions}
+    return 0 in branches and len(branches) > 1
+
+
 # Core's two purposes of an address book entry, its own address's and
 # anybody else's
 _RECEIVE = "receive"
@@ -586,16 +600,29 @@ class _TipMovedError(Exception):
     """Two reads of one sync answered for different tips."""
 
 
+@dataclass(frozen=True)
+class _Receiving:
+    """What `_entry` reads of the ledger, once for an answer.
+
+    `ends` is the next index of each source's branch 0, by source id.
+    `is_own_change` says whether a script is one watched both on branch 0
+    and on another that a spend of the ledger paid.
+    """
+
+    ends: Mapping[int, int]
+    is_own_change: Callable[[bytes], bool]
+
+
 @dataclass
 class _Windows:
     """The windows of one sync's reads, grown by the positions paid to.
 
-    `end` is each branch's first index not watched, `scripts` the
+    `end` is each branch's first index not watched, `scripts` every
     position of each script watched, `handed` the positions handed out.
     """
 
     end: dict[tuple[int, int], int]
-    scripts: dict[bytes, _Position]
+    scripts: dict[bytes, tuple[_Position, ...]]
     handed: set[_Position]
 
 
@@ -643,6 +670,9 @@ class Ledger:
         self._unscanned: set[int] = set()
         self._handed: set[_Position] = set()
         self._scripts: dict[bytes, _Position] = {}
+        # every position a watched script is at, where `_scripts` keeps
+        # only that of the first source whose window reached the script
+        self._positions: dict[bytes, tuple[_Position, ...]] = {}
         self._window: dict[tuple[int, int], int] = {}
         self._locked: set[OutPoint] = set()
         self._labels: dict[bytes, tuple[str, str]] = {}
@@ -1148,10 +1178,18 @@ class Ledger:
 
     def _windows_for(
         self, handed: set[_Position]
-    ) -> tuple[dict[tuple[int, int], int], dict[bytes, _Position]]:
-        """Return the windows and the scripts that `handed` makes reached."""
+    ) -> tuple[
+        dict[tuple[int, int], int],
+        dict[bytes, _Position],
+        dict[bytes, tuple[_Position, ...]],
+    ]:
+        """Return the windows and the scripts that `handed` makes reached.
+
+        The scripts come twice, as `_scripts` and `_positions` hold them.
+        """
         window = dict(self._window)
         scripts = dict(self._scripts)
+        positions = dict(self._positions)
         for source, wallet in self._sources.items():
             for branch in wallet.branches:
                 end = 1
@@ -1160,9 +1198,11 @@ class Ledger:
                 start = window.get((source, branch), 0)
                 for index in range(start, end):
                     script = wallet.script_pub_key(branch, index).script
-                    scripts.setdefault(script, (source, branch, index))
+                    position = (source, branch, index)
+                    scripts.setdefault(script, position)
+                    positions[script] = (*positions.get(script, ()), position)
                 window[(source, branch)] = max(start, end)
-        return window, scripts
+        return window, scripts, positions
 
     def _extend_windows(self) -> None:
         """Watch every position the lookahead reaches, and check again.
@@ -1171,7 +1211,7 @@ class Ledger:
         spends the ledger's: each unconfirmed transaction is checked
         again, and one that fails is deleted from the file.
         """
-        self._window, self._scripts = self._windows_for(self._handed)
+        self._window, self._scripts, self._positions = self._windows_for(self._handed)
         txs = dict(self._txs)
         _drop_unverified(txs, self._scripts)
         if gone := [txid for txid in self._txs if txid not in txs]:
@@ -1264,29 +1304,66 @@ class Ledger:
         """Return the next index of each source's branch 0, by source id."""
         return {source: self._next_index(source, 0) for source in self._sources}
 
-    def _entry(self, script: bytes, ends: Mapping[int, int]) -> tuple[str, str] | None:
+    def _receiving(self) -> _Receiving:
+        """Return what `_entry` reads, for an answer about many scripts.
+
+        Each call scans every position handed out and every position
+        watched, and, where a script is watched both on branch 0 and on
+        another, the transactions held once. The ledger's own change is
+        what *Labels* in the module docstring says.
+        """
+        shared = {
+            script
+            for script, positions in self._positions.items()
+            if _on_branch_0_and_another(positions)
+        }
+        own_change: set[bytes] = set()
+        if shared:
+            for wtx in self._txs.values():
+                paid = {_script(tx_out) for tx_out in wtx.tx.vout} & shared
+                if paid and self._is_from_me(wtx.tx):
+                    own_change |= paid
+        return _Receiving(self._receive_ends(), frozenset(own_change).__contains__)
+
+    def _is_own_change(self, script: bytes) -> bool:
+        """Whether a watched script is the ledger's own change.
+
+        `_receiving`'s answer for one script, which reads the transactions
+        held only where the script is watched both on branch 0 and on
+        another.
+        """
+        if not _on_branch_0_and_another(self._positions[script]):
+            return False
+        return any(
+            self._is_from_me(wtx.tx)
+            for wtx in self._txs.values()
+            if any(_script(tx_out) == script for tx_out in wtx.tx.vout)
+        )
+
+    def _entry(self, script: bytes, receiving: _Receiving) -> tuple[str, str] | None:
         """Return a script's label and purpose, None where it has no label.
 
-        `ends` is what `_receive_ends` returns. A caller asking of many
-        scripts reads it once: each read scans every position handed out.
+        `receiving` is what `_receiving` returns, which a caller asking of
+        many scripts reads once; `label_of` asks with `_is_own_change`.
         """
         if script in self._labels:
             return self._labels[script]
-        position = self._scripts.get(script)
-        if position is None or position[1] != 0:
-            return None
-        source_id, _, index = position
-        ranged = self._sources[source_id].descriptor(0).is_ranged
-        if ranged and index >= ends[source_id]:
-            return None
-        return ("", _RECEIVE) if self._address(script) else None
+        for source_id, branch, index in self._positions.get(script, ()):
+            if branch != 0:
+                continue
+            ranged = self._sources[source_id].descriptor(0).is_ranged
+            if not ranged or index < receiving.ends[source_id]:
+                if not self._address(script) or receiving.is_own_change(script):
+                    return None
+                return ("", _RECEIVE)
+        return None
 
     def _address_book(self) -> dict[bytes, tuple[str, str]]:
         """Return the label and purpose of each script that has a label."""
         book: dict[bytes, tuple[str, str]] = {}
-        ends = self._receive_ends()
+        receiving = self._receiving()
         for script in self._scripts.keys() | self._labels.keys():
-            entry = self._entry(script, ends)
+            entry = self._entry(script, receiving)
             if entry is not None:
                 book[script] = entry
         return book
@@ -1307,7 +1384,8 @@ class Ledger:
         (src/wallet/rpc/addresses.cpp:550-555 at bitcoin/bitcoin@f0de87f040,
         the v32.1 tag).
         """
-        entry = self._entry(self._script_of(address), self._receive_ends())
+        receiving = _Receiving(self._receive_ends(), self._is_own_change)
+        entry = self._entry(self._script_of(address), receiving)
         return None if entry is None else entry[0]
 
     @_relocking
@@ -1398,16 +1476,12 @@ class Ledger:
             block_header_height(main.tip.height)
         answers = [main]
         scanned = frozenset(self._unscanned)
-        pending: dict[int, set[bytes]] = {}
         # the first sync reads every source from the lowest birth already
-        if self._tip is not None:
-            for script, (source, _, _) in self._scripts.items():
-                if source in scanned:
-                    pending.setdefault(source, set()).add(script)
+        pending = {} if self._tip is None else self._watched_by(scanned)
         # positions the answers pay to, which move the windows on: a copy
         # of the ledger's windows grows as they are found, and the scripts
         # it reaches are read in turn
-        windows = _Windows(dict(self._window), dict(self._scripts), set(self._handed))
+        windows = _Windows(dict(self._window), dict(self._positions), set(self._handed))
         # merged, not replaced: an unscanned source keeps its whole window
         for source, grown in self._grow(windows, answers).items():
             pending.setdefault(source, set()).update(grown)
@@ -1421,21 +1495,33 @@ class Ledger:
         used = frozenset(windows.handed - self._handed)
         return _Read(tuple(answers), main.tip, fork_height, used, scanned)
 
+    def _watched_by(self, sources: frozenset[int]) -> dict[int, set[bytes]]:
+        """Return each script that each of `sources` watches, by source.
+
+        A script another source watches too is among them.
+        """
+        watched: dict[int, set[bytes]] = {}
+        for script, positions in self._positions.items():
+            for source, _, _ in positions:
+                if source in sources:
+                    watched.setdefault(source, set()).add(script)
+        return watched
+
     def _grow(
         self, windows: _Windows, answers: Sequence[ScriptHistory]
     ) -> dict[int, set[bytes]]:
         """Mark the positions the answers pay to, and return the new scripts.
 
         A ranged branch watches `lookahead` indexes past each position
-        paid to.
+        paid to. A payment to a script marks each position watched at
+        it, as *What a source is* in the module docstring says.
         """
         used: set[_Position] = set()
         for answer in answers:
             for entry in answer.txs:
                 for tx_out in entry.tx.vout:
-                    position = windows.scripts.get(_script(tx_out))
-                    if position is not None and position not in windows.handed:
-                        used.add(position)
+                    used.update(windows.scripts.get(_script(tx_out), ()))
+        used -= windows.handed
         new: dict[int, set[bytes]] = {}
         for source, branch, index in sorted(used):
             windows.handed.add((source, branch, index))
@@ -1445,7 +1531,8 @@ class Ledger:
             end = index + 1 + self._lookahead[source]
             for i in range(windows.end[(source, branch)], end):
                 script = wallet.script_pub_key(branch, i).script
-                windows.scripts.setdefault(script, (source, branch, i))
+                position = (source, branch, i)
+                windows.scripts[script] = (*windows.scripts.get(script, ()), position)
                 new.setdefault(source, set()).add(script)
             windows.end[(source, branch)] = max(windows.end[(source, branch)], end)
         return new
@@ -1485,7 +1572,7 @@ class Ledger:
                     blocks[entry.block.height] = entry.block.block_id
         blocks[read.tip.height] = read.tip.block_id
         handed = tuple(sorted(read.used - self._handed))
-        window, scripts = self._windows_for(self._handed | read.used)
+        window, scripts, positions = self._windows_for(self._handed | read.used)
         _admit(txs, confirmed, mempool)
         _drop_unverified(txs, scripts)
         _mark_conflicts(txs)
@@ -1512,7 +1599,7 @@ class Ledger:
         self._tip = read.tip
         self._unscanned -= read.scanned
         self._handed |= read.used
-        self._window, self._scripts = window, scripts
+        self._window, self._scripts, self._positions = window, scripts, positions
         changed = frozenset(wtx.tx.id for wtx in upserted) | frozenset(deleted)
         return SyncResult(read.tip, read.fork_height, changed)
 
@@ -1521,9 +1608,9 @@ class Ledger:
     def _owned(self, tx_out: TxOut) -> bool:
         return tx_out.script_pub_key.script in self._scripts
 
-    def _is_change(self, tx_out: TxOut, ends: Mapping[int, int]) -> bool:
+    def _is_change(self, tx_out: TxOut, receiving: _Receiving) -> bool:
         """Whether the output pays the ledger a script with no label."""
-        return self._owned(tx_out) and self._entry(_script(tx_out), ends) is None
+        return self._owned(tx_out) and self._entry(_script(tx_out), receiving) is None
 
     def _depth(self, wtx: WalletTx) -> int:
         """Core's `GetTxDepthInMainChain`: confirmations, 0 in no block.
@@ -1693,7 +1780,7 @@ class Ledger:
 
         `txid` is in display order, as `Tx.id` returns it.
         """
-        return self._info(self._held(txid), set(), self._spends(), self._receive_ends())
+        return self._info(self._held(txid), set(), self._spends(), self._receiving())
 
     def _held(self, txid: bytes) -> WalletTx:
         """Return a transaction held, refusing an id of none."""
@@ -1711,16 +1798,16 @@ class Ledger:
         """
         trusted: set[bytes] = set()
         spends = self._spends()
-        ends = self._receive_ends()
+        receiving = self._receiving()
         ordered = sorted(self._txs.values(), key=lambda wtx: wtx.seq)
-        return tuple(self._info(wtx, trusted, spends, ends) for wtx in ordered)
+        return tuple(self._info(wtx, trusted, spends, receiving) for wtx in ordered)
 
     def _info(
         self,
         wtx: WalletTx,
         trusted: set[bytes],
         spends: Mapping[OutPoint, Sequence[WalletTx]],
-        ends: Mapping[int, int],
+        receiving: _Receiving,
     ) -> TxInfo:
         """Return Core's `gettransaction` figures of a transaction.
 
@@ -1742,7 +1829,7 @@ class Ledger:
             owned = self._owned(tx_out)
             if owned and not immature:
                 credit += tx_out.value
-            if debit and self._is_change(tx_out, ends):
+            if debit and self._is_change(tx_out, receiving):
                 continue
             if debit:
                 details.append(TxDetail("send", vout, -tx_out.value))
@@ -1856,7 +1943,7 @@ class Ledger:
         in each are sorted by address.
         """
         merged: dict[bytes, set[bytes]] = {}
-        ends = self._receive_ends()
+        receiving = self._receiving()
         for wtx in self._txs.values():
             tx = wtx.tx
             prevouts = [_prevout(tx_in, self._txs) for tx_in in tx.vin]
@@ -1869,7 +1956,7 @@ class Ledger:
                 spent += [
                     _script(o)
                     for o in tx.vout
-                    if self._is_change(o, ends) and self._has_address(o)
+                    if self._is_change(o, receiving) and self._has_address(o)
                 ]
             groups = [spent] + [[_script(o)] for o in tx.vout if self._has_address(o)]
             for group in groups:
@@ -1883,7 +1970,7 @@ class Ledger:
         for joined_scripts in {frozenset(scripts) for scripts in merged.values()}:
             entries = []
             for script in joined_scripts:
-                entry = self._entry(script, ends)
+                entry = self._entry(script, receiving)
                 entries.append(
                     GroupedAddress(
                         self._address(script),
@@ -2375,10 +2462,10 @@ class Ledger:
         """
         change: TxOut | None = None
         recipients: list[TxOut] = []
-        ends = self._receive_ends()
+        receiving = self._receiving()
         for i, tx_out in enumerate(txouts):
             if original_change_index is None:
-                is_change = self._is_change(tx_out, ends)
+                is_change = self._is_change(tx_out, receiving)
             else:
                 is_change = i == original_change_index
             if is_change:
@@ -2560,7 +2647,10 @@ class Ledger:
     def _hand_out_paid(self, txs: Iterable[Tx]) -> None:
         """Hand out each position of the ledger the transactions pay."""
         paid = {
-            self._scripts[_script(o)] for tx in txs for o in tx.vout if self._owned(o)
+            position
+            for tx in txs
+            for o in tx.vout
+            for position in self._positions.get(_script(o), ())
         }
         if new := sorted(paid - self._handed):
             # no address is asked for, as `load` asks none

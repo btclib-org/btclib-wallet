@@ -293,9 +293,9 @@ def test_the_label_new_address_sets_survives_any_lookahead(
     """Whatever the lookahead of each source, and of the restore.
 
     Which source the ledger reads a shared script as depends on the
-    lookahead, and so does whether *Labels* gives it "" with none set:
-    each "" `new_address` set is written, on account 1, which handed the
-    addresses out.
+    lookahead. Each "" `new_address` set is written on account 1, which
+    handed the addresses out, whichever source the ledger reads the
+    script as.
     """
     with _shared_sources(chain, path, first, second) as ledger:
         text = ledger.export_policy()

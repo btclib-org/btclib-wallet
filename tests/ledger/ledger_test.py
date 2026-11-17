@@ -293,6 +293,28 @@ def test_a_new_source_paid_at_the_tip_still_reads_its_history(
     assert ledger.balances().untrusted_pending == 30_000
 
 
+@pytest.mark.parametrize("synced_between", [False, True])
+def test_a_source_reads_the_scripts_it_shares_from_its_birth(
+    chain: FakeChain, path: Path, synced_between: bool
+) -> None:
+    """A source reads from its birth the scripts another source watches.
+
+    The payment is at height 1, below the birth of `source()`, which
+    derives the same script. `synced_between` syncs that source before
+    the shared one is added.
+    """
+    shared = source("wpkh({}/84h/1h/0h/{}/*)", (0,))
+    chain.mine([chain.pay([TxOut(10_000, shared.script_pub_key(0, 2))])])
+    chain.mine(count=4)
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source(), 5, lookahead=SMALL_LOOKAHEAD)
+        if synced_between:
+            ledger.sync()
+        ledger.add_source(shared, 0, lookahead=SMALL_LOOKAHEAD)
+        ledger.sync()
+        assert ledger.balances().trusted == 10_000
+
+
 def test_a_source_height_too_large_for_the_file_is_refused(ledger: Ledger) -> None:
     """A birth_height or lookahead the SQLite INTEGER column cannot hold.
 
