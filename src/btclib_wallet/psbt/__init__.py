@@ -22,9 +22,9 @@ records when a BIP does assign the bytes.
 
 `update_psbt_input` and `update_psbt_output` are the Updater, for the
 script a descriptor describes. `miniscript_solver` is a solver for
-`finalize`, and `miniscript_sizer` and `satisfaction_sizer` are sizers for
-`estimated_input_sizes`, for an input whose witness script is a BIP379
-miniscript.
+`finalize`, for an input whose witness script or taproot leaf script is a
+BIP379 miniscript. `miniscript_sizer` and `satisfaction_sizer` are sizers
+for `estimated_input_sizes`, for an input whose witness script is one.
 
 `PsbtView` is the same psbt read a map at a time out of a stream, for a
 signer with less memory than the psbt takes (issue btclib-org/btclib#647). It is
