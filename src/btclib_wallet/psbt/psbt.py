@@ -4186,16 +4186,13 @@ def _leaf_witness(
     psbt spends.
 
     The satisfier answers for the leaf's fragments, and consensus for the
-    script they make up: two 1-of-500 ``multi_a()`` quorums are satisfied
-    by a thousand elements, and the first key the script pushes on them
-    is the thousand and first, where BIP342 keeps a limit of a thousand
-    on the stack and the altstack together. So the witness is run on the
-    transaction the psbt is building; `miniscript_solver`'s docstring
-    says how this differs from Bitcoin Core's check.
+    script they make up, so the witness is run on the transaction the
+    psbt is building; `miniscript_solver`'s docstring has a leaf that
+    consensus refuses, and how this differs from Bitcoin Core's check.
     `Miniscript.is_within_resource_limits` would answer before the
     satisfaction, and for its worst case: it answers False for an
     ``or_d()`` whose ``pk()`` branch spends with one signature beside two
-    such quorums.
+    1-of-500 ``multi_a()`` quorums.
     """
     script, control_block, leaf_hash, node = leaf
     signatures = psbt.inputs[vin_i].taproot_script_spend_signatures
