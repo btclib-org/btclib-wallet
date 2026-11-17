@@ -295,6 +295,211 @@ def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> No
         assert miniscript_solver(psbt, 0) is None
 
 
+def _older_chain(count: int) -> Miniscript:
+    """Return ``pk()`` inside `count` nested ``and_v(v:older(1), ...)``."""
+    return parse("and_v(v:older(1)," * count + f"pk({KEYS[0]})" + ")" * count)
+
+
+def test_a_witness_script_past_the_op_limit_is_refused() -> None:
+    """Refuse a satisfied witness script that counts more than 201 op codes.
+
+    Each ``v:older(1)`` counts two op codes and the ``pk()`` one: a
+    hundred and one of them make 203, and the script engine refuses the
+    run at the 202nd, its refusal being the answer. A hundred make 201,
+    and the input is spent.
+    """
+    node = _older_chain(101)
+    assert node.max_ops == 203
+    psbt, _ = signed_psbt(node, [KEYS[0]], 0, 1)
+    message = "^more than 201 op codes: 202 "
+    with pytest.raises(BTClibValueError, match=message) as e:
+        finalize(psbt, solver=miniscript_solver)
+    # the engine's own refusal, raised from a fresh run and chained by it
+    assert_secret_free(e.value, [PRV_KEYS[0]])
+
+    node = _older_chain(100)
+    assert node.max_ops == 201
+    psbt, prevouts = signed_psbt(node, [KEYS[0]], 0, 1)
+    final = finalize(psbt, solver=miniscript_solver)
+    spending = final.tx
+    spending.vin[0].script_witness = final.inputs[0].final_script_witness
+    verify_transaction(prevouts, spending)
+
+
+def test_a_witness_past_the_standard_element_count_is_spent() -> None:
+    """Spend a p2wsh witness of a hundred and one signatures.
+
+    Policy relays a p2wsh witness of at most a hundred elements beside its
+    script, and consensus allows more. The script engine runs the
+    consensus rules, and takes this one: so does Bitcoin Core's
+    ``finalizepsbt``, which finalizes this input.
+    """
+    expression = f"pk({KEYS[100]})"
+    for key in reversed(KEYS[:100]):
+        expression = f"and_v(v:pk({key}),{expression})"
+    node = parse(expression)
+    psbt, prevouts = signed_psbt(node, KEYS[:101], 0, 0)
+    final = finalize(psbt, solver=miniscript_solver)
+    witness = final.inputs[0].final_script_witness
+    assert len(witness.stack) == 102
+    spending = final.tx
+    spending.vin[0].script_witness = witness
+    verify_transaction(prevouts, spending)
+
+
+def test_a_wrapped_p2wsh_input_is_run_with_its_redeem_script() -> None:
+    """Spend a p2sh-wrapped p2wsh miniscript, its script_sig run too.
+
+    The script_sig pushes the redeem script, which the p2sh output asks
+    for before the witness is run: without it, the engine refuses.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    psbt, _ = signed_psbt(node, [KEYS[0]], 0, 36)
+    redeem_script = ScriptPubKey.p2wsh(node.script()).script
+    prevout = TxOut(50_000, ScriptPubKey.p2sh(redeem_script))
+    psbt.inputs[0].witness_utxo = prevout
+    psbt.inputs[0].redeem_script = redeem_script
+    final = finalize(psbt, solver=miniscript_solver)
+    spending = final.tx
+    spending.vin[0].script_sig = final.inputs[0].final_script_sig
+    spending.vin[0].script_witness = final.inputs[0].final_script_witness
+    verify_transaction([prevout], spending)
+
+
+def test_a_high_s_signature_is_spent() -> None:
+    """Spend a p2wsh input whose signature carries a high s.
+
+    The low-s rule is policy, not consensus, and the script engine runs
+    the consensus rules alone: it takes this witness. Bitcoin Core's
+    ``finalizepsbt`` runs its standard flags, LOW_S among them, and leaves
+    the input unfinalized. This pins the answer issue
+    btclib-org/btclib-wallet#1042 records: the solver answers for
+    consensus.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    psbt, prevouts = signed_psbt(node, [KEYS[0]], 0, 36)
+    msg_hash = sig_hash.segwit_v0(node.script(), psbt.tx, 0, 1, prevouts[0].value)
+    low = dsa.sign_(msg_hash, PRV_KEYS[0])
+    high = dsa.Sig(low.r, low.ec.n - low.s)
+    assert high.s > high.ec.n // 2
+    psbt.inputs[0].partial_sigs = {bytes.fromhex(KEYS[0]): high.serialize() + b"\x01"}
+    final = finalize(psbt, solver=miniscript_solver)
+    witness = final.inputs[0].final_script_witness
+    assert witness.stack[0] == high.serialize() + b"\x01"
+    spending = final.tx
+    spending.vin[0].script_witness = witness
+    verify_transaction(prevouts, spending)
+
+
+def test_a_p2wsh_input_with_no_utxo_is_refused() -> None:
+    """Refuse a satisfied p2wsh input that names no output it spends.
+
+    The script engine runs the witness against that output, so without it
+    the witness is one nothing has run.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    psbt, _ = signed_psbt(node, [KEYS[0]], 0, 36)
+    assert miniscript_solver(psbt, 0) is not None
+    psbt.inputs[0].witness_utxo = None
+    with pytest.raises(BTClibValueError, match="^no utxo for input 0: "):
+        miniscript_solver(psbt, 0)
+
+
+def test_a_signature_that_does_not_verify_is_refused_as_one() -> None:
+    """Refuse a partial signature over another amount before the engine runs.
+
+    The signature commits to 50,000 satoshi, and the input spends 45,000:
+    the refusal names the signature, as `finalize` names it, rather than
+    the engine's false top stack element.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    psbt, prevouts = signed_psbt(node, [KEYS[0]], 0, 36)
+    psbt.inputs[0].witness_utxo = TxOut(45_000, prevouts[0].script_pub_key)
+    message = "^input 0: partial signature 0: invalid$"
+    with pytest.raises(BTClibValueError, match=message):
+        finalize(psbt, solver=miniscript_solver)
+
+
+def test_a_signature_is_verified_before_the_script_is_satisfied() -> None:
+    """Refuse a signature over another amount, whose quorum it leaves short.
+
+    The 2-of-2 carries one signature, and that one commits to 50,000
+    satoshi where the input spends 45,000. The satisfier would answer
+    that the signatures do not satisfy the script, and the refusal names
+    the signature instead, as `finalize` names it.
+    """
+    node = parse(f"multi(2,{KEYS[0]},{KEYS[1]})")
+    psbt, prevouts = signed_psbt(node, [KEYS[0]], 0, 0)
+    psbt.inputs[0].witness_utxo = TxOut(45_000, prevouts[0].script_pub_key)
+    message = "^input 0: partial signature 0: invalid$"
+    with pytest.raises(BTClibValueError, match=message):
+        miniscript_solver(psbt, 0)
+
+
+def test_a_signature_of_another_sighash_type_is_refused() -> None:
+    """Refuse a SIGHASH_NONE signature on an input that asks for SIGHASH_ALL.
+
+    The signature verifies, over the hash its own type commits to, and
+    the engine takes the witness: the type the input asks for is what
+    refuses it, as `finalize` refuses it.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    psbt, prevouts = signed_psbt(node, [], 0, 36)
+    script = node.script()
+    msg_hash = sig_hash.segwit_v0(script, psbt.tx, 0, 2, prevouts[0].value)
+    signature = dsa.sign_(msg_hash, PRV_KEYS[0]).serialize() + b"\x02"
+    psbt.inputs[0].partial_sigs = {bytes.fromhex(KEYS[0]): signature}
+    with pytest.raises(BTClibValueError, match="^mismatched sig_hash type: "):
+        miniscript_solver(psbt, 0)
+    psbt.inputs[0].sig_hash_type = 2
+    assert miniscript_solver(psbt, 0) is not None
+
+
+def test_a_witness_script_the_utxo_does_not_commit_to_is_refused() -> None:
+    """Refuse a witness script other than the one the spent output names.
+
+    The signature is good for the script the input carries, and the
+    script engine runs the witness against the output the utxo holds,
+    whose witness program is the hash of another script.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    psbt, prevouts = signed_psbt(node, [KEYS[0]], 0, 36)
+    other = parse(f"and_v(v:pk({KEYS[0]}),older(37))").script()
+    psbt.inputs[0].witness_utxo = TxOut(prevouts[0].value, ScriptPubKey.p2wsh(other))
+    with pytest.raises(BTClibValueError, match="^invalid witness script sha256"):
+        finalize(psbt, solver=miniscript_solver)
+
+
+def test_the_engine_reads_the_utxo_of_the_p2wsh_input_alone() -> None:
+    """Spend the second input of a psbt whose first input carries no utxo.
+
+    A segwit v0 spend commits to the amount of its own input alone, and
+    the script engine reads no other: the witness is the one built where
+    the first input carries its utxo too. The engine runs the second
+    input, against the output that input spends.
+    """
+    node = parse(f"and_v(v:pk({KEYS[0]}),older(36))")
+    script = node.script()
+    prevout = TxOut(50_000, ScriptPubKey.p2wsh(script))
+    tx = Tx(
+        version=2,
+        lock_time=0,
+        vin=[TxIn(OutPoint(bytes([i + 1]) * 32, i), sequence=36) for i in range(2)],
+        vout=[TxOut(49_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[0])))],
+    )
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[1].witness_utxo = prevout
+    psbt.inputs[1].witness_script = script
+    msg_hash = sig_hash.segwit_v0(script, tx, 1, 1, prevout.value)
+    signature = dsa.sign_(msg_hash, PRV_KEYS[0]).serialize() + b"\x01"
+    psbt.inputs[1].partial_sigs = {bytes.fromhex(KEYS[0]): signature}
+    answered = miniscript_solver(psbt, 1)
+    assert answered is not None
+    other = TxOut(1_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[1])))
+    psbt.inputs[0].witness_utxo = other
+    assert miniscript_solver(psbt, 1) == answered
+
+
 def _known(*keys: str) -> dict[Octets, Octets]:
     """Return the keys an input names, each filed under its hash160."""
     return {hash160(bytes.fromhex(key)): bytes.fromhex(key) for key in keys}

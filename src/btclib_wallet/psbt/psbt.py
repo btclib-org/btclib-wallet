@@ -4024,7 +4024,26 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     signatures open: the script cannot be read without that key, and None
     would leave `finalize` to guess a witness. Bitcoin Core's
     ``finalizepsbt`` leaves such an input unfinalized, and its
-    ``analyzepsbt`` names the missing key's hash.
+    ``analyzepsbt`` names the missing key's hash. Once the script reads as
+    a miniscript, and before it is satisfied, each signature of
+    `partial_sigs` is held to the sighash type the input asks for and,
+    where the input says what is signed (its utxo, and the redeem script
+    of a wrapped one), verified, as `finalize` holds and verifies them: a
+    signature that does not verify is refused as one, whatever the
+    satisfier would answer.
+
+    A witness is spent only once the script engine has run it on the
+    transaction the psbt is building, with
+    `btclib.script.engine.verify_input` and its default rules, the
+    consensus ones. The satisfier answers for the fragments, and
+    consensus for the script they make up, so a satisfied script can
+    still be one consensus refuses: a witness script that counts more op
+    codes than the 201 consensus allows, or a leaf of two 1-of-500
+    ``multi_a()`` quorums, whose stack passes the thousand elements BIP342
+    allows. A p2wsh witness the engine refuses is refused with the
+    engine's refusal. A p2wsh input that carries no utxo is refused before
+    the engine runs, since there is no output to run the witness against.
+    Bitcoin Core's ``finalizepsbt`` leaves both unfinalized.
 
     A taproot input is spent by a script path, and only where it carries
     no key path signature: with one, `finalize` builds the key path, which
@@ -4056,19 +4075,15 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     commits to, as `finalize` verifies the signatures it builds a spend
     from. `finalize` checks neither of a spend a solver answers.
 
-    A leaf's witness is a candidate once the script engine has run it on
-    the transaction the psbt is building, with
-    `btclib.script.engine.verify_input` and its default rules, the
-    consensus ones: a satisfied leaf can still be one consensus refuses,
-    a leaf of two 1-of-500 ``multi_a()`` quorums among them, whose stack
-    passes the thousand elements BIP342 allows. Such a leaf is passed
-    over, as one the signatures do not satisfy is. Where no leaf is left,
-    a leaf whose ``pk_h()`` key the input does not name is the refusal,
-    and otherwise the first leaf's in the order above, the satisfier's or
-    the engine's. Bitcoin Core runs its check, with its standard script
-    flags, on the smallest witness alone, once ``SignTaproot`` has chosen
-    it: where that one is refused, Core leaves the input unfinalized,
-    and this spends the smallest witness the engine takes.
+    A leaf's witness is a candidate once the script engine has run it, as
+    above. A leaf the engine refuses is passed over, as one the signatures
+    do not satisfy is. Where no leaf is left, a leaf whose ``pk_h()`` key
+    the input does not name is the refusal, and otherwise the first leaf's
+    in the order above, the satisfier's or the engine's. Bitcoin Core runs
+    its check, with its standard script flags, on the smallest witness
+    alone, once ``SignTaproot`` has chosen it: where that one is refused,
+    Core leaves the input unfinalized, and this spends the smallest
+    witness the engine takes.
 
     None where the input is not this solver's business: a p2wsh script
     that is not a miniscript, an input with no witness script that spends
@@ -4111,12 +4126,38 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
             raise BTClibValueError(err_msg)
         # not a miniscript, which is not an error: it is the answer "not mine"
         return None
+    _assert_sig_hash_type(psbt_in)
+    _assert_partial_sigs_verify(psbt_in, psbt.tx, vin_i)
     spend = _spend_context(psbt, vin_i)
     stack = node.satisfy(cast("Mapping[Octets, Octets]", psbt_in.partial_sigs), spend)
     # the redeem script of a wrapped p2wsh, and the empty script_sig BIP141
     # requires of a native one
     script_sig: ScriptList = [psbt_in.redeem_script] if psbt_in.redeem_script else []
-    return serialize(script_sig), Witness([*stack, psbt_in.witness_script])
+    final = serialize(script_sig), Witness([*stack, psbt_in.witness_script])
+    _assert_p2wsh_verifies(psbt, vin_i, final)
+    return final
+
+
+def _assert_p2wsh_verifies(
+    psbt: Psbt, vin_i: int, final: tuple[bytes, Witness]
+) -> None:
+    """Run a p2wsh input's final scripts with the script engine.
+
+    `miniscript_solver`'s docstring says why. They are run on the
+    transaction the psbt is building, against the output the input spends.
+    The engine asks for the output of every input, and a segwit v0 spend
+    reads the one of its own input alone, so that one stands in each
+    position.
+    """
+    prev_out = _prev_out(psbt.inputs[vin_i])
+    if prev_out is None:
+        err_msg = f"no utxo for input {_position(vin_i)}: "
+        err_msg += "the script engine runs the witness against the output it spends"
+        raise BTClibValueError(err_msg)
+    # a copy, computed from the psbt's fields
+    tx = psbt.tx
+    tx.vin[vin_i].script_sig, tx.vin[vin_i].script_witness = final
+    verify_input([prev_out] * len(tx.vin), tx, vin_i)
 
 
 def _spend_context(psbt: Psbt, vin_i: int) -> miniscript.SpendContext:
@@ -4213,10 +4254,9 @@ def _leaf_witness(
     alone, keyed by x-only key. `spent` is the output each input of the
     psbt spends.
 
-    The satisfier answers for the leaf's fragments, and consensus for the
-    script they make up, so the witness is run on the transaction the
-    psbt is building; `miniscript_solver`'s docstring has a leaf that
-    consensus refuses, and how this differs from Bitcoin Core's check.
+    The witness is run on the transaction the psbt is building.
+    `miniscript_solver`'s docstring says why, with a leaf that consensus
+    refuses, and how this differs from Bitcoin Core's check.
     `Miniscript.is_within_resource_limits` would answer before the
     satisfaction, and for its worst case: it answers False for an
     ``or_d()`` whose ``pk()`` branch spends with one signature beside two
