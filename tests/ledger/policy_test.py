@@ -12,6 +12,7 @@ was exported from after a sync of each over the same `FakeChain`.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +28,7 @@ from btclib_wallet.bip32 import fingerprint
 from btclib_wallet.descriptors import add_checksum, normalized, parse
 from btclib_wallet.ledger import MAX_LOOKAHEAD, Ledger, TxState
 from btclib_wallet.ledger import ledger as ledger_module
+from btclib_wallet.ledger import store as store_module
 from btclib_wallet.wallet import DescriptorWallet
 from tests.ledger import (
     Alias,
@@ -1102,5 +1104,47 @@ def test_a_restore_that_fails_after_making_its_file_removes_it(
         with pytest.raises(KeyboardInterrupt):
             Ledger.restore_policy(text, path, "regtest", chain)
     assert not path.exists()
+    with _restored(chain, text, path) as restored:
+        assert restored.label_of(_ADDRESS) == "a"
+
+
+def test_a_restore_whose_close_fails_raises_its_failure_and_leaves_no_file(
+    chain: FakeChain, path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The close after a failure neither hides it nor keeps the file.
+
+    A close that raises an SQLite error is not raised, so neither its
+    class nor its text reaches the caller. One that is interrupted raises
+    the interrupt, and the file is removed all the same. A retry restores.
+    """
+    text = _policy(
+        [{"descriptor": _public(TEMPLATE), "labels": [_label(_ADDRESS, "a")]}]
+    )
+
+    def failing(*_args: object) -> None:
+        raise BTClibValueError("the failure")
+
+    close = store_module._Store.close
+
+    def closed_with_error(store: store_module._Store) -> None:
+        close(store)
+        raise sqlite3.OperationalError(f"disk I/O error: {SECRET}")
+
+    def closed_interrupted(store: store_module._Store) -> None:
+        close(store)
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Ledger, "_write_label", failing)
+        patched.setattr(store_module._Store, "close", closed_with_error)
+        with pytest.raises(BTClibValueError, match="^the failure$") as caught:
+            Ledger.restore_policy(text, path, "regtest", chain)
+        assert caught.value.__context__ is None
+        assert_secret_free(caught.value, SECRETS)
+        assert not path.exists()
+        patched.setattr(store_module._Store, "close", closed_interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            Ledger.restore_policy(text, path, "regtest", chain)
+        assert not path.exists()
     with _restored(chain, text, path) as restored:
         assert restored.label_of(_ADDRESS) == "a"

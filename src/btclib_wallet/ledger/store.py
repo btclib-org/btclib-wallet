@@ -525,6 +525,22 @@ def _undo_copy(
     return _remove_new_file(path)
 
 
+def _discard_new(store: _Store, path: str | PathLike[str]) -> str | None:
+    """Close a store a step made, and remove its file, for a step that failed.
+
+    Return what `_remove_new_file` returns. The file is removed whatever
+    the close raises, and an `sqlite3.Error` of the close is not raised:
+    as `_remove_new_file` says of its own error, it would replace the
+    failure being undone.
+    """
+    try:
+        with contextlib.suppress(sqlite3.Error):
+            store.close()
+    finally:
+        left = _remove_new_file(path)
+    return left
+
+
 def _remove_new_file(path: str | PathLike[str]) -> str | None:
     """Remove the file at `path`, for a step that failed after making it.
 

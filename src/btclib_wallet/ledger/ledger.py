@@ -394,6 +394,7 @@ from btclib_wallet.ledger.store import (
     MAX_LOOKAHEAD,
     _branches,
     _copy_backup,
+    _discard_new,
     _remove_new_file,
     _Source,
     _Store,
@@ -817,7 +818,8 @@ class Ledger:
         ledger is returned the `keys` of each account that has them, by
         source id, as `export_policy` takes them. A file already at `path`
         is refused, as `create` refuses it, and a restore that fails after
-        making the file removes it, as `store`'s `_remove_new_file` says.
+        making the file removes it and raises its failure, as `store`'s
+        `_discard_new` says.
         """
         kind = type(policy)
         if not issubclass(kind, str):
@@ -854,8 +856,7 @@ class Ledger:
                 ledger._write_label(script, label)
         except BaseException:
             # a new ledger holds no key: its file is closed and removed
-            ledger._store.close()
-            _remove_new_file(path)
+            _discard_new(ledger._store, path)
             raise
         return ledger, key_names
 
