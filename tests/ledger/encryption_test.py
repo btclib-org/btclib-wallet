@@ -120,7 +120,7 @@ def _watch_only() -> DescriptorWallet:
 
 
 def _normalized(wallet: DescriptorWallet) -> dict[int, str]:
-    return ledger_module._watched(wallet)
+    return ledger_module._watched(wallet, "a locked ledger cannot watch it")
 
 
 def _created(path: Path, chain: FakeChain, *wallets: DescriptorWallet) -> Ledger:
@@ -636,6 +636,7 @@ def _calls(ledger: Ledger, chain: FakeChain, tmp_path: Path) -> dict[str, object
         "change_passphrase": lambda: ledger.change_passphrase("wrong", "new"),
         "close": ledger.close,
         "encrypt": lambda: ledger.encrypt("another"),
+        "export_policy": ledger.export_policy,
         "fund": lambda: ledger.fund([_outside()]),
         "label_of": lambda: ledger.label_of(address),
         "labels": ledger.labels,
@@ -663,7 +664,7 @@ def _calls(ledger: Ledger, chain: FakeChain, tmp_path: Path) -> dict[str, object
     }
 
 
-_CONSTRUCTORS = {"create", "load", "restore"}
+_CONSTRUCTORS = {"create", "load", "restore", "restore_policy"}
 
 
 def test_every_public_member_relocks_the_keys_once_due(

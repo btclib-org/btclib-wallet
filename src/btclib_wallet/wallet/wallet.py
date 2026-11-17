@@ -287,10 +287,13 @@ class RangedWallet(Wallet, ABC):
         one bound every subclass shares. That int is what is returned, and
         each caller uses it in place of the branch it was handed: the
         branch's own `__eq__`, `__hash__`, `__str__` or `__class__` then
-        decides no lookup and no derivation. The index only for the
-        sign, its upper bound being the subclass's own -- 65535 from
-        `bip32.derive_from_account` where the branch is derived, and
-        BIP32's own limit where a descriptor derives it.
+        decides no lookup and no derivation.
+
+        The index as an int by `_assert_int_type` too, then as the exact
+        int for its sign. Its upper bound is the subclass's own -- 65535
+        from `bip32.derive_from_account` where the branch is derived, and
+        BIP32's own limit where a descriptor derives it. A caller that
+        uses the index takes both ints from `_position_held`.
         """
         _assert_int_type(branch, "branch")
         held = _exact_int(branch)
@@ -298,13 +301,26 @@ class RangedWallet(Wallet, ABC):
             branches = ", ".join(_position(b) for b in self.branches)
             err_msg = f"invalid branch: {_quoted(held)} not in ({branches})"
             raise BTClibValueError(err_msg)
-        if index < 0:
-            raise BTClibValueError(f"invalid index: {_quoted(index)}")
+        _assert_int_type(index, "index")
+        position = _exact_int(index)
+        if position < 0:
+            raise BTClibValueError(f"invalid index: {_quoted(position)}")
         return held
+
+    def _position_held(self, branch: int, index: int) -> tuple[int, int]:
+        """Refuse a position this wallet has no output at; return it.
+
+        The checks are `_branch_held`'s, and the index is returned as the
+        exact int `_exact_int` reads, beside the branch. Each caller uses
+        both in place of what it was handed, so the index's own `__lt__`,
+        `__add__`, `__str__` or `__class__` decides no derivation, no
+        record and no next index.
+        """
+        return self._branch_held(branch, index), _exact_int(index)
 
     def script_pub_key(self, branch: int = 0, index: int = 0) -> ScriptPubKey:
         """Return the output this wallet pays to at a position."""
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         return self._script_pub_key(branch, index)
 
     def redeem_script(self, branch: int = 0, index: int = 0) -> bytes:
@@ -315,7 +331,7 @@ class RangedWallet(Wallet, ABC):
         looks like everywhere else here, as `ScriptPubKey.address` is ""
         for a script with no address.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         return b""
 
     def witness_script(self, branch: int = 0, index: int = 0) -> bytes:
@@ -324,7 +340,7 @@ class RangedWallet(Wallet, ABC):
         BIP174's PSBT_IN_WITNESS_SCRIPT, and `b""` where the output is
         not a p2wsh, wrapped in a p2sh or not.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         return b""
 
     def address(self, branch: int = 0, index: int = 0) -> str:
@@ -335,7 +351,7 @@ class RangedWallet(Wallet, ABC):
         out nothing, and `script_pub_key` is what such a wallet answers
         with.
         """
-        branch = self._branch_held(branch, index)
+        branch, index = self._position_held(branch, index)
         address = self._address(branch, index)
         if not address:
             err_msg = (
@@ -444,7 +460,7 @@ class RangedWallet(Wallet, ABC):
         them, as in `position_of`, and the wallet's record is left alone --
         checking what was handed out is not handing it out again.
         """
-        branch = self._branch_held(branch, first_index)
+        branch, first_index = self._position_held(branch, first_index)
         if not addresses:
             err_msg = f"no addresses to check against branch {_position(branch)}"
             raise BTClibValueError(err_msg)

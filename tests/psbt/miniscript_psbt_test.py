@@ -4,14 +4,15 @@
 
 """Tests for the psbt roles over a BIP379 miniscript.
 
-`miniscript_solver`, which `finalize` takes for a witness script that is a
-miniscript, `miniscript_sizer` and `satisfaction_sizer`, which
-`estimated_input_sizes` takes for the same inputs, and the Updater over a
-miniscript descriptor.
+`miniscript_solver`, which `finalize` takes for a witness script or a
+taproot leaf script that is a miniscript, `miniscript_sizer` and
+`satisfaction_sizer`, which `estimated_input_sizes` takes for a witness
+script that is one, and the Updater over a miniscript descriptor.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -19,20 +20,25 @@ from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160, sha256
 from btclib.key import PrvKeyData, PubKeyData
-from btclib.script import sig_hash
+from btclib.script import Witness, sig_hash
 from btclib.script.engine import verify_transaction
 from btclib.script.limits import MAX_SCRIPT_SIZE
 from btclib.script.script import op_code_spans, serialize
 from btclib.script.script_pub_key import ScriptPubKey
-from btclib.script.taproot import leaf_hash
+from btclib.script.taproot import (
+    leaf_hash,
+    output_prvkey_from_merkle_root,
+    output_pubkey_from_merkle_root_var,
+)
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors import WshDescriptor
+from btclib_wallet.descriptors import TrDescriptor, WshDescriptor
 from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.descriptors.miniscript import (
     P2WSH,
@@ -59,8 +65,9 @@ from btclib_wallet.psbt.psbt_size import (
     miniscript_sizer,
     satisfaction_sizer,
 )
-from btclib_wallet.psbt.psbt_updater import update_psbt_output
+from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from tests import vector_id
+from tests.secret_free import assert_secret_free
 
 # Core's own test keys: the public keys of the private keys 1 to 255, which
 # is what its `TestData` generates
@@ -348,7 +355,7 @@ def test_the_solver_tells_a_missing_key_as_the_decoder_does(
     """
     with pytest.raises(BTClibValueError):
         from_script(script, P2WSH, key_hashes)
-    assert _lacks_only_keys(script, key_hashes) == decoder_lacks_only_keys(
+    assert _lacks_only_keys(script, P2WSH, key_hashes) == decoder_lacks_only_keys(
         script, P2WSH, key_hashes
     )
 
@@ -373,10 +380,10 @@ def test_a_script_past_consensus_size_is_answered_before_it_is_walked(
         return op_code_spans(script)
 
     monkeypatch.setattr(psbt_module, "op_code_spans", walk)
-    assert not _lacks_only_keys(script, {})
+    assert not _lacks_only_keys(script, P2WSH, {})
     assert not walked
     # and a script within the bound is walked
-    assert _lacks_only_keys(_PKH, {})
+    assert _lacks_only_keys(_PKH, P2WSH, {})
     assert walked == [_PKH]
 
 
@@ -536,3 +543,626 @@ def test_the_satisfaction_sizer_answers_for_what_is_its_business_and_no_more() -
     # a key that will not sign this quorum builds no satisfaction either
     psbt_in.witness_script = node.script()
     assert satisfaction_sizer([KEYS[0]])(psbt_in, tx_in) is None
+
+
+# the x-only keys of Core's test keys: X[i] is the key of the private key
+# i + 1, which is what a tapscript holds
+X = [key[2:] for key in KEYS]
+# BIP341's NUMS point H, x-only: the internal key nobody signs for, which
+# is what a tr() whose every path is a leaf holds
+NUMS = "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+# a sequence that opens no older() and is no final one
+NO_LOCK = 0xFFFFFFFD
+
+# an internal key that spends by the key path, and a timelocked leaf
+SIMPLE_INHERITANCE = f"tr({X[0]},and_v(v:pk({X[1]}),older(52560)))"
+
+
+def tr_psbt(
+    text: str, sequence: int, lock_time: int
+) -> tuple[Psbt, TxOut, TrDescriptor]:
+    """Return the unsigned psbt of a tr() descriptor, filled by the Updater."""
+    descriptor = parse_descriptor(text)
+    assert isinstance(descriptor, TrDescriptor)
+    prevout = TxOut(50_000, descriptor.script_pub_key(0))
+    tx = Tx(
+        version=2,
+        lock_time=lock_time,
+        vin=[TxIn(OutPoint(b"\x0b" * 32, 0), sequence=sequence)],
+        vout=[TxOut(49_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[0])))],
+    )
+    psbt = Psbt.from_tx(tx)
+    psbt.inputs[0].witness_utxo = prevout
+    return update_psbt_input(descriptor, psbt, 0, 0), prevout, descriptor
+
+
+def sign_leaf(psbt: Psbt, script: bytes, signers: list[int]) -> None:
+    """Add the script path signatures of `signers` for one leaf script."""
+    hash_ = leaf_hash(0xC0, script)
+    msg_hash = taproot_sig_hash(psbt, 0, leaf_hash=hash_)
+    for signer in signers:
+        signature = ssa.sign_(msg_hash, signer + 1).serialize()
+        key_data = bytes.fromhex(X[signer]) + hash_
+        psbt.inputs[0].taproot_script_spend_signatures[key_data] = signature
+
+
+def tr_signed(
+    text: str, leaf: int | None, signers: list[int], sequence: int
+) -> tuple[Psbt, TxOut, TrDescriptor]:
+    """Return the psbt spending a tr() descriptor, signed along one path.
+
+    `leaf` is the leaf's position in `taproot_tree`, None for the key
+    path, which its one signer signs with the tweaked internal key.
+    """
+    psbt, prevout, descriptor = tr_psbt(text, sequence, 0)
+    if leaf is not None:
+        sign_leaf(psbt, descriptor.taproot_tree(0)[leaf][2], signers)
+    for signer in signers if leaf is None else []:
+        merkle_root = descriptor.taproot_merkle_root(0)
+        tweaked = output_prvkey_from_merkle_root(signer + 1, merkle_root)
+        signature = ssa.sign_(taproot_sig_hash(psbt, 0), tweaked).serialize()
+        psbt.inputs[0].taproot_key_spend_signature = signature
+    return psbt, prevout, descriptor
+
+
+def spent(final: Psbt, prevout: TxOut) -> tuple[bytes, ...]:
+    """Return the witness `finalize` built, once the script engine ran it."""
+    spending = final.tx
+    spending.vin[0].script_witness = final.inputs[0].final_script_witness
+    verify_transaction([prevout], spending)
+    return final.inputs[0].final_script_witness.stack
+
+
+NO_SATISFACTION = "no satisfaction with the signatures, preimages and lock times given"
+
+
+def test_a_key_path_signature_leaves_the_input_to_finalize() -> None:
+    """Answer None beside a key path signature, whatever leaf is signed too.
+
+    `finalize` prefers the key path, as Bitcoin Core's finalizer does, and
+    builds it: one signature, where the leaf would have spent two
+    elements and a control block.
+    """
+    text = SIMPLE_INHERITANCE
+    psbt, prevout, descriptor = tr_signed(text, None, [0], 52560)
+    sign_leaf(psbt, descriptor.taproot_tree(0)[0][2], [1])
+    assert miniscript_solver(psbt, 0) is None
+    assert [len(item) for item in spent(finalize(psbt), prevout)] == [64]
+    # and without it the leaf is the solver's
+    psbt.inputs[0].taproot_key_spend_signature = b""
+    script_sig, witness = miniscript_solver(psbt, 0) or (b"-", Witness())
+    assert script_sig == b""
+    assert witness.stack[-2] == descriptor.taproot_tree(0)[0][2]
+
+
+def _signed_twice(text: str, leaves: list[int], signers: list[int]) -> Psbt:
+    """Return the psbt of `text` with `signers` signing each of `leaves`."""
+    psbt, _, descriptor = tr_psbt(text, 144, 0)
+    for leaf in leaves:
+        sign_leaf(psbt, descriptor.taproot_tree(0)[leaf][2], signers)
+    return psbt
+
+
+def test_the_smallest_witness_is_spent_where_two_leaves_are_satisfied() -> None:
+    """Spend the leaf whose witness is smaller, though it is the second.
+
+    The same two keys satisfy both leaves of a quorum with a timelocked
+    recovery quorum behind it, and the recovery leaf comes first both in
+    the tree and in the order of leaf scripts. The witness of each, spent
+    alone, is the measurement: the primary leaf's is the smaller one.
+    """
+    text = (
+        f"tr({NUMS},{{and_v(v:multi_a(2,{X[0]},{X[1]},{X[2]}),older(144)),"
+        f"multi_a(2,{X[0]},{X[1]})}})"
+    )
+    tree = tr_psbt(text, 144, 0)[2].taproot_tree(0)
+    recovery, primary = (script for _, _, script in tree)
+    assert recovery < primary
+    alone = [
+        miniscript_solver(_signed_twice(text, [leaf], [0, 1]), 0) for leaf in (0, 1)
+    ]
+    sizes = [len(spend[1].serialize()) for spend in alone if spend is not None]
+    assert sizes[1] < sizes[0]
+
+    psbt = _signed_twice(text, [0, 1], [0, 1])
+    chosen = miniscript_solver(psbt, 0)
+    assert chosen is not None
+    assert alone[1] is not None
+    # the signatures are fresh ones: BIP340 signing draws its aux randomness
+    assert chosen[1].stack[-2:] == alone[1][1].stack[-2:]
+    assert len(chosen[1].serialize()) == sizes[1]
+    # `Descriptor.satisfy` spends the first leaf the signatures satisfy
+    descriptor = tr_psbt(text, 144, 0)[2]
+    script_sigs = psbt.inputs[0].taproot_script_spend_signatures
+    signatures: dict[Octets, Octets] = {
+        key_data[:32]: signature for key_data, signature in script_sigs.items()
+    }
+    _, first = descriptor.satisfy(signatures, spend=SpendContext(sequence=144))
+    assert first.stack[-2] == recovery
+
+
+def test_the_control_block_is_part_of_the_size() -> None:
+    """Spend the shallower of two leaves whose scripts are the same size.
+
+    The deeper leaf's script is the smaller one, which wins only where the
+    witnesses are equal: its control block is one node longer.
+    """
+    small, big = sorted([X[5], X[6]])
+    text = (
+        f"tr({NUMS},{{and_v(v:pk({big}),older(144)),"
+        f"{{and_v(v:pk({small}),older(144)),pk({X[7]})}}}})"
+    )
+    signers = [X.index(big), X.index(small)]
+    psbt, prevout, descriptor = tr_psbt(text, 144, 0)
+    for leaf, signer in zip((0, 1), signers, strict=True):
+        sign_leaf(psbt, descriptor.taproot_tree(0)[leaf][2], [signer])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == descriptor.taproot_tree(0)[0][2]
+    assert len(stack[-1]) == 33 + 32
+
+
+def test_equal_witnesses_spend_the_smaller_leaf_script() -> None:
+    """Spend the smaller leaf script where the witnesses are the same size.
+
+    Bitcoin Core's choice: the first smallest witness over leaves ordered
+    by script. The smaller script is the second leaf of the tree, and its
+    control block is the larger one: these two keys order the leaves one
+    way by script and the other by control block.
+    """
+    small, big = sorted([X[6], X[7]])
+    text = (
+        f"tr({NUMS},{{and_v(v:pk({big}),older(144)),and_v(v:pk({small}),older(144))}})"
+    )
+    psbt, prevout, descriptor = tr_psbt(text, 144, 0)
+    for leaf, key in enumerate((big, small)):
+        sign_leaf(psbt, descriptor.taproot_tree(0)[leaf][2], [X.index(key)])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == descriptor.taproot_tree(0)[1][2]
+    assert stack[-1] == max(psbt.inputs[0].taproot_leaf_scripts)
+
+
+def test_one_leaf_under_two_control_blocks_spends_the_smaller_one() -> None:
+    """Spend the smaller control block of a leaf the tree holds twice.
+
+    Both are as long, and the order of `taproot_leaf_scripts` does not
+    change which one is spent.
+    """
+    leaf = f"and_v(v:pk({X[0]}),older(144))"
+    text = f"tr({NUMS},{{{{{leaf},pk({X[1]})}},{{{leaf},pk({X[2]})}}}})"
+    psbt, prevout, descriptor = tr_psbt(text, 144, 0)
+    script = descriptor.taproot_tree(0)[0][2]
+    records = psbt.inputs[0].taproot_leaf_scripts
+    control_blocks = [
+        control_block
+        for control_block, (leaf_script, _) in records.items()
+        if leaf_script == script
+    ]
+    assert len(control_blocks) == 2
+    sign_leaf(psbt, script, [0])
+    for records in (
+        psbt.inputs[0].taproot_leaf_scripts,
+        dict(reversed(psbt.inputs[0].taproot_leaf_scripts.items())),
+    ):
+        psbt.inputs[0].taproot_leaf_scripts = records
+        stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+        assert stack[-1] == min(control_blocks)
+
+
+@pytest.mark.parametrize(
+    "fragment,lock_time",
+    [
+        pytest.param(f"sha256({sha256(PRV_KEYS[3]).hex()})", 0, id="sha256"),
+        pytest.param("after(500)", 500, id="after"),
+    ],
+)
+def test_a_leaf_reads_the_preimages_and_the_lock_time_of_the_psbt(
+    fragment: str, lock_time: int
+) -> None:
+    """Satisfy a hash lock with the input's preimage, an after() at its height.
+
+    The spend context the p2wsh branch builds, read the same way. With the
+    preimage of another hash, or one block early, there is no
+    satisfaction, and the refusal prints neither preimage.
+    """
+    text = f"tr({NUMS},and_v(v:pk({X[0]}),{fragment}))"
+    for preimage, height, satisfied in (
+        (PRV_KEYS[3], lock_time, True),
+        (PRV_KEYS[4], lock_time - 1, False),
+    ):
+        psbt, prevout, descriptor = tr_psbt(text, NO_LOCK, max(height, 0))
+        psbt.inputs[0].sha256_preimages = {sha256(preimage): preimage}
+        sign_leaf(psbt, descriptor.taproot_tree(0)[0][2], [0])
+        if satisfied:
+            spent(finalize(psbt, solver=miniscript_solver), prevout)
+            continue
+        refused = f"^{re.escape(NO_SATISFACTION)}$"
+        with pytest.raises(BTClibValueError, match=refused) as e:
+            miniscript_solver(psbt, 0)
+        assert e.value.__cause__ is None
+        assert e.value.__context__ is None
+        assert_secret_free(e.value, [PRV_KEYS[3], PRV_KEYS[4]])
+
+
+def test_the_solver_leaves_a_taproot_input_it_cannot_read_to_finalize() -> None:
+    """Answer None where no leaf a signature names is a miniscript.
+
+    No script path signature, a signature of a leaf the input holds no
+    script for, a leaf script that is no miniscript, and a leaf of a version
+    that is not BIP342's: `finalize` then answers as it does without a
+    solver.
+    """
+    text = f"tr({NUMS},and_v(v:pk({X[0]}),older(144)))"
+    psbt, _, descriptor = tr_psbt(text, 144, 0)
+    assert miniscript_solver(psbt, 0) is None
+    with pytest.raises(BTClibValueError, match="^input 0: missing taproot signature$"):
+        finalize(psbt, solver=miniscript_solver)
+
+    script = descriptor.taproot_tree(0)[0][2]
+    (control_block,) = psbt.inputs[0].taproot_leaf_scripts
+    other = parse(f"and_v(v:pk({X[0]}),older(145))", TAPSCRIPT).script()
+    sign_leaf(psbt, other, [0])
+    assert miniscript_solver(psbt, 0) is None
+
+    psbt.inputs[0].taproot_script_spend_signatures = {}
+    no_miniscript = serialize(["OP_DROP", "OP_1"])
+    psbt.inputs[0].taproot_leaf_scripts = {control_block: (no_miniscript, 0xC0)}
+    sign_leaf(psbt, no_miniscript, [0])
+    assert miniscript_solver(psbt, 0) is None
+
+    psbt.inputs[0].taproot_script_spend_signatures = {}
+    psbt.inputs[0].taproot_leaf_scripts = {control_block: (script, 0xC2)}
+    hash_ = leaf_hash(0xC2, script)
+    msg_hash = taproot_sig_hash(psbt, 0, leaf_hash=hash_)
+    key_data = bytes.fromhex(X[0]) + hash_
+    signature = ssa.sign_(msg_hash, 1).serialize()
+    psbt.inputs[0].taproot_script_spend_signatures = {key_data: signature}
+    assert miniscript_solver(psbt, 0) is None
+
+
+def test_every_script_path_signature_is_verified() -> None:
+    """Refuse a signature that does not verify, of the leaf spent or not.
+
+    `finalize` checks no signature of a spend a solver answers, so the
+    solver does, as `finalize` does for its own: by the sig_hash type the
+    input accepts, and against the hash that type commits to.
+    """
+    text = (
+        f"tr({NUMS},{{and_v(v:pk({X[0]}),older(144)),"
+        f"and_v(v:multi_a(2,{X[1]},{X[2]},{X[3]}),older(144))}})"
+    )
+    psbt = _signed_twice(text, [0], [0])
+    sign_leaf(psbt, tr_psbt(text, 144, 0)[2].taproot_tree(0)[1][2], [1])
+    assert miniscript_solver(psbt, 0) is not None
+    signatures = psbt.inputs[0].taproot_script_spend_signatures
+    for position, key_data in enumerate(signatures):
+        signature = signatures[key_data]
+        signatures[key_data] = signature[:-1] + bytes([signature[-1] ^ 1])
+        message = f"^input 0: taproot script path signature {position}: invalid$"
+        with pytest.raises(BTClibValueError, match=message):
+            miniscript_solver(psbt, 0)
+        signatures[key_data] = signature + b"\x02"
+        with pytest.raises(BTClibValueError, match="invalid sig_hash type"):
+            miniscript_solver(psbt, 0)
+        signatures[key_data] = signature
+
+
+UNKNOWN_LEAF_KEY = "^input 0: no public key for a hash160 a leaf script holds$"
+
+
+def test_a_leaf_reads_a_key_the_input_knows_by_its_hash() -> None:
+    """Read a pkh() leaf with the x-only keys that signed and those named.
+
+    A key that signed reads it. A key no signature and no taproot origin
+    names leaves the leaf unread, which is the refusal unless another
+    leaf is satisfied; its origin, which the Updater writes, is enough.
+    """
+    unknown = bytes.fromhex(X[1])
+    text = f"tr({NUMS},and_v(v:pkh({X[1]}),older(144)))"
+    psbt, prevout, descriptor = tr_psbt(text, 144, 0)
+    del psbt.inputs[0].taproot_hd_key_paths[unknown]
+    sign_leaf(psbt, descriptor.taproot_tree(0)[0][2], [1])
+    spent(finalize(psbt, solver=miniscript_solver), prevout)
+
+    text = (
+        f"tr({NUMS},{{or_d(pk({X[0]}),and_v(v:pkh({X[1]}),older(144))),"
+        f"and_v(v:pk({X[0]}),older(145))}})"
+    )
+    psbt, prevout, descriptor = tr_psbt(text, 144, 0)
+    origin = psbt.inputs[0].taproot_hd_key_paths.pop(unknown)
+    or_d, timelocked = (script for _, _, script in descriptor.taproot_tree(0))
+    sign_leaf(psbt, or_d, [0])
+    sign_leaf(psbt, timelocked, [0])
+    # the timelocked leaf is read and not satisfied, and the other unread
+    with pytest.raises(BTClibValueError, match=UNKNOWN_LEAF_KEY) as e:
+        finalize(psbt, solver=miniscript_solver)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    assert_secret_free(e.value, [PRV_KEYS[0], PRV_KEYS[1]])
+    psbt.inputs[0].taproot_hd_key_paths[unknown] = origin
+    assert spent(finalize(psbt, solver=miniscript_solver), prevout)[-2] == or_d
+
+    # a leaf satisfied beside the unread one is spent
+    psbt, prevout, descriptor = tr_psbt(text, 145, 0)
+    del psbt.inputs[0].taproot_hd_key_paths[unknown]
+    sign_leaf(psbt, or_d, [0])
+    sign_leaf(psbt, timelocked, [0])
+    assert spent(finalize(psbt, solver=miniscript_solver), prevout)[-2] == timelocked
+    # and the unread leaf alone is the refusal
+    psbt.inputs[0].taproot_script_spend_signatures = {}
+    sign_leaf(psbt, or_d, [0])
+    with pytest.raises(BTClibValueError, match=UNKNOWN_LEAF_KEY):
+        miniscript_solver(psbt, 0)
+
+
+def _x_known(*keys: str) -> dict[Octets, Octets]:
+    """Return the x-only keys an input names, each filed under its hash160."""
+    return {hash160(bytes.fromhex(key)): bytes.fromhex(key) for key in keys}
+
+
+_X_PKH = parse(f"pkh({X[2]})", TAPSCRIPT).script()
+_X_OR_D = parse(
+    f"or_d(multi_a(2,{X[0]},{X[1]}),and_v(v:pkh({X[2]}),older(144)))", TAPSCRIPT
+).script()
+# a pkh() beside a multi_a() of more keys than a P2WSH script can hold
+_MANY = ",".join(PrvKeyData(i).pub.sec[1:].hex() for i in range(300, 600))
+_X_LONG = parse(f"and_v(v:pkh({X[2]}),multi_a(1,{_MANY}))", TAPSCRIPT).script()
+
+
+@pytest.mark.parametrize(
+    "script, key_hashes",
+    [
+        pytest.param(_X_OR_D, _x_known(X[0], X[1]), id="lacks-one"),
+        pytest.param(_X_OR_D, _x_known(), id="lacks-all"),
+        pytest.param(serialize(["OP_DROP"]) + _X_PKH, _x_known(), id="drop-first"),
+        pytest.param(_X_OR_D[:-3], _x_known(), id="truncated"),
+        # a SEC key is no tapscript key, whichever hash it is filed under
+        pytest.param(_X_PKH, {hash160(bytes.fromhex(X[2])): KEYS[2]}, id="sec-key"),
+        # X[0] is the x of G, whose hash160 the first stand-in would be
+        # filed under
+        pytest.param(
+            parse(f"pkh({X[0]})", TAPSCRIPT).script(),
+            {hash160(bytes.fromhex(X[0])): X[1]},
+            id="wrong-key-under-the-stand-in-hash",
+        ),
+        pytest.param(_X_OR_D, _x_known(X[0]), id="lacks-one-beside-g"),
+        # a script past the P2WSH bound is walked under tapscript, and is
+        # a miniscript but for a key there
+        pytest.param(_X_LONG, _x_known(), id="long"),
+        pytest.param(
+            _X_PKH * (MAX_SCRIPT_SIZE // len(_X_PKH) + 1),
+            _x_known(),
+            id="long-no-miniscript",
+        ),
+    ],
+)
+def test_the_solver_tells_a_missing_tapscript_key_as_the_decoder_does(
+    script: bytes, key_hashes: dict[Octets, Octets]
+) -> None:
+    """`psbt` tells a missing x-only key as `descriptors.miniscript` does."""
+    with pytest.raises(BTClibValueError):
+        from_script(script, TAPSCRIPT, key_hashes)
+    assert _lacks_only_keys(script, TAPSCRIPT, key_hashes) == decoder_lacks_only_keys(
+        script, TAPSCRIPT, key_hashes
+    )
+
+
+def test_a_taproot_input_is_spent_by_its_leaves_whatever_witness_script() -> None:
+    """Spend a taproot input by a leaf, beside a witness script it carries.
+
+    The output being spent decides, as `_is_taproot` says: a witness
+    script on a taproot input is no p2wsh, even one that is a miniscript.
+    """
+    text = SIMPLE_INHERITANCE
+    psbt, _, descriptor = tr_signed(text, 0, [1], 52560)
+    psbt.inputs[0].witness_script = parse(f"pk({KEYS[0]})").script()
+    script_sig, witness = miniscript_solver(psbt, 0) or (b"-", Witness())
+    assert script_sig == b""
+    assert witness.stack[-2] == descriptor.taproot_tree(0)[0][2]
+
+
+def test_a_control_block_that_proves_no_leaf_is_refused() -> None:
+    """Refuse a leaf record whose control block does not reach the output key.
+
+    The same leaf under a 33-byte control block, which leaves out the
+    sibling hash: the smallest witness, and one the script engine refuses.
+    The input's taproot fields are held to the output as `sign` holds them.
+    """
+    text = f"tr({NUMS},{{and_v(v:pk({X[0]}),older(144)),pk({X[1]})}})"
+    psbt, prevout, descriptor = tr_psbt(text, 144, 0)
+    script = descriptor.taproot_tree(0)[0][2]
+    records = psbt.inputs[0].taproot_leaf_scripts
+    (proof,) = (cb for cb, (leaf_script, _) in records.items() if leaf_script == script)
+    sign_leaf(psbt, script, [0])
+    records[proof[:33]] = (script, 0xC0)
+    message = "^a control block does not prove its leaf script against the output key$"
+    with pytest.raises(BTClibValueError, match=message) as e:
+        finalize(psbt, solver=miniscript_solver)
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+    del records[proof[:33]]
+    assert spent(finalize(psbt, solver=miniscript_solver), prevout)[-1] == proof
+
+
+def test_signatures_under_two_key_leaves_spend_the_cheaper_one() -> None:
+    """Spend the shallower of two signed pk() leaves, which `finalize` refuses.
+
+    `finalize` alone does not choose between two leaves; the solver
+    spends the smaller witness, the leaf one level up.
+    """
+    text = f"tr({NUMS},{{pk({X[0]}),{{pk({X[1]}),pk({X[2]})}}}})"
+    psbt, prevout, descriptor = tr_psbt(text, NO_LOCK, 0)
+    tree = descriptor.taproot_tree(0)
+    sign_leaf(psbt, tree[0][2], [0])
+    sign_leaf(psbt, tree[1][2], [1])
+    with pytest.raises(BTClibValueError, match="the psbt does not say which leaf"):
+        finalize(psbt)
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == tree[0][2]
+    assert len(stack[-1]) == 33 + 32
+
+
+def test_a_key_leaf_beside_a_record_that_proves_nothing_is_refused() -> None:
+    """Refuse a signed pk() leaf where another record's proof is false.
+
+    `finalize` alone builds the signed leaf and reads no other record;
+    the solver holds every record to the output key, as `sign` does.
+    """
+    text = f"tr({NUMS},{{pk({X[0]}),pk({X[1]})}})"
+    psbt, prevout, descriptor = tr_psbt(text, NO_LOCK, 0)
+    signed, other = (script for _, _, script in descriptor.taproot_tree(0))
+    records = psbt.inputs[0].taproot_leaf_scripts
+    (proof,) = (cb for cb, (script, _) in records.items() if script == other)
+    del records[proof]
+    records[proof[:33]] = (other, 0xC0)
+    sign_leaf(psbt, signed, [0])
+    assert spent(finalize(psbt), prevout)[-2] == signed
+    message = "^a control block does not prove its leaf script against the output key$"
+    with pytest.raises(BTClibValueError, match=message):
+        finalize(psbt, solver=miniscript_solver)
+
+
+def _x_only(prv_key: int) -> str:
+    """Return the x-only key of a private key, as hex."""
+    return PrvKeyData(prv_key).pub.sec[1:].hex()
+
+
+def _two_quorums(first: int, second: int) -> str:
+    """Return two 1-of-n ``multi_a()`` quorums of the keys of 1, 2, 3 and on."""
+    keys = [_x_only(prv_key) for prv_key in range(1, first + second + 1)]
+    return (
+        f"and_v(v:multi_a(1,{','.join(keys[:first])}),"
+        f"multi_a(1,{','.join(keys[first:])}))"
+    )
+
+
+def _hand_tr(scripts: list[bytes]) -> tuple[Psbt, TxOut]:
+    """Return the unsigned psbt of a NUMS output with one or two leaves.
+
+    Built by hand and not from a tr() descriptor, which refuses a leaf
+    that is not sane: these are not.
+    """
+    hashes = [leaf_hash(0xC0, script) for script in scripts]
+    root = hashes[0]
+    if len(hashes) == 2:
+        root = tagged_hash(b"TapBranch", b"".join(sorted(hashes)))
+    nums = bytes.fromhex(NUMS)
+    output_key, parity = output_pubkey_from_merkle_root_var(nums, root)
+    prevout = TxOut(50_000, ScriptPubKey(b"\x51\x20" + output_key))
+    tx = Tx(
+        version=2,
+        lock_time=0,
+        vin=[TxIn(OutPoint(b"\x0b" * 32, 0), sequence=NO_LOCK)],
+        vout=[TxOut(49_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[0])))],
+    )
+    psbt = Psbt.from_tx(tx)
+    psbt_in = psbt.inputs[0]
+    psbt_in.witness_utxo = prevout
+    psbt_in.taproot_internal_key = nums
+    psbt_in.taproot_merkle_root = root
+    for i, script in enumerate(scripts):
+        path = hashes[1 - i] if len(hashes) == 2 else b""
+        control_block = bytes([0xC0 + parity]) + nums + path
+        psbt_in.taproot_leaf_scripts[control_block] = (script, 0xC0)
+    return psbt, prevout
+
+
+def _sign_with(psbt: Psbt, script: bytes, prv_keys: list[int]) -> None:
+    """Add the script path signatures of `prv_keys` for one leaf script."""
+    hash_ = leaf_hash(0xC0, script)
+    msg_hash = taproot_sig_hash(psbt, 0, leaf_hash=hash_)
+    for prv_key in prv_keys:
+        key_data = bytes.fromhex(_x_only(prv_key)) + hash_
+        signature = ssa.sign_(msg_hash, prv_key).serialize()
+        psbt.inputs[0].taproot_script_spend_signatures[key_data] = signature
+
+
+def test_a_leaf_past_the_stack_limit_is_refused() -> None:
+    """Refuse a satisfied leaf whose stack passes a thousand elements.
+
+    Two 1-of-500 quorums are satisfied by a thousand elements, and the
+    first key the script pushes on them is the thousand and first, which
+    BIP342 refuses: the script engine's refusal is the answer. With one
+    key fewer the stack peaks at a thousand, and the leaf is spent.
+    """
+    node = parse(_two_quorums(500, 500), TAPSCRIPT)
+    assert node.max_exec_stack_items == 1001
+    script = node.script()
+    psbt, _ = _hand_tr([script])
+    _sign_with(psbt, script, [1, 501])
+    message = "^more than 1000 stack elements: 1001 "
+    with pytest.raises(BTClibValueError, match=message) as e:
+        finalize(psbt, solver=miniscript_solver)
+    # the engine's own refusal, raised from a fresh run and chained by it
+    assert_secret_free(e.value, [PRV_KEYS[0], (501).to_bytes(32, "big")])
+
+    node = parse(_two_quorums(499, 500), TAPSCRIPT)
+    assert node.max_exec_stack_items == 1000
+    script = node.script()
+    psbt, prevout = _hand_tr([script])
+    _sign_with(psbt, script, [1, 500])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == script
+
+
+def test_a_leaf_past_the_stack_limit_is_passed_over() -> None:
+    """Spend the larger of two satisfied leaves, the smaller being refused.
+
+    The leaf of two 1-of-500 quorums has the smaller witness, and one the
+    script engine refuses. The other leaf is an ``or_d()`` whose ``pk()``
+    branch spends with one signature beside two 1-of-600 quorums: its
+    miniscript is not within its resource limits, and its witness is one
+    the engine takes.
+    """
+    past = parse(_two_quorums(500, 500), TAPSCRIPT)
+    guarded = parse(f"or_d(pk({_x_only(1201)}),{_two_quorums(600, 600)})", TAPSCRIPT)
+    assert not guarded.is_within_resource_limits
+    psbt, prevout = _hand_tr([past.script(), guarded.script()])
+    _sign_with(psbt, past.script(), [1, 501])
+    _sign_with(psbt, guarded.script(), [1201])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == guarded.script()
+    # the witness passed over, built as the solver builds it
+    past_hash = leaf_hash(0xC0, past.script())
+    script_sigs = psbt.inputs[0].taproot_script_spend_signatures
+    signatures: dict[Octets, Octets] = {
+        key_data[:32]: signature
+        for key_data, signature in script_sigs.items()
+        if key_data[32:] == past_hash
+    }
+    records = psbt.inputs[0].taproot_leaf_scripts
+    (proof,) = (cb for cb, (script, _) in records.items() if script == past.script())
+    passed_over = Witness([*past.satisfy(signatures), past.script(), proof])
+    assert len(passed_over.serialize()) < len(Witness(list(stack)).serialize())
+
+
+def test_the_engine_runs_the_input_being_finalized() -> None:
+    """Spend a leaf on each of two inputs, the engine running each one.
+
+    Each input spends the timelocked leaf of an output of its own, and its
+    witness is run on that input of the transaction, not on another.
+    """
+    descriptor = parse_descriptor(SIMPLE_INHERITANCE)
+    assert isinstance(descriptor, TrDescriptor)
+    prevouts = [TxOut(50_000 + i, descriptor.script_pub_key(0)) for i in range(2)]
+    tx = Tx(
+        version=2,
+        lock_time=0,
+        vin=[TxIn(OutPoint(bytes([i + 1]) * 32, i), sequence=52560) for i in range(2)],
+        vout=[TxOut(99_000, ScriptPubKey.p2wpkh(PubKeyData(KEYS[0])))],
+    )
+    psbt = Psbt.from_tx(tx)
+    for i, prevout in enumerate(prevouts):
+        psbt.inputs[i].witness_utxo = prevout
+        psbt = update_psbt_input(descriptor, psbt, i, 0)
+    for i in range(2):
+        script = descriptor.taproot_tree(0)[0][2]
+        hash_ = leaf_hash(0xC0, script)
+        msg_hash = taproot_sig_hash(psbt, i, leaf_hash=hash_)
+        signature = ssa.sign_(msg_hash, 2).serialize()
+        key_data = bytes.fromhex(X[1]) + hash_
+        psbt.inputs[i].taproot_script_spend_signatures[key_data] = signature
+    final = finalize(psbt, solver=miniscript_solver)
+    spending = final.tx
+    for tx_in, psbt_in in zip(spending.vin, final.inputs, strict=True):
+        tx_in.script_witness = psbt_in.final_script_witness
+    verify_transaction(prevouts, spending)
