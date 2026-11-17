@@ -66,6 +66,16 @@ from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_outpu
 # the failure case
 _STARTUP_TIMEOUT = 30.0
 
+# how long an rpc call to the node is given, in place of the client's
+# default: mining the blocks that make a coinbase spendable, in one call,
+# outlasts that default on a loaded machine. It stays below the suite's
+# `timeout` by more than `_STARTUP_TIMEOUT`, so that where a test opens by
+# starting its node and the next call stalls, the client's error comes
+# before pytest-timeout ends the test. A test's waits count it once;
+# `pyproject.toml`'s `timeout` says what a test does whose waits pass the
+# suite's bound
+_RPC_TIMEOUT = 180.0
+
 # the wallet of the session's node that pays the first wallet of each
 # `wallets`, and what it pays it: more than any test on `wallets` spends,
 # so a test that spends more raises it
@@ -340,6 +350,11 @@ ELECTRS_ENV = "BTCLIB_ELECTRS"
 # on the failure case only
 _SYNC_TIMEOUT = 60.0
 
+# what `running_stack` waits for before it yields, each wait run to its
+# deadline: the node's start, its blocks mined in one call and the
+# server's sync
+_STACK_WAITS = _STARTUP_TIMEOUT + _RPC_TIMEOUT + _SYNC_TIMEOUT
+
 
 # how many times the program (the node or the server) is started, each on
 # fresh ports, while a port it was given is taken
@@ -514,7 +529,9 @@ def _start_node(
         _bitcoind_args(bitcoind, datadir, port, p2p_port, extra), datadir / "stdout.log"
     )
     client = BitcoinCoreRpcClient(
-        f"http://127.0.0.1:{port}", cookie_path=datadir / "regtest" / ".cookie"
+        f"http://127.0.0.1:{port}",
+        cookie_path=datadir / "regtest" / ".cookie",
+        timeout=_RPC_TIMEOUT,
     )
     try:
         _wait_for(client, process, datadir / "regtest" / "debug.log")

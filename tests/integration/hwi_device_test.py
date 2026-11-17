@@ -66,7 +66,13 @@ from btclib_wallet.psbt_signer import (
     export_account,
     request_signatures,
 )
-from tests.integration.conftest import as_regtest, broadcast, fund, spending_psbt
+from tests.integration.conftest import (
+    _RPC_TIMEOUT,
+    as_regtest,
+    broadcast,
+    fund,
+    spending_psbt,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -160,9 +166,10 @@ def test_the_device_shows_the_address_the_descriptor_describes(
 # Three HWI calls, each bounded by DEFAULT_TIMEOUT: enumerate for
 # `regtest_device`, getxpub and signtx, which pass the suite's `timeout`.
 # The bound here is one call more, which also covers bitcoind's start for
-# `node`, bounded by conftest.py's _STARTUP_TIMEOUT, and the node's calls.
+# `node`, bounded by conftest.py's _STARTUP_TIMEOUT, and the node's other
+# calls. It adds one _RPC_TIMEOUT for the blocks `node` mines in one call.
 # Its call took at most 3.26 s on CI (integration-hwi.yml run 41768268590)
-@pytest.mark.timeout(4 * DEFAULT_TIMEOUT)
+@pytest.mark.timeout(4 * DEFAULT_TIMEOUT + _RPC_TIMEOUT)
 @pytest.mark.skipif(
     not os.environ.get("BTCLIB_HWI_SIGN"),
     reason="set BTCLIB_HWI_SIGN=1 to ask a device to sign: it needs a button press",

@@ -31,6 +31,8 @@ from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.fetcher import NetworkVerifyingFetcher
 from tests.integration.conftest import (
+    _STACK_WAITS,
+    _SYNC_TIMEOUT,
     Stack,
     electrs_binary,
     make_fetcher,
@@ -38,7 +40,16 @@ from tests.integration.conftest import (
     running_stack,
 )
 
-pytestmark = pytest.mark.integration
+# Every test here asks for the module's `stack`, so whichever runs first on
+# a worker pays its setup, and `payment`'s where it asks for that. Where
+# each wait runs to its deadline, the setup and the test take their sum:
+# the stack's start, _STACK_WAITS; the server's sync after the blocks
+# `stack` mines and after the payment's block, two _SYNC_TIMEOUT; and the
+# sync after a test's own block, one more. Their sum passes the suite's
+# `timeout`, so the bound here is one sync wait more, for the calls
+# between the waits
+_WAITS = _STACK_WAITS + 3 * _SYNC_TIMEOUT
+pytestmark = [pytest.mark.integration, pytest.mark.timeout(_WAITS + _SYNC_TIMEOUT)]
 
 
 @dataclass(frozen=True)

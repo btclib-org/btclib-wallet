@@ -39,6 +39,8 @@ from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.compact_filters import CompactFilterFetcher
 from btclib_wallet.fetch.peer_transport import TcpPeerTransport, V2PeerTransport
 from tests.integration.conftest import (
+    _RPC_TIMEOUT,
+    _STARTUP_TIMEOUT,
     PortTaken,
     _free_port,
     _start,
@@ -103,7 +105,9 @@ def _start_peer_node(
         datadir / "stdout.log",
     )
     client = BitcoinCoreRpcClient(
-        f"http://127.0.0.1:{rpc_port}", cookie_path=datadir / "regtest" / ".cookie"
+        f"http://127.0.0.1:{rpc_port}",
+        cookie_path=datadir / "regtest" / ".cookie",
+        timeout=_RPC_TIMEOUT,
     )
     try:
         _wait_for(client, process, debug_log)
@@ -171,6 +175,13 @@ def _wait_for_index(node: BitcoinCoreRpcClient) -> None:
             return
         time.sleep(0.1)
     pytest.fail(f"the filter index did not catch up within {_INDEX_TIMEOUT} s")
+
+
+# What this test waits for, each wait run to its deadline: the node's
+# start, _STARTUP_TIMEOUT; the chain mined in one call, _RPC_TIMEOUT; and
+# the filter index catching up twice, two _INDEX_TIMEOUT. Their sum stays
+# under the suite's `timeout`, so the test sets no bound of its own
+_ONE_NODE_WAITS = _STARTUP_TIMEOUT + _RPC_TIMEOUT + 2 * _INDEX_TIMEOUT
 
 
 def test_the_blocks_that_touch_a_script_are_the_ones_downloaded(
@@ -300,6 +311,16 @@ def shared_chain(
     return script, paid, spent
 
 
+# What `shared_chain` and `two_peer_nodes` wait for, each wait run to its
+# deadline: the two nodes' starts, two _STARTUP_TIMEOUT; the chain mined in
+# one call, _RPC_TIMEOUT; and the second node reaching the tip and the two
+# filter indexes catching up, three _INDEX_TIMEOUT. Whichever test runs
+# first on a worker pays them, and their sum passes the suite's `timeout`,
+# so the bound of each test that asks for them is one wait more, for the
+# calls between the waits
+_SHARED_CHAIN_WAITS = 2 * _STARTUP_TIMEOUT + _RPC_TIMEOUT + 3 * _INDEX_TIMEOUT
+
+
 class LyingPeer(TcpPeerTransport):
     """A TCP peer that serves the filter of the block below `height` for it.
 
@@ -358,6 +379,7 @@ class LyingPeer(TcpPeerTransport):
         return message
 
 
+@pytest.mark.timeout(_SHARED_CHAIN_WAITS + _INDEX_TIMEOUT)
 @pytest.mark.parametrize("liar_serves", [False, True], ids=["cross-checks", "serves"])
 def test_a_peer_serving_a_wrong_filter_is_dropped_and_the_payment_found(
     two_peer_nodes: tuple[tuple[BitcoinCoreRpcClient, int], ...],
@@ -388,6 +410,7 @@ def test_a_peer_serving_a_wrong_filter_is_dropped_and_the_payment_found(
             assert block.header.hash.hex() == first.call("getblockhash", [height])
 
 
+@pytest.mark.timeout(_SHARED_CHAIN_WAITS + _INDEX_TIMEOUT)
 def test_a_sync_over_v2_reads_the_blocks_a_sync_over_v1_reads(
     two_peer_nodes: tuple[tuple[BitcoinCoreRpcClient, int], ...],
     shared_chain: tuple[bytes, int, int],

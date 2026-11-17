@@ -36,6 +36,8 @@ from btclib_wallet.fetch.electrum import ElectrumFetcher
 from btclib_wallet.fetch.esplora import EsploraFetcher
 from btclib_wallet.fetch.history import ScriptHistory
 from tests.integration.conftest import (
+    _STACK_WAITS,
+    _SYNC_TIMEOUT,
     Stack,
     electrs_binary,
     make_fetcher,
@@ -79,6 +81,15 @@ def _spend(wallet: Any, utxo: dict[str, Any], fee: str) -> Spend:
     return Spend(signed, str(wallet.call("decoderawtransaction", [signed])["txid"]))
 
 
+# Each test starts a stack of its own. Where each wait runs to its
+# deadline, this one takes their sum: the stack's start, _STACK_WAITS, and
+# the server's sync after the old block and after the new branch, two
+# _SYNC_TIMEOUT. Their sum passes the suite's `timeout`, so the bound here
+# is one sync wait more, for the calls between the waits
+_REPLACED_BLOCK_WAITS = _STACK_WAITS + 2 * _SYNC_TIMEOUT
+
+
+@pytest.mark.timeout(_REPLACED_BLOCK_WAITS + _SYNC_TIMEOUT)
 @pytest.mark.parametrize("kind", ["electrum", "esplora"])
 def test_fetchers_follow_the_chain_that_replaced_a_block(
     kind: str, stack: Stack
@@ -169,6 +180,16 @@ def _settled(
         time.sleep(0.2)
 
 
+# Where each wait runs to its deadline, this test takes their sum: the
+# stack's start, _STACK_WAITS; the server's sync after each of the three
+# blocks mined, after the block invalidated and after the block generated,
+# five _SYNC_TIMEOUT; and the six histories that settle, six
+# _MEMPOOL_TIMEOUT. The bound here is one sync wait more, for the calls
+# between the waits
+_HISTORY_WAITS = _STACK_WAITS + 5 * _SYNC_TIMEOUT + 6 * _MEMPOOL_TIMEOUT
+
+
+@pytest.mark.timeout(_HISTORY_WAITS + _SYNC_TIMEOUT)
 @pytest.mark.parametrize("kind", ["electrum", "esplora"])
 def test_the_history_follows_a_confirmation_a_mempool_arrival_and_a_reorg(
     kind: str, stack: Stack

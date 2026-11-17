@@ -10,6 +10,10 @@ makes `electrs` exit with `AddrInUse`, and `bitcoind` exit with
 tests need no `bitcoind` and no `electrs`: each is a stand-in script that
 binds its port as the program does, and says what the program says and
 exits where it cannot. They run in every ordinary run.
+
+The node's client is checked here too, as `_start_node` and
+`compact_filters_test`'s `_start_peer_node` build it: it waits
+`_RPC_TIMEOUT` for a call, and the conftest says why.
 """
 
 from __future__ import annotations
@@ -27,8 +31,10 @@ from typing import Any
 import pytest
 
 from btclib_wallet.fetch.transport import TcpLineTransport
+from tests.integration import compact_filters_test
 from tests.integration import conftest as stack_module
 from tests.integration.conftest import (
+    _RPC_TIMEOUT,
     PortTaken,
     Stack,
     _start,
@@ -275,8 +281,9 @@ def _not_listening(self: Stack) -> str:
 class _ListeningClient:
     """Stand in for the rpc client: it answers where the port is listening."""
 
-    def __init__(self, url: str, cookie_path: Path) -> None:
+    def __init__(self, url: str, cookie_path: Path, timeout: float) -> None:
         self.port = int(url.rsplit(":", 1)[1])
+        self.timeout = timeout
 
     def call(self, method: str) -> None:
         socket.create_connection(("127.0.0.1", self.port), timeout=1).close()
@@ -305,6 +312,39 @@ def test_a_node_on_a_taken_port_is_started_again_on_another(
     try:
         assert port != held_port
         assert process.poll() is None
+    finally:
+        _stop(process)
+
+
+def test_the_nodes_client_waits_the_rpc_timeout(
+    tmp_path: Path, node_script: list[str]
+) -> None:
+    """A call of the node's client is given `_RPC_TIMEOUT`."""
+    process, client, _ = _start_node(node_script, tmp_path, None, ())
+    try:
+        assert client.timeout == _RPC_TIMEOUT
+    finally:
+        _stop(process)
+
+
+def test_the_peer_nodes_client_waits_the_rpc_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`compact_filters_test`'s own start gives the client `_RPC_TIMEOUT`."""
+    script = tmp_path / "bitcoind.py"
+    script.write_text(NODE)
+    monkeypatch.setattr(compact_filters_test, "BitcoinCoreRpcClient", _ListeningClient)
+    # the stand-in is a script, run by this interpreter
+    monkeypatch.setattr(
+        compact_filters_test,
+        "_start",
+        lambda command, log: _start([sys.executable, *command], log),
+    )
+    process, client, _ = compact_filters_test._start_peer_node(
+        str(script), tmp_path, v2transport=True
+    )
+    try:
+        assert client.timeout == _RPC_TIMEOUT
     finally:
         _stop(process)
 
