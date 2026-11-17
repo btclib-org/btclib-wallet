@@ -1066,7 +1066,7 @@ class Ledger:
         scanned = birth_height is None
         birth = birth_height
         if birth is None:
-            birth = 0 if self._tip is None else max(self._tip.height, 0)
+            birth = 0 if self._tip is None else max(_exact_int(self._tip.height), 0)
         descriptors = {
             branch: str(wallet.descriptor(branch)) for branch in wallet.branches
         }

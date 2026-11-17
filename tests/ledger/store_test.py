@@ -52,6 +52,7 @@ from tests.ledger import (
     Conforming,
     ConformingBytes,
     ConformingStr,
+    NotBelow,
 )
 from tests.ledger.conftest import LOOKAHEAD, XPRV, FakeChain, script_of, source
 from tests.refused_value_test import HEX, SPELLINGS
@@ -972,6 +973,32 @@ def test_a_source_added_at_a_negative_tip_loads_again(
         assert len(again.sources) == 2
         assert again.tip is not None
         assert again.tip.height == height
+
+
+class _NotBelowTipChain(FakeChain):
+    """A reader answering a tip of -1, as an int saying it is not below 0."""
+
+    @override
+    def get_history(
+        self, scripts: Iterable[Octets | ScriptPubKey], start_height: int = 0
+    ) -> ScriptHistory:
+        answer = super().get_history(scripts, start_height)
+        tip = BlockRef(NotBelow(-1), answer.tip.block_id)
+        return ScriptHistory(answer.start, tip, answer.txs)
+
+
+def test_a_source_added_at_a_reader_s_negative_tip_loads_again(path: Path) -> None:
+    """`add_source` reads the int a reader's tip holds, not its `<`."""
+    chain = _NotBelowTipChain()
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        ledger.sync()
+        assert ledger.tip is not None
+        assert _exact_int(ledger.tip.height) == -1
+        ledger.add_source(source("wpkh({}/84h/1h/7h/{}/*)"), None)
+    assert _rows(path, "SELECT birth FROM sources ORDER BY id") == [(0,), (0,)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert len(again.sources) == 2
 
 
 class _JumpChain(FakeChain):
