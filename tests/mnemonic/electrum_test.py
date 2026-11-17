@@ -291,3 +291,34 @@ def test_descriptors_address_matches_electrum_vertical() -> None:
     assert descriptors.parse(receive).address(0) == addr
     addr = "bc1qdy94n2q5qcp0kg7v9yzwe6wvfkhnvyzje7nx2p"  # pragma: allowlist secret
     assert descriptors.parse(change).address(0) == addr
+
+
+def test_descriptors_carry_electrum_vertical_keys_and_origin() -> None:
+    """Each descriptor is whole: its key, its key origin and its chain.
+
+    The keys are the keystore keys spesmilo/electrum's
+    tests/test_wallet_vertical.py gives for the two seeds of the test
+    above, the "segwit" one's zpub as the xpub of the same key. A
+    "standard" origin is the root's fingerprint alone; a "segwit" one is
+    the root's fingerprint, which the m/0h key holds as its parent's,
+    and the path 0h.
+    """
+    standard = (
+        "cycle rocket west magnet parrot shuffle foot correct salt library feed song"
+    )
+    xpub = "xpub661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52CwBdDWroaZf8U"  # pragma: allowlist secret
+    origin = bip32.fingerprint(xpub).hex()
+    assert electrum.descriptors_from_mnemonic(standard) == (
+        descriptors.add_checksum(f"pkh([{origin}]{xpub}/0/*)"),
+        descriptors.add_checksum(f"pkh([{origin}]{xpub}/1/*)"),
+    )
+
+    segwit = (
+        "bitter grass shiver impose acquire brush forget axis eager alone wine silver"
+    )
+    xpub = "xpub69Cm26ZhqfAuejFN7RcRK11Fkaqw6TDim9LfLS942vGrsesF9JbABEFmLEDadVG7vgTLHsQARRuKJ2SfFu94zRvBaHpcEE7k3LXci9vCfSU"  # pragma: allowlist secret
+    origin = bip32.BIP32KeyData.b58decode(xpub).parent_fingerprint.hex()
+    assert electrum.descriptors_from_mnemonic(segwit) == (
+        descriptors.add_checksum(f"wpkh([{origin}/0h]{xpub}/0/*)"),
+        descriptors.add_checksum(f"wpkh([{origin}/0h]{xpub}/1/*)"),
+    )

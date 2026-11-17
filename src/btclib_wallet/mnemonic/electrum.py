@@ -2,11 +2,12 @@
 # Distributed under the MIT software license, see the accompanying
 # LICENSE file or https://opensource.org/license/mit for the full text.
 
-"""The master keys of an Electrum mnemonic.
+"""The master keys and the descriptors of an Electrum mnemonic.
 
 The sentence, its version and its seed are `bip39_slip39.electrum`'s.
 What is here is what Electrum derives from them: the BIP32 master key a
-versioned mnemonic names, and the master public key of a pre-2.0 one.
+versioned mnemonic names, the receive and change descriptors of its
+wallet, and the master public key of a pre-2.0 one.
 """
 
 from __future__ import annotations
