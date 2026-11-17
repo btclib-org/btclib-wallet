@@ -368,9 +368,8 @@ def recovery_descriptors(
     `Descriptor.satisfy` builds the witness of every path, a leaf's
     timelock read from its `SpendContext`. `psbt.finalize` builds, from
     the psbt alone, the key path's and that of a primary leaf that is one
-    quorum; a leaf with a timelock or two quorums is one for a solver the
-    caller passes, as `psbt.miniscript_solver` reads only a P2WSH witness
-    script.
+    quorum; with ``solver=psbt.miniscript_solver`` it builds every path's,
+    a leaf with a timelock or two quorums included.
 
     Each value is exactly of the type its position takes, and anything
     else, a subclass included, is refused with its position: `primary`,

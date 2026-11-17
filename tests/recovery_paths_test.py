@@ -63,7 +63,7 @@ from btclib_wallet.descriptors import (
 )
 from btclib_wallet.descriptors.miniscript import SpendContext
 from btclib_wallet.psbt import Psbt, finalize, miniscript_solver
-from btclib_wallet.psbt.psbt import leaf_script, taproot_sig_hash
+from btclib_wallet.psbt.psbt import taproot_sig_hash
 from btclib_wallet.psbt.psbt_updater import update_psbt_input
 from btclib_wallet.recovery_paths import recovery_descriptors
 from tests.secret_free import assert_secret_free
@@ -1949,32 +1949,6 @@ def test_each_network_takes_its_own_tr_keys(network: str) -> None:
             assert descriptor.address(index).startswith(f"{net.hrp}1p")
 
 
-def _leaf_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
-    """Satisfy a tapscript leaf that `finalize` does not finalize alone.
-
-    An `InputSolver`, for the leaf with a timelock or two quorums: the
-    one leaf the signatures name is read back into its miniscript and
-    satisfied at the transaction's sequence. None for the key path and
-    for a bare ``multi_a()``, which `finalize` builds itself.
-    """
-    psbt_in = psbt.inputs[vin_i]
-    signatures = psbt_in.taproot_script_spend_signatures
-    hashes = {key[32:] for key in signatures}
-    if not hashes:
-        return None
-    (hash_,) = hashes
-    script, control_block = leaf_script(psbt_in, hash_)
-    node = miniscript.from_script(script, miniscript.TAPSCRIPT, {})
-    if node.fragment == "multi_a":
-        return None
-    tx = psbt.tx
-    spend = SpendContext(sequence=tx.vin[vin_i].sequence, version=tx.version)
-    offered: dict[Octets, Octets] = {
-        key[:32]: signature for key, signature in signatures.items()
-    }
-    return b"", Witness([*node.satisfy(offered, spend), script, control_block])
-
-
 def _signed_tr(
     descriptor: Descriptor,
     signers: list[tuple[int, int]],
@@ -2030,7 +2004,7 @@ def _tr_spend(
     one the engine refuses.
     """
     psbt, prevout = _signed_tr(descriptor, signers, sequence, leaf)
-    final = finalize(psbt, solver=_leaf_solver)
+    final = finalize(psbt, solver=miniscript_solver)
     stack = final.inputs[0].final_script_witness.stack
     spending = final.tx
     spending.vin[0].script_witness = Witness(stack)
@@ -2098,13 +2072,8 @@ _TR_SPEND_CASES = [
 ]
 
 # what `finalize` says of a spend one signature short: no signature at
-# all, a multi_a() short of its threshold, or a leaf the solver cannot
-# satisfy
-_SHORT = (
-    "^(input 0: missing taproot signature"
-    "|input 0: not enough taproot script path signatures: [0-9]+ < [0-9]+"
-    f"|{re.escape(_NO_SATISFACTION)})$"
-)
+# all, or a leaf the solver cannot satisfy
+_SHORT = f"^(input 0: missing taproot signature|{re.escape(_NO_SATISFACTION)})$"
 
 
 def _tr_leaf(primary: list[tuple[int, list[int]]], path: int) -> int | None:
@@ -2125,9 +2094,9 @@ def test_each_tr_path_spends_with_its_signatures_once_its_timelock_has_passed(
 ) -> None:
     """Sign along one path, and spend: with its signatures, at its timelock.
 
-    `finalize` builds the spend, with `_leaf_solver` for a leaf it does
-    not build alone, and the script engine runs it. One signature fewer
-    is refused, and so is a sequence one block short of the lock.
+    `finalize` builds the spend with `miniscript_solver`, and the script
+    engine runs it. One signature fewer is refused, and so is a sequence
+    one block short of the lock.
     """
     primary, recovery, paths = _TR_SPENDS[policy]
     descriptors = recovery_descriptors(
@@ -2141,11 +2110,11 @@ def test_each_tr_path_spends_with_its_signatures_once_its_timelock_has_passed(
     sequence = _NO_LOCK if blocks is None else blocks
     psbt, _ = _signed_tr(descriptors[chain], on_chain[:-1], sequence, leaf)
     with pytest.raises(BTClibValueError, match=_SHORT):
-        finalize(psbt, solver=_leaf_solver)
+        finalize(psbt, solver=miniscript_solver)
     if blocks is not None:
         psbt, _ = _signed_tr(descriptors[chain], on_chain, blocks - 1, leaf)
         with pytest.raises(BTClibValueError, match=f"^{re.escape(_NO_SATISFACTION)}$"):
-            finalize(psbt, solver=_leaf_solver)
+            finalize(psbt, solver=miniscript_solver)
     final = _tr_spend(descriptors[chain], on_chain, sequence, leaf)
     stack = final.inputs[0].final_script_witness.stack
     if leaf is None:
@@ -2156,6 +2125,85 @@ def test_each_tr_path_spends_with_its_signatures_once_its_timelock_has_passed(
         assert isinstance(spent, TrDescriptor)
         depth = spent.taproot_tree(3)[leaf][0]
         assert len(stack[-1]) == 33 + 32 * depth
+
+
+# the signer each account key of _TR_POLICIES is replaced by, so that
+# every path of each policy can be signed
+_TR_SIGNERS = {key: signer for signer, key in enumerate((A, B, C, D, E, F))}
+
+
+def _tr_paths(
+    primary: list[tuple[int, list[str]]], recovery: list[tuple[int, list[str], int]]
+) -> list[tuple[int | None, list[tuple[int, int]]]]:
+    """Return each path of a policy: its blocks, and who signs it at which pair.
+
+    The first threshold keys of each quorum sign, each key at the pair the
+    call gives it: 0 the first time it is named, 2 the second, and so on.
+    The primary path is every primary quorum, and waits no blocks.
+    """
+    named: dict[str, int] = {}
+
+    def signing(threshold: int, keys: list[str]) -> list[tuple[int, int]]:
+        pairs = []
+        for key in keys:
+            pairs.append((_TR_SIGNERS[key], 2 * named.get(key, 0)))
+            named[key] = named.get(key, 0) + 1
+        return pairs[:threshold]
+
+    paths: list[tuple[int | None, list[tuple[int, int]]]] = [
+        (None, [pair for t, keys in primary for pair in signing(t, keys)])
+    ]
+    paths += [(blocks, signing(t, keys)) for t, keys, blocks in recovery]
+    return paths
+
+
+_TR_POLICY_PATHS = [
+    pytest.param(policy, path, id=f"{policy}-path {path}")
+    for policy, (primary, recovery, _) in _TR_POLICIES.items()
+    for path in range(len(_tr_paths(primary, recovery)))
+]
+
+
+@pytest.mark.parametrize("policy,path", _TR_POLICY_PATHS)
+def test_each_path_of_each_tr_policy_spends_through_miniscript_solver(
+    policy: str, path: int
+) -> None:
+    """Spend each path of each policy of _TR_POLICIES, its keys our signers'.
+
+    `finalize` builds the spend with `miniscript_solver`, and the script
+    engine runs it. A primary path of one key is the key path, which the
+    solver leaves to `finalize`. One signature fewer is refused, and so is
+    a sequence one block short of the lock.
+    """
+    primary, recovery, _ = _TR_POLICIES[policy]
+    descriptor, _ = recovery_descriptors(
+        [(t, [_SIGNER_KEYS[_TR_SIGNERS[k]] for k in keys]) for t, keys in primary],
+        [
+            (t, [_SIGNER_KEYS[_TR_SIGNERS[k]] for k in keys], blocks)
+            for t, keys, blocks in recovery
+        ],
+        script_type="p2tr",
+    )
+    blocks, signers = _tr_paths(primary, recovery)[path]
+    one_key = len(primary) == 1 and len(primary[0][1]) == 1
+    leaf = (None if path == 0 else path - 1) if one_key else path
+    sequence = _NO_LOCK if blocks is None else blocks
+    psbt, _ = _signed_tr(descriptor, signers, sequence, leaf)
+    if leaf is None:
+        assert miniscript_solver(psbt, 0) is None
+    final = _tr_spend(descriptor, signers, sequence, leaf)
+    stack = final.inputs[0].final_script_witness.stack
+    if leaf is not None:
+        assert isinstance(descriptor, TrDescriptor)
+        assert stack[-2] == descriptor.taproot_tree(3)[leaf][2]
+
+    psbt, _ = _signed_tr(descriptor, signers[:-1], sequence, leaf)
+    with pytest.raises(BTClibValueError, match=_SHORT):
+        finalize(psbt, solver=miniscript_solver)
+    if blocks is not None:
+        psbt, _ = _signed_tr(descriptor, signers, blocks - 1, leaf)
+        with pytest.raises(BTClibValueError, match=f"^{re.escape(_NO_SATISFACTION)}$"):
+            finalize(psbt, solver=miniscript_solver)
 
 
 @pytest.mark.parametrize("primary", ["one key", "a quorum"])
@@ -2194,36 +2242,36 @@ def test_a_tr_path_lengthens_the_control_blocks_of_the_path_before_it(
     assert [len(stack[-1]) for stack in witnesses] == expected
 
 
-def test_finalize_builds_a_timelocked_leaf_only_with_a_solver() -> None:
+def test_finalize_builds_a_timelocked_leaf_with_miniscript_solver() -> None:
     """The docstring's account of `psbt.finalize` under tr(), measured.
 
-    `miniscript_solver` answers None for the input, and `finalize` alone
-    refuses the leaf with a timelock: `_leaf_solver` is what builds it.
+    `finalize` alone refuses the leaf with a timelock, and
+    `miniscript_solver` is what builds it.
     """
     descriptor, _ = recovery_descriptors(
         [(1, [_SIGNER_KEYS[0]])], [(1, [_SIGNER_KEYS[1]], 144)], script_type="p2tr"
     )
     psbt, _ = _signed_tr(descriptor, [(1, 0)], 144, 0)
-    assert miniscript_solver(psbt, 0) is None
     message = (
         "cannot finalize a taproot script path whose leaf script "
         "is neither a single key and OP_CHECKSIG nor a multi_a"
     )
     with pytest.raises(BTClibValueError, match=f"^{re.escape(message)}$"):
-        finalize(psbt, solver=miniscript_solver)
-    assert finalize(psbt, solver=_leaf_solver).inputs[0].final_script_witness
+        finalize(psbt)
+    assert miniscript_solver(psbt, 0) is not None
+    assert finalize(psbt, solver=miniscript_solver).inputs[0].final_script_witness
 
 
 def test_descriptor_satisfy_builds_every_tr_path() -> None:
     """`Descriptor.satisfy` builds a recovery leaf's witness, at its timelock.
 
-    The same witness `finalize` builds through `_leaf_solver`.
+    The same witness `finalize` builds through `miniscript_solver`.
     """
     descriptor, _ = recovery_descriptors(
         [(2, _SIGNER_KEYS[:2])], [(1, [_SIGNER_KEYS[2]], 144)], script_type="p2tr"
     )
     psbt, _ = _signed_tr(descriptor, [(2, 0)], 144, 1)
-    final = finalize(psbt, solver=_leaf_solver)
+    final = finalize(psbt, solver=miniscript_solver)
     signatures: dict[Octets, Octets] = {
         key[:32]: signature
         for key, signature in psbt.inputs[0].taproot_script_spend_signatures.items()

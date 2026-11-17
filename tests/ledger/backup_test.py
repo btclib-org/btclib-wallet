@@ -227,7 +227,7 @@ def test_a_copy_that_cannot_write_names_the_copy_and_leaves_none(
     ledger.backup(backup)
     connect = store._connect
 
-    def read_only(path: Path, mode: str) -> sqlite3.Connection:
+    def read_only(path: str, mode: str) -> sqlite3.Connection:
         return connect(path, "ro")
 
     monkeypatch.setattr(store, "_connect", read_only)
@@ -271,7 +271,7 @@ def test_a_copy_whose_file_cannot_be_removed_names_both_failures_by_class(
     folder.mkdir()
     connect = store._connect
 
-    def read_only(path: Path, mode: str) -> sqlite3.Connection:
+    def read_only(path: str, mode: str) -> sqlite3.Connection:
         return connect(path, "ro")
 
     monkeypatch.setattr(store, "_connect", read_only)
@@ -304,7 +304,7 @@ def test_an_interrupted_copy_whose_file_cannot_be_removed_raises_the_interrupt(
     connect = store._connect
     interrupt = KeyboardInterrupt()
 
-    def interrupted(path: Path, mode: str) -> sqlite3.Connection:
+    def interrupted(path: str, mode: str) -> sqlite3.Connection:
         if Path(path).parent == folder:
             raise interrupt
         return connect(path, mode)

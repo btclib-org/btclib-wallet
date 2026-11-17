@@ -92,7 +92,6 @@ import sqlite3
 import sys
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from os import PathLike
 from pathlib import Path
 from typing import TypeGuard
 from urllib.parse import quote
@@ -219,7 +218,7 @@ class _SyncWrite:
     handed_out: tuple[tuple[int, int, int], ...]
 
 
-def _connect(path: str | PathLike[str], mode: str) -> sqlite3.Connection:
+def _connect(path: str, mode: str) -> sqlite3.Connection:
     """Open the file, `rw` refusing a missing one and `ro` reading it only.
 
     An `rw` connection holds the file, as the module's docstring says,
@@ -472,7 +471,7 @@ def _pragma(db: sqlite3.Connection, name: str) -> int:
     return int(db.execute(f"PRAGMA {name}").fetchone()[0])
 
 
-def _new_file(path: str | PathLike[str]) -> None:
+def _new_file(path: str) -> None:
     """Make an empty file at `path`, refusing anything there.
 
     A directory and a link are refused too. The file is its owner's
@@ -504,7 +503,7 @@ def _new_file(path: str | PathLike[str]) -> None:
     raise BTClibValueError(f"cannot make the ledger file: {failure}")
 
 
-def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
+def _copy(db: sqlite3.Connection, path: str) -> None:
     """Write the pages of `db` into a new file at `path`.
 
     A copy that fails after making the file removes it, as
@@ -534,9 +533,7 @@ def _copy(db: sqlite3.Connection, path: str | PathLike[str]) -> None:
     raise BTClibValueError(failure)
 
 
-def _undo_copy(
-    target: sqlite3.Connection | None, path: str | PathLike[str]
-) -> str | None:
+def _undo_copy(target: sqlite3.Connection | None, path: str) -> str | None:
     """Close the copy where it was opened, and remove its file.
 
     Return what `_remove_new_file` returns.
@@ -546,7 +543,23 @@ def _undo_copy(
     return _remove_new_file(path)
 
 
-def _remove_new_file(path: str | PathLike[str]) -> str | None:
+def _discard_new(store: _Store, path: str) -> str | None:
+    """Close a store a step made, and remove its file, for a step that failed.
+
+    Return what `_remove_new_file` returns. The file is removed whatever
+    the close raises, and an `sqlite3.Error` of the close is not raised:
+    as `_remove_new_file` says of its own error, it would replace the
+    failure being undone.
+    """
+    try:
+        with contextlib.suppress(sqlite3.Error):
+            store.close()
+    finally:
+        left = _remove_new_file(path)
+    return left
+
+
+def _remove_new_file(path: str) -> str | None:
     """Remove the file at `path`, for a step that failed after making it.
 
     Return None where the file is gone. Where the removal fails, return
@@ -561,7 +574,7 @@ def _remove_new_file(path: str | PathLike[str]) -> str | None:
     return None
 
 
-def _copy_backup(backup: str | PathLike[str], path: str | PathLike[str]) -> None:
+def _copy_backup(backup: str, path: str) -> None:
     """Copy the file at `backup` into a new file at `path`.
 
     Read-only on `backup`; a missing `backup` and one SQLite cannot read
@@ -589,7 +602,7 @@ class _Store:
         self._db = db
 
     @classmethod
-    def create(cls, path: str | PathLike[str], network: str) -> _Store:
+    def create(cls, path: str, network: str) -> _Store:
         """Write a new file for `network`, refusing one that exists.
 
         The file is made readable and writable by its owner alone, where
@@ -622,7 +635,7 @@ class _Store:
         return cls(db)
 
     @classmethod
-    def open(cls, path: str | PathLike[str], network: str) -> _Store:
+    def open(cls, path: str, network: str) -> _Store:
         """Open a file of this package for `network`, migrating an older one."""
         db = _connect(path, "rw")
         failure = None
@@ -645,7 +658,7 @@ class _Store:
         """Close the file, and let another ledger open it."""
         _release(self._db)
 
-    def backup(self, path: str | PathLike[str]) -> None:
+    def backup(self, path: str) -> None:
         """Write a copy of the file into a new file at `path`."""
         _copy(self._db, path)
 
