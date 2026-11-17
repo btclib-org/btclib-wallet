@@ -3250,6 +3250,12 @@ def _path_held(path: str | PathLike[str], name: str) -> str:
     A str holding a NUL is refused too, before any file is made: `os`
     refuses one in a path with a `ValueError` of its own, which
     `Path.touch` lets out.
+
+    So is a str holding a surrogate, U+D800 to U+DFFF, on every system:
+    `store` opens the file through a URI built from the str's UTF-8,
+    which holds no surrogate. `os.fsdecode` reads a file name that is
+    not UTF-8 as a str holding one, so such a file cannot be a ledger's
+    or a backup.
     """
     held: object = path
     if not issubclass(type(path), str):
@@ -3264,6 +3270,8 @@ def _path_held(path: str | PathLike[str], name: str) -> str:
     text = _exact(cast("str", held))
     if "\0" in text:
         raise BTClibValueError(f"invalid {name}: it holds a NUL character")
+    if any("\ud800" <= char <= "\udfff" for char in text):
+        raise BTClibValueError(f"invalid {name}: it holds a surrogate")
     return text
 
 

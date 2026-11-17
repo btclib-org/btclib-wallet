@@ -7,7 +7,8 @@
 A str is read as the str it holds, and a `PathLike` through
 `os.fspath` once, whatever their own methods answer: the file made,
 opened, copied or removed is the one that str names. A str holding a
-NUL names none, and is refused (issue #1028).
+NUL names none, and is refused (issue #1028). One holding a surrogate
+is refused too (issue #1048).
 """
 
 from __future__ import annotations
@@ -287,6 +288,48 @@ def test_a_path_holding_a_nul_is_refused_before_any_file_is_made(
             call()
         assert_secret_free(e.value, SPELLINGS)
     assert _files(tmp_path) == ["ledger.bak", "ledger.sqlite", "ledger.sqlite-journal"]
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [str, Lying, lambda text: Answering(text, text)],
+    ids=["str", "subclass", "answered"],
+)
+# `os.fsdecode` reads a byte 0x80 that is not UTF-8 as U+DC80. Built by
+# `chr`: ruff reads the three literals as one value, and calls them duplicates
+@pytest.mark.parametrize("surrogate", [chr(0xD800), chr(0xDC80), chr(0xDFFF)])
+def test_a_path_holding_a_surrogate_is_refused_before_any_file_is_made(
+    held: Ledger,
+    chain: FakeChain,
+    tmp_path: Path,
+    wrap: Callable[[str], Any],
+    surrogate: str,
+) -> None:
+    """Issue #1048: the URI `store` opens the file through is UTF-8.
+
+    The refusal holds nothing of the path, a key's hex in it included.
+    """
+    text = f"{tmp_path / KEY.hex()}{surrogate}.sqlite"
+    for name, call in _calls(held, chain, tmp_path, lambda: wrap(text)):
+        err_msg = f"^invalid {name}: it holds a surrogate$"
+        with raises_alone(BTClibValueError, err_msg) as e:
+            call()
+        assert_secret_free(e.value, SPELLINGS)
+    assert _files(tmp_path) == ["ledger.bak", "ledger.sqlite", "ledger.sqlite-journal"]
+
+
+def test_the_code_points_beside_the_surrogates_name_a_file(
+    chain: FakeChain, tmp_path: Path
+) -> None:
+    """U+D7FB and U+E000 are no surrogates, and UTF-8 encodes them.
+
+    U+D7FB is the last code point assigned below the surrogates: APFS
+    refuses a name holding one Unicode has not assigned.
+    """
+    path = tmp_path / "ퟻ.sqlite"
+    Ledger.create(str(path), "regtest", chain).close()
+    Ledger.load(str(path), "regtest", chain).close()
+    assert _files(tmp_path) == [path.name]
 
 
 @pytest.mark.parametrize(
