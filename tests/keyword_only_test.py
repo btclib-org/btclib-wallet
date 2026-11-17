@@ -296,6 +296,13 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "relay_fee_reader",
         "fallback_fee_rate",
     ],
+    "btclib_wallet.ledger:Ledger.restore_policy": [
+        "lookahead",
+        "broadcaster",
+        "fee_estimator",
+        "relay_fee_reader",
+        "fallback_fee_rate",
+    ],
     "btclib_wallet.ledger:Ledger.new_address": ["label"],
     "btclib_wallet.ledger:Ledger.received_by_address": ["include_immature_coinbase"],
     "btclib_wallet.ledger:Ledger.received_by_label": ["include_immature_coinbase"],

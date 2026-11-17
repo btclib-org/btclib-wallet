@@ -176,7 +176,9 @@ writes one SQLite file, through the standard library's `sqlite3`, which
 holds everything a load answers from, and copies it into a new file when
 its caller asks for a backup; `ledger.store`'s docstring says how the
 file names its format and version. `ledger.crypto` encrypts the private
-keys in it when its caller asks.
+keys in it when its caller asks. A ledger also exports its policy as the
+text `bip139` writes, and a new ledger is made from such text, so it
+imports `bip139` and `bip329`.
 
 ## Discreet log contracts
 

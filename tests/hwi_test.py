@@ -34,11 +34,13 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 from unittest import mock
 
 import pytest
@@ -84,7 +86,8 @@ from btclib_wallet.psbt_signer import (
     request_signatures,
     sign_message,
 )
-from tests.refused_value_test import HEX, KEY, SPELLINGS
+from tests.ledger import ClaimsStr
+from tests.refused_value_test import HEX, KEY, SCALAR, SPELLINGS
 from tests.secret_free import assert_secret_free
 
 # the "abandon abandon ... about" root of BIP39, which BIP84 publishes
@@ -1134,6 +1137,221 @@ def test_what_runs_is_the_absolute_path_found_on_the_path(
     with pytest.raises(SignerNotFoundError):
         enumerate_devices()
     assert [Path(call.args[0][0]) for call in popen.call_args_list] == [on_path]
+
+
+class LyingStr(str):
+    """A str whose own methods answer for `elsewhere`, a str it does not hold.
+
+    The standard library calls such methods of a str subclass:
+    `posixpath` splits a path with `rfind` and `__getitem__`, and
+    `subprocess` reads what it runs through `encode` on POSIX and through
+    `__iter__` in `list2cmdline`, on Windows. `lying` makes a subclass
+    of this one for each `elsewhere`.
+    """
+
+    __slots__ = ()
+    elsewhere = ""
+
+    def __fspath__(self) -> str:
+        return self.elsewhere
+
+
+def _lie(name: str) -> Callable[..., object]:
+    """Return a method answering what `str`'s own answers for `elsewhere`."""
+
+    def method(self: LyingStr, *args: object, **kwargs: object) -> object:
+        return getattr(str, name)(self.elsewhere, *args, **kwargs)
+
+    return method
+
+
+for _name in (
+    "__contains__",
+    "__eq__",
+    "__format__",
+    "__getitem__",
+    "__hash__",
+    "__iter__",
+    "__len__",
+    "__ne__",
+    "__str__",
+    "encode",
+    "endswith",
+    "rfind",
+    "split",
+    "startswith",
+):
+    setattr(LyingStr, _name, _lie(_name))
+
+
+def lying(held: str, elsewhere: str) -> LyingStr:
+    """Return a `LyingStr` holding `held` and answering for `elsewhere`."""
+    namespace = {"__slots__": (), "elsewhere": elsewhere}
+    return cast("type[LyingStr]", type("Lying", (LyingStr,), namespace))(held)
+
+
+def ran(popen: mock.Mock) -> list[list[tuple[type, str]]]:
+    """Return each argv `subprocess.Popen` was called with, typed."""
+    return [[(type(arg), arg) for arg in call.args[0]] for call in popen.call_args_list]
+
+
+def test_a_lying_str_answers_for_a_program_it_does_not_hold() -> None:
+    """The control of the tests below: each lie is one a reader would see.
+
+    `os.fsencode` is what `subprocess` encodes a program with on POSIX,
+    and `list2cmdline` what it writes a command line with on Windows, so
+    a run that reads this value runs `elsewhere`.
+    """
+    value = lying("held", "/elsewhere/hwi")
+    assert str.__add__(value, "") == "held"
+    assert (str(value), value.__fspath__(), os.fsencode(value)) == (
+        "/elsewhere/hwi",
+        "/elsewhere/hwi",
+        b"/elsewhere/hwi",
+    )
+    assert subprocess.list2cmdline([value]) == "/elsewhere/hwi"
+    assert (len(value), list(value), value == "/elsewhere/hwi") == (
+        len("/elsewhere/hwi"),
+        list("/elsewhere/hwi"),
+        True,
+    )
+    assert posixpath.split(value) == ("/elsewhere", "hwi")
+
+
+def test_the_program_run_is_the_one_checked_whatever_a_str_subclass_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each item is read as the exact str it holds before anything uses it.
+
+    A path names a file, and a bare name the file found on the PATH: what
+    `is_available` checks is what `subprocess` is handed, as a str whose
+    methods are str's own, whatever the subclass's methods answer.
+    """
+    checked = _fake_hwi(tmp_path / "checked")
+    elsewhere = str(tmp_path / "elsewhere" / "hwi")
+    on_path = _fake_hwi(tmp_path / "on_path")
+    monkeypatch.setenv("PATH", str(on_path.parent))
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    by_path = lying(str(checked), elsewhere)
+    bare = lying(DEFAULT_EXECUTABLE, elsewhere)
+    flag = lying("--flag", "--other")
+    for executable in (by_path, [by_path, flag], bare, [bare, flag]):
+        assert is_available(executable)
+        with pytest.raises(SignerNotFoundError):
+            enumerate_devices(executable=executable)
+    chain = [(str, "--chain"), (str, "main"), (str, "enumerate")]
+    assert ran(popen) == [
+        [(str, str(checked)), *chain],
+        [(str, str(checked)), (str, "--flag"), *chain],
+        [(str, str(on_path)), *chain],
+        [(str, str(on_path)), (str, "--flag"), *chain],
+    ]
+
+
+def test_a_signer_runs_its_executable_as_the_exact_str_it_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At construction, and again where the attribute is assigned after it."""
+    checked = _fake_hwi(tmp_path / "checked")
+    by_path = lying(str(checked), str(tmp_path / "elsewhere"))
+    device = HwiSigner(FINGERPRINT, executable=[by_path, lying("--flag", "--other")])
+    assert [(type(arg), arg) for arg in device.executable] == [
+        (str, str(checked)),
+        (str, "--flag"),
+    ]
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    device.executable = by_path  # type: ignore[assignment]
+    with pytest.raises(SignerNotFoundError):
+        device.xpub("m/0")
+    assert ran(popen)[0][0] == (str, str(checked))
+
+
+# `isinstance` reads `__class__`, so each of these is believed to be what
+# it claims, where its type is not
+_claims_str: Any = property(lambda _self: str)
+_claims_list: Any = property(lambda _self: list)
+
+
+class ArgvClaimingStr(list[str]):
+    """An argv whose `__class__` claims str."""
+
+    __class__ = _claims_str
+
+
+class ClaimsList:
+    """No sequence, whose `__class__` claims list."""
+
+    __class__ = _claims_list
+
+
+def test_an_executable_is_read_by_its_type_not_by_its_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The type decides, as `_quoted` says: `isinstance` reads `__class__`."""
+    checked = _fake_hwi(tmp_path / "checked")
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    argv = ArgvClaimingStr([str(checked)])
+    claimed: object = argv
+    assert isinstance(claimed, str)
+    assert is_available(argv)
+    with pytest.raises(SignerNotFoundError):
+        enumerate_devices(executable=argv)
+    assert ran(popen)[0][0] == (str, str(checked))
+
+
+@pytest.mark.parametrize(
+    "executable, message",
+    [
+        pytest.param(SCALAR, "invalid executable type: 'int'", id="an-int"),
+        pytest.param(
+            {sys.executable: "-c"},
+            "invalid executable type: 'dict'",
+            id="no-sequence",
+        ),
+        pytest.param(
+            ClaimsList(),
+            "invalid executable type: 'ClaimsList'",
+            id="an-object-claiming-list",
+        ),
+        pytest.param(KEY, "invalid executable item type: 'int'", id="bytes"),
+        pytest.param(
+            [sys.executable, SCALAR],
+            "invalid executable item type: 'int'",
+            id="an-int-item",
+        ),
+        pytest.param([KEY], "invalid executable item type: 'bytes'", id="a-bytes-item"),
+        pytest.param(
+            [ClaimsStr(KEY)],
+            "invalid executable item type: 'ClaimsStr'",
+            id="an-item-claiming-str",
+        ),
+        pytest.param(
+            [Path(sys.executable)],
+            "invalid executable item type: '(Posix|Windows)Path'",
+            id="a-path-item",
+        ),
+    ],
+)
+def test_an_executable_that_is_no_str_or_argv_of_str_is_refused(
+    executable: object, message: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """By its type alone, before anything is looked up or run."""
+    popen = mock.Mock(side_effect=FileNotFoundError)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    calls: list[Callable[[], object]] = [
+        lambda: is_available(executable),  # type: ignore[arg-type]
+        lambda: enumerate_devices(executable=executable),  # type: ignore[arg-type]
+        lambda: HwiSigner(FINGERPRINT, executable=executable),  # type: ignore[arg-type]
+    ]
+    for call in calls:
+        with pytest.raises(BTClibTypeError, match=f"^{message}$") as e:
+            call()
+        assert_secret_free(e.value, SPELLINGS)
+    popen.assert_not_called()
 
 
 def test_a_bare_name_on_windows_is_run_as_an_exe_and_never_as_a_batch_file(
