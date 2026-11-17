@@ -14,12 +14,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from bip32_descriptors.descriptors import parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, fee_from_vsize
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
-from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.relay_fees import RelayFees
 from btclib_wallet.ledger import Ledger, TxState, WalletTx

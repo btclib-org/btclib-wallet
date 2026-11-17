@@ -387,11 +387,11 @@ def test_a_parent_directory_segment_names_the_whole_suite_too(
 @pytest.mark.parametrize(
     "file_or_dir, keyword, markexpr",
     [
-        (["tests/bip32/bip32_test.py"], "", ""),
-        (["tests/bip32"], "", ""),
+        (["tests/psbt/psbt_test.py"], "", ""),
+        (["tests/psbt"], "", ""),
         ([], "derive", ""),
         ([], "", "integration"),
-        (["tests/bip32"], "derive", "integration"),
+        (["tests/psbt"], "derive", "integration"),
         (["tests"], "derive", ""),
     ],
     ids=["one file", "one directory", "-k", "-m", "all three", "the suite, -k"],
@@ -425,8 +425,8 @@ def test_a_selected_subset_is_gated_at_nothing(
 @pytest.mark.parametrize(
     "deselect, ignore, ignore_glob, lf",
     [
-        (["tests/bip32/bip32_test.py::test_one"], None, None, False),
-        (None, ["tests/bip32"], None, False),
+        (["tests/psbt/psbt_test.py::test_one"], None, None, False),
+        (None, ["tests/psbt"], None, False),
         (None, None, ["tests/**/*_test.py"], False),
         (None, None, None, True),
     ],
@@ -507,7 +507,7 @@ def test_cov_is_not_the_last_token_of_addopts() -> None:
 
 def test_an_explicit_threshold_survives_either_kind_of_run() -> None:
     """`--cov-fail-under` is the caller's, and outranks both branches."""
-    subset = ["tests/bip32"]
+    subset = ["tests/psbt"]
     assert (
         coverage_fail_under(
             90.0, 100.0, subset, "", "", *_NO_FURTHER_SELECTION, _TESTPATHS, _ROOT
@@ -773,7 +773,7 @@ def test_a_selection_does_not_excuse_the_configuration_missing() -> None:
     is where one arrives, so this is where that is asserted.
     """
     config = _config(
-        ["bip32/bip32_test.py"],
+        ["psbt/psbt_test.py"],
         argparse.Namespace(cov_fail_under=0.0),
         _controller(None),
         keyword="derive",
@@ -795,7 +795,7 @@ def test_the_threshold_is_written_where_pytest_cov_reads_it() -> None:
     """
     known = argparse.Namespace(cov_fail_under=100.0)
     config = _config(
-        ["bip32/bip32_test.py"],
+        ["psbt/psbt_test.py"],
         known,
         _controller("/somewhere/setup.cfg"),
         keyword="derive",

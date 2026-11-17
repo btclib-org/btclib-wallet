@@ -13,14 +13,6 @@ four encodings the path means. Nothing in this module derives or encodes
 anything itself; what it adds is the mapping that makes a path
 unambiguous, and the two checks that keep it honest.
 
-The module sits above `script`, and taproot is the reason: a p2tr
-address encodes the *tweaked* output key of BIP341, which
-`script.taproot.output_pubkey` computes, and `bip32` is below `script`
-and may not import it. `slip132` sits beside it at the top level for a
-narrower version of the same shape: it needs `b58` and `b32`, which
-import `bip32`, so it cannot live inside the package whose keys it
-derives addresses from either.
-
 `account_descriptors` applies the same mapping to an account: its
 receive and change descriptors, built from an account xpub and the master
 fingerprint of the key it came from.
@@ -31,10 +23,9 @@ discovery*: which accounts and positions have history, read through a
 
 What imports this module is what the mapping and the checks are for:
 `wallet` takes the encoders and the purpose lookup rather than keeping a
-second copy of either. This module imports `descriptors` for the
-fragments of the account pair, and for the `parse` of the text
-`discover_account` takes; ARCHITECTURE.md says why the edge runs that
-way.
+second copy of either. This module imports bip32-descriptors'
+`descriptors` for the fragments of the account pair, and for the `parse`
+of the text `discover_account` takes.
 """
 
 from __future__ import annotations
@@ -45,6 +36,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
+from bip32_descriptors.bip32.bip32 import (
+    BIP32Key,
+    BIP32KeyData,
+    derive_,
+    fingerprint,
+    key_data_from_bip32_key,
+    pub_keyinfo_from_xkey,
+    xpub_from_xprv,
+)
+from bip32_descriptors.bip32.der_path import (
+    HARDENED_OFFSET,
+    DerPath,
+    indexes_from_der_path,
+)
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
+from bip32_descriptors.descriptors.descriptors import (
+    Descriptor,
+    PkhDescriptor,
+    ShDescriptor,
+    TrDescriptor,
+    WpkhDescriptor,
+    parse,
+)
+from bip32_descriptors.descriptors.key_expression import KeyExpression
 from btclib import b32, b58
 from btclib.alias import NetworkType, Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -66,30 +81,6 @@ from btclib_wallet._refusal import (
     _refused_type,
     _type_name,
 )
-from btclib_wallet.bip32.bip32 import (
-    BIP32Key,
-    BIP32KeyData,
-    derive_,
-    fingerprint,
-    key_data_from_bip32_key,
-    pub_keyinfo_from_xkey,
-    xpub_from_xprv,
-)
-from btclib_wallet.bip32.der_path import (
-    HARDENED_OFFSET,
-    DerPath,
-    indexes_from_der_path,
-)
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors.descriptors import (
-    Descriptor,
-    PkhDescriptor,
-    ShDescriptor,
-    TrDescriptor,
-    WpkhDescriptor,
-    parse,
-)
-from btclib_wallet.descriptors.key_expression import KeyExpression
 from btclib_wallet.exceptions import _MRO, _caller_errors, _guarded
 
 # under TYPE_CHECKING: `btclib_wallet.fetch` imports every fetcher, and

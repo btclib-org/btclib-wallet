@@ -61,6 +61,7 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from typing import NamedTuple
 
+from bip32_descriptors.bip32 import BIP328_CHAIN_CODE, pub_key_derivation_tweaks
 from btclib.alias import Integer, Octets
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160
@@ -72,7 +73,6 @@ from ecc.curves.sec_point import bytes_from_point
 from ecc.hashes import tagged_hash
 
 from btclib_wallet._refusal import _position
-from btclib_wallet.bip32 import BIP328_CHAIN_CODE, pub_key_derivation_tweaks
 from btclib_wallet.psbt.psbt import (
     Psbt,
     _accepted_sig_hash_types,

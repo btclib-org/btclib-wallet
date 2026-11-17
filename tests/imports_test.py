@@ -16,11 +16,13 @@ name. The units were cut out of `btclib`. Where btclib still publishes
 one at its old path, a stale import of it would import, run and pass
 against a copy nobody maintains here.
 
-And `bip32` and `psbt` import only the units below them, and so do the
-units `psbt` uses, so that each can be split into a distribution of its
-own by moving files. The files that move with `bip32` and `descriptors`
-import nothing of the package but those two units, and nothing of the
-suite but each other and the helpers a split copies.
+And `psbt` imports only the units below it, and so do the units it
+uses, so that it can be split into a distribution of its own by moving
+files.
+
+And nothing imports a private name of `bip32_descriptors`, the package
+`bip32` and `descriptors` are read from: what it does not publish can
+change in any of its releases.
 """
 
 from __future__ import annotations
@@ -194,7 +196,6 @@ def test_the_stale_unit_scan_finds_a_planted_import(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _stale_units_imported_by(planted) == {
-        "btclib.bip32",
         "btclib.exceptions.FetchError",
         "btclib.exceptions.RpcError",
         "btclib.exceptions.SignerError",
@@ -227,9 +228,7 @@ def test_no_module_imports_a_unit_by_btclibs_name(root: str) -> None:
 _ALLOWED_UNITS = {
     "_fee": frozenset({"_refusal"}),
     "_refusal": frozenset(),
-    "bip32": frozenset({"_refusal"}),
-    "descriptors": frozenset({"_refusal", "bip32"}),
-    "psbt": frozenset({"_fee", "_refusal", "bip32", "descriptors", "silent_payments"}),
+    "psbt": frozenset({"_fee", "_refusal", "silent_payments"}),
     "silent_payments": frozenset({"_refusal"}),
 }
 
@@ -333,24 +332,13 @@ def _plant(src: Path, relative: str, line: str) -> None:
             {"bip44"},
         ),
         ("btclib_wallet/psbt/psbt.py", "import btclib_wallet", {"btclib_wallet"}),
-        ("btclib_wallet/bip32/bip32.py", "from ..psbt import Psbt", {"psbt"}),
         (
-            "btclib_wallet/descriptors/descriptors.py",
-            "from btclib_wallet.wallet import DescriptorWallet",
-            {"wallet"},
-        ),
-        (
-            "btclib_wallet/descriptors/descriptors.py",
-            "from ..psbt import Psbt",
+            "btclib_wallet/silent_payments.py",
+            "from .psbt import Psbt",
             {"psbt"},
         ),
         (
-            "btclib_wallet/descriptors/descriptors.py",
-            "from ..bip44 import account_descriptors",
-            {"bip44"},
-        ),
-        (
-            "btclib_wallet/bip32/__init__.py",
+            "btclib_wallet/_fee.py",
             "from btclib_wallet.bip44 import purpose",
             {"bip44"},
         ),
@@ -370,18 +358,17 @@ def test_the_layer_scan_finds_a_planted_import(
 @pytest.mark.parametrize(
     "relative, line",
     [
-        ("btclib_wallet/psbt/psbt.py", "from btclib_wallet.bip32 import BIP32Key"),
+        ("btclib_wallet/psbt/psbt.py", "from bip32_descriptors.bip32 import BIP32Key"),
         ("btclib_wallet/psbt/psbt.py", "from btclib_wallet import _fee"),
         ("btclib_wallet/psbt/psbt.py", "from .. import silent_payments"),
-        ("btclib_wallet/psbt/psbt_updater.py", "from ..descriptors import parse"),
+        (
+            "btclib_wallet/psbt/psbt_updater.py",
+            "from bip32_descriptors.descriptors import parse",
+        ),
         ("btclib_wallet/psbt/psbt.py", "from .silent_payments import x"),
         ("btclib_wallet/psbt/psbt.py", "from btclib_wallet.psbt.psbt_in import x"),
-        ("btclib_wallet/bip32/bip32.py", "from .der_path import DerPath"),
-        ("btclib_wallet/bip32/bip32.py", "from btclib.bip32 import x"),
-        (
-            "btclib_wallet/descriptors/descriptors.py",
-            "from ..bip32 import BIP32KeyOrigin",
-        ),
+        ("btclib_wallet/silent_payments.py", "from ._refusal import _quoted"),
+        ("btclib_wallet/_fee.py", "from btclib.fee import x"),
     ],
 )
 def test_the_layer_scan_admits_the_allowed_imports(
@@ -392,183 +379,433 @@ def test_the_layer_scan_admits_the_allowed_imports(
     assert _layer_violations(tmp_path) == {}
 
 
-def test_bip32_and_psbt_import_only_the_units_below_them() -> None:
-    """Keep `bip32`, `psbt` and what `psbt` uses to `_ALLOWED_UNITS`.
+def test_psbt_imports_only_the_units_below_it() -> None:
+    """Keep `psbt` and what it uses to `_ALLOWED_UNITS`.
 
-    So each can move to a distribution of its own.
+    So it can move to a distribution of its own.
     """
     assert _layer_violations(Path(btclib_wallet.__path__[0]).parent) == {}
 
 
-# the units that move with their tests, and what of the suite a file that
-# moves with them may import: the tests of those units, and the helpers a
-# split copies, among them the names of `tests/__init__.py` those files use
-_MOVING_UNITS = ("bip32", "descriptors")
-_COPIED_HELPERS = (
-    *(f"tests.{unit}" for unit in _MOVING_UNITS),
-    "tests.NOT_STRIPPED",
-    "tests.chained_text",
-    "tests.conftest.JsonGolden",
-    "tests.exception_family_test.TYPE_ERRORS",
-    "tests.exception_family_test.VALUE_ERRORS",
-    "tests.load",
-    "tests.needs_bindings",
-    "tests.no_bindings",
-    "tests.no_bindings_anywhere",
-    "tests.replace_unchecked",
-    "tests.secret_free",
-    "tests.vector_id",
-)
-# the files that move with `bip32` and `descriptors` and that the sdist
-# carries; `tests/moving_imports_test.py` holds the others
-_MOVING_FILES = ("tests/bip32", "tests/descriptors", "tests/integration/infer_test.py")
+_PACKAGE_OF_THE_SPLIT = "bip32_descriptors"
 
 
-def _moving_file_violations(root: Path, moving: tuple[str, ...]) -> dict[str, set[str]]:
-    """Return, per file under `root` that moves, what it may not import.
+def _is_private(name: str) -> bool:
+    """Answer whether a part of a dotted name is private and no dunder."""
+    return any(
+        part.startswith("_") and not part.endswith("__") for part in name.split(".")
+    )
 
-    `moving` names files and directories relative to `root`, a directory
-    standing for every `*.py` below it. A unit of `btclib_wallet` is
-    reported by its name, and a name of the suite by its dotted path below
-    `tests`: `from tests import load` reaches `tests.load`.
+
+def _imported_names(node: ast.AST) -> dict[str, str]:
+    """Return each local name an import binds of `bip32_descriptors`, by path.
+
+    `import bip32_descriptors.bip32` binds `bip32_descriptors`, which names
+    itself; with `as`, the alias names the whole path.
     """
-    violations: dict[str, set[str]] = {}
-    for entry in moving:
-        top = root / entry
-        for path in [top] if top.suffix == ".py" else sorted(top.rglob("*.py")):
-            package = _package_of(path, root)
-            suite = {
-                f"{module}.{alias}" if alias else module
-                for module, aliases in _imports_of(path, package)
-                if module.split(".")[0] == "tests"
-                for alias in aliases or [""]
-            }
-            if forbidden := (_units_imported_by(path, package) - set(_MOVING_UNITS)) | {
-                name
-                for name in suite
-                if not any(
-                    name == a or name.startswith(f"{a}.") for a in _COPIED_HELPERS
-                )
-            }:
-                violations[path.relative_to(root).as_posix()] = forbidden
-    return violations
+    if isinstance(node, ast.Import):
+        return {
+            alias.asname or alias.name.split(".")[0]: (
+                alias.name if alias.asname else alias.name.split(".")[0]
+            )
+            for alias in node.names
+            if alias.name.split(".")[0] == _PACKAGE_OF_THE_SPLIT
+        }
+    if (
+        isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and (node.module or "").split(".")[0] == _PACKAGE_OF_THE_SPLIT
+    ):
+        return {
+            alias.asname or alias.name: f"{node.module}.{alias.name}"
+            for alias in node.names
+        }
+    return {}
+
+
+# the nodes that open a scope of their own
+_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_SCOPES = (*_DEFS, ast.Lambda, *_COMPREHENSIONS)
+
+
+def _outside(scope: ast.AST) -> list[ast.AST]:
+    """Return the parts of a scope's node that the enclosing scope evaluates.
+
+    These are a def's decorators, defaults and annotations, a class's
+    decorators, bases and keywords, a lambda's defaults, and a
+    comprehension's first iterable and the targets of its `:=`.
+    """
+    if isinstance(scope, _COMPREHENSIONS):
+        return [scope.generators[0].iter, *_walrus_targets(scope)]
+    parts: list[ast.AST | None] = []
+    if isinstance(scope, _DEFS):
+        parts.extend(scope.decorator_list)
+    if isinstance(scope, ast.ClassDef):
+        parts.extend((*scope.bases, *scope.keywords))
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        arguments = scope.args
+        parts.extend((*arguments.defaults, *arguments.kw_defaults))
+        parts.extend(argument.annotation for argument in _parameters(arguments))
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        parts.append(scope.returns)
+    return [part for part in parts if part is not None]
+
+
+def _walrus_targets(comprehension: ast.AST) -> list[ast.AST]:
+    """Return the target of each `:=` in a comprehension, nested ones too.
+
+    Python binds them in the scope enclosing the comprehension.
+    """
+    targets: list[ast.AST] = []
+    stack = list(ast.iter_child_nodes(comprehension))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.NamedExpr):
+            targets.append(node.target)
+        if not isinstance(node, (*_DEFS, ast.Lambda)):
+            stack.extend(ast.iter_child_nodes(node))
+    return targets
+
+
+def _parameters(arguments: ast.arguments) -> list[ast.arg]:
+    """Return the parameters of a def or a lambda."""
+    return [
+        argument
+        for argument in (
+            *arguments.posonlyargs,
+            *arguments.args,
+            *arguments.kwonlyargs,
+            arguments.vararg,
+            arguments.kwarg,
+        )
+        if argument is not None
+    ]
+
+
+def _own_nodes(scope: ast.AST) -> list[ast.AST]:
+    """Return the nodes a scope evaluates.
+
+    A nested scope's node is one of them, with the parts of it that
+    `_outside` returns, but not its body.
+    """
+    skip = {id(part) for part in _outside(scope)}
+    own: list[ast.AST] = []
+    stack = [
+        child
+        for child in ast.iter_child_nodes(scope)
+        if not isinstance(child, ast.arguments)
+    ]
+    while stack:
+        node = stack.pop()
+        if id(node) in skip:
+            continue
+        own.append(node)
+        if isinstance(node, _SCOPES):
+            stack.extend(_outside(node))
+        else:
+            stack.extend(ast.iter_child_nodes(node))
+    return own
+
+
+def _bound_names(node: ast.AST) -> set[str]:
+    """Return the names one node binds in the scope that evaluates it."""
+    names: set[str | None] = set()
+    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+        names = {node.id}
+    elif isinstance(node, _DEFS):
+        names = {node.name}
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        # `import a.b` binds `a`; a name `from` imports holds no dot
+        names = {alias.asname or alias.name.split(".")[0] for alias in node.names}
+    elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+        names = {node.name}
+    elif isinstance(node, ast.MatchMapping):
+        names = {node.rest}
+    return {name for name in names if name}
+
+
+def _local_names(scope: ast.AST, own: list[ast.AST]) -> set[str]:
+    """Return the names a scope binds itself.
+
+    These are its parameters, and what its assignments, loops,
+    comprehension targets, defs, imports, `except ... as` and `match`
+    captures bind.
+    """
+    names: set[str] = set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        names |= {argument.arg for argument in _parameters(scope.args)}
+    for node in own:
+        names |= _bound_names(node)
+    return names
+
+
+def _import_paths(node: ast.AST) -> set[str]:
+    """Return the path of each name of `bip32_descriptors` an import reads."""
+    if isinstance(node, ast.Import):
+        return {
+            alias.name
+            for alias in node.names
+            if alias.name.split(".")[0] == _PACKAGE_OF_THE_SPLIT
+        }
+    return set(_imported_names(node).values())
+
+
+def _dotted(node: ast.expr) -> str | None:
+    """Return the dotted name an expression is, as `a.b.c`, else None."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    return ".".join((node.id, *reversed(parts)))
+
+
+def _scope_names(scope: ast.AST, inherited: dict[str, str]) -> set[str]:
+    """Return each name of `bip32_descriptors` a scope and those in it reach.
+
+    `inherited` maps each name an enclosing scope binds to that package,
+    by path. A name the scope binds anywhere shadows it in the whole
+    scope, unless an import of the scope binds it; a class body's names
+    do not reach its methods. `_private_names_imported_by` says where
+    this differs from Python.
+    """
+    own = _own_nodes(scope)
+    found: set[str] = set()
+    here: dict[str, str] = {}
+    for node in own:
+        found |= _import_paths(node)
+        here |= _imported_names(node)
+    local = _local_names(scope, own)
+    bound = {name: path for name, path in inherited.items() if name not in local}
+    bound |= here
+    for node in own:
+        if isinstance(node, ast.Attribute):
+            owner = _dotted(node.value)
+            if owner is not None and (root := owner.split(".")[0]) in bound:
+                found.add(f"{bound[root]}{owner[len(root) :]}.{node.attr}")
+        elif isinstance(node, _SCOPES):
+            enclosing = inherited if isinstance(scope, ast.ClassDef) else bound
+            found |= _scope_names(node, enclosing)
+    return found
+
+
+def _private_names_imported_by(path: Path) -> set[str]:
+    """Return each private name of `bip32_descriptors` a file imports or reads.
+
+    A name is private where a part of its dotted path starts with an
+    underscore and is no dunder: `_x` in
+    `from bip32_descriptors.descriptors.miniscript import _x`,
+    `import bip32_descriptors._refusal`, and an attribute `_x` read off a
+    name bound by importing from `bip32_descriptors`, as `miniscript._x`
+    after `from bip32_descriptors.descriptors import miniscript`, or off
+    a dotted name below it. An attribute of anything else, as the `_cache`
+    of `miniscript.parse(text)._cache`, is an attribute of an object and
+    no name of the package. Imports inside a function are found too. A
+    name read in other ways is not found, as `getattr(miniscript, "_x")`
+    or `miniscript._x` inside a quoted annotation.
+
+    A name is read in the scope Python reads it in, and any other binding
+    of the same name in that scope shadows the import there, wherever in
+    the scope it stands. Python answers otherwise for what this does not
+    follow: a `global` or `nonlocal` declaration, a `del`, a PEP 695 type
+    parameter, and a read in a class body before the body binds the name.
+    No file in src or tests applies one of them to a name it imports from
+    `bip32_descriptors`.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return {name for name in _scope_names(tree, {}) if _is_private(name)}
+
+
+def test_the_private_name_scan_finds_a_planted_import(tmp_path: Path) -> None:
+    """`_private_names_imported_by` reports each spelling of a private name.
+
+    The real tree has none, so only this test exercises a report, and the
+    public names planted beside them are the control it leaves alone.
+    """
+    planted = tmp_path / "planted.py"
+    planted.write_text(
+        "from bip32_descriptors.descriptors.miniscript import _x, parse\n"
+        "from bip32_descriptors.descriptors import miniscript as ms\n"
+        "import bip32_descriptors._refusal\n"
+        "import bip32_descriptors.bip32\n"
+        "from bip32_descriptors import bip32\n"
+        "ms._y, ms.parse, bip32.derive, ms.Miniscript.__str__\n"
+        "bip32_descriptors.bip32.bip32._z\n"
+        "def f():\n"
+        "    from bip32_descriptors.bip32.bip32 import _derive\n"
+        # an alias of one function is no name of another, a parameter or
+        # an assignment shadows one, and a class's names miss its methods
+        "def g():\n"
+        "    from bip32_descriptors import bip32 as item\n"
+        "    return item\n"
+        "def h(item, ms):\n"
+        "    return item._cache, ms._shadowed\n"
+        "def k():\n"
+        "    ms = object()\n"
+        "    return ms._assigned, (lambda ms: ms._lambda)\n"
+        "def n():\n"
+        "    return ms._inner\n"
+        "class C:\n"
+        "    from bip32_descriptors import bip32 as cb\n"
+        "    cb._seen\n"
+        "    def m(self):\n"
+        "        return cb._hidden\n"
+        "from btclib_wallet.psbt.psbt import _lacks_only_keys\n",
+        encoding="utf-8",
+    )
+    assert _private_names_imported_by(planted) == {
+        "bip32_descriptors.descriptors.miniscript._x",
+        "bip32_descriptors.descriptors.miniscript._y",
+        "bip32_descriptors._refusal",
+        "bip32_descriptors.bip32.bip32._z",
+        "bip32_descriptors.bip32.bip32._derive",
+        "bip32_descriptors.bip32._seen",
+        "bip32_descriptors.descriptors.miniscript._inner",
+    }
 
 
 @pytest.mark.parametrize(
-    "relative, line, forbidden",
+    "body, expected",
     [
-        (
-            "tests/descriptors/x_test.py",
-            "from btclib_wallet.psbt import Psbt",
-            {"psbt"},
+        pytest.param(
+            "def f(y):\n    z = [ms for ms in y]\n    return z, ms._comp\n",
+            {"_comp"},
+            id="a comprehension's target binds in the comprehension",
         ),
-        ("tests/descriptors/x_test.py", "from btclib_wallet import bip44", {"bip44"}),
-        ("tests/bip32/x_test.py", "import btclib_wallet", {"btclib_wallet"}),
-        (
-            "tests/bip32/x_test.py",
-            "def f():\n    from btclib_wallet.wallet import Wallet",
-            {"wallet"},
+        pytest.param(
+            "def f(y):\n    return [ms._target for ms in y]\n",
+            set(),
+            id="a comprehension's target shadows inside it",
         ),
-        (
-            "tests/descriptors/x_test.py",
-            "from tests.strategies import psbt",
-            {"tests.strategies.psbt"},
+        pytest.param(
+            "def f():\n    return [ms for ms in ms._iter]\n",
+            {"_iter"},
+            id="a comprehension's first iterable is read outside it",
         ),
-        (
-            "tests/descriptors/x_test.py",
-            "from tests import strategies",
-            {"tests.strategies"},
+        pytest.param(
+            "def f(y):\n    [(ms := v) for v in y]\n    return ms._walrus\n",
+            set(),
+            id="a comprehension's := binds outside it",
         ),
-        ("tests/descriptors/x_test.py", "from .. import conftest", {"tests.conftest"}),
-        (
-            "tests/bip32/x_test.py",
-            "from tests.conftest import tmp_golden",
-            {"tests.conftest.tmp_golden"},
+        pytest.param(
+            "def f(ms=ms._default):\n    return ms._param\n",
+            {"_default"},
+            id="a default is read outside the def",
         ),
-        (
-            "tests/bip32/x_test.py",
-            "from tests import module_names",
-            {"tests.module_names"},
+        pytest.param(
+            "def f():\n    return lambda ms=ms._default: ms._param\n",
+            {"_default"},
+            id="a lambda's default is read outside it",
         ),
-        ("tests/bip32/x_test.py", "from tests import _private", {"tests._private"}),
-        (
-            "tests/bip32/x_test.py",
-            "import tests.exception_family_test",
-            {"tests.exception_family_test"},
+        pytest.param(
+            "@ms._decorator\ndef f(ms):\n    return ms\n",
+            {"_decorator"},
+            id="a decorator is read outside the def",
         ),
-        (
-            "tests/bip32/x_test.py",
-            "from tests.exception_family_test import EXCEPTIONS",
-            {"tests.exception_family_test.EXCEPTIONS"},
+        pytest.param(
+            "def f(ms: ms._annotation) -> ms._returns:\n    return ms\n",
+            {"_annotation", "_returns"},
+            id="an annotation is read outside the def",
         ),
-        ("tests/bip32/x_test.py", "import tests", {"tests"}),
-        (
-            "tests/integration/infer_test.py",
-            "from btclib_wallet.wallet import Wallet",
-            {"wallet"},
+        pytest.param(
+            "class C(ms._base):\n    ms = 1\n",
+            {"_base"},
+            id="a base is read outside the class",
+        ),
+        pytest.param(
+            "def f():\n"
+            "    try:\n"
+            "        pass\n"
+            "    except ValueError:\n"
+            "        return ms._kept\n",
+            {"_kept"},
+            id="an except without as binds nothing",
+        ),
+        pytest.param(
+            "def f():\n"
+            "    try:\n"
+            "        pass\n"
+            "    except ValueError as ms:\n"
+            "        return ms._caught\n",
+            set(),
+            id="except as binds",
+        ),
+        pytest.param(
+            "def f(x):\n"
+            "    match x:\n"
+            "        case [*_] | {'k': 1} | _:\n"
+            "            return ms._kept\n",
+            {"_kept"},
+            id="an unnamed match pattern binds nothing",
+        ),
+        pytest.param(
+            "def f(x):\n    match x:\n        case ms:\n            return ms._captured\n",
+            set(),
+            id="a match capture binds",
+        ),
+        pytest.param(
+            "def f(x):\n    match x:\n        case [*ms]:\n            return ms._starred\n",
+            set(),
+            id="a match star binds",
+        ),
+        pytest.param(
+            "def f(x):\n    match x:\n        case {**ms}:\n            return ms._rest\n",
+            set(),
+            id="a match rest binds",
+        ),
+        pytest.param(
+            "def f():\n    import json as ms\n    return ms._json\n",
+            set(),
+            id="an import of another package binds",
+        ),
+        pytest.param(
+            "ms.parse('x')._cache, ms.TABLE[0]._item, ms.A.b._dotted\n",
+            {"A.b._dotted"},
+            id="an attribute of a call or an item is no name of the package",
         ),
     ],
 )
-def test_the_moving_file_scan_finds_a_planted_import(
-    tmp_path: Path, relative: str, line: str, forbidden: set[str]
+def test_the_private_name_scan_reads_a_name_where_python_does(
+    tmp_path: Path, body: str, expected: set[str]
 ) -> None:
-    """`_moving_file_violations` reports each spelling of an import that stays.
+    """A name of `bip32_descriptors` is found in the scope Python reads it in.
 
-    The real files have none, so only this test exercises a report. The
-    files `_MOVING_FILES` names one by one are planted empty first, since
-    a missing one is an error rather than nothing to report.
+    `ms` is the module's name for `miniscript`, and each body reads it
+    where a binding of its own may or may not shadow it.
     """
-    _plant(tmp_path, "tests/integration/infer_test.py", "")
-    _plant(tmp_path, relative, line)
-    assert _moving_file_violations(tmp_path, _MOVING_FILES) == {relative: forbidden}
+    planted = tmp_path / "planted.py"
+    planted.write_text(
+        "from bip32_descriptors.descriptors import miniscript as ms\n" + body,
+        encoding="utf-8",
+    )
+    assert _private_names_imported_by(planted) == {
+        f"bip32_descriptors.descriptors.miniscript.{name}" for name in expected
+    }
 
 
-@pytest.mark.parametrize(
-    "relative, line",
-    [
-        ("tests/descriptors/x_test.py", "from btclib_wallet.bip32 import derive"),
-        ("tests/bip32/x_test.py", "from btclib_wallet import descriptors"),
-        ("tests/bip32/x_test.py", "from btclib.psbt import Psbt"),
-        ("tests/bip32/x_test.py", "from tests import load"),
-        ("tests/bip32/x_test.py", "from tests.conftest import JsonGolden"),
-        (
-            "tests/bip32/x_test.py",
-            "from tests.exception_family_test import VALUE_ERRORS",
-        ),
-        ("tests/bip32/x_test.py", "from ..secret_free import assert_secret_free"),
-        ("tests/descriptors/x_test.py", "from . import infer_test"),
-        (
-            "tests/integration/infer_test.py",
-            "from tests.descriptors.infer_test import _text",
-        ),
-    ],
-)
-def test_the_moving_file_scan_admits_the_allowed_imports(
-    tmp_path: Path, relative: str, line: str
-) -> None:
-    """`_moving_file_violations` admits the moving units and the helpers."""
-    _plant(tmp_path, "tests/integration/infer_test.py", "")
-    _plant(tmp_path, relative, line)
-    assert _moving_file_violations(tmp_path, _MOVING_FILES) == {}
+@pytest.mark.parametrize("root", ["src", "tests"])
+def test_no_module_imports_a_private_name_of_bip32_descriptors(root: str) -> None:
+    """Every name of `bip32_descriptors` read here is one it publishes."""
+    base = Path(__file__).resolve().parents[1] / root
+    found = {
+        str(path.relative_to(base)): names
+        for path in sorted(base.rglob("*.py"))
+        if (names := _private_names_imported_by(path))
+    }
+    assert not found
 
 
-def test_the_files_moving_with_bip32_and_descriptors_import_only_what_moves() -> None:
-    """Keep the files that move with `bip32` and `descriptors` to what moves.
+@pytest.mark.parametrize("package", ["btclib", "bip32_descriptors"])
+def test_a_dependency_imports_nothing_of_btclib_wallet(package: str) -> None:
+    """No module of the installed `btclib` or `bip32_descriptors` imports it.
 
-    An `ast` walk rather than a `git grep`, since the suite also runs from
-    an unpacked sdist, where there is no `.git`.
+    The units were cut out of `btclib`, and `bip32` and `descriptors` out
+    of this package, and neither of the two packages that hold them may
+    depend on this one.
     """
-    root = Path(__file__).resolve().parents[1]
-    assert _moving_file_violations(root, _MOVING_FILES) == {}
-
-
-def test_btclib_imports_nothing_of_btclib_wallet() -> None:
-    """No module of the installed `btclib` imports `btclib_wallet`.
-
-    The units were cut out of `btclib`, which must not depend on the
-    package that now holds them.
-    """
-    spec = importlib.util.find_spec("btclib")
+    spec = importlib.util.find_spec(package)
     assert spec is not None
     assert spec.submodule_search_locations is not None
     (base,) = (Path(location) for location in spec.submodule_search_locations)
@@ -577,7 +814,7 @@ def test_btclib_imports_nothing_of_btclib_wallet() -> None:
         for path in sorted(base.rglob("*.py"))
         if (
             units := _units_imported_by(
-                path, ".".join(("btclib", *path.relative_to(base).parent.parts))
+                path, ".".join((package, *path.relative_to(base).parent.parts))
             )
         )
     }

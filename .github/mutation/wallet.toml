@@ -8,15 +8,17 @@
 # (issue btclib-org/btclib#219).
 
 [cosmic-ray]
-# the package, `__init__.py` included, for the reason descriptors.toml
-# gives: it is re-exports, and naming the directory is what keeps a fifth
-# module from being left out in silence
+# the package, `__init__.py` included: it is re-exports and a docstring,
+# so it contributes a handful of mutants rather than a scope of its own,
+# and naming the directory is what keeps a fifth module from being left
+# out in silence
 module-path = "src/btclib_wallet/wallet"
 
 # tests/wallet alone, the directory of these modules' tests:
 # `--cov=src/btclib_wallet/wallet` over this command lists the lines it leaves
 # to the rest of the suite. The descriptor a `DescriptorWallet` delegates to is
-# mutated by descriptors.toml from the other side of the same call
+# bip32-descriptors', whose own mutation sessions mutate it from the other
+# side of the same call
 test-command = "python -m pytest -x -q -n0 -p no:randomly tests/wallet"
 
 # seconds of wall clock, wide for the reason btclib's sig_hash.toml measures.

@@ -29,15 +29,18 @@ module-path = [
 # tests/psbt, and the three convention files at the top of tests/ that
 # reach lines of these modules tests/psbt does not -- measured with
 # `--cov=btclib_wallet.psbt --cov-branch` over this command, which leaves
-# one line and one branch. The line is `psbt_utils`' refusal of an empty
-# PSBT_IN_TAP_LEAF_SCRIPT value, a record with no room for the leaf
-# version it must end with, which only tests/fuzz_test.py reaches:
+# three lines of these modules, in two places. One is `psbt_utils`'
+# refusal of an empty PSBT_IN_TAP_LEAF_SCRIPT value, a record with no room
+# for the leaf version it must end with, which only tests/fuzz_test.py
+# reaches:
 # hypothesis draws that input rather than a vector file holding it, and a
 # `@given` draws fresh bytes on each run, so its verdict is not
 # reproducible and the value of a weekly report is the comparison with the
-# week before. The branch is `psbt.py`'s p2tr input with no internal key,
-# which tests/descriptors reaches, and that directory is
-# descriptors.toml's to run. The mutants of both are expected survivors
+# week before. The other is `psbt.py`'s refusal of a non-ASCII text in
+# `_b64decode`, before the codec reads it, which tests/bip322_test.py
+# reaches and tests/psbt does not; bip322.toml runs that file over
+# `bip322.py` alone.
+# The mutants of both are expected survivors
 test-command = """python -m pytest -x -q -n0 -p no:randomly tests/psbt \
   tests/built_object_contract_test.py tests/integer_policy_test.py \
   tests/serialization_boundary_test.py"""

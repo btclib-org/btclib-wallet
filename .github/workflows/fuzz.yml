@@ -4,20 +4,15 @@ name: fuzz
 # ClusterFuzzLite over this tree's own parsers of octets and text nobody
 # signed first: `Psbt.parse` and `Psbt.b64decode`
 # (fuzz/fuzz_psbt.py, and through them PsbtIn, PsbtOut and the map and
-# Taproot-tree readers of psbt_utils.py); `descriptors.parse`
-# (fuzz/fuzz_descriptor.py, and through it a key expression's own
-# BIP32KeyData.b58decode and a script's own miniscript.parse);
-# `BIP32KeyData.parse`, `BIP32KeyData.b58decode` and
-# `BIP32KeyOrigin.parse` (fuzz/fuzz_bip32.py, a target of no btclib
-# harness before this one: BIP32 was never coverage-fuzzed there); and
-# `bip322.Sig.b64decode` (fuzz/fuzz_bip322.py, and through it
-# Witness.parse, Tx.parse and this tree's own Psbt.parse). psbt,
-# descriptors, bip32 and bip322 are what btclib-org/btclib#2129 moved out
-# of btclib and into this tree; btclib's own fuzz/fuzz_psbt.py,
-# fuzz/fuzz_descriptor.py and fuzz/fuzz_bip322.py, and their corpora, are
-# what btclib-org/btclib's own PR 2245 removes in step. Section 10 of the
-# organization's standard is where `fuzz` is named as a sentinel every
-# tree parsing a stranger's own bytes owes.
+# Taproot-tree readers of psbt_utils.py); and `bip322.Sig.b64decode`
+# (fuzz/fuzz_bip322.py, and through it Witness.parse, Tx.parse and this
+# tree's own Psbt.parse). psbt and bip322 are what btclib-org/btclib#2129
+# moved out of btclib and into this tree; btclib's own fuzz/fuzz_psbt.py
+# and fuzz/fuzz_bip322.py, and their corpora, are what
+# btclib-org/btclib's own PR 2245 removes in step. The descriptor and
+# BIP32 targets are btclib-org/bip32-descriptors', with the code they
+# fuzz. Section 10 of the organization's standard is where `fuzz` is
+# named as a sentinel every tree parsing a stranger's own bytes owes.
 # Every `fuzz/fuzz_*.py` is a target this workflow builds and runs, and
 # `.clusterfuzzlite/` is ClusterFuzzLite's own configuration for
 # building them -- `project.yaml`, `Dockerfile` and `build.sh`, read by

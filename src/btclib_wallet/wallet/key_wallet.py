@@ -43,6 +43,21 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from bip32_descriptors.bip32.bip32 import (
+    BIP32Key,
+    BIP32KeyData,
+    derive_,
+    derive_from_account_,
+    key_data_from_bip32_key,
+    prv_keyinfo_from_xprv,
+    pub_keyinfo_from_xkey,
+)
+from bip32_descriptors.bip32.der_path import (
+    HARDENED_OFFSET,
+    DerPath,
+    indexes_from_der_path,
+    str_from_der_path,
+)
 from btclib import b58, bms
 from btclib.alias import Octets, String
 from btclib.exceptions import BTClibValueError
@@ -53,21 +68,6 @@ from btclib.utils import assert_type
 from typing_extensions import override
 
 from btclib_wallet._refusal import _label, _position, _quoted
-from btclib_wallet.bip32.bip32 import (
-    BIP32Key,
-    BIP32KeyData,
-    derive_,
-    derive_from_account_,
-    key_data_from_bip32_key,
-    prv_keyinfo_from_xprv,
-    pub_keyinfo_from_xkey,
-)
-from btclib_wallet.bip32.der_path import (
-    HARDENED_OFFSET,
-    DerPath,
-    indexes_from_der_path,
-    str_from_der_path,
-)
 from btclib_wallet.bip44 import (
     _ADDRESS_FROM_SCRIPT_TYPE,
     BIP44ScriptType,

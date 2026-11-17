@@ -29,6 +29,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
+from bip32_descriptors.descriptors import Descriptor
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
 from btclib.key import PubKeyData
@@ -37,7 +38,6 @@ from btclib.script.engine import verify_transaction
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet._refusal import _quoted
-from btclib_wallet.descriptors import Descriptor
 from btclib_wallet.psbt.psbt import extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import SIG_SIZE

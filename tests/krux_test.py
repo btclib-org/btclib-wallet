@@ -69,11 +69,11 @@ import json
 from pathlib import Path
 
 import pytest
+from bip32_descriptors.descriptors import add_checksum, multipath_descriptors, parse
 from btclib.exceptions import BTClibValueError
 from btclib.script.engine import verify_transaction
 
 from btclib_wallet import bip139
-from btclib_wallet.descriptors import add_checksum, multipath_descriptors, parse
 from btclib_wallet.ledger import Ledger
 from btclib_wallet.mnemonic import bip39
 from btclib_wallet.psbt import Psbt

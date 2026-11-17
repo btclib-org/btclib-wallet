@@ -24,17 +24,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from btclib.network import NETWORKS
-from btclib.script.engine import verify_transaction
-
-from btclib_wallet import bip139
-from btclib_wallet.bip32.bip32 import (
+from bip32_descriptors.bip32.bip32 import (
     derive,
     fingerprint,
     rootxprv_from_seed,
     xpub_from_xprv,
 )
-from btclib_wallet.descriptors import Descriptor, add_checksum
+from bip32_descriptors.descriptors import Descriptor, add_checksum
+from btclib.network import NETWORKS
+from btclib.script.engine import verify_transaction
+
+from btclib_wallet import bip139
 from btclib_wallet.ledger import Ledger
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.psbt.psbt import (

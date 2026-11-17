@@ -15,6 +15,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from bip32_descriptors.bip32.key_origin import (
+    BIP32KeyOrigin,
+    HdKeyPaths,
+    decode_from_bip32_derivs,
+    decode_hd_key_paths,
+    encode_to_bip32_derivs,
+)
 from btclib.alias import BinaryData, Octets
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160, hash256, ripemd160, sha256
@@ -31,13 +38,6 @@ from ecc import dsa
 from ecc.curves import sec_point
 
 from btclib_wallet._refusal import _label, _quoted
-from btclib_wallet.bip32.key_origin import (
-    BIP32KeyOrigin,
-    HdKeyPaths,
-    decode_from_bip32_derivs,
-    decode_hd_key_paths,
-    encode_to_bip32_derivs,
-)
 from btclib_wallet.psbt.psbt_utils import (
     _LABELS,
     MUSIG2_PARTIAL_SIG_SIZE,

@@ -1888,12 +1888,6 @@ CLEANUPS = {
         "the `socket.socket` built above, closed by the standard library"
         " while an interrupt is handled: no `close` of the package runs"
     ),
-    ("fetch/compact_filters.py", "_sync_headers", "self._restore"): (
-        "`_restore` reaches a raise only through `_append`'s `append` calls,"
-        " which the census takes for `Miniscript.append`: they are calls of"
-        " `list.append` on `_headers`, `_hashes` and `_work`, lists"
-        " `__init__` builds"
-    ),
     ("ledger/store.py", "_copy_backup", "source.close"): (
         "`source` is the `sqlite3.Connection` `_connect` answers, closed by"
         " the standard library: no `close` of the package runs"
@@ -1943,8 +1937,9 @@ KEPT = {
         " `BTClibValueError` or an `EccValueError`, built again as its class"
         " with its text after the branch's position and nothing of its own"
         " chained."
-        " `parse` quotes no key, as `test_a_refusal_echoes_no_private_key`"
-        " holds, and `tests/bip44_test.py` holds the refusal built here"
+        " `parse` quotes no key, as bip32-descriptors'"
+        " `test_a_refusal_echoes_no_private_key` holds, and"
+        " `tests/bip44_test.py` holds the refusal built here"
     ),
 }
 
@@ -2869,6 +2864,41 @@ _SHAPES = {
             "        int(key)\n    finally:\n        _g()"
         ),
     ),
+    # a method `super()` reaches is one of the package, and `super()` is
+    # no call outside it
+    "super": (
+        (
+            "class B:\n    def _m(self, text):\n        return 'a'\n"
+            "class C(B):\n    def _n(self, key):\n"
+            "        raise ValueError(super()._m(key))"
+        ),
+        (
+            "class B:\n    def _m(self, text):\n        return text\n"
+            "class C(B):\n    def _n(self, key):\n"
+            "        raise ValueError(super()._m(key))"
+        ),
+    ),
+    # a base is read by its name, its subscript dropped
+    "subscripted base": (
+        (
+            "class P:\n    pass\nclass E(P[int]):\n    pass\nRefused = E\n"
+            "def f(key):\n    return Refused(key)"
+        ),
+        (
+            "class P(Base):\n    pass\nclass E(P[int]):\n    pass\nRefused = E\n"
+            "def f(key):\n    return Refused(key)"
+        ),
+    ),
+    "item of a call outside": (
+        (
+            "def _g(key):\n    return sorted(('a', 'b'))\ndef f(key):\n"
+            "    name, value = _g(key)\n    raise ValueError(name)"
+        ),
+        (
+            "def _g(key):\n    return sorted((key, 'b'))\ndef f(key):\n"
+            "    name, value = _g(key)\n    raise ValueError(name)"
+        ),
+    ),
 }
 
 
@@ -2906,6 +2936,17 @@ def test_census_knows_a_class_by_its_import(imports: str, caught: str) -> None:
         "m.py": f"{foreign}\n{_RELAY.format(caught.replace('errors', 'outside'))}",
     }
     assert _census(other).findings()
+
+
+def test_census_knows_a_class_read_off_a_module_of_the_package() -> None:
+    """`from pkg import errors` binds a module, and its classes are ours."""
+    sources = {
+        "pkg/errors.py": _ERRORS,
+        "m.py": f"from pkg import errors\n{_RELAY.format('errors.FetchError')}",
+    }
+    assert not _census(sources).findings()
+    sources["m.py"] = sources["m.py"].replace("from pkg", "from outside")
+    assert _census(sources).findings()
 
 
 def test_census_finds_no_class_in_an_import_cycle() -> None:

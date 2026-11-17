@@ -79,6 +79,11 @@ from copy import deepcopy
 from io import BytesIO
 from typing import BinaryIO, cast
 
+from bip32_descriptors.bip32 import (
+    HdKeyPaths,
+    assert_valid_hd_key_paths,
+    decode_hd_key_paths,
+)
 from btclib import var_int
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
@@ -88,11 +93,6 @@ from btclib.tx.limits import MAX_TX_IN_COUNT, MAX_TX_OUT_COUNT
 from btclib.utils import assert_no_trailing, bytes_from_octets, is_octets, read_exactly
 
 from btclib_wallet._refusal import _position, _quoted
-from btclib_wallet.bip32 import (
-    HdKeyPaths,
-    assert_valid_hd_key_paths,
-    decode_hd_key_paths,
-)
 from btclib_wallet.psbt.psbt import (
     _TAPROOT_NEEDS_UTXOS,
     PSBT_MAGIC_BYTES,

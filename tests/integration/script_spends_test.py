@@ -12,19 +12,19 @@ does not construct or sign the transaction that spends it.
 from __future__ import annotations
 
 import pytest
+from bip32_descriptors.bip32.bip32 import rootxprv_from_seed
+from bip32_descriptors.descriptors import (
+    Descriptor,
+    SpendContext,
+    TrDescriptor,
+    parse,
+)
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.script import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
-from btclib_wallet.bip32.bip32 import rootxprv_from_seed
-from btclib_wallet.descriptors import (
-    Descriptor,
-    SpendContext,
-    TrDescriptor,
-    parse,
-)
 from btclib_wallet.exceptions import RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize, miniscript_solver

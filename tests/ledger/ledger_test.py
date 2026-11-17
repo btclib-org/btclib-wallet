@@ -19,6 +19,9 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyData
+from bip32_descriptors.bip32.bip32 import derive, prv_keyinfo_from_xprv, xpub_from_xprv
+from bip32_descriptors.descriptors import parse
 from btclib.alias import Octets
 from btclib.consensus import CONSENSUS_PARAMS
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -30,9 +33,6 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from btclib.tx.limits import COINBASE_MATURITY
 from ecc import dsa
 
-from btclib_wallet.bip32 import BIP32KeyData
-from btclib_wallet.bip32.bip32 import derive, prv_keyinfo_from_xprv, xpub_from_xprv
-from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.history import BlockRef, ScriptHistory
 from btclib_wallet.fetch.relay_fees import RelayFees

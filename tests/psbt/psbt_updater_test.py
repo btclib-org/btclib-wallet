@@ -15,6 +15,15 @@ from dataclasses import dataclass, fields, replace
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyOrigin
+from bip32_descriptors.bip32.bip32 import prv_keyinfo_from_xprv
+from bip32_descriptors.descriptors import (
+    Descriptor,
+    Expansion,
+    PrvKeys,
+    TrDescriptor,
+    parse,
+)
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
@@ -28,15 +37,6 @@ from ecc import dsa, ssa
 from ecc.hashes import tagged_hash
 from typing_extensions import override
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
-from btclib_wallet.bip32.bip32 import prv_keyinfo_from_xprv
-from btclib_wallet.descriptors import (
-    Descriptor,
-    Expansion,
-    PrvKeys,
-    TrDescriptor,
-    parse,
-)
 from btclib_wallet.psbt.musig2 import nonce_gen, partial_sign, partial_sigs_agg
 from btclib_wallet.psbt.psbt import (
     Psbt,

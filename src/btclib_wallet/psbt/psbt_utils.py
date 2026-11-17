@@ -13,6 +13,8 @@ from collections.abc import Mapping, Sequence
 from io import BytesIO
 from typing import Any
 
+from bip32_descriptors.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
+from bip32_descriptors.bip32.der_path import indexes_from_der_path, str_from_der_path
 from btclib import var_bytes, var_int
 from btclib.alias import BinaryData, Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -32,8 +34,6 @@ from btclib.utils import (
 from ecc.curves import sec_point
 
 from btclib_wallet._refusal import _label, _message_text, _position, _quoted
-from btclib_wallet.bip32 import BIP32KeyOrigin, assert_valid_hd_key_paths
-from btclib_wallet.bip32.der_path import indexes_from_der_path, str_from_der_path
 
 __all__ = [
     "FINGERPRINT_SIZE",

@@ -49,18 +49,18 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import Literal, cast
 
-from btclib.exceptions import BTClibValueError
-from btclib.hashes import sha256
-from btclib.network import NETWORKS, validated_network_name
-
-from btclib_wallet._refusal import _quoted, _refused_type
-from btclib_wallet.bip32 import BIP32KeyData
-from btclib_wallet.descriptors import (
+from bip32_descriptors.bip32 import BIP32KeyData
+from bip32_descriptors.descriptors import (
     Descriptor,
     KeyExpression,
     multipath_descriptors,
     parse,
 )
+from btclib.exceptions import BTClibValueError
+from btclib.hashes import sha256
+from btclib.network import NETWORKS, validated_network_name
+
+from btclib_wallet._refusal import _quoted, _refused_type
 from btclib_wallet.silent_payments import NUMS_H
 
 __all__ = ["recovery_descriptors"]
@@ -402,7 +402,9 @@ def recovery_descriptors(
     a script too large for P2WSH, or one whose spend may exceed P2WSH's
     limits on opcodes and witness elements; under ``tr()``, a
     ``multi_a()`` of more than 999 keys, a tree deeper than 128 levels, or
-    a leaf whose spend may exceed the stack's limit.
+    a leaf whose spend may exceed the stack's limit. The first two read
+    Bitcoin Core's "A function is needed within P2WSH", and the reason is
+    the refusal's ``__cause__``.
 
     The blocks are a relative timelock, from 1 to 65535. BIP68 reads the
     low 16 bits of a sequence, so ``older(65536)``, which

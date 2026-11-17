@@ -14,6 +14,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+from bip32_descriptors.bip32 import (
+    BIP32KeyOrigin,
+    HdKeyPaths,
+    decode_from_bip32_derivs,
+    decode_hd_key_paths,
+    encode_to_bip32_derivs,
+)
 from btclib.alias import BinaryData, Octets
 from btclib.amount import valid_sats_amount
 from btclib.exceptions import BTClibValueError
@@ -26,13 +33,6 @@ from btclib.utils import (
 )
 
 from btclib_wallet._refusal import _quoted
-from btclib_wallet.bip32 import (
-    BIP32KeyOrigin,
-    HdKeyPaths,
-    decode_from_bip32_derivs,
-    decode_hd_key_paths,
-    encode_to_bip32_derivs,
-)
 from btclib_wallet.psbt.psbt_utils import (
     PSBT_SEPARATOR,
     _assert_valid_bip32_derivation,

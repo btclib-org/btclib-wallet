@@ -30,6 +30,22 @@ from enum import IntEnum
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyData
+from bip32_descriptors.bip32.bip32 import (
+    derive,
+    fingerprint,
+    rootxprv_from_seed,
+    xpub_from_xprv,
+)
+from bip32_descriptors.descriptors import (
+    Descriptor,
+    TrDescriptor,
+    WshDescriptor,
+    add_checksum,
+    miniscript,
+    parse,
+)
+from bip32_descriptors.descriptors.miniscript import SpendContext
 from btclib.alias import Octets
 from btclib.b58 import wif_from_prv_key
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -46,22 +62,6 @@ from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
 from typing_extensions import override
 
-from btclib_wallet.bip32 import BIP32KeyData
-from btclib_wallet.bip32.bip32 import (
-    derive,
-    fingerprint,
-    rootxprv_from_seed,
-    xpub_from_xprv,
-)
-from btclib_wallet.descriptors import (
-    Descriptor,
-    TrDescriptor,
-    WshDescriptor,
-    add_checksum,
-    miniscript,
-    parse,
-)
-from btclib_wallet.descriptors.miniscript import SpendContext
 from btclib_wallet.psbt import Psbt, finalize, miniscript_solver
 from btclib_wallet.psbt.psbt import taproot_sig_hash
 from btclib_wallet.psbt.psbt_updater import update_psbt_input
@@ -925,7 +925,7 @@ _REFUSED: dict[str, tuple[object, object, object, type[Exception], str]] = {
         [(1, [_KEYS[21]], 144)],
         "mainnet",
         BTClibValueError,
-        "invalid number of keys in multi: an int of 5 bits",
+        "A function is needed within P2WSH",
     ),
     # six paths of 20 keys each are beyond the 3600 bytes of a P2WSH script
     "a script too large": (
@@ -933,7 +933,7 @@ _REFUSED: dict[str, tuple[object, object, object, type[Exception], str]] = {
         [(1, _KEYS[:20], 144 + i) for i in range(6)],
         "mainnet",
         BTClibValueError,
-        "miniscript too large for P2WSH: at least 4159 bytes of script",
+        "A function is needed within P2WSH",
     ),
     # 45 one-key paths fit in the script, and a spend along the last one
     # takes more opcodes than P2WSH allows
@@ -986,6 +986,26 @@ def test_what_it_refuses(case: str, script_type: Any) -> None:
         pattern += "$"
     with pytest.raises(refused, match=pattern):
         recovery_descriptors(primary, recovery, network, script_type=script_type)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "case, reason",
+    [
+        ("parse's own rules", "invalid number of keys in multi: an int of 5 bits"),
+        (
+            "a script too large",
+            "miniscript too large for P2WSH: at least 4159 bytes of script",
+        ),
+    ],
+)
+def test_parse_chains_its_reason_under_bitcoin_cores_text(
+    case: str, reason: str
+) -> None:
+    """A ``wsh()`` is refused in Bitcoin Core's words, `parse`'s the cause."""
+    primary, recovery, network, refused, message = _REFUSED[case]
+    with pytest.raises(refused, match=f"^{re.escape(message)}$") as raised:
+        recovery_descriptors(primary, recovery, network, script_type="p2wsh")  # type: ignore[arg-type]
+    assert str(raised.value.__cause__) == reason
 
 
 def _deep_xpubs() -> dict[int, str]:

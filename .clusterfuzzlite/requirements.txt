@@ -4,8 +4,13 @@ base58-bech32==2026.11.7 \
     --hash=sha256:d57a7dfa018b2e2038bfff13fcaab0ef83e2ee5ca9a03c71d7f5e00aabd76ab7 \
     --hash=sha256:ebc2e2f9fb3d07152a4faaedb52a36c981fcde1db331194350747c7d33abf14e
     # via
+    #   bip32-descriptors
     #   btclib
     #   btclib-wallet
+bip32-descriptors==2026.11.17 \
+    --hash=sha256:8fed5929200b1827d1ba80898d3e8a8751c393c473ca617755f1ae0f5ba49876 \
+    --hash=sha256:d144c0755ba0609f6cbe7a0d17ecaa0072631db5b6e3d2c2ba16722e569f7d36
+    # via btclib-wallet
 bip39-slip39==2026.11.2 \
     --hash=sha256:17a2f18fb0d03dd947728974bfc372df307a7213b0ceff8b8f2840a7544d2cd6 \
     --hash=sha256:d406ef1a01688cf32400537efb75bcf26c321b5cc927b3046dea6857af546f18
@@ -17,7 +22,9 @@ bitcoin-core-rpc==2026.11.15 \
 btclib==2026.11.10 \
     --hash=sha256:a40beb166721bd5a7928272e5b4f442e8035063d38d8136d68ffbe8cf11dae2e \
     --hash=sha256:ebb56ee88726f6f7bb852573cacbf25fa5350424ee37a6a54931b712e67bd327
-    # via btclib-wallet
+    # via
+    #   bip32-descriptors
+    #   btclib-wallet
 cffi==2.1.1 ; (platform_machine != 'ARM64' and platform_python_implementation != 'PyPy') or (platform_python_implementation != 'PyPy' and sys_platform != 'win32') \
     --hash=sha256:046bfc24911b37851ee1b51aab8bffe713d89c68c6a057b09484ce9fd5f69b4e \
     --hash=sha256:06c72bb76605a4b0cd0aad6930b69d4baf7dd5d806cfc409b824191099700e66 \
@@ -173,6 +180,7 @@ ecc==2026.11.11 \
     --hash=sha256:91db56ce7db1a84fb30b5dd3bb95f31953014fb6b9617ce9cbe420cc0a0b15dc \
     --hash=sha256:b3e7682be3b3b726c9bcae6e93ffd1f14974687e9b2c53855cc90ca0f2c59ba2
     # via
+    #   bip32-descriptors
     #   btclib
     #   btclib-wallet
 pycparser==3.0 ; (implementation_name != 'PyPy' and platform_machine != 'ARM64' and platform_python_implementation != 'PyPy') or (implementation_name != 'PyPy' and platform_python_implementation != 'PyPy' and sys_platform != 'win32') \
@@ -183,6 +191,7 @@ typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
+    #   bip32-descriptors
     #   btclib
     #   btclib-wallet
     #   ecc

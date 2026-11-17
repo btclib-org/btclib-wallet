@@ -31,10 +31,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32.bip32 import derive
+from bip32_descriptors.descriptors import add_checksum
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 
-from btclib_wallet.bip32.bip32 import derive
-from btclib_wallet.descriptors import add_checksum
 from tests import load
 from tests.integration.conftest import (
     _RPC_TIMEOUT,

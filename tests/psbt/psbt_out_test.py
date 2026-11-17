@@ -11,10 +11,10 @@ from io import BytesIO
 from typing import Any, cast
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyOrigin
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtOut
 from btclib_wallet.psbt.psbt_utils import (
     PSBT_SEPARATOR,

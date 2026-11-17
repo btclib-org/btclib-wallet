@@ -33,12 +33,12 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from bip32_descriptors.bip32.bip32 import rootxprv_from_seed
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib.amount import sats_from_btc
 from btclib.exceptions import BTClibRuntimeError
 from btclib.network import NETWORKS
 
-from btclib_wallet.bip32.bip32 import rootxprv_from_seed
 from btclib_wallet.core_import import (
     DEFAULT_RANGE,
     account_import_requests,

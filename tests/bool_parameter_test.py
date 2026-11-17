@@ -72,6 +72,8 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32.bip32 import rootxprv_from_seed, xpub_from_xprv
+from bip32_descriptors.descriptors.descriptors import parse as descriptor_from_string
 from btclib.b58 import p2pkh
 from btclib.fee import FeeRate
 from btclib.key import PrvKeyData, PubKeyData
@@ -83,23 +85,6 @@ from btclib.tx.tx_out import TxOut
 from ecc.curves import bytes_from_point, bytes_from_prv_key_int, mult
 
 from btclib_wallet import bip38, bip322, core_import, slip132
-from btclib_wallet.bip32.bip32 import (
-    derive,
-    derive_from_account,
-    derive_from_account_,
-    derive_from_account_range,
-    derive_from_account_range_,
-    prv_keyinfo_from_xprv,
-    pub_keyinfo_from_xpub,
-    rootxprv_from_seed,
-    xpub_from_xprv,
-)
-from btclib_wallet.bip32.der_path import (
-    hardenings_from_der_path,
-    indexes_from_der_path,
-    int_from_index_str,
-)
-from btclib_wallet.descriptors.descriptors import parse as descriptor_from_string
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.fetch.bitcoin_core_rest import (
     BitcoinCoreRestClient,
@@ -163,7 +148,6 @@ _SEC_2 = bytes_from_prv_key_int(_PRV_KEY + 1)
 _MSG = b"Satoshi Nakamoto"
 
 _ROOT_XPRV = rootxprv_from_seed("00" * 32)
-_ACCOUNT_XPRV = derive(_ROOT_XPRV, "m/44h/0h/0h")
 
 
 # a block cipher this file never has to get right: `bip38.encrypt` and
@@ -485,28 +469,6 @@ _KINDS = (
         reason="`True` accepts an input still unsigned, so a non-bool"
         " stores as complete a psbt nobody finished signing",
     ),
-    # the two extended-key parses. Their `compressed` computes nothing --
-    # a BIP32 key is compressed, so the flag is a check on a key that has
-    # already answered the question -- and it is the polarity that makes
-    # each a kind
-    _Case(
-        "btclib_wallet.bip32.bip32.prv_keyinfo_from_xprv",
-        "compressed",
-        prv_keyinfo_from_xprv,
-        {"xprv": _ROOT_XPRV},
-        optional=True,
-        reason="`True` is the value an extended key already has, so a"
-        " non-bool passes the check a False was written down to fail and"
-        " an uncompressed key is reported as this compressed one",
-    ),
-    _Case(
-        "btclib_wallet.bip32.bip32.pub_keyinfo_from_xpub",
-        "compressed",
-        pub_keyinfo_from_xpub,
-        {"xpub": _XPUB},
-        optional=True,
-        reason="`prv_keyinfo_from_xprv`'s above, on the public half",
-    ),
     # which coins are counted, and which are listed
     _Case(
         "btclib_wallet.ledger.ledger.Ledger.balances",
@@ -622,28 +584,6 @@ _TRUTHS = (
         reason="whether the mnemonic's checksum is checked",
     ),
     _Case(
-        "btclib_wallet.bip32.der_path.int_from_index_str",
-        "bip380_enforced",
-        int_from_index_str,
-        {"s": "0"},
-        reason="whether BIP380's spelling rules are enforced; an index both"
-        " accept is the same integer",
-    ),
-    _Case(
-        "btclib_wallet.bip32.der_path.indexes_from_der_path",
-        "bip380_enforced",
-        indexes_from_der_path,
-        {"der_path": "0/1"},
-        reason="whether BIP380's spelling rules are enforced",
-    ),
-    _Case(
-        "btclib_wallet.bip32.der_path.hardenings_from_der_path",
-        "bip380_enforced",
-        hardenings_from_der_path,
-        {"der_path": "0/1"},
-        reason="whether BIP380's spelling rules are enforced",
-    ),
-    _Case(
         "btclib_wallet.psbt.psbt.join",
         "enforce_same_tx_version",
         psbt_join,
@@ -727,38 +667,6 @@ _TRUTHS = (
         " sync refuses a chain that does not follow the genesis block in"
         " any case",
     ),
-    _Case(
-        "btclib_wallet.bip32.bip32.derive_from_account",
-        "branches_0_1_only",
-        derive_from_account,
-        {"mxkey": _ACCOUNT_XPRV, "branch": 0, "address_index": 0},
-        reason="whether a branch other than 0 and 1 is refused; the key"
-        " derived at a branch both accept is the same key",
-    ),
-    _Case(
-        "btclib_wallet.bip32.bip32.derive_from_account_",
-        "branches_0_1_only",
-        derive_from_account_,
-        {"mxkey": _ACCOUNT_XPRV, "branch": 0, "address_index": 0},
-        reason="the flag of `derive_from_account` above, in the spelling"
-        " that answers the key rather than its Base58Check text",
-    ),
-    _Case(
-        "btclib_wallet.bip32.bip32.derive_from_account_range",
-        "branches_0_1_only",
-        derive_from_account_range,
-        {"mxkey": _ACCOUNT_XPRV, "branch": 0, "address_indexes": [0]},
-        reason="the flag of `derive_from_account` above, over many"
-        " addresses of one branch rather than over one",
-    ),
-    _Case(
-        "btclib_wallet.bip32.bip32.derive_from_account_range_",
-        "branches_0_1_only",
-        derive_from_account_range_,
-        {"mxkey": _ACCOUNT_XPRV, "branch": 0, "address_indexes": [0]},
-        reason="the flag of `derive_from_account_range` above, in the"
-        " spelling that answers the keys rather than their text",
-    ),
 )
 
 _KIND_IDS = tuple(f"{case.dotted}({case.flag})" for case in _KINDS)
@@ -791,9 +699,8 @@ def _bool_parameters() -> set[tuple[str, str]]:
 
     A method counts and a private function does not, as in
     `curve_parameter_test.py`. A method of a private class does not count
-    either. A function nested in another is a closure rather than API --
-    `Miniscript.to_script`'s `up` takes a `verify` that no caller can
-    pass.
+    either. A function nested in another is a closure rather than API,
+    whose flags no caller can pass.
     """
     found: set[tuple[str, str]] = set()
 
@@ -871,20 +778,17 @@ def test_the_walk_reaches_what_it_claims() -> None:
     A walk that found nothing would pass the test above.
     """
     found = _bool_parameters()
-    # a defaulted flag, a required one, an optional annotation, a method
+    # a defaulted flag, a required one, a method
     assert ("btclib_wallet.bip38.encrypt", "compressed") in found
     assert ("btclib_wallet.psbt.psbt.join", "shuffle_inp") in found
-    assert ("btclib_wallet.bip32.bip32.prv_keyinfo_from_xprv", "compressed") in found
     assert ("btclib_wallet.hwi.HwiSigner.__init__", "emulators") in found
+    # an optional annotation, which no flag of the package carries
+    optional = ast.parse("def f(a: bool | None, b: int | None) -> None: ...")
+    assert isinstance(function := optional.body[0], ast.FunctionDef)
+    assert _flags_of(function) == {"a"}
 
     # the convention with a file of its own
     assert not [pair for pair in found if pair[1] == "check_validity"]
-    # a private function, a method of a private class, a closure, and a
-    # parameter of another type
+    # a private function and a parameter of another type
     assert ("btclib_wallet.psbt.psbt._tx_in", "zeroed_sequence") not in found
-    assert (
-        "btclib_wallet.bip32.bip32._PythonPubKeyTweakChain.tweak_add",
-        "compressed",
-    ) not in found
-    assert ("btclib_wallet.descriptors.miniscript.up", "verify") not in found
-    assert ("btclib_wallet.bip32.bip32.derive", "der_path") not in found
+    assert ("btclib_wallet.psbt.psbt.join", "psbts") not in found

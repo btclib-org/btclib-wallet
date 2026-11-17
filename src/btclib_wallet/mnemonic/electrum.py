@@ -15,15 +15,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import bip39_slip39.electrum
+from bip32_descriptors.bip32 import (
+    derive,
+    fingerprint,
+    rootxprv_from_seed,
+    xpub_from_xprv,
+)
+from bip32_descriptors.bip32.der_path import HARDENED_OFFSET
+from bip32_descriptors.descriptors.descriptors import add_checksum
 from btclib.exceptions import BTClibValueError
 from btclib.network import network_from_name
 from ecc.curves.curve import mult, secp256k1
 from ecc.curves.sec_point import bytes_from_point, scalar_from_prv_key
 
 from btclib_wallet._refusal import _label
-from btclib_wallet.bip32 import derive, fingerprint, rootxprv_from_seed, xpub_from_xprv
-from btclib_wallet.bip32.der_path import HARDENED_OFFSET
-from btclib_wallet.descriptors.descriptors import add_checksum
 
 # under TYPE_CHECKING, so that the alias annotates the signatures below
 # without this module binding a name of bip39_slip39's

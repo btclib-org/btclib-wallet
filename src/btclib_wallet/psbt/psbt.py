@@ -36,6 +36,15 @@ from dataclasses import dataclass, fields
 from math import ceil
 from typing import Any, Protocol, TypeVar, cast
 
+from bip32_descriptors.bip32 import (
+    BIP32KeyOrigin,
+    HdKeyPaths,
+    assert_valid_hd_key_paths,
+    decode_from_bip32_derivs,
+    decode_hd_key_paths,
+    encode_to_bip32_derivs,
+)
+from bip32_descriptors.descriptors import miniscript
 from btclib.alias import BinaryData, Octets, ScriptList, String
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
@@ -85,15 +94,6 @@ from ecc.curves import mult, sec_point
 
 from btclib_wallet._fee import _DEFAULT_MAX_FEE_RATE, _assert_max_fee_rate
 from btclib_wallet._refusal import _hex_field, _label, _message_text, _position, _quoted
-from btclib_wallet.bip32 import (
-    BIP32KeyOrigin,
-    HdKeyPaths,
-    assert_valid_hd_key_paths,
-    decode_from_bip32_derivs,
-    decode_hd_key_paths,
-    encode_to_bip32_derivs,
-)
-from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt.psbt_size import (

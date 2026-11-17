@@ -15,6 +15,13 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import (
+    BIP32KeyOrigin,
+    derive,
+    fingerprint,
+    prv_keyinfo_from_xprv,
+    rootxprv_from_seed,
+)
 from btclib.b58 import prv_key_data_from_wif
 from btclib.network import NETWORKS
 from btclib.script import ScriptPubKey
@@ -22,13 +29,6 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc import dsa
 from typing_extensions import override
 
-from btclib_wallet.bip32 import (
-    BIP32KeyOrigin,
-    derive,
-    fingerprint,
-    prv_keyinfo_from_xprv,
-    rootxprv_from_seed,
-)
 from btclib_wallet.psbt import Psbt, combine, extract_tx, finalize, sign
 from btclib_wallet.psbt_signer import SoftwareSigner
 from tests import load, vector_id

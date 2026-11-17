@@ -28,6 +28,14 @@ from __future__ import annotations
 import secrets
 
 import pytest
+from bip32_descriptors.bip32 import bip32
+from bip32_descriptors.descriptors import (
+    Miniscript,
+    MultiA,
+    TrDescriptor,
+    add_checksum,
+    parse,
+)
 from btclib.b58 import wif_from_prv_key
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
@@ -39,14 +47,6 @@ from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from btclib.utils import encode_num
 
-from btclib_wallet.bip32 import bip32
-from btclib_wallet.descriptors import (
-    Miniscript,
-    MultiA,
-    TrDescriptor,
-    add_checksum,
-    parse,
-)
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet import BIP32KeyWallet, DescriptorWallet
 from tests.secret_free import assert_secret_free
@@ -477,7 +477,7 @@ _RECOVERY_BLOCKS = 5184
 
 # the first three addresses of each chain, as a regression net. The
 # authority on taproot arithmetic is elsewhere -- BIP386 and BIP387's own
-# vectors, in tests/descriptors/ -- and what these pin is that the wallet
+# vectors, in bip32-descriptors' tests -- and what these pin is that the wallet
 # goes on composing it the same way at the same positions
 _TAPROOT_ADDRESSES = {
     0: [

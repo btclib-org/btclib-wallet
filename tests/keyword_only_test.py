@@ -34,9 +34,9 @@ shape `Bip21.__init__`'s does not cover: a classmethod a walk stopping
 at the constructor would miss. Inherited methods are not walked a second
 time under a subclass that does not override them, deduplication being
 by the id of the underlying function once resolved, so a name
-re-exported under a second `__all__` -- `btclib_wallet.bip32`
-publishing what `btclib_wallet.bip32.bip32` defines -- is one entry
-and not two either.
+re-exported under a second `__all__` -- `btclib_wallet.psbt` publishing
+what `btclib_wallet.psbt.psbt` defines -- is one entry and not two
+either.
 
 Only a function defined in `btclib_wallet` is walked, as its
 `__module__` says. A name `btclib_wallet.fetch` takes from
@@ -80,21 +80,6 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "extra_inputs",
     ],
     "btclib_wallet.bip322:verify": ["legacy"],
-    "btclib_wallet.bip32:BIP32KeyData.__init__": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyData.b58decode": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyData.b58encode": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyData.parse": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyData.serialize": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyOrigin.__init__": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyOrigin.from_description": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyOrigin.from_dict": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyOrigin.parse": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyOrigin.serialize": ["check_validity"],
-    "btclib_wallet.bip32:BIP32KeyOrigin.to_dict": ["check_validity"],
-    "btclib_wallet.bip32:decode_from_bip32_derivs": ["check_validity"],
-    "btclib_wallet.bip32:hardenings_from_der_path": ["bip380_enforced"],
-    "btclib_wallet.bip32:indexes_from_der_path": ["bip380_enforced"],
-    "btclib_wallet.bip32:int_from_index_str": ["bip380_enforced"],
     "btclib_wallet.bip38:encrypt": ["compressed"],
     "btclib_wallet.bip38:intermediate_code": ["lot", "sequence", "owner_salt"],
     "btclib_wallet.bip38:new_key_pair": ["compressed", "seed_b"],
@@ -129,19 +114,6 @@ KEYWORD_ONLY: dict[str, list[str]] = {
         "next_index",
         "label",
     ],
-    "btclib_wallet.descriptors:AddrDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:ComboDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:Descriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:MiniscriptDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:MultiDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:PkDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:PkhDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:RawDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:RawTrDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:ShDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:TrDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:WpkhDescriptor.__init__": ["network"],
-    "btclib_wallet.descriptors:WshDescriptor.__init__": ["network"],
     "btclib_wallet.dlc:Dlc.__init__": [
         "offer",
         "accept",

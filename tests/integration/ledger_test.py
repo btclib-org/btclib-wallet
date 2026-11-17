@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bip32_descriptors.descriptors import add_checksum, parse
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 from bitcoin_core_rpc import RpcError as CoreRpcError
 from btclib.amount import btc_from_sats, sats_from_btc
@@ -40,7 +41,6 @@ from btclib.fee import FeeRate, fee_from_vsize
 from btclib.script import ScriptPubKey
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
-from btclib_wallet.descriptors import add_checksum, parse
 from btclib_wallet.exceptions import RpcError
 from btclib_wallet.fetch.bitcoin_core import BitcoinCoreFetcher
 from btclib_wallet.ledger import Ledger, TxState

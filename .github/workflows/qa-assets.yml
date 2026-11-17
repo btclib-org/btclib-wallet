@@ -5,15 +5,14 @@ name: qa-assets
 # The latter are round-tripped through bitcoin-s and decoded by Core,
 # with every disagreement kept as an artifact for BIP174/BIP370 triage.
 #
-# The fuzz corpora of psbts and descriptors of Bitcoin Core and
-# rust-bitcoin, replayed through this package's parsers. Both qa-assets
-# repositories grow as their fuzzers run, so a parser that handled last
-# week's inputs may not handle this week's: a clock asks, because the
-# corpora change with no commit here.
-# tests/integration/qa_assets_test.py is the replay and holds the table
-# from a corpus directory to its parser; a failure there is an exception
-# outside the families tests/exception_family_test.py holds, named with
-# the input that raised it.
+# The fuzz corpora of psbts of Bitcoin Core and rust-bitcoin, replayed
+# through this package's parsers. Both qa-assets repositories grow as
+# their fuzzers run, so a parser that handled last week's inputs may not
+# handle this week's: a clock asks, because the corpora change with no
+# commit here. tests/integration/qa_assets_test.py is the replay and holds
+# the table from a corpus directory to its parser; a failure there is an
+# exception outside the families tests/exception_family_test.py holds,
+# named with the input that raised it.
 #
 # Informational: no aggregate job, a finding being an issue against a
 # parser and not a block on an unrelated merge. The pull request trigger
@@ -72,7 +71,6 @@ jobs:
           persist-credentials: false
           filter: blob:none
           sparse-checkout: |
-            fuzz_corpora/descriptor_parse
             fuzz_corpora/partially_signed_transaction_deserialize
             fuzz_corpora/psbt
             fuzz_corpora/psbt_base64_decode

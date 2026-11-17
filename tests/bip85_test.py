@@ -32,6 +32,12 @@ from hashlib import shake_256
 from typing import Any, cast
 
 import pytest
+from bip32_descriptors.bip32 import (
+    BIP32KeyData,
+    derive,
+    rootxprv_from_seed,
+    xpub_from_xprv,
+)
 from bip39_slip39.bip39 import entropy_from_mnemonic
 from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -42,7 +48,6 @@ from typing_extensions import override
 
 import btclib_wallet
 from btclib_wallet._refusal import _message_text, _quoted
-from btclib_wallet.bip32 import BIP32KeyData, derive, rootxprv_from_seed, xpub_from_xprv
 from btclib_wallet.bip85 import (
     _HMAC_KEY,
     _LANGUAGE_INDEXES,

@@ -144,6 +144,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import IO, Any, cast
 
+from bip32_descriptors.bip32.der_path import DerPath, str_from_der_path
+from bip32_descriptors.descriptors import Descriptor, add_checksum, at_index
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
 from btclib.network import validated_network_name
@@ -158,8 +160,6 @@ from btclib_wallet._refusal import (
     _quoted,
     _refused_type,
 )
-from btclib_wallet.bip32.der_path import DerPath, str_from_der_path
-from btclib_wallet.descriptors import Descriptor, add_checksum, at_index
 from btclib_wallet.exceptions import SignerError, SignerNotFoundError
 from btclib_wallet.psbt.psbt import (
     Psbt,

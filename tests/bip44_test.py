@@ -24,6 +24,17 @@ from pathlib import Path
 from typing import Any, NoReturn, cast, get_args
 
 import pytest
+from bip32_descriptors.bip32 import bip32, fingerprint
+from bip32_descriptors.descriptors import (
+    Descriptor,
+    WpkhDescriptor,
+    add_checksum,
+    checksum,
+    parse,
+    wallet_policy,
+    wallet_policy_address,
+    wallet_policy_descriptor,
+)
 from btclib import b32, b58
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -34,7 +45,6 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc.exceptions import EccValueError
 from typing_extensions import override
 
-from btclib_wallet.bip32 import bip32, fingerprint
 from btclib_wallet.bip44 import (
     _ADDRESS_FROM_SCRIPT_TYPE,
     SCRIPT_TYPE_FROM_PURPOSE,
@@ -44,16 +54,6 @@ from btclib_wallet.bip44 import (
     address_from_der_path,
     discover_account,
     discover_accounts,
-)
-from btclib_wallet.descriptors import (
-    Descriptor,
-    WpkhDescriptor,
-    add_checksum,
-    checksum,
-    parse,
-    wallet_policy,
-    wallet_policy_address,
-    wallet_policy_descriptor,
 )
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.history import (
@@ -536,7 +536,8 @@ def test_wallet_policy_of_a_receive_change_pair_agrees_with_both() -> None:
     `.../0/*` and `.../1/*` -- is the shape most callers actually hold,
     and the one shape `wallet_policy(descriptor)` alone refuses
     (`test_wallet_policy_refuses_what_cannot_become_one` in
-    `tests/descriptors/descriptors_test.py` measures that).
+    bip32-descriptors' `tests/descriptors/descriptors_test.py` measures
+    that).
     Given both, the policy answers the very scripts the two descriptors
     it was built from answer, at every index and on both branches.
     """
@@ -849,14 +850,14 @@ def test_discover_account_parses_a_text_under_network() -> None:
     assert regtest.used == expected.used
     assert [branch.network for branch in regtest.descriptors] == ["regtest"] * 2
     with pytest.raises(
-        BTClibValueError, match="^descriptor 0: not a mainnet key: version$"
+        BTClibValueError, match="^descriptor 0: key 0: not a mainnet key: version$"
     ):
         discover_account(texts, chain, gap_limit=2)
 
     pair = account_descriptors(_XPRV_ROOT, "m/84h/0h/0h")
     assert discover_account(pair, _Chain(), gap_limit=2, network="testnet") is None
     with pytest.raises(
-        BTClibValueError, match="^descriptor 1: not a testnet key: version$"
+        BTClibValueError, match="^descriptor 1: key 0: not a testnet key: version$"
     ):
         discover_account([pair[0], str(pair[1])], _Chain(), network="testnet")
 
@@ -920,14 +921,14 @@ _REFUSED: list[tuple[str, str | bytes, str]] = [
     (
         "damaged-xprv",
         f"wpkh({_DAMAGED}/0/*)",
-        "derivation path after a key that cannot derive",
+        "key 0: derivation path after a key that cannot derive",
     ),
     (
         "multipath",
         f"wpkh({_XPRV_84}/<0;1>/*)",
         "multipath key expression: use multipath_descriptors first",
     ),
-    ("tprv", f"wpkh({_TPRV}/0/*)", "not a mainnet key: version"),
+    ("tprv", f"wpkh({_TPRV}/0/*)", "key 0: not a mainnet key: version"),
     (
         "non-ascii",
         f"wpkh({_XPRV_84}/0/*\N{LATIN SMALL LETTER E WITH ACUTE})",
@@ -936,10 +937,10 @@ _REFUSED: list[tuple[str, str | bytes, str]] = [
     (
         "unbalanced",
         f"wpkh({_XPRV_84}/0/*",
-        r"not a descriptor expression: expected name\(arguments\)",
+        r"'wpkh\(\.\.\.' is not a valid descriptor function",
     ),
-    ("two-keys", f"wpkh({_WIF},{_XPRV_84})", "invalid key expression"),
-    ("no-key", "wpkh()", "No key provided"),
+    ("two-keys", f"wpkh({_WIF},{_XPRV_84})", "key 0: invalid key expression"),
+    ("no-key", "wpkh()", "key 0: No key provided"),
     # `parse` chains a `_CoreFallbackError` to this refusal
     (
         "chained-by-parse",
@@ -947,7 +948,11 @@ _REFUSED: list[tuple[str, str | bytes, str]] = [
         "A function is needed within P2WSH",
     ),
     # an `EccValueError`, no `BTClibValueError`
-    ("no-point", f"wsh(multi(1,{_XPRV_84}/0/*,{_NO_POINT}))", "not a public key"),
+    (
+        "no-point",
+        f"wsh(multi(1,{_XPRV_84}/0/*,{_NO_POINT}))",
+        "key 1: not a public key",
+    ),
     # `parse` chains a `Base58Bech32ValueError` to this refusal
     (
         "address-checksum",

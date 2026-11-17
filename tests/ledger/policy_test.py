@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import fingerprint
+from bip32_descriptors.descriptors import add_checksum, normalized, parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.tx import TxOut
 
 from btclib_wallet import bip139
-from btclib_wallet.bip32 import fingerprint
-from btclib_wallet.descriptors import add_checksum, normalized, parse
 from btclib_wallet.ledger import MAX_LOOKAHEAD, Ledger, TxState
 from btclib_wallet.ledger import ledger as ledger_module
 from btclib_wallet.ledger import store as store_module

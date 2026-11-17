@@ -18,6 +18,8 @@ from hashlib import sha256
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import bip32
+from bip32_descriptors.descriptors import add_checksum, parse
 from bip39_slip39.bip39 import mnemonic_from_entropy
 from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -27,8 +29,6 @@ from btclib.script.script_pub_key import ScriptPubKey
 from typing_extensions import override
 
 from btclib_wallet import bip139
-from btclib_wallet.bip32 import bip32
-from btclib_wallet.descriptors import add_checksum, parse
 from tests.secret_free import assert_secret_free
 
 PATH = "48h/0h/0h/2h"
@@ -360,6 +360,14 @@ def test_an_account_is_named_by_its_index() -> None:
             "invalid descriptor checksum",
         ),
         (TEST_RECEIVE, "not a mainnet key: version"),
+        # the package names the second key's position, which is not repeated
+        (
+            add_checksum(
+                f"wsh(multi(1,{b58.wif_from_prv_key(1)},"
+                f"{b58.wif_from_prv_key(1, network='testnet')}))"
+            ),
+            "not a mainnet key: WIF prefix",
+        ),
         (f" {RECEIVE}", "invalid descriptor checksum"),
         (f"{RECEIVE}\n", "invalid descriptor checksum"),
         (add_checksum(f" {RECEIVE.partition('#')[0]}"), "not a descriptor"),

@@ -43,10 +43,8 @@ on:
         type: choice
         options:
           - all
-          - keys
           - signing
           - fetch
-          - descriptors
           - psbt
           - boundaries
 # least privilege for the GITHUB_TOKEN: nothing here writes. In particular
@@ -69,14 +67,10 @@ jobs:
       # it by, the job's ceiling in minutes, and one "<configuration>
       # <budget>" line per session, each a file under .github/mutation
       profiles: >-
-        [{"profile": "extended keys", "slug": "keys", "ceiling": 65, "sessions":
-        "bip32.toml 45m"},
-        {"profile": "BIP322 message signing", "slug": "signing", "ceiling": 30,
+        [{"profile": "BIP322 message signing", "slug": "signing", "ceiling": 30,
         "sessions": "bip322.toml 10m"},
         {"profile": "fetch", "slug": "fetch", "ceiling": 60, "sessions":
         "fetch.toml 15m\nfetch_decorators.toml 10m"},
-        {"profile": "output descriptors and miniscript", "slug": "descriptors",
-        "ceiling": 100, "sessions": "descriptors.toml 90m"},
         {"profile": "the psbt format", "slug": "psbt", "ceiling": 60, "sessions":
         "psbt.toml 45m"},
         {"profile": "wallets, the signer boundary and HWI", "slug": "boundaries",

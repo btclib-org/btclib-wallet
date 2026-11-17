@@ -37,17 +37,12 @@ from btclib_wallet import (
     bip139,
     bip322,
     bip329,
-    descriptors,
     electrum,
     minikey,
     silent_payments,
 )
 from btclib_wallet.bip21 import Bip21
-from btclib_wallet.bip32.bip32 import BIP32KeyData
-from btclib_wallet.bip32.der_path import indexes_from_der_path
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.bolt11 import _SIGNATURE_WORDS, Bolt11Invoice
-from btclib_wallet.descriptors import miniscript
 from btclib_wallet.dlc import oracle
 from btclib_wallet.psbt import psbt_utils
 from btclib_wallet.psbt.psbt import Psbt
@@ -81,8 +76,6 @@ BINARY_PARSERS: dict[str, Callable[[bytes], Any]] = {
     "psbt_utils.parse_leaf_script": psbt_utils.parse_leaf_script,
     "psbt_utils.parse_taproot_tree": psbt_utils.parse_taproot_tree,
     "psbt_utils.parse_taproot_bip32": psbt_utils.parse_taproot_bip32,
-    "BIP32KeyData.parse": BIP32KeyData.parse,
-    "BIP32KeyOrigin.parse": BIP32KeyOrigin.parse,
     "OracleEvent.parse": oracle.OracleEvent.parse,
     "OracleAnnouncement.parse": oracle.OracleAnnouncement.parse,
     "OracleAttestation.parse": oracle.OracleAttestation.parse,
@@ -107,7 +100,7 @@ def _bip38_decrypt(encrypted_key: str) -> Any:
 
 
 # The same contract, for what a user pastes rather than what a peer
-# sends: a URI, an extended key, a descriptor.
+# sends: a URI, a label export, an encrypted key.
 #
 # The base64 wrappers are here rather than above, and each is a parser of
 # its own: `b64decode` decodes and then hands the bytes to `parse`, so
@@ -118,17 +111,12 @@ TEXT_PARSERS: dict[str, Callable[[str], Any]] = {
     "Bip21.parse": Bip21.parse,
     "bip139.parse": bip139.parse,
     "bip329.parse": bip329.parse,
-    "BIP32KeyData.b58decode": BIP32KeyData.b58decode,
     "bip322.Sig.b64decode": bip322.Sig.b64decode,
     "Psbt.b64decode": Psbt.b64decode,
-    "descriptors.checksum": descriptors.checksum,
-    "descriptors.parse": descriptors.parse,
-    "miniscript.parse": miniscript.parse,
     "Bolt11Invoice.from_invoice": Bolt11Invoice.from_invoice,
     "silent_payments.keys_from_address": silent_payments.keys_from_address,
     "bip38.decrypt": _bip38_decrypt,
     "minikey.prv_key_data_from_minikey": minikey.prv_key_data_from_minikey,
-    "der_path.indexes_from_der_path": indexes_from_der_path,
     "tx_or_psbt.tx_or_psbt_from_any": tx_or_psbt_from_any,
 }
 
@@ -145,11 +133,9 @@ _CLASS_DECODER_METHODS = ("parse", "b64decode", "b58decode", "from_invoice")
 _MODULE_DECODER_NAMES = (
     "parse",
     "decode",
-    "checksum",
     "decrypt",
     "keys_from_address",
     "prv_key_data_from_minikey",
-    "indexes_from_der_path",
     "tx_or_psbt_from_any",
 )
 
@@ -265,21 +251,7 @@ def test_text_parser_honors_the_exception_contract(
 # A number of more than 4300 digits is past `MAX_INPUT` and past what
 # `int()` takes, so the strategy above cannot stumble on it. Each text
 # parser is handed one in every place a number is read.
-_KEY = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"  # pragma: allowlist secret
-_XPUB = (
-    "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjq"  # pragma: allowlist secret
-    "JoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8"  # pragma: allowlist secret
-)
-_MINISCRIPT_TEXTS = (
-    "older({n})",
-    f"thresh({{n}},pk({_KEY}),s:pk({_KEY}))",
-    f"multi({{n}},{_KEY})",
-)
-LONG_NUMBER_TEXTS = [(miniscript.parse, text) for text in _MINISCRIPT_TEXTS] + [
-    (descriptors.parse, f"wsh(and_v(v:pk({_KEY}),{_MINISCRIPT_TEXTS[0]}))"),
-    (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[1]})"),
-    (descriptors.parse, f"wsh({_MINISCRIPT_TEXTS[2]})"),
-    (descriptors.parse, f"wpkh({_XPUB}/{{n}})"),
+LONG_NUMBER_TEXTS = [
     (bip329.parse, f'{{{{"type": "output", "ref": "{"00" * 32}:{{n}}"}}}}'),
     (
         bip139.parse,

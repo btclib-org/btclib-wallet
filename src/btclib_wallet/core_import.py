@@ -75,11 +75,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from bip32_descriptors.descriptors import Descriptor, add_checksum, parse
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
 from btclib_wallet._refusal import _code, _message_text, _position, _quoted
-from btclib_wallet.descriptors import Descriptor, add_checksum, parse
 
 __all__ = [
     "DEFAULT_RANGE",

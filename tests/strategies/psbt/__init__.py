@@ -11,10 +11,10 @@ The transaction strategy is copied from the locked btclib release.
 
 from copy import deepcopy
 
+from bip32_descriptors.bip32 import BIP32KeyOrigin
 from ecc.curves import bytes_from_point, mult
 from hypothesis import strategies as st
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut
 from tests.strategies import TXS
 

@@ -25,6 +25,7 @@ from copy import deepcopy
 from itertools import starmap
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyOrigin
 from btclib.block import Block
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
@@ -34,7 +35,6 @@ from ecc import dsa
 from ecc.curves import mult
 from ecc.curves.sec_point import bytes_from_point
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut, extract_tx
 from btclib_wallet.psbt.psbt_size import (
     SCHNORR_SIG_SIZE,

@@ -58,13 +58,13 @@ from functools import partial
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32.bip32 import rootxprv_from_seed, xpub_from_xprv
+from bip32_descriptors.descriptors import parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
 from btclib_wallet import slip132
-from btclib_wallet.bip32.bip32 import rootxprv_from_seed, xpub_from_xprv
-from btclib_wallet.descriptors import parse
 from btclib_wallet.psbt.psbt import Psbt, assert_signatures_only
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_size import (

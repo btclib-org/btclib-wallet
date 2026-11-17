@@ -274,7 +274,7 @@ class NoDescriptorError(BTClibValueError):
 
     A BTClibValueError, so code catching that keeps catching this: the
     refusal it most often stands in front of is
-    `btclib_wallet.descriptors.miniscript.from_script`'s, which is one.
+    `bip32_descriptors.descriptors.miniscript.from_script`'s, which is one.
     """
 
 

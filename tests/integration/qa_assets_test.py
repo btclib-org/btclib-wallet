@@ -5,13 +5,14 @@
 """The fuzz corpora of Bitcoin Core and rust-bitcoin, replayed here.
 
 `bitcoin-core/qa-assets` holds, per Core fuzz target, the inputs that
-target's fuzzers found interesting, and `rust-bitcoin/qa-assets` does the
-same for rust-bitcoin's. Where the target reads a psbt or a descriptor,
-the same input goes to this package's parser for it. A
-parser may refuse it with an exception of the families
-`tests/exception_family_test.py` holds; any other exception is a defect.
-btclib replays the directories its own parsers read, in its own
-`tests/integration/qa_assets_test.py`, and leaves these to this package.
+target's fuzzers found interesting, and `rust-bitcoin/qa-assets` does
+the same for rust-bitcoin's. Where the target reads a psbt, the same
+input goes to this package's parser for it, and bip32-descriptors
+replays `descriptor_parse` through its own. A parser may refuse it with
+an exception of the families `tests/exception_family_test.py` holds; any
+other exception is a defect. btclib replays the directories its own
+parsers read, in its own `tests/integration/qa_assets_test.py`, and
+leaves these to this package.
 
 A source is skipped unless its variable names its checkout,
 `BTCLIB_QA_ASSETS` for Core's and `BTCLIB_RUST_BITCOIN_QA_ASSETS` for
@@ -45,14 +46,6 @@ rust-bitcoin's `bitcoin_0_32_deserialize_psbt` hands the input to
 bitcoin 0.32's `Psbt::deserialize`, which reads a psbt off the front and
 ignores what follows, as Core's `_deserialize` targets do; so its row
 hands `parse` a `BytesIO` too.
-
-`descriptor_parse` hands `parse` the input as text, one character per
-octet, as Core's `std::string` holds it. Core parses each input twice,
-with a checksum required and without; `parse` verifies a checksum where
-there is one and requires none, which is the second, the first adding
-only the refusal of an input without one. Core's target skips what
-`IsTooExpensive` names, to spend its fuzzing time elsewhere; this replay
-reads every input, and `pyproject.toml`'s `timeout` bounds each test.
 """
 
 from __future__ import annotations
@@ -65,7 +58,6 @@ from pathlib import Path
 
 import pytest
 
-from btclib_wallet.descriptors import descriptors
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
@@ -139,11 +131,6 @@ def _psbt_base64(data: bytes, check_validity: bool) -> object:
     return Psbt.b64decode(data, check_validity=check_validity)
 
 
-def _descriptor(data: bytes, check_validity: bool) -> object:
-    """Return the descriptor the octets spell, one character each."""
-    return descriptors.parse(data.decode("latin-1"))
-
-
 TARGETS = (
     Target(
         "partially_signed_transaction_deserialize",
@@ -177,12 +164,6 @@ TARGETS = (
         " a psbt off the front of the input",
         _front(Psbt.parse),
         source="rust-bitcoin",
-    ),
-    Target(
-        "descriptor_parse",
-        "descriptor_parse.cpp: Parse on the input as a string, on mainnet",
-        _descriptor,
-        validity=(True,),
     ),
 )
 

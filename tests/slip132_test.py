@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import bip39_slip39.bip39
 import pytest
+from bip32_descriptors.bip32 import bip32
+from bip32_descriptors.descriptors import KeyExpression
 from btclib import b32, b58
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 from btclib.network import NETWORKS
 
 from btclib_wallet import slip132
-from btclib_wallet.bip32 import bip32
-from btclib_wallet.descriptors import KeyExpression
 from btclib_wallet.mnemonic import bip39
 from tests import replace_unchecked
 

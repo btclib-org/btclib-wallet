@@ -19,14 +19,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import bip32
+from bip32_descriptors.descriptors import add_checksum
 from btclib import b58
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PubKeyData
 from ecc.curves import bytes_from_point, mult, point_from_pub_key
 
 from btclib_wallet import bip329
-from btclib_wallet.bip32 import bip32
-from btclib_wallet.descriptors import add_checksum
 from tests.secret_free import assert_secret_free
 
 _VECTORS = Path(__file__).parent / "_data" / "bip329_test_vectors.jsonl"

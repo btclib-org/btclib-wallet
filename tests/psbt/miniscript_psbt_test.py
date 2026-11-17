@@ -16,6 +16,17 @@ import re
 from collections.abc import Iterator
 
 import pytest
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
+from bip32_descriptors.descriptors import TrDescriptor, WshDescriptor
+from bip32_descriptors.descriptors import parse as parse_descriptor
+from bip32_descriptors.descriptors.miniscript import (
+    P2WSH,
+    TAPSCRIPT,
+    Miniscript,
+    SpendContext,
+    from_script,
+    parse,
+)
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError
 from btclib.hashes import hash160, sha256
@@ -37,20 +48,6 @@ from btclib.tx.tx_out import TxOut
 from ecc import dsa, ssa
 from ecc.hashes import tagged_hash
 
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors import TrDescriptor, WshDescriptor
-from btclib_wallet.descriptors import parse as parse_descriptor
-from btclib_wallet.descriptors.miniscript import (
-    P2WSH,
-    TAPSCRIPT,
-    Miniscript,
-    SpendContext,
-    from_script,
-    parse,
-)
-from btclib_wallet.descriptors.miniscript import (
-    _lacks_only_keys as decoder_lacks_only_keys,
-)
 from btclib_wallet.psbt import psbt as psbt_module
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -278,6 +275,31 @@ def test_no_witness_is_guessed_for_a_key_hash_the_input_does_not_name() -> None:
     spending = final.tx
     spending.vin[0].script_witness = final.inputs[0].final_script_witness
     verify_transaction(prevouts, spending)
+
+
+def test_an_uncompressed_key_beside_a_missing_one_is_left_to_finalize() -> None:
+    """Answer None for an uncompressed pk_h() key beside a key not named.
+
+    The input names the uncompressed key, by its origin and its signature,
+    and not the key of the second pk_h(). bip32-descriptors refuses an
+    uncompressed key inside P2WSH, so the script is no miniscript to the
+    solver, whatever key a stand-in fills: `finalize` answers as it does
+    without a solver.
+    """
+    uncompressed = PrvKeyData(1, compressed=False).pub.sec
+    script = parse(f"and_v(v:pkh({KEYS[0]}),pkh({KEYS[2]}))").script()
+    script = script.replace(hash160(bytes.fromhex(KEYS[0])), hash160(uncompressed))
+    psbt, _ = signed_psbt(parse(f"pk({KEYS[0]})"), [], 0, 0)
+    psbt_in = psbt.inputs[0]
+    psbt_in.witness_utxo = TxOut(50_000, ScriptPubKey.p2wsh(script))
+    psbt_in.witness_script = script
+    psbt_in.hd_key_paths = {uncompressed: BIP32KeyOrigin("deadbeef", [0])}
+    msg_hash = sig_hash.segwit_v0(script, psbt.tx, 0, 1, 50_000)
+    psbt_in.partial_sigs = {uncompressed: dsa.sign_(msg_hash, 1).serialize() + b"\x01"}
+    assert miniscript_solver(psbt, 0) is None
+    solved = finalize(psbt, solver=miniscript_solver).inputs[0]
+    assert solved.final_script_witness == finalize(psbt).inputs[0].final_script_witness
+    assert solved.final_script_witness.stack[-1] == script
 
 
 def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> None:
@@ -516,43 +538,56 @@ _HASH_LOCK = parse(
 
 
 @pytest.mark.parametrize(
-    "script, key_hashes",
+    "script, key_hashes, lacks_only_keys",
     [
-        pytest.param(_OR_D, _known(KEYS[0], KEYS[1]), id="lacks-one"),
-        pytest.param(_OR_D, _known(), id="lacks-all"),
-        pytest.param(_HASH_LOCK, _known(), id="beside-a-hash-lock"),
-        pytest.param(_HASH_LOCK + serialize(["OP_DROP"]), _known(), id="no-miniscript"),
-        pytest.param(serialize(["OP_DROP"]) + _PKH, _known(), id="drop-first"),
-        pytest.param(bytes.fromhex("5101e4ae") + _PKH, _known(), id="multi-count"),
-        pytest.param(_PKH.replace(b"\x88", b"\x87\x69"), _known(), id="split-verify"),
-        pytest.param(_OR_D[:-3], _known(), id="truncated"),
-        pytest.param(_OR_D[:40], _known(), id="push-past-end"),
+        pytest.param(_OR_D, _known(KEYS[0], KEYS[1]), True, id="lacks-one"),
+        pytest.param(_OR_D, _known(), True, id="lacks-all"),
+        pytest.param(_HASH_LOCK, _known(), True, id="beside-a-hash-lock"),
+        pytest.param(
+            _HASH_LOCK + serialize(["OP_DROP"]), _known(), False, id="no-miniscript"
+        ),
+        pytest.param(serialize(["OP_DROP"]) + _PKH, _known(), False, id="drop-first"),
+        pytest.param(
+            bytes.fromhex("5101e4ae") + _PKH, _known(), False, id="multi-count"
+        ),
+        pytest.param(
+            _PKH.replace(b"\x88", b"\x87\x69"), _known(), False, id="split-verify"
+        ),
+        pytest.param(_OR_D[:-3], _known(), False, id="truncated"),
+        pytest.param(_OR_D[:40], _known(), False, id="push-past-end"),
         # a key filed under a hash that is not its own is the decoder's
         # refusal, not a missing key
-        pytest.param(_PKH, {hash160(bytes.fromhex(KEYS[2])): KEYS[0]}, id="wrong-key"),
+        pytest.param(
+            _PKH, {hash160(bytes.fromhex(KEYS[2])): KEYS[0]}, False, id="wrong-key"
+        ),
         # KEYS[0] is G, whose hash160 the first stand-in would be filed under
         pytest.param(
             parse(f"pkh({KEYS[0]})").script(),
             {hash160(bytes.fromhex(KEYS[0])): KEYS[1]},
+            False,
             id="wrong-key-under-the-stand-in-hash",
         ),
-        pytest.param(_OR_D, _known(KEYS[0]), id="lacks-one-beside-g"),
+        pytest.param(_OR_D, _known(KEYS[0]), True, id="lacks-one-beside-g"),
         # Octets admits hex strings, which from_script reads as their bytes
         pytest.param(
-            _PKH, {hash160(bytes.fromhex(KEYS[2])).hex(): KEYS[0]}, id="hex-wrong-key"
+            _PKH,
+            {hash160(bytes.fromhex(KEYS[2])).hex(): KEYS[0]},
+            False,
+            id="hex-wrong-key",
         ),
         pytest.param(
             _OR_D,
             {hash160(bytes.fromhex(key)).hex(): key for key in KEYS[:2]},
+            True,
             id="hex-lacks-one",
         ),
-        pytest.param(_PKH, {"zz": KEYS[2]}, id="no-hex"),
+        pytest.param(_PKH, {"zz": KEYS[2]}, False, id="no-hex"),
     ],
 )
-def test_the_solver_tells_a_missing_key_as_the_decoder_does(
-    script: bytes, key_hashes: dict[Octets, Octets]
+def test_the_solver_tells_a_missing_key(
+    script: bytes, key_hashes: dict[Octets, Octets], lacks_only_keys: bool
 ) -> None:
-    """`psbt` tells a missing key as `descriptors.miniscript` tells it.
+    """Tell a script that lacks only keys from one that is wrong otherwise.
 
     Asked where `from_script` refuses the script, which is where the solver
     asks it: whether the refusal is only for a pk_h() whose key the input
@@ -560,9 +595,7 @@ def test_the_solver_tells_a_missing_key_as_the_decoder_does(
     """
     with pytest.raises(BTClibValueError):
         from_script(script, P2WSH, key_hashes)
-    assert _lacks_only_keys(script, P2WSH, key_hashes) == decoder_lacks_only_keys(
-        script, P2WSH, key_hashes
-    )
+    assert _lacks_only_keys(script, P2WSH, key_hashes) is lacks_only_keys
 
 
 def test_a_script_past_consensus_size_is_answered_before_it_is_walked(
@@ -570,13 +603,12 @@ def test_a_script_past_consensus_size_is_answered_before_it_is_walked(
 ) -> None:
     """A witness script past `MAX_SCRIPT_SIZE` is no miniscript, at no walk.
 
-    A parsed psbt can carry a witness script of any length, and both
-    decoders refuse one past their own, smaller bound.
+    A parsed psbt can carry a witness script of any length, and
+    `from_script` refuses one past its own, smaller bound.
     """
     script = _PKH * (MAX_SCRIPT_SIZE // len(_PKH) + 1)
     with pytest.raises(BTClibValueError, match="script too large"):
         from_script(script, P2WSH, {})
-    assert not decoder_lacks_only_keys(script, P2WSH, {})
 
     walked: list[bytes] = []
 
@@ -1114,41 +1146,45 @@ _X_LONG = parse(f"and_v(v:pkh({X[2]}),multi_a(1,{_MANY}))", TAPSCRIPT).script()
 
 
 @pytest.mark.parametrize(
-    "script, key_hashes",
+    "script, key_hashes, lacks_only_keys",
     [
-        pytest.param(_X_OR_D, _x_known(X[0], X[1]), id="lacks-one"),
-        pytest.param(_X_OR_D, _x_known(), id="lacks-all"),
-        pytest.param(serialize(["OP_DROP"]) + _X_PKH, _x_known(), id="drop-first"),
-        pytest.param(_X_OR_D[:-3], _x_known(), id="truncated"),
+        pytest.param(_X_OR_D, _x_known(X[0], X[1]), True, id="lacks-one"),
+        pytest.param(_X_OR_D, _x_known(), True, id="lacks-all"),
+        pytest.param(
+            serialize(["OP_DROP"]) + _X_PKH, _x_known(), False, id="drop-first"
+        ),
+        pytest.param(_X_OR_D[:-3], _x_known(), False, id="truncated"),
         # a SEC key is no tapscript key, whichever hash it is filed under
-        pytest.param(_X_PKH, {hash160(bytes.fromhex(X[2])): KEYS[2]}, id="sec-key"),
+        pytest.param(
+            _X_PKH, {hash160(bytes.fromhex(X[2])): KEYS[2]}, False, id="sec-key"
+        ),
         # X[0] is the x of G, whose hash160 the first stand-in would be
         # filed under
         pytest.param(
             parse(f"pkh({X[0]})", TAPSCRIPT).script(),
             {hash160(bytes.fromhex(X[0])): X[1]},
+            False,
             id="wrong-key-under-the-stand-in-hash",
         ),
-        pytest.param(_X_OR_D, _x_known(X[0]), id="lacks-one-beside-g"),
+        pytest.param(_X_OR_D, _x_known(X[0]), True, id="lacks-one-beside-g"),
         # a script past the P2WSH bound is walked under tapscript, and is
         # a miniscript but for a key there
-        pytest.param(_X_LONG, _x_known(), id="long"),
+        pytest.param(_X_LONG, _x_known(), True, id="long"),
         pytest.param(
             _X_PKH * (MAX_SCRIPT_SIZE // len(_X_PKH) + 1),
             _x_known(),
+            False,
             id="long-no-miniscript",
         ),
     ],
 )
-def test_the_solver_tells_a_missing_tapscript_key_as_the_decoder_does(
-    script: bytes, key_hashes: dict[Octets, Octets]
+def test_the_solver_tells_a_missing_tapscript_key(
+    script: bytes, key_hashes: dict[Octets, Octets], lacks_only_keys: bool
 ) -> None:
-    """`psbt` tells a missing x-only key as `descriptors.miniscript` does."""
+    """Tell a tapscript that lacks only x-only keys from one wrong otherwise."""
     with pytest.raises(BTClibValueError):
         from_script(script, TAPSCRIPT, key_hashes)
-    assert _lacks_only_keys(script, TAPSCRIPT, key_hashes) == decoder_lacks_only_keys(
-        script, TAPSCRIPT, key_hashes
-    )
+    assert _lacks_only_keys(script, TAPSCRIPT, key_hashes) is lacks_only_keys
 
 
 def test_a_taproot_input_is_spent_by_its_leaves_whatever_witness_script() -> None:

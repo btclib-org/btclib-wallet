@@ -26,6 +26,10 @@ other module too.
 from __future__ import annotations
 
 import pytest
+from bip32_descriptors.bip32 import bip32, fingerprint
+from bip32_descriptors.bip32.bip32 import BIP32KeyData, derive_from_account
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
+from bip32_descriptors.descriptors import KeyExpression, add_checksum, parse
 from btclib.alias import Command
 from btclib.exceptions import (
     BTClibRuntimeError,
@@ -39,10 +43,6 @@ from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 
-from btclib_wallet.bip32 import bip32, fingerprint
-from btclib_wallet.bip32.bip32 import BIP32KeyData, derive_from_account
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors import KeyExpression, add_checksum, parse
 from btclib_wallet.exceptions import NoDescriptorError
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_updater import update_psbt_input

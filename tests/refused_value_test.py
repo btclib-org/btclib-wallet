@@ -32,12 +32,10 @@ import btclib_wallet
 from btclib_wallet import electrum, silent_payments
 from btclib_wallet._refusal import _hex_field, _label, _position, _quoted
 from btclib_wallet.bip21 import Bip21
-from btclib_wallet.bip32 import BIP32KeyData
 from btclib_wallet.bip85 import nsec_from_root_key
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.bolt11 import Bolt11Invoice
 from btclib_wallet.core_import import assert_imported, import_request
-from btclib_wallet.descriptors import parse as parse_descriptor
 from btclib_wallet.electrum import (
     block_header_request,
     block_headers_request,
@@ -492,10 +490,6 @@ def _bech32(hrp: str, data: bytes) -> str:
             lambda: import_request(account_pair()[0], HEX),
             '^expected a number or "now" as timestamp: a str of length 64$',
         ),
-        (
-            lambda: parse_descriptor(f"wpkh(\N{LATIN SMALL LETTER E WITH ACUTE}{HEX})"),
-            "^invalid descriptor character at position 5$",
-        ),
     ],
     ids=[
         "attribute",
@@ -508,7 +502,6 @@ def _bech32(hrp: str, data: bytes) -> str:
         "bolt11 network",
         "bolt11 network signed",
         "core import timestamp",
-        "descriptor character",
     ],
 )
 def test_a_refused_argument_is_described(
@@ -1006,12 +999,6 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
             "^invalid percent-encoding in parameter a value of 64 characters$",
         ),
         (
-            lambda: BIP32KeyData(
-                b"\x04\x88\xad\xe4", 1, b"\x01" * 4, SCALAR, b"\x00" * 32, b"\x00" + KEY
-            ),
-            f"^invalid index: an int of {SCALAR.bit_length()} bits$",
-        ),
-        (
             lambda: nsec_from_root_key("", -SCALAR, 1),
             f"^invalid nostr identity: a negative int of {SCALAR.bit_length()} bits$",
         ),
@@ -1025,7 +1012,6 @@ def test_decode_response_refuses_a_method_the_protocol_does_not_name() -> None:
     ids=[
         "bip21 percent-escape",
         "bip21 parameter name",
-        "bip32 index",
         "bip85 identity",
         "bolt11 timestamp",
     ],

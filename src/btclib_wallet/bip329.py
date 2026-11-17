@@ -73,15 +73,15 @@ from contextlib import suppress
 from functools import cache
 from typing import Any, NoReturn, TypeGuard
 
+from bip32_descriptors.bip32.bip32 import BIP32KeyData
+from bip32_descriptors.descriptors.descriptors import add_checksum
+from bip32_descriptors.descriptors.descriptors import parse as _parse_descriptor
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS, networks_from_xkeyversion
 from btclib.script.script_pub_key import ScriptPubKey
 from ecc.curves import bytes_from_point, mult, point_from_pub_key
 
 from btclib_wallet._refusal import _label, _message_text, _position, _quoted
-from btclib_wallet.bip32.bip32 import BIP32KeyData
-from btclib_wallet.descriptors.descriptors import add_checksum
-from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
 
 __all__ = ["TYPES", "parse", "serialize"]
 

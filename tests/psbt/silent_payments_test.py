@@ -31,6 +31,13 @@ from hashlib import sha256
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import (
+    BIP32KeyData,
+    BIP32KeyOrigin,
+    derive,
+    pub_keyinfo_from_xkey,
+    rootxprv_from_seed,
+)
 from btclib.alias import Octets
 from btclib.exceptions import BTClibValueError, ScriptError
 from btclib.hashes import hash160
@@ -43,13 +50,6 @@ from ecc import dleq
 from ecc.curves import bytes_from_point, mult, secp256k1
 
 from btclib_wallet import silent_payments as sp
-from btclib_wallet.bip32 import (
-    BIP32KeyData,
-    BIP32KeyOrigin,
-    derive,
-    pub_keyinfo_from_xkey,
-    rootxprv_from_seed,
-)
 from btclib_wallet.psbt import (
     Psbt,
     PsbtIn,

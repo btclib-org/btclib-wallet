@@ -54,10 +54,10 @@ from __future__ import annotations
 import os
 
 import pytest
+from bip32_descriptors.descriptors import at_index
 from bitcoin_core_rpc import BitcoinCoreRpcClient
 
 from btclib_wallet.core_import import account_import_requests
-from btclib_wallet.descriptors import at_index
 from btclib_wallet.hwi import DEFAULT_TIMEOUT, HwiSigner, enumerate_devices
 from btclib_wallet.psbt_signer import (
     AddressDisplay,

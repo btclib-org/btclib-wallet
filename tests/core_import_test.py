@@ -29,6 +29,12 @@ import json
 from typing import Any
 
 import pytest
+from bip32_descriptors.descriptors import (
+    Descriptor,
+    add_checksum,
+    from_address,
+    parse,
+)
 from btclib.exceptions import BTClibRuntimeError, BTClibValueError
 
 from btclib_wallet.bip44 import account_descriptors
@@ -40,12 +46,6 @@ from btclib_wallet.core_import import (
     import_request,
     watched_range,
     widened_range,
-)
-from btclib_wallet.descriptors import (
-    Descriptor,
-    add_checksum,
-    from_address,
-    parse,
 )
 from tests import chained_text
 
@@ -116,7 +116,9 @@ def test_the_descriptor_carries_its_checksum() -> None:
         import_request(f"{receive!s}#00000000")
     # and text that is no descriptor at all is refused here rather than by
     # the node, which is a rescan away
-    with pytest.raises(BTClibValueError, match="unknown descriptor function"):
+    with pytest.raises(
+        BTClibValueError, match=r"^'nope\(\.\.\.\)' is not a valid descriptor function$"
+    ):
         import_request("nope(0)")
 
 

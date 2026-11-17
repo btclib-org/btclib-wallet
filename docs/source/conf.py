@@ -78,6 +78,10 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", (None, "_inventories/python.inv")),
     "btclib": ("https://btclib.readthedocs.io/en/stable/", None),
     "ecc": ("https://btclib-ecc.readthedocs.io/en/stable/", None),
+    "bip32_descriptors": (
+        "https://bip32-descriptors.readthedocs.io/en/stable/",
+        None,
+    ),
     "bitcoin_core_rpc": (
         "https://bitcoin-core-rpc.readthedocs.io/en/stable/",
         None,
@@ -104,7 +108,9 @@ intersphinx_cache_limit = 0
 # - a name an annotation spells the way the module imported it --
 #   `Octets` from btclib.alias, `musig2.` for ecc.musig2 -- which
 #   btclib's own build resolves by searching its own objects, where an
-#   inventory answers the full name alone. `Mnemonic`, which
+#   inventory answers the full name alone. `DerPath` and `BIP32Key`, from
+#   bip32_descriptors.bip32, whose inventory lists both as data, are the
+#   same shape. `Mnemonic`, which
 #   btclib_wallet.mnemonic imports from bip39_slip39.mnemonic under
 #   TYPE_CHECKING alone, reaches autodoc as that text.
 #   autodoc_type_aliases is the rejected alternative: mapping `Octets` to
@@ -122,6 +128,8 @@ intersphinx_cache_limit = 0
 #   documentation leaves out, being private
 nitpick_ignore = [
     ("py:class", "Octets"),
+    ("py:class", "DerPath"),
+    ("py:class", "BIP32Key"),
     ("py:class", "Mnemonic"),
     ("py:class", "musig2.KeyAggContext"),
     ("py:class", "musig2.SessionContext"),

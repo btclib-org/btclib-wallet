@@ -12,6 +12,14 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable
 
+from bip32_descriptors.bip32.bip32 import (
+    BIP32Key,
+    BIP32KeyData,
+    derive,
+    key_data_from_bip32_key,
+    xpub_from_xprv,
+)
+from bip32_descriptors.bip32.der_path import DerPath
 from btclib import b32, b58
 from btclib.alias import NetworkField
 from btclib.exceptions import BTClibValueError
@@ -24,14 +32,6 @@ from btclib.network import (
 )
 
 from btclib_wallet._refusal import _quoted
-from btclib_wallet.bip32.bip32 import (
-    BIP32Key,
-    BIP32KeyData,
-    derive,
-    key_data_from_bip32_key,
-    xpub_from_xprv,
-)
-from btclib_wallet.bip32.der_path import DerPath
 
 __all__ = [
     "address_from_xkey",

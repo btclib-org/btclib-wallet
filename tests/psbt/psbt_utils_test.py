@@ -8,13 +8,13 @@ from hashlib import shake_256
 from io import BytesIO
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyOrigin
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import Witness
 from btclib.tx import Tx, TxIn, TxOut
 from btclib.tx.out_point import OutPoint
 from ecc.curves import sec_point, secp256k1
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt.psbt_utils import (
     assert_valid_musig2_participant_pub_keys,
     assert_valid_musig2_pub_key,

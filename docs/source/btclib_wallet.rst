@@ -7,8 +7,6 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
-   btclib_wallet.bip32
-   btclib_wallet.descriptors
    btclib_wallet.dlc
    btclib_wallet.fetch
    btclib_wallet.ledger

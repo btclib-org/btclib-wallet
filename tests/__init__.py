@@ -279,8 +279,8 @@ def _refuse_bindings(monkeypatch: pytest.MonkeyPatch, mod: types.ModuleType) -> 
     A callable is one of the bindings when its own `__module__` is in
     btclib_secp256k1, whatever name `mod` holds it under, so no name of
     `mod` is spelled here. A module `mod` holds is skipped: a caller
-    reaching through one, as bip32 reaches through `keys`, is refused by
-    walking that module itself.
+    reaching through one, as `silent_payments` reaches through
+    `silentpayments`, is refused by walking that module itself.
     """
 
     def refuse(what: str) -> Callable[..., Any]:
@@ -320,43 +320,6 @@ def no_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
 
     set_libsecp256k1_serving(serving=False)
     _refuse_bindings(monkeypatch, sys.modules[set_libsecp256k1_serving.__module__])
-
-
-# the packages `no_bindings_anywhere` walks
-WALKED_PACKAGES = frozenset({"btclib", "ecc", "btclib_wallet", "btclib_secp256k1"})
-
-
-def no_bindings_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Put every already-bound btclib_secp256k1 callable out of reach.
-
-    `no_bindings` above refuses only the copies the module defining the
-    dispatch holds, and a copy any other module holds is this walk's,
-    whatever gate stands in front of it: `sec_point` keeps its own
-    `pubkey_from_prvkey` behind the same curve-and-hash gate. The switch
-    is what keeps every copy uncalled either way; the refusals are what
-    show it did. An arm gated on availability alone can
-    hold a binding of its own a module further out --
-    `btclib_wallet.bip32.bip32` imports `keys`, `btclib.script.taproot`
-    imports `xonly` -- and `from ... import x as y` copies the object
-    rather than looking it up again, so a patch on the module the bindings
-    live in does not reach a name already copied out of it.
-
-    So this walks every module already loaded under a package of
-    `WALKED_PACKAGES` and refuses every bindings callable there, whichever
-    module holds the name; `ecc` is where a btclib that delegates
-    its curve arithmetic to it holds the dispatch. The dispatch is
-    switched off alongside it, since a caller with the flag still on and
-    every name unreachable is not the configuration a missing install
-    produces. An arm this does not cover fails by calling through instead
-    of passing by measuring the bindings against themselves.
-    """
-    from ecc.curves import set_libsecp256k1_serving  # noqa: PLC0415
-
-    for mod_name, mod in list(sys.modules.items()):
-        if mod_name.split(".")[0] in WALKED_PACKAGES:
-            _refuse_bindings(monkeypatch, mod)
-
-    set_libsecp256k1_serving(serving=False)
 
 
 # --------------------------------------------------------------------------

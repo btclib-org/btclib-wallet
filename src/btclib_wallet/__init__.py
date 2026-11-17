@@ -28,7 +28,7 @@ first, in a fresh interpreter, which an eager root would make impossible.
 What that costs is that mypy reads a module-level `__getattr__` as a
 promise that any attribute may exist, so a misspelling on this package is
 a runtime `AttributeError` rather than a reported error; `from
-btclib_wallet import bip32` and `import btclib_wallet.bip32` resolve
+btclib_wallet import bip44` and `import btclib_wallet.bip44` resolve
 against the real modules and stay checked.
 """
 
@@ -48,7 +48,6 @@ except PackageNotFoundError:
 
 __all__ = [
     "bip21",
-    "bip32",
     "bip38",
     "bip44",
     "bip85",
@@ -59,7 +58,6 @@ __all__ = [
     "bolt11",
     "coin_selection",
     "core_import",
-    "descriptors",
     "dlc",
     "electrum",
     "exceptions",
@@ -84,9 +82,9 @@ def __getattr__(published: str) -> ModuleType:
     """Import a published module the first time it is asked for.
 
     PEP 562: this runs only for a name the package does not already have,
-    so it answers `btclib_wallet.bip32` once and the import machinery's
+    so it answers `btclib_wallet.bip44` once and the import machinery's
     own attribute answers it from then on. What it makes work is
-    `getattr(btclib_wallet, "bip32")` on a fresh interpreter, which is how
+    `getattr(btclib_wallet, "bip44")` on a fresh interpreter, which is how
     a walker reading `__all__` descends, and `from btclib_wallet import
     *`, which asks for each name in the list.
 

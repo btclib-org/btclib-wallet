@@ -7,7 +7,7 @@
 A default argument is written for a caller the author cannot see, and a
 leading underscore says there is none: every call site is in this tree and
 can be read. What the default buys is therefore nothing, and what it costs
-is the value the call is actually made with -- `_decode_from_bip32_deriv`'s
+is the value the call is actually made with -- `RouteHintHop._parse`'s
 `check_validity` decides whether anything is validated at all, and
 defaulted, it would read as absent at the call site that most needs to
 state it. Spelled out, a flag added to a private
@@ -15,14 +15,14 @@ function is also a question asked again at every one of its call sites,
 where a default answers it for all the ones nobody revisited.
 
 The two underscore spellings pull opposite ways here, and the rule names
-one of them. A trailing underscore is public -- `bip32.derive_`,
-`bip32.xpub_from_xprv_` -- and its signature mirrors the plain sibling's,
-defaults included, or the pair is two functions rather than a bypass; a
-leading underscore is private, and a default on it is a convenience for
-nobody. `silent_payments._input_hash_` carries both and is private: the
-leading underscore is what decides. btclib states both conventions, and
-this rule beside them, and its own `private_defaults_test.py` holds
-btclib to it.
+one of them. A trailing underscore is public -- bip32_descriptors'
+`derive_` and `xpub_from_xprv_` are -- and its signature mirrors the
+plain sibling's, defaults included, or the pair is two functions rather
+than a bypass; a leading underscore is private, and a default on it is a
+convenience for nobody. `silent_payments._input_hash_` carries both and
+is private: the leading underscore is what decides. btclib states both
+conventions, and this rule beside them, and its own
+`private_defaults_test.py` holds btclib to it.
 
 Two spellings the rule does not reach: a dunder, whose signature is the
 interpreter's protocol and a public constructor's where it is `__init__`,
@@ -49,10 +49,11 @@ from pathlib import Path
 _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
 
 # the shapes the walk has to be reaching for the gate to mean anything: a
-# module-level function, a method of a private class, and a name-mangled
-# function. A rename here is a failure worth reading rather than fixing
+# module-level function and a method of a private class. The package holds
+# no name-mangled function, so `_SOURCE`'s `__mangled` alone shows the walk
+# reaches one. A rename here is a failure worth reading rather than fixing
 # blind -- what it asks for is the new name of the same shape
-_SHAPES = frozenset({"_derive", "_Decoder._op_code", "__prv_key_path_derivation"})
+_SHAPES = frozenset({"_entropy_from_der_path", "_Store._insert_handed_out"})
 
 # every private function of a module, with the parameters it defaults:
 # what `_private_functions` answers, and what the checker test pins

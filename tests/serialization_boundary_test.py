@@ -62,9 +62,6 @@ from btclib.key import PrvKeyData
 
 from btclib_wallet import bip139, bip322, bip329
 from btclib_wallet.bip21 import Bip21
-from btclib_wallet.bip32.bip32 import BIP32KeyData
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors import descriptors, miniscript
 from btclib_wallet.dlc import oracle
 from btclib_wallet.psbt import Psbt, PsbtIn, PsbtOut
 from btclib_wallet.psbt.psbt_utils import PSBT_V0, PSBT_V2
@@ -113,7 +110,6 @@ _JSON_CASES = (
     _JsonCase("Psbt", Psbt, _PSBT),
     _JsonCase("PsbtIn", PsbtIn, _PSBT.inputs[0]),
     _JsonCase("PsbtOut", PsbtOut, _PSBT.outputs[0]),
-    _JsonCase("BIP32KeyOrigin", BIP32KeyOrigin, BIP32KeyOrigin("deadbeef", "m/44h/0h")),
 )
 
 _JSON_IDS = tuple(case.label for case in _JSON_CASES)
@@ -137,8 +133,6 @@ _OCTETS_DECODERS = (
     ("Psbt.parse", Psbt, "parse"),
     ("PsbtIn.parse", PsbtIn, "parse"),
     ("PsbtOut.parse", PsbtOut, "parse"),
-    ("BIP32KeyData.parse", BIP32KeyData, "parse"),
-    ("BIP32KeyOrigin.parse", BIP32KeyOrigin, "parse"),
     ("OracleEvent.parse", oracle.OracleEvent, "parse"),
     ("OracleAnnouncement.parse", oracle.OracleAnnouncement, "parse"),
     ("OracleAttestation.parse", oracle.OracleAttestation, "parse"),
@@ -146,11 +140,10 @@ _OCTETS_DECODERS = (
 
 _OCTETS_IDS = tuple(label for label, _, _ in _OCTETS_DECODERS)
 
-# and what reads text: the base64 and base58 decoders, and the one
-# `parse` whose argument is a string
+# and what reads text: the base64 decoders, and the one `parse` whose
+# argument is a string
 _TEXT_DECODERS = (
     ("Bip21.parse", Bip21, "parse"),
-    ("BIP32KeyData.b58decode", BIP32KeyData, "b58decode"),
     ("Psbt.b64decode", Psbt, "b64decode"),
     ("bip322.Sig.b64decode", bip322.Sig, "b64decode"),
 )
@@ -180,8 +173,6 @@ _FAMILY = (*_READERS, *_WRITERS)
 # on its first argument, the text a parser converts or the records a
 # writer writes. A list of the wrong items is refused by its first item
 _MODULE_READERS = (
-    ("descriptors.parse", descriptors.parse, "invalid descriptor type"),
-    ("miniscript.parse", miniscript.parse, "invalid miniscript type"),
     ("bip139.parse", bip139.parse, "invalid export type"),
     (
         "bip139.serialize",
@@ -201,8 +192,6 @@ _MODULE_READER_IDS = tuple(label for label, _, _ in _MODULE_READERS)
 # what those take besides their first argument, each driven by a test of
 # its own below
 _MODULE_EXTRA_ARGUMENTS = {
-    ("btclib_wallet.descriptors.descriptors", "parse"): ["network", "prv_keys"],
-    ("btclib_wallet.descriptors.miniscript", "parse"): ["context", "prv_keys"],
     ("btclib_wallet.bip139", "serialize"): ["network"],
 }
 
@@ -384,57 +373,6 @@ def test_an_export_is_written_for_a_network_that_exists() -> None:
     for wrong in _WRONG_TYPES:
         with pytest.raises(BTClibTypeError, match="not a network name"):
             bip139.serialize([account], wrong)
-
-
-def test_a_descriptor_is_parsed_for_a_network_that_exists() -> None:
-    """The two arguments `descriptors.parse` takes besides the text.
-
-    A name no network has was carried into the `Descriptor` and refused
-    by whichever encoder came to use it, one call later than the argument
-    that was wrong; `prv_keys` was walked with `in` and `[]`, so a list
-    of pairs answered "not found" for every key rather than saying it is
-    not a mapping. `None` is a type it declares, so it is asserted to
-    work rather than driven -- a statement about the signature, and the
-    one `built_object_contract_test.py` records as `optional`.
-    """
-    descriptor = f"pk({PrvKeyData(1).pub.sec.hex()})"
-    assert descriptors.parse(descriptor, "testnet").network == "testnet"
-    assert descriptors.parse(descriptor, prv_keys={}).network == "mainnet"
-    assert descriptors.parse(descriptor, prv_keys=None).network == "mainnet"
-    # and normalized, which is what going through the library's own
-    # question buys beyond refusing what is not one
-    assert descriptors.parse(descriptor, " TestNet ").network == "testnet"
-
-    for wrong in _WRONG_TYPES:
-        with pytest.raises(BTClibTypeError, match="not a network name"):
-            descriptors.parse(descriptor, wrong)
-    for wrong in _NOT_NONE:
-        with pytest.raises(BTClibTypeError, match="invalid prv_keys type"):
-            descriptors.parse(descriptor, prv_keys=wrong)
-    with pytest.raises(BTClibValueError, match="unknown network"):
-        descriptors.parse(descriptor, "mainet")
-
-
-def test_a_miniscript_is_parsed_in_a_context_that_exists() -> None:
-    """The same pair for the miniscript parser, its own first argument.
-
-    Every rule reads the context by asking whether it is `TAPSCRIPT`, so
-    a third value was the p2wsh one silently: the expression was
-    type-checked and sized under rules it was not offered to.
-    """
-    expression = f"pk({PrvKeyData(1).pub.sec.hex()})"
-    for context in (miniscript.P2WSH, miniscript.TAPSCRIPT):
-        assert miniscript.parse(expression, context).context == context
-    assert miniscript.parse(expression, prv_keys=None).context == miniscript.P2WSH
-
-    for wrong in _WRONG_TYPES:
-        with pytest.raises(BTClibTypeError, match="invalid context type"):
-            miniscript.parse(expression, wrong)
-    for wrong in _NOT_NONE:
-        with pytest.raises(BTClibTypeError, match="invalid prv_keys type"):
-            miniscript.parse(expression, prv_keys=wrong)
-    with pytest.raises(BTClibValueError, match="unknown spend context"):
-        miniscript.parse(expression, "P2SH")
 
 
 def test_every_json_boundary_is_covered() -> None:

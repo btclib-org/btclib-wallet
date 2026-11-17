@@ -82,14 +82,22 @@ _LIBRARY = Path(__file__).parents[1] / "src" / "btclib_wallet"
 # the libraries declaring the input types this package takes, the rest
 # being declared at module level in this package: btclib, `ECC_PACKAGE`
 # wherever it is installed, btclib binding its curve types from it (issue
-# btclib-org/btclib#2282), and bip39_slip39, which declares `Mnemonic`
+# btclib-org/btclib#2282), bip39_slip39, which declares `Mnemonic`, and
+# bip32_descriptors, which declares `BIP32Key` and `DerPath`
 _LIBRARIES = [
     Path(spec.origin).parent
-    for name in ("btclib", ECC_PACKAGE, "bip39_slip39")
+    for name in ("btclib", ECC_PACKAGE, "bip39_slip39", "bip32_descriptors")
     if (spec := importlib.util.find_spec(name)) and spec.origin
 ]
-# where each of them declares its aliases
-_ALIAS_PYS = {library / "alias.py" for library in _LIBRARIES}
+# where each of them declares its aliases: an `alias.py`, and every module
+# of bip32_descriptors, which declares them beside the functions taking
+# them, as this package does
+_ALIAS_PYS = {library / "alias.py" for library in _LIBRARIES} | {
+    path
+    for library in _LIBRARIES
+    if library.name == "bip32_descriptors"
+    for path in library.rglob("*.py")
+}
 
 # a value of no type the alias declares: the caller's own mistake, and a
 # call mypy refuses. The tuples are read round-robin so that a function
@@ -255,7 +263,7 @@ def test_the_vocabulary_is_the_libraries_input_types() -> None:
     """A renamed type would narrow the walk without failing anything.
 
     Every name in the two vocabularies is still declared, in this package
-    or in one of `_LIBRARIES`, and every type an `alias.py` of those or a
+    or in one of `_LIBRARIES`, and every type one of `_ALIAS_PYS` or a
     module of this package declares and a public parameter of this package
     is annotated with is either in the vocabulary or named below with the
     reason it is not.
@@ -334,11 +342,14 @@ def test_the_walk_reaches_what_it_claims() -> None:
     must leave alone: a private name, and a function whose required
     parameters are not all in the vocabulary.
     """
-    assert _DRIVABLE["btclib_wallet.bip32.der_path.str_from_der_path"] == ["DerPath"]
-    assert _DRIVABLE["btclib_wallet.bip32.bip32.derive"] == ["BIP32Key", "DerPath"]
-    # `version` carries a default and is not driven
-    assert _DRIVABLE["btclib_wallet.bip32.bip32.rootxprv_from_seed"] == ["Octets"]
+    assert _DRIVABLE["btclib_wallet.bip322.message_hash"] == ["Octets"]
+    assert _DRIVABLE["btclib_wallet.bip44.address_from_der_path"] == [
+        "BIP32Key",
+        "DerPath",
+    ]
+    # `index` carries a default and is not driven
+    assert _DRIVABLE["btclib_wallet.bip85.wif_from_root_key"] == ["BIP32Key"]
 
-    assert "btclib_wallet.bip32.bip32._derive" not in _DRIVABLE
+    assert "btclib_wallet.bip44._account_xpub" not in _DRIVABLE
     # a required parameter the vocabulary cannot build: a Psbt
     assert "btclib_wallet.psbt.psbt.finalize" not in _DRIVABLE

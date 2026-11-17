@@ -17,12 +17,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from bip32_descriptors.descriptors.descriptors import Descriptor, Expansion
+from bip32_descriptors.descriptors.key_expression import PrvKeys
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.utils import assert_type, is_integer
 
 from btclib_wallet._refusal import _position, _quoted
-from btclib_wallet.descriptors.descriptors import Descriptor, Expansion
-from btclib_wallet.descriptors.key_expression import PrvKeys
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut

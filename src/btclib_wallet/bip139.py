@@ -99,26 +99,26 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, TypeGuard
 
+from bip32_descriptors.bip32.bip32 import fingerprint
+from bip32_descriptors.descriptors.descriptors import (
+    Descriptor,
+    add_checksum,
+    multipath_descriptors,
+)
+from bip32_descriptors.descriptors.descriptors import (
+    parse as _parse_descriptor,
+)
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.network import NETWORKS, validated_network_name
 
 from btclib_wallet._refusal import _exact_int, _label, _message_text, _position, _quoted
-from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.bip329 import (
     _is_sequence,
     _loads,
     _record,
     _string,
     _written,
-)
-from btclib_wallet.descriptors.descriptors import (
-    Descriptor,
-    add_checksum,
-    multipath_descriptors,
-)
-from btclib_wallet.descriptors.descriptors import (
-    parse as _parse_descriptor,
 )
 
 __all__ = ["ROLES", "VERSION", "parse", "serialize"]
@@ -188,6 +188,10 @@ _MNEMONIC = "bip39_mnemonic"
 
 _FINGERPRINT = re.compile(r"[0-9a-fA-F]{8}")
 
+# what bip32-descriptors writes before the refusal of one key: the key's
+# position in the descriptor, which a refusal here does not repeat
+_KEY_POSITION = re.compile(r"^key [0-9]+: ")
+
 # what a descriptor's refusal says that a refusal here repeats after the
 # field's position; any other is "not a descriptor"
 _REASONS = frozenset(
@@ -204,7 +208,7 @@ _REASONS = frozenset(
 
 def _reason(error: ValueError) -> str:
     """Return what a descriptor's refusal says, if one of `_REASONS`."""
-    text = str(error)
+    text = _KEY_POSITION.sub("", str(error), count=1)
     # a generator would turn a StopIteration raised by a caller's comparison
     # into a RuntimeError
     for reason in _REASONS:  # sourcery skip: use-next

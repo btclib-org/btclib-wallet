@@ -26,11 +26,11 @@ after:
 - `script_wallet` is `ScriptWallet`, a script template with `KeyGroup`
   quorums in it, for the wallets no descriptor states -- and it imports
   `descriptor_wallet` not at all, a wallet of templates being no wallet of
-  descriptors. What it does reach for is `btclib_wallet.descriptors`, one layer
-  below both: `ScriptWallet.descriptor` lifts the script of a branch back
-  into the expression it is, where there is one, so the wallets that
-  turned out to have a descriptor after all can be handed to a monitor
-  and the rest say so with `NoDescriptorError`.
+  descriptors. What it does reach for is `bip32_descriptors.descriptors`,
+  one layer below both: `ScriptWallet.descriptor` lifts the script of a
+  branch back into the expression it is, where there is one, so the
+  wallets that turned out to have a descriptor after all can be handed to
+  a monitor and the rest say so with `NoDescriptorError`.
 
 The flat surface is this package's: the classes above are read off
 `btclib_wallet.wallet`, the four modules being where they are written rather

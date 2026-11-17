@@ -33,14 +33,14 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
+from bip32_descriptors.bip32 import rootxprv_from_seed
+from bip32_descriptors.bip32.bip32 import BIP32KeyData
+from bip32_descriptors.descriptors import parse
 from btclib.exceptions import BTClibRuntimeError, BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.network import NETWORKS
 from btclib.tx import TxOut
 
-from btclib_wallet.bip32 import rootxprv_from_seed
-from btclib_wallet.bip32.bip32 import BIP32KeyData
-from btclib_wallet.descriptors import parse
 from btclib_wallet.ledger import MAX_UNLOCK_TIME, Ledger, TxState, crypto
 from btclib_wallet.ledger import ledger as ledger_module
 from btclib_wallet.psbt.psbt import Psbt

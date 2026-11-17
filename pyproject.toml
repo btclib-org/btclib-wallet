@@ -57,6 +57,12 @@ dependencies = [
     # `electrum.old_master_prv_key_from_mnemonic` derives a key from a
     # pre-2.0 mnemonic whose hex seed has an odd number of characters
     "bip39-slip39>=2026.11.2",
+    # BIP32 and the output descriptors, `bip32_descriptors.bip32` and
+    # `bip32_descriptors.descriptors`, which modules across this tree build
+    # on, the psbt, wallet, ledger and mnemonic ones among them. The floor
+    # is the first release whose refusals print no value they refuse, as
+    # this tree's own do
+    "bip32-descriptors>=2026.11.17",
     # the Base58Check and bech32 codecs this tree imports directly. The
     # floor is the first release whose `bech32_encode` and `bech32_decode`
     # take `limit`, which `bolt11` passes as None
@@ -125,14 +131,14 @@ classifiers = [
 
 [project.optional-dependencies]
 # the libsecp256k1 bindings, named twice. btclib's own extra states the
-# floor btclib's delegation needs; `btclib-secp256k1` is named directly
-# as well because `bip32.bip32` and `silent_payments` import it
-# themselves; 0.8.0.10 fixes GHSA-8h6f-34jj-7p6c, an invalid-curve oracle in
+# floor btclib's delegation needs; `btclib-secp256k1` is named directly as
+# well because `silent_payments` imports it itself; 0.8.0.10 fixes
+# GHSA-8h6f-34jj-7p6c, an invalid-curve oracle in
 # `silentpayments.scan_outputs`. `silent_payments` calls it on a summary
-# it computes in the same call, never on one it was given. An extra
-# rather than a dependency for btclib's reason: every delegation declines
-# where the bindings are absent, and the Python arithmetic answers
-# instead. The btclib floor is the one of `dependencies`
+# it computes in the same call, never on one it was given. An extra rather
+# than a dependency for btclib's reason: every delegation declines where
+# the bindings are absent, and the Python arithmetic answers instead. The
+# btclib floor is the one of `dependencies`
 #
 # The `btclib-secp256k1` floor is 0.8.0.13, the first release whose
 # `silentpayments.scan_outputs` refuses a cache of labels holding a tweak
@@ -264,10 +270,8 @@ source-exclude = [
     # decision. tests/source_exclude_test.py checks that every test its
     # reader finds reaching .github or fuzz/ is named here
     "/tests/check_vendored_vectors_test.py",
-    "/tests/compare_descriptors_test.py",
     "/tests/fuzz_corpus_test.py",
     "/tests/interpreters_test.py",
-    "/tests/moving_imports_test.py",
     "/tests/normalize_sdist_test.py",
     "/tests/release_digests_test.py",
     "/tests/wait_for_hwi_device_test.py",
@@ -660,8 +664,6 @@ ignore = [
 # and the device wait, whose whole output is one line for the log of the
 # job that started an emulator
 ".github/scripts/wait_for_hwi_device.py" = ["T201"]
-# and the descriptor comparison, whose output is the disagreements it found
-".github/scripts/compare_descriptors.py" = ["T201"]
 # the D rules are not here: a public test function states what it
 # verifies under the same docstring gate as the library
 "tests/**" = [

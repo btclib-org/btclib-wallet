@@ -74,6 +74,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from bip32_descriptors.bip32.bip32 import BIP32Key
+from bip32_descriptors.bip32.der_path import DerPath
+from bip32_descriptors.descriptors.descriptors import (
+    ComboDescriptor,
+    Descriptor,
+    ShDescriptor,
+    WshDescriptor,
+    multipath_descriptors,
+)
+from bip32_descriptors.descriptors.descriptors import parse as _parse_descriptor
+from bip32_descriptors.descriptors.key_expression import PrvKeys
+from bip32_descriptors.descriptors.miniscript import SpendContext
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.network import NETWORKS
@@ -83,19 +95,7 @@ from btclib.utils import assert_type
 from typing_extensions import override
 
 from btclib_wallet._refusal import _assert_int_type, _exact_int, _label, _position
-from btclib_wallet.bip32.bip32 import BIP32Key
-from btclib_wallet.bip32.der_path import DerPath
 from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
-from btclib_wallet.descriptors.descriptors import (
-    ComboDescriptor,
-    Descriptor,
-    ShDescriptor,
-    WshDescriptor,
-    multipath_descriptors,
-)
-from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
-from btclib_wallet.descriptors.key_expression import PrvKeys
-from btclib_wallet.descriptors.miniscript import SpendContext
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_updater import update_psbt_input, update_psbt_output
 from btclib_wallet.wallet.wallet import _LAST_INDEX, RangedWallet

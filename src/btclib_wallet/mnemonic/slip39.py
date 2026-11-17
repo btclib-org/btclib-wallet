@@ -17,9 +17,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import bip39_slip39.slip39
+from bip32_descriptors.bip32 import rootxprv_from_seed
 from btclib.network import network_from_name
-
-from btclib_wallet.bip32 import rootxprv_from_seed
 
 # under TYPE_CHECKING, so that the alias annotates the signatures below
 # without this module binding a name of bip39_slip39's

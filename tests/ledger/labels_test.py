@@ -13,12 +13,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from bip32_descriptors.descriptors import parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script import ScriptPubKey
 from btclib.tx import TxIn, TxOut
 from btclib.tx.limits import COINBASE_MATURITY
 
-from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.ledger import GroupedAddress, Ledger, TxDetail
 from btclib_wallet.wallet import DescriptorWallet

@@ -129,6 +129,23 @@ from copy import deepcopy
 from dataclasses import replace
 from typing import Any, Literal
 
+from bip32_descriptors.bip32.bip32 import (
+    BIP32Key,
+    BIP32KeyData,
+    derive_from_account_,
+    fingerprint,
+    key_data_from_bip32_key,
+    pub_keyinfo_from_xkey,
+    xpub_from_xprv,
+)
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
+from bip32_descriptors.descriptors.descriptors import Descriptor, derived_origin
+from bip32_descriptors.descriptors.descriptors import parse as _parse_descriptor
+from bip32_descriptors.descriptors.key_expression import KeyExpression
+from bip32_descriptors.descriptors.miniscript import P2WSH, Miniscript
+from bip32_descriptors.descriptors.miniscript import (
+    from_script as _miniscript_from_script,
+)
 from btclib.alias import Command, ScriptList
 from btclib.exceptions import (
     BTClibRuntimeError,
@@ -142,21 +159,6 @@ from btclib.utils import assert_type, is_integer
 from typing_extensions import override
 
 from btclib_wallet._refusal import _position, _quoted
-from btclib_wallet.bip32.bip32 import (
-    BIP32Key,
-    BIP32KeyData,
-    derive_from_account_,
-    fingerprint,
-    key_data_from_bip32_key,
-    pub_keyinfo_from_xkey,
-    xpub_from_xprv,
-)
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors.descriptors import Descriptor, derived_origin
-from btclib_wallet.descriptors.descriptors import parse as _parse_descriptor
-from btclib_wallet.descriptors.key_expression import KeyExpression
-from btclib_wallet.descriptors.miniscript import P2WSH, Miniscript
-from btclib_wallet.descriptors.miniscript import from_script as _miniscript_from_script
 from btclib_wallet.exceptions import NoDescriptorError
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt.psbt_in import PsbtIn

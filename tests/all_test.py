@@ -46,11 +46,6 @@ from tests import module_names
 # the suite pass is one that was about to become public by accident
 UNEXPORTED = {
     "btclib_wallet": ["name"],
-    "btclib_wallet.descriptors.descriptors": [
-        "CHECKSUM_CHARSET",
-        "GENERATOR",
-        "INPUT_CHARSET",
-    ],
 }
 
 
@@ -142,14 +137,6 @@ REEXPORTED = {
 # and test_the_root_publishes_every_top_level_module asserts the same
 # partition against the directory with nothing on the unpublished side
 CHILD_MODULES = {
-    "btclib_wallet.bip32": {
-        "groups": [],
-        "unpublished": ["bip32", "der_path", "key_origin"],
-    },
-    "btclib_wallet.descriptors": {
-        "groups": ["miniscript"],
-        "unpublished": ["descriptors", "key_expression"],
-    },
     "btclib_wallet.dlc": {
         "groups": [],
         "unpublished": ["oracle", "signing", "transactions"],
@@ -278,7 +265,7 @@ def defined_public_names(module: ModuleType) -> set[str]:
 
     Everything in its namespace, minus the underscored, minus what it
     imported, minus the modules: a submodule becomes an attribute of its
-    package as soon as anything imports it, so `btclib_wallet.bip32` is in
+    package as soon as anything imports it, so `btclib_wallet.bip44` is in
     `vars(btclib_wallet)` by the time any test runs.
     """
     imported = imported_names(module)
@@ -503,10 +490,10 @@ def test_every_child_module_is_a_group_or_deliberately_not() -> None:
     list -- which changes neither the list nor the edges -- fails until
     somebody writes down which side it is on.
 
-    The empty published sides are as deliberate as the rest: `bip32`,
-    `fetch` and `wallet` offer a flat surface and no group. Every package has to
-    be in the table, so a new one is a decision rather than a silent pair of
-    empty lists.
+    The empty published sides are as deliberate as the rest: `fetch` and
+    `wallet` offer a flat surface and no group. Every package has to be in
+    the table, so a new one is a decision rather than a silent pair of empty
+    lists.
     """
     packages = [module for module in library_modules() if hasattr(module, "__path__")]
     assert len(packages) == len(CHILD_MODULES) + 1, (
@@ -705,7 +692,7 @@ def test_the_private_name_scan_finds_each_spelling() -> None:
         "import bip39_slip39.bip39\n"
         "bip39_slip39.slip39._feistel\n"
         "bip39_slip39.bip39.seed_from_mnemonic\n"
-        "from btclib_wallet.bip32.der_path import _HARDENING\n"
+        "from bip32_descriptors.bip32.der_path import _HARDENING\n"
     )
     assert _private_bip39_slip39_names_in(source) == {
         "_normalize",

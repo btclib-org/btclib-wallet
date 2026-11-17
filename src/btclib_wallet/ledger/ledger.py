@@ -332,6 +332,8 @@ from os import PathLike, fspath
 from types import TracebackType
 from typing import Any, Concatenate, ParamSpec, Self, TypeVar, cast
 
+from bip32_descriptors.bip32.bip32 import fingerprint
+from bip32_descriptors.descriptors import normalized, parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
 from btclib.network import NETWORKS, validated_network_name
@@ -352,12 +354,10 @@ from btclib_wallet._refusal import (
     _quoted,
     _refused_type,
 )
-from btclib_wallet.bip32.bip32 import fingerprint
 from btclib_wallet.bip139 import parse as _parse_policy
 from btclib_wallet.bip139 import serialize as _serialize_policy
 from btclib_wallet.bip329 import TYPES
 from btclib_wallet.coin_selection import Candidate, select_coins
-from btclib_wallet.descriptors import normalized, parse
 from btclib_wallet.exceptions import FetchError, _caller_errors, _guarded_methods
 from btclib_wallet.fetch.balance import script_pub_key_for_network
 from btclib_wallet.fetch.broadcaster import Broadcaster

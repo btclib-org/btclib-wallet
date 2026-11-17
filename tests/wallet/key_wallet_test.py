@@ -11,12 +11,12 @@ import types
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import bip32
 from btclib import b58, bms
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
 from ecc.curves import bytes_from_prv_key_int, set_libsecp256k1_serving
 
-from btclib_wallet.bip32 import bip32
 from btclib_wallet.bip44 import BIP44ScriptType
 from btclib_wallet.wallet import AddressInfo, BIP32KeyWallet, KeyWallet
 from tests import needs_bindings, replace_unchecked

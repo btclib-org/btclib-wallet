@@ -20,7 +20,7 @@ the name, and no entry there is btclib's; `tests/imports_test.py` adds
 that every import of a unit that moved here names this package rather
 than btclib's copy. The second half is btclib's own: its
 `pyproject.toml` does not depend on this package, and
-`test_btclib_imports_nothing_of_btclib_wallet` in
+`test_a_dependency_imports_nothing_of_btclib_wallet` in
 `tests/imports_test.py` holds it here. The edge is
 btclib-org/btclib#2129's table, row 5 — `btclib_wallet`, under
 `src/btclib_wallet/` — sitting above `btclib`, row 4, and depending on
@@ -48,6 +48,16 @@ functions of `mnemonic/` below. A module here reaches a name of
 re-exports it, which `tests/all_test.py` holds: a caller reaches the
 schemes by that package's name.
 
+It depends on `bip32-descriptors` too, which holds BIP32 and the output
+descriptors: `bip32_descriptors.bip32` derives extended keys and writes
+their paths and origins, and `bip32_descriptors.descriptors` reads
+BIP380's descriptor grammar and BIP379's miniscript. It imports nothing
+of this package, which
+`test_a_dependency_imports_nothing_of_btclib_wallet` holds too. A module
+here imports both by that package's name and re-exports none of their
+names, which `tests/all_test.py` holds, and `tests/imports_test.py`
+holds that no module here reaches a private name of it.
+
 It depends on `cryptography`, except on Windows arm64, for the cipher a
 ledger's private keys are encrypted with, which `ledger.crypto` imports,
 and for BIP324's, which `fetch.peer_transport` reaches through
@@ -71,10 +81,10 @@ dispatch to the libsecp256k1 bindings
 ends are ecc's, stated in its
 [SECURITY](https://github.com/btclib-org/ecc/blob/main/SECURITY.md)
 under *Limitations, not vulnerabilities*.
-`src/btclib_wallet/bip32/bip32.py` and `src/btclib_wallet/silent_payments.py`
-are the two modules that reach past that dispatch and call the
-`btclib_secp256k1` bindings directly, for operations the general dispatch
-does not cover; ASSURANCE_CASE.md names each call.
+`src/btclib_wallet/silent_payments.py` is the module that reaches past
+that dispatch and calls the `btclib_secp256k1` bindings directly, for
+operations the general dispatch does not cover; ASSURANCE_CASE.md names
+each call.
 
 `btclib_wallet/__init__.py`'s `__all__` is the root of the public tree,
 written out rather than discovered; nothing is imported eagerly, and a
@@ -83,9 +93,6 @@ submodule loads on first attribute access through the package's own
 
 ## From a seed to a key
 
-- `bip32/` derives extended keys along a BIP32 path, and `bip32.der_path`
-  and `bip32.key_origin` are its two notations — a `der_path` string and
-  the fingerprint-plus-path pair a psbt or a descriptor carries.
 - `mnemonic/` builds the BIP32 master key of a BIP39, SLIP39 or
   Electrum mnemonic from the seed `bip39_slip39` recovers from it,
   and the master public key of a pre-2.0 Electrum one.
@@ -97,10 +104,9 @@ submodule loads on first attribute access through the package's own
   prefix names, BIP44's `m/purpose'/coin_type'/account'/change/index`
   for which key a path derives. `bip44.account_descriptors` builds the
   receive and change descriptors of an account from that purpose, out of
-  `descriptors`' fragments, and `bip44.discover_account` reads the text
-  of a descriptor with `descriptors.parse`, so `bip44` imports
-  `descriptors`. `descriptors` imports nothing of `bip44`: what a path
-  means under BIP44 is no part of the descriptor language.
+  `bip32_descriptors.descriptors`' fragments, and
+  `bip44.discover_account` reads the text of a descriptor with its
+  `parse`.
   `bip44.discover_accounts` is BIP44's account discovery over those
   descriptors, read through a `fetch.HistoryReader` the caller passes.
   `bip44` imports `fetch` for its annotations alone, so importing
@@ -108,21 +114,14 @@ submodule loads on first attribute access through the package's own
 - `recovery_paths.py` returns the receive and change descriptors, under
   `wsh()` or `tr()`, of a wallet whose recovery quorums spend after a
   relative timelock: `recovery_descriptors` writes the miniscript and
-  hands it to `descriptors.parse`, so `recovery_paths` imports
-  `descriptors`, and takes BIP341's NUMS point from `silent_payments`.
+  hands it to `bip32_descriptors.descriptors.parse`, and takes BIP341's
+  NUMS point from `silent_payments`.
 - `bip38.py` and `minikey.py` spell a single private key that no seed
   derives: BIP38 encrypts it under a password with scrypt and AES, and a
   Casascius minikey is a short string whose `sha256` is the key itself.
 
 ## Watching, not holding: descriptors and PSBTs
 
-- `descriptors/` reads BIP380's output-descriptor grammar —
-  `descriptors.key_expression` for the KEY expressions and
-  `descriptors.miniscript` for BIP379's SCRIPT language, a tree of
-  fragments a descriptor's own module composes into the scripts an
-  account produces and the `Expansion` a psbt's Updater writes — and
-  hands back what a wallet needs to watch somebody else's keys, never a
-  private one of its own.
 - `psbt/` is BIP174 and BIP370: the three maps a psbt is made of, the
   Updater over a descriptor, the Combiner, the Finalizer and the
   Extractor, and the size estimation a fee rate is applied to.
@@ -257,25 +256,21 @@ package imports them back.
 ## What is delegated, and what is not
 
 Every primitive — the curve, a signature, a script, a transaction's
-serialization — is btclib's or ecc's, and a mnemonic up to its seed is
-bip39_slip39's; this package reimplements none of it. What is here is
-the key-derivation schemes above btclib, the formats that cross a
-wallet's own boundary — descriptors, PSBTs, extended keys, payment URIs
-— the wallets that remember what they have handed out, the ledger that
-keeps their transactions and coins in a file, the one contract an
-external signer answers to, the transactions and signatures of a
-discreet log contract, and the clients that reach a node, an explorer,
-an Electrum server or a p2p peer for what the chain currently holds.
-`tests/imports_test.py` mirrors the edges above, and holds the layering
-inside the package: its `_ALLOWED_UNITS` names, for `bip32/`, `psbt/`
-and each unit `psbt/` reaches, the only other units of the package it
-may import. `bip32/` and `descriptors/` are what btclib-org/.github#1811
-moves to a package of their own, so the tests, fuzz harnesses and
-scripts that move with them import nothing that stays but the test
-helpers a split copies. `tests/imports_test.py` holds that, and
-`tests/moving_imports_test.py` for the files the sdist does not carry.
-`tests/fuzz_test.py` holds every parser named here to one contract: it
-fails the way the library says it fails, whatever it is handed, never
-with a bare `IndexError` or `OverflowError` a caller's `except
-BTClibValueError` does not catch. The harnesses under `fuzz/` drive the
-extended-key, descriptor, PSBT and BIP322 parsers beyond that.
+serialization — is btclib's or ecc's, a mnemonic up to its seed is
+bip39_slip39's, and BIP32 and the output descriptors are
+bip32_descriptors'; this package reimplements none of it. What is here
+is the key-derivation schemes above BIP32, the formats that cross a
+wallet's own boundary — PSBTs, payment URIs, backups — the wallets that
+remember what they have handed out, the ledger that keeps their
+transactions and coins in a file, the one contract an external signer
+answers to, the transactions and signatures of a discreet log contract,
+and the clients that reach a node, an explorer, an Electrum server or a
+p2p peer for what the chain currently holds. `tests/imports_test.py`
+mirrors the edges above, and holds the layering inside the package: its
+`_ALLOWED_UNITS` names, for `psbt/` and each unit `psbt/` reaches, the
+only other units of the package it may import. `tests/fuzz_test.py`
+holds every parser named here to one contract: it fails the way the
+library says it fails, whatever it is handed, never with a bare
+`IndexError` or `OverflowError` a caller's `except BTClibValueError`
+does not catch. The harnesses under `fuzz/` drive the PSBT and BIP322
+parsers beyond that.

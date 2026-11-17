@@ -18,6 +18,24 @@ from base64 import b64encode
 from copy import deepcopy
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyData, fingerprint
+from bip32_descriptors.bip32.bip32 import (
+    derive,
+    prv_keyinfo_from_xprv,
+    rootxprv_from_seed,
+    xpub_from_xprv,
+)
+from bip32_descriptors.bip32.der_path import DerPath
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
+from bip32_descriptors.descriptors import (
+    Descriptor,
+    KeyExpression,
+    TrDescriptor,
+    WpkhDescriptor,
+    parse,
+    wallet_policy,
+    wallet_policy_address,
+)
 from btclib import bms
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
@@ -28,24 +46,6 @@ from ecc import dsa
 from ecc.curves import bytes_from_point, mult
 from typing_extensions import override
 
-from btclib_wallet.bip32 import BIP32KeyData, fingerprint
-from btclib_wallet.bip32.bip32 import (
-    derive,
-    prv_keyinfo_from_xprv,
-    rootxprv_from_seed,
-    xpub_from_xprv,
-)
-from btclib_wallet.bip32.der_path import DerPath
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.descriptors import (
-    Descriptor,
-    KeyExpression,
-    TrDescriptor,
-    WpkhDescriptor,
-    parse,
-    wallet_policy,
-    wallet_policy_address,
-)
 from btclib_wallet.exceptions import SignerError
 from btclib_wallet.hwi import HwiDevice
 from btclib_wallet.psbt import silent_payments

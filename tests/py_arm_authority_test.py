@@ -55,14 +55,11 @@ _TESTS = Path(__file__).parent
 # carry in `tests/_data` or a `_data` beside the module. What makes a
 # source third-party is who wrote it: a BIP, Bitcoin Core, an RFC
 _THIRD_PARTY_VECTORS: dict[str, tuple[str, ...]] = {
-    "bip32/bip32_test.py": ("bip32_test_vectors.json", "bip32_invalid_keys.json"),
     "silent_payments_test.py": ("send_and_receive_test_vectors.json",),
 }
 
 # arm -> the modules of `_THIRD_PARTY_VECTORS` whose run reaches it
 _AUTHORITY: dict[str, tuple[str, ...]] = {
-    "bip32.bip32.__prv_key_derivation": ("bip32/bip32_test.py",),
-    "bip32.bip32._pub_key_tweak_chain": ("bip32/bip32_test.py",),
     "silent_payments.output_keys": ("silent_payments_test.py",),
     "silent_payments.scan_transaction_outputs": ("silent_payments_test.py",),
 }

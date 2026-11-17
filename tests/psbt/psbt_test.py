@@ -14,6 +14,7 @@ from io import BytesIO
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyOrigin
 from btclib import var_bytes, var_int
 from btclib.alias import Octets, ScriptList
 from btclib.exceptions import BTClibTypeError, BTClibValueError, ScriptError
@@ -37,7 +38,6 @@ from ecc.curves import sec_point
 from ecc.hashes import tagged_hash
 
 from btclib_wallet._refusal import _quoted
-from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import (
     Psbt,
     PsbtIn,

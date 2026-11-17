@@ -16,6 +16,8 @@ from copy import deepcopy
 from typing import TYPE_CHECKING
 
 import pytest
+from bip32_descriptors.bip32.bip32 import derive, pub_keyinfo_from_xkey
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 from btclib.script import serialize, sig_hash
@@ -27,8 +29,6 @@ from btclib.tx.tx_out import TxOut
 from ecc import dsa
 from typing_extensions import override
 
-from btclib_wallet.bip32.bip32 import derive, pub_keyinfo_from_xkey
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.mnemonic import bip39
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.psbt_signer import PsbtSigner, SignerCapabilities, SoftwareSigner
@@ -40,7 +40,7 @@ from btclib_wallet.psbt_signer_contract import (
 )
 
 if TYPE_CHECKING:
-    from btclib_wallet.bip32.der_path import DerPath
+    from bip32_descriptors.bip32.der_path import DerPath
 
 _MNEMONIC = (
     "abandon abandon abandon abandon abandon abandon "

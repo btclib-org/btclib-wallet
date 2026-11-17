@@ -48,6 +48,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import cast
 
+from bip32_descriptors.descriptors import miniscript
 from btclib.alias import Command, Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
@@ -56,7 +57,6 @@ from btclib.tx import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_octets
 
 from btclib_wallet._refusal import _quoted
-from btclib_wallet.descriptors import miniscript
 from btclib_wallet.psbt.psbt_in import PsbtIn
 
 __all__ = [

@@ -35,21 +35,26 @@ holds the Base58Check and bech32 codecs, and on
 is the client the Bitcoin Core backends of `btclib_wallet.fetch` talk
 through, and on
 [bip39-slip39](https://github.com/btclib-org/bip39-slip39), which
-holds the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed.
+holds the BIP39, SLIP39 and Electrum mnemonic schemes up to the seed,
+and on
+[bip32-descriptors](https://github.com/btclib-org/bip32-descriptors),
+which holds BIP32 extended keys and derivation, output descriptors and
+miniscript.
 secp256k1 arithmetic is delegated further down, through btclib,
 to [btclib-secp256k1](https://github.com/btclib-org/btclib-secp256k1) and
 [libsecp256k1](https://github.com/bitcoin-core/secp256k1). A flaw in a
-signature, in the curve arithmetic, in how rpc credentials are handled
-or in how a sentence becomes a seed most likely belongs to one of those,
+signature, in the curve arithmetic, in how rpc credentials are handled,
+in how a sentence becomes a seed, or in BIP32 derivation and the parsing
+of an extended key or a descriptor most likely belongs to one of those,
 each with its own security policy.
 
 What belongs here is everything this package does on top of them:
 
-- the key derivation paths: BIP32, the master key of a BIP39, SLIP39 or
+- the key derivation paths: the master key of a BIP39, SLIP39 or
     Electrum seed, SLIP132, BIP85, BIP38
-- the parsing and serialization of what comes from outside — extended
-    keys, output descriptors, PSBTs, payment requests — and the
-    validation that decides what is accepted
+- the parsing and serialization of what comes from outside — PSBTs,
+    wallet exports, payment requests — and the validation that decides
+    what is accepted
 - the signing boundary: the PSBT signer, the wallets, and the HWI bridge
 - the node and indexer clients of `btclib_wallet.fetch`, and what each
     does with a reply
@@ -134,11 +139,11 @@ used to teach and to prototype as much as to build.
 
 - **The arithmetic is ecc's, and so is its notice.** Signing,
     verification, BIP32's derivation and the silent-payment operations
-    reach libsecp256k1 where ecc's own predicate lets them,
-    through ecc or through the bindings `bip32` and
-    `silent_payments` call directly, and run ecc's Python
-    arithmetic otherwise — which is validated against the bindings but is
-    not constant-time.
+    reach libsecp256k1 where ecc's own predicate lets them, through ecc,
+    as bip32-descriptors' derivation does, or through the bindings
+    `silent_payments` calls directly, and run ecc's Python arithmetic
+    otherwise — which is validated against the bindings but is not
+    constant-time.
     Which operations cross the boundary, under which conditions, and
     what the Python path leaks is
     [ecc's SECURITY.md](https://github.com/btclib-org/ecc/blob/main/SECURITY.md),
@@ -149,25 +154,25 @@ used to teach and to prototype as much as to build.
     installs no C, and every secret then meets the Python arithmetic.
     Nothing raises to say so, and `ecc.curves.is_libsecp256k1_serving()`
     is how a caller asks which of the two it has.
-- **Where this package combines secret scalars itself, the arithmetic
-    is on Python integers**, variable in time with the operands, whether
-    or not the bindings are installed: BIP352's sum of input keys and
-    BIP38's EC-multiply factor are computed that way before the result
-    reaches a btclib call. With the bindings serving, two sums are
-    libsecp256k1's instead. BIP32's child private key is
-    `secp256k1_ec_seckey_tweak_add`'s. A found silent payment output's
-    private tweak, (t_k + label) mod n, is the same function's, through
+- **Where this package combines secret scalars itself, the arithmetic is on
+    Python integers**, variable in time with the operands, whether or not
+    the bindings are installed: BIP352's sum of input keys and BIP38's
+    EC-multiply factor are computed that way before the result reaches a
+    btclib call. With the bindings serving, one sum is libsecp256k1's
+    instead: a found silent payment output's private tweak,
+    (t_k + label) mod n, is `secp256k1_ec_seckey_tweak_add`'s, through
     `ecc.curves.prv_key_tweak_add`, where the scan runs in Python, and the
-    bindings' scan computes it where they scan.
-- **Secret material lives in Python objects**, which are immutable and
-    not zeroized: an extended private key, a mnemonic or a seed stays in
-    the process memory until garbage collection, and may have been
-    copied by the interpreter meanwhile. `bip32._cached_base58_decode`
-    extends this by one step for an xprv string handed to a derivation:
-    the decoded key stays reachable from that cache, bounded by its
-    `maxsize`, past whatever reference the caller itself still holds. A
-    ledger's master key is held in a buffer it zeroes, as *A ledger's
-    keys at rest* says.
+    bindings' scan computes it where they scan. BIP32's child private key
+    is no sum of this package: bip32-descriptors derives it, as its own
+    SECURITY.md says.
+- **Secret material lives in Python objects**, which are immutable and not
+    zeroized: an extended private key, a mnemonic or a seed stays in the
+    process memory until garbage collection, and may have been copied by the
+    interpreter meanwhile. bip32-descriptors' `bip32._cached_base58_decode`
+    extends this by one step for an xprv string handed to a derivation: the
+    decoded key stays reachable from that cache, bounded by its `maxsize`,
+    past whatever reference the caller itself still holds. A ledger's master
+    key is held in a buffer it zeroes, as *A ledger's keys at rest* says.
 - **`btclib_wallet.bip38` has no MAC.** It takes AES-256 as two callables,
     for the reason btclib's `ecies` takes its cipher that way, and its
     cipher's resistance to side channels is whatever the caller passed

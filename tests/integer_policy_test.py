@@ -21,6 +21,8 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
+from bip32_descriptors.bip32.bip32 import derive, rootxprv_from_seed, xpub_from_xprv
+from bip32_descriptors.descriptors import Descriptor, parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.script_pub_key import ScriptPubKey
 from btclib.tx.out_point import OutPoint
@@ -29,20 +31,6 @@ from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from typing_extensions import override
 
-from btclib_wallet.bip32 import BIP32KeyData
-from btclib_wallet.bip32.bip32 import (
-    derive,
-    derive_from_account_,
-    rootxprv_from_seed,
-    xpub_from_xprv,
-)
-from btclib_wallet.bip32.der_path import (
-    bytes_from_der_path,
-    indexes_from_der_path,
-    str_from_der_path,
-    str_from_index_int,
-)
-from btclib_wallet.descriptors import Descriptor, parse
 from btclib_wallet.ledger import Ledger
 from btclib_wallet.psbt.psbt import PSBT_V2, Psbt
 from btclib_wallet.wallet import BIP32KeyWallet, DescriptorWallet, RangedWallet
@@ -50,8 +38,7 @@ from btclib_wallet.wallet.script_wallet import KeyGroup, ScriptWallet
 from tests.ledger.conftest import FakeChain, source
 
 _XPUB = xpub_from_xprv(rootxprv_from_seed("00" * 32))
-# account depth, hardened: what derive_from_account_'s own is_hardened
-# check wants
+# an account key, whose xpub a script wallet's key group holds
 _ACCOUNT_XPRV = derive(rootxprv_from_seed("00" * 32), "m/44h/0h/0h")
 _DESCRIPTOR = parse(f"wpkh({_XPUB}/*)")
 _CHANGE_DESCRIPTOR = parse(f"wpkh({_XPUB}/1/*)")
@@ -97,51 +84,8 @@ _CASES: list[tuple[str, Callable[[Any], object]]] = [
     ("psbt tx modifiable", lambda v: _psbt(tx_modifiable=v).assert_valid()),
     ("psbt fallback lock time", lambda v: _psbt(fallback_lock_time=v).assert_valid()),
     ("key group threshold", lambda v: KeyGroup(v, [_XPUB])),
-    (
-        "bip32 depth",
-        lambda v: BIP32KeyData(
-            b"\x04\x88\xad\xe4", v, b"\x00" * 4, 0, b"\x00" * 32, b"\x00" * 33
-        ),
-    ),
-    (
-        "bip32 index",
-        lambda v: BIP32KeyData(
-            b"\x04\x88\xad\xe4", 0, b"\x00" * 4, v, b"\x00" * 32, b"\x00" * 33
-        ),
-    ),
-    ("derivation index", indexes_from_der_path),
-    ("derivation index in a sequence", lambda v: indexes_from_der_path([v])),
-    ("derivation path as bytes", bytes_from_der_path),
-    ("derivation path as text", str_from_der_path),
-    ("derivation index as a step", str_from_index_int),
-    # `_assert_valid_branch` and `_assert_valid_address_index` compare
-    # with `<`, `>=` and `in {0, 1}`, none of which a bool fails, so the
-    # refusal is this layer's own `is_integer`
-    # (issue btclib-org/btclib#1403)
-    (
-        "bip32 account branch",
-        lambda v: derive_from_account_(_ACCOUNT_XPRV, v, 0),
-    ),
-    (
-        "bip32 account address index",
-        lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, v),
-    ),
-    # `max_index` reaches the same two helpers as a bound rather than a
-    # derivation value: `branch > max_index` and `address_index >
-    # max_index` both hold for `max_index=True` against a
-    # branch/address_index of `0`, so without the check the call would
-    # answer a key silently narrowed to a range of `{0, 1}`
-    # (issue btclib-org/btclib#1413)
-    (
-        "bip32 account max_index",
-        lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, 0, max_index=v),
-    ),
     # a search bound: `range(True + 1)` would answer for index 0 and 1 and
     # read as "not this wallet's" past them (issue #407)
-    (
-        "descriptor index_of last_index",
-        lambda v: _DESCRIPTOR.index_of(_DESCRIPTOR.script_pub_key(0), v),
-    ),
     (
         "wallet position_of last_index",
         lambda v: _WALLET.position_of(_DESCRIPTOR.script_pub_key(0), v),
@@ -173,41 +117,6 @@ def test_a_bool_is_not_an_integer_field(
         call(value)
 
 
-# the sentence each of these gives back: whichever control reaches the
-# value first writes it, so an entry point moves between wordings by
-# gaining or losing a check above it and never by choosing one
-_WORDINGS = [
-    (
-        "bip32 account branch",
-        lambda v: derive_from_account_(_ACCOUNT_XPRV, v, 0),
-        "non-integer branch: a bool",
-    ),
-    (
-        "bip32 account address index",
-        lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, v),
-        "non-integer address index: a bool",
-    ),
-    (
-        "bip32 account max_index",
-        lambda v: derive_from_account_(_ACCOUNT_XPRV, 0, 0, max_index=v),
-        "non-integer max_index: a bool",
-    ),
-]
-
-
-@pytest.mark.parametrize(
-    "call, message",
-    [(case[1], case[2]) for case in _WORDINGS],
-    ids=[case[0] for case in _WORDINGS],
-)
-def test_which_check_refuses_the_bool_decides_the_sentence(
-    call: Callable[[Any], object], message: str
-) -> None:
-    """Each wording held to what is raised."""
-    with pytest.raises(BTClibTypeError, match=message):
-        call(True)
-
-
 def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     """The same calls with a number, which is what the refusal is around.
 
@@ -216,34 +125,19 @@ def test_the_integers_a_bool_refusal_must_not_take_with_it() -> None:
     """
     assert _psbt(fallback_lock_time=1).fallback_lock_time == 1
     assert KeyGroup(1, [_XPUB]).threshold == 1
-    assert indexes_from_der_path(1) == [1]
-    assert indexes_from_der_path([1, 2]) == [1, 2]
-    assert bytes_from_der_path(1).hex() == "01000000"
-    assert str_from_der_path([1]) == "m/1"
-    assert str_from_index_int(1) == "1"
-    assert derive_from_account_(_ACCOUNT_XPRV, 1, 1).depth == 5
-    assert derive_from_account_(_ACCOUNT_XPRV, 1, 1, max_index=1).depth == 5
-    assert _DESCRIPTOR.index_of(_DESCRIPTOR.script_pub_key(1), 1) == 1
     assert _WALLET.position_of(_DESCRIPTOR.script_pub_key(1), 1) == (0, 1)
     assert DescriptorWallet({1: _DESCRIPTOR}).branches == (1,)
     assert _WALLET.address(1, 0) == _CHANGE_DESCRIPTOR.script_pub_key(0).address
     assert _WALLET.address(0, 1) == _DESCRIPTOR.script_pub_key(1).address
 
-    # the str and bytes spellings of a path are untouched by any of it
-    assert indexes_from_der_path("m/44h/0h") == [2147483692, 2147483648]
-
 
 def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
     """The policy is about integers, and a bool is only its sharpest case.
 
-    A derivation index, a wallet position's branch or index, a ledger's
-    branch, or a ledger's source id that is no integer at all is refused
-    as a type, and not converted through `int()`.
+    A wallet position's branch or index, a ledger's branch, or a ledger's
+    source id that is no integer at all is refused as a type, and not
+    converted through `int()`.
     """
-    with pytest.raises(BTClibTypeError, match="invalid derivation index type"):
-        indexes_from_der_path([2.0])  # type: ignore[list-item]
-    with pytest.raises(BTClibTypeError, match="invalid derivation index type"):
-        str_from_index_int(1.0)  # type: ignore[arg-type]
     with pytest.raises(BTClibTypeError, match="invalid branch type: float"):
         DescriptorWallet({1.0: _DESCRIPTOR})  # type: ignore[dict-item]
     with pytest.raises(BTClibTypeError, match="invalid branch type: str"):
@@ -277,11 +171,10 @@ def test_what_is_no_integer_at_all_is_refused_the_same_way() -> None:
 def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
     """`IntEnum` stays a number, which is why the predicate names bool.
 
-    The path step and a wallet's branch are the cases that have to be
-    *answered* with a number and not merely accepted as one: an `IntEnum`
-    whose `str()` is its name, as `Enum.__str__` writes it, would make a
-    derivation path read "Index.ONE" rather than "1", and a ledger's file
-    hold a branch it cannot read back.
+    A wallet's branch is the case that has to be *answered* with a number
+    and not merely accepted as one: an `IntEnum` whose `str()` is its
+    name, as `Enum.__str__` writes it, would make a ledger's file hold a
+    branch it cannot read back.
     """
 
     class Index(IntEnum):
@@ -289,9 +182,6 @@ def test_an_int_subclass_that_is_not_a_bool_is_still_an_integer() -> None:
 
         __str__ = Enum.__str__
 
-    assert indexes_from_der_path(Index.ONE) == [1]
-    assert indexes_from_der_path([Index.ONE]) == [1]
-    assert str_from_index_int(Index.ONE) == "1"
     (branch,) = DescriptorWallet({Index.ONE: _DESCRIPTOR}).branches
     assert type(branch) is int
 

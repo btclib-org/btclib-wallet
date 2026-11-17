@@ -44,6 +44,9 @@ from typing import Any, cast
 from unittest import mock
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
+from bip32_descriptors.bip32.bip32 import derive, xpub_from_xprv
+from bip32_descriptors.descriptors import Descriptor, add_checksum, at_index, parse
 from btclib.exceptions import (
     BTClibTypeError,
     BTClibValueError,
@@ -56,9 +59,6 @@ from ecc import dsa
 from ecc.curves import bytes_from_point, mult
 
 from btclib_wallet import hwi as hwi_module
-from btclib_wallet.bip32 import BIP32KeyData, BIP32KeyOrigin, fingerprint
-from btclib_wallet.bip32.bip32 import derive, xpub_from_xprv
-from btclib_wallet.descriptors import Descriptor, add_checksum, at_index, parse
 from btclib_wallet.exceptions import SignerError, SignerNotFoundError
 from btclib_wallet.hwi import (
     _HWI_CHAIN,
@@ -168,7 +168,7 @@ elif args.command == "signmessage":
     message = args.message.encode("utf-8")
     print(json.dumps({{"signature": signer.sign_message(message, args.path)}}))
 elif args.command == "displayaddress" and args.desc is not None:
-    from btclib_wallet.descriptors import parse
+    from bip32_descriptors.descriptors import parse
     print(json.dumps({{"address": signer.display_address(parse(args.desc))}}))
 elif args.command == "registerdescriptor":
     print(json.dumps({{"registration": "deadbeef"}}))

@@ -401,11 +401,12 @@ reach checks it before acting on it, and a malformed argument leaves as a
 this package are written to catch. A type the signature does not declare
 is a `BTClibTypeError` even where the function answers a `bool`: the
 `bool` is the answer to a well-typed question. The work itself may be
-deferred to a private twin that does not validate, and that twin is what
-the package composes internally. `btclib_wallet.bip32` is the shape to
-copy: `derive` validates and calls `_derive`, which does not, and
-`key_data_from_bip32_key` is the one place a `BIP32Key` of any spelling
-becomes a validated `BIP32KeyData`.
+deferred to a private twin that trusts what its caller validated, and
+that twin is what the package composes internally. `btclib_wallet.bip85`
+is the shape to copy: `entropy_from_der_path` validates the root key and
+calls `_entropy_from_der_path`, which trusts that key and refuses a bad
+path itself, and bip32-descriptors' `key_data_from_bip32_key` is the one
+place a `BIP32Key` of any spelling becomes a validated `BIP32KeyData`.
 
 **A refusal of ecc's own leaves as that package's class.** Under
 a btclib carrying issue btclib-org/btclib#2282 the curve arithmetic and the
@@ -503,7 +504,7 @@ hook green — a name ending in an underscore is a reference to a link
 target, and the fix is double backticks around it. `-n` turns an
 unresolved cross-reference into a warning for `-W` to fail on, and
 `conf.py`'s `intersphinx_mapping` is what resolves a reference into the
-standard library, btclib, ecc or bitcoin-core-rpc.
+standard library, btclib, ecc, bip32-descriptors or bitcoin-core-rpc.
 
 **Check exit codes, not filtered output.** `pre-commit run ... | grep -v
 Passed` hides a failure, and `grep` finding nothing exits 1, which is not
@@ -769,9 +770,9 @@ branch's. A branch touching `src/btclib_wallet/hwi.py` asks for it:
 gh workflow run integration-hwi.yml --ref <branch>
 ```
 
-`qa-assets.yml` — the fuzz corpora of psbts and descriptors of Bitcoin
-Core and rust-bitcoin, replayed through this package's parsers. The
-workflow checks out `bitcoin-core/qa-assets` and `rust-bitcoin/qa-assets`
+`qa-assets.yml` — the fuzz corpora of psbts of Bitcoin Core and
+rust-bitcoin, replayed through this package's parsers. The workflow
+checks out `bitcoin-core/qa-assets` and `rust-bitcoin/qa-assets`
 sparsely, the directories `TARGETS` in
 `tests/integration/qa_assets_test.py` names, and runs:
 
@@ -858,15 +859,15 @@ One session, by hand:
 
 ```shell
 uv run --locked --no-default-groups --group test --group mutation \
-    cosmic-ray baseline .github/mutation/bip32.toml
+    cosmic-ray baseline .github/mutation/bip322.toml
 uv run --locked --no-default-groups --group test --group mutation \
-    cosmic-ray init .github/mutation/bip32.toml bip32.sqlite
+    cosmic-ray init .github/mutation/bip322.toml bip322.sqlite
 uv run --locked --no-default-groups --group test --group mutation \
-    cr-filter-operators bip32.sqlite .github/mutation/bip32.toml
+    cr-filter-operators bip322.sqlite .github/mutation/bip322.toml
 uv run --locked --no-default-groups --group test --group mutation \
-    cosmic-ray exec .github/mutation/bip32.toml bip32.sqlite
+    cosmic-ray exec .github/mutation/bip322.toml bip322.sqlite
 uv run --locked --no-default-groups --group test --group mutation \
-    cr-report --surviving-only --show-diff bip32.sqlite
+    cr-report --surviving-only --show-diff bip322.sqlite
 ```
 
 The session writes each mutation into the source and restores it

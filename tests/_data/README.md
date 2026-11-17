@@ -29,8 +29,7 @@ comparison below is the only check the naming cannot fool.
 The files that keep a name of their own do so because there is no upstream
 file whose name they could take, or because the upstream name is taken:
 
-- `bip32_test_vectors.json`, `bip32_invalid_keys.json`,
-  `bip174_test_vectors.json`, `bip370_test_vectors.json`,
+- `bip174_test_vectors.json`, `bip370_test_vectors.json`,
   `bip371_test_vectors.json`, `bip373_test_vectors.json`,
   `bip85_test_vectors.json` and `bip329_test_vectors.jsonl` are
   transcribed from mediawiki prose.
@@ -39,8 +38,7 @@ file whose name they could take, or because the upstream name is taken:
 - `bip39_test_vectors.json` is trezor's `vectors.json` byte for byte, and
   keeps a name of its own anyway: `vectors.json` is taken in the very same
   directory, by SLIP-0039's own file of that name.
-- `descriptor_checksums.json` is composed from prose, and
-  `electrum_test_vectors.json` and `btclib_test_vectors.json` are
+- `electrum_test_vectors.json` and `btclib_test_vectors.json` are
   btclib's own: no upstream file for either, so no upstream name to take.
 - the files under `tests/fetch/_data/` are response bodies, and a
   response has no name at all. Each takes the rpc method or the endpoint
@@ -188,57 +186,6 @@ parsed, equals `_CONTROL_BLOCK_VECTOR` as a Python value.
 The entry and `_CONTROL_BLOCK_VECTOR` go when
 [ISS 557](https://github.com/btclib-org/btclib-wallet/issues/557) vendors
 the merged file.
-
-### `tests/bip32/_data/bip32_test_vectors.json`
-
-```text
-repo    bitcoin/bips
-path    bip-0032.mediawiki
-commit  c0644a054fd1568ecbfc9c2b656ad5200b16ff74  2026-03-05
-ours    eb692228a6fb84a694a699f62937808bc2c640aa
-pulled  2020-05-08, vector 4 added 2021-08-25, re-pinned to the tip 2026-08-06
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**. BIP32 ships its vectors as prose, so there is
-no upstream file and no byte comparison to make. All four seeds and all
-34 extended keys of test vectors 1 to 4 appear verbatim in the pinned
-text, and the derivation counts match: 6, 6, 2, 3.
-
-The original pin was the commit that *added* test vector 4 rather than
-the one current when btclib transcribed it: the earliest revision
-holding all 34 keys, the parent holding 28, which made that pin checkable
-rather than merely plausible. Re-checked against the tip on 2026-07-30
-and again on 2026-08-06 — both times still test vectors 1 to 5 and no
-sixth, every extended key in it one of ours, 48 matching the key
-pattern: our 34 valid plus 14 of the 16 invalid, the other 2 being the
-zero-prefix keys of test vector 5, which serialize outside it — the pin
-above is now that tip, so the weekly automated check can carry it.
-
-### `tests/bip32/_data/bip32_invalid_keys.json`
-
-```text
-repo    bitcoin/bips
-path    bip-0032.mediawiki
-commit  c0644a054fd1568ecbfc9c2b656ad5200b16ff74  2026-03-05
-ours    71712727eb7d8b68a3ae61de36eef138c11fb5c9
-pulled  2020-05-16, error strings last changed 2026-11-15, re-pinned to
-        the tip 2026-08-06
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**. All 16 invalid extended keys are exactly the 16
-of BIP32 test vector 5 — no omissions, no local additions — both at the
-pinned commit and on master today.
-
-btclib is the upstream here, not the consumer: commit ee2e0598, "added
-invalid extended keys vectors", is Ferdinando Ametrano's, and is what
-first put these 16 keys into the BIP. The pin above is the tip of the
-same path rather than that commit, so the weekly automated check can
-carry it too; the second column of the file is btclib's own regardless —
-it holds btclib error messages, which the BIP does not and should not
-carry, and which change when the messages change. Refreshing from
-upstream means refreshing the keys, never the messages.
 
 ### `tests/psbt/_data/bip174_test_vectors.json`
 
@@ -569,138 +516,6 @@ module's docstring says.
 
 License: BSD-2-Clause, as the BIP's header says.
 
-### Not vendored as a file: BIP386's `tr()` vectors
-
-```text
-repo    bitcoin/bips
-path    bip-0386.mediawiki
-commit  9d735fb36fdd6a5860febe7e84680aa220baad23  2026-09-17
-pulled  2026-10-07
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, complete for both lists and cited inline, in
-`tests/descriptors/descriptors_test.py`'s `BIP386_VECTORS` and
-`BIP386_INVALID`: each valid descriptor that gives scripts, with the
-script at each index the BIP lists, and each invalid one with the message
-it is refused with. The valid `tr(KEY,pkh(KEY))` gives no script:
-`test_bip386_pkh_leaf` parses it and asserts the script of the same shape
-in Bitcoin Core's `descriptor_test`.
-
-BIP386 lists `tr(KEY,pkh(KEY))` as valid since `d7854890`, `bip386:
-update stale sentence`: a `pkh()` leaf is the BIP379 miniscript fragment
-of that name.
-
-### Not vendored as a file: BIP387's `multi_a()` vectors
-
-```text
-repo    bitcoin/bips
-path    bip-0387.mediawiki
-commit  3ac7c77174780bea5aa8999b1cf205f98da2ab46  2026-09-17
-pulled  2026-08-06, re-pinned to the tip 2026-09-29
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, and cited inline rather than vendored: they are
-descriptors and scripts read where they are used, in
-`tests/descriptors/descriptors_test.py`'s `BIP387_VECTORS` and
-`BIP387_INVALID`. Every descriptor of the BIP's Test Vectors section is
-there with the scriptPubKey it produces, at each index the BIP lists, and
-every invalid one with the message btclib refuses it with — two of those
-refusals answering the uncompressed key before the threshold the BIP was
-illustrating, which the entries say. Each value was matched against the
-pinned text on 2026-08-06.
-
-Re-checked against the tip on 2026-09-29: the Test Vectors section is
-unchanged. The only diff is the BIP's own status line, `Type` moving from
-Informational to Specification.
-
-### Not vendored as a file: BIP390's `musig()` vectors
-
-```text
-repo    bitcoin/bips
-path    bip-0390.mediawiki
-commit  2a20ce4e8e1c6b941d1a827a287d757a568750d8  2026-09-17
-pulled  2026-08-06, re-pinned to the tip 2026-09-29
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, complete for both lists and cited inline, in
-`tests/descriptors/descriptors_test.py`'s `BIP390_VECTORS` and
-`BIP390_INVALID`: the six valid descriptors with the scripts they produce
-at each index listed, and all fourteen invalid ones with the message each
-is refused with. Five further invalid cases there are btclib's own, for
-what the BIP states in prose rather than listing — no nesting, no key
-origin in front of one, at least one participant, no x-only participant,
-and a `musig()` where a tree leaf belongs.
-
-The original pin was the tip on the day it was taken, and that commit was
-`bip390: fix missing parenthesis in test vector`, which closed the last
-invalid descriptor's brackets, so a copy taken a day earlier would hold a
-descriptor upstream no longer publishes. Ours was the fixed one.
-
-Re-pinned to the tip again on 2026-09-29: that commit,
-`bip390: Update to Specification type`, touches only the BIP's own status
-header, and the six valid and fourteen invalid descriptors are still the
-ones the 2026-08-06 pin held.
-
-The invalid one that holds multipath participants and a multipath path is
-refused by `parse` with Bitcoin Core's own message.
-
-### Not vendored as a file: BIP388's wallet-policy vectors
-
-```text
-repo    bitcoin/bips
-path    bip-0388.mediawiki
-commit  cfff9719405fa35113cab637958809824873750f  2026-04-15
-pulled  2026-09-02
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, complete and cited inline in
-`tests/descriptors/descriptors_test.py`'s `BIP388_VECTORS`: every valid
-policy of the Test Vectors section, its template, its key-information
-vector and the multipath descriptor the two compile to, checked branch by
-branch against `wallet_policy_descriptor` and `wallet_policy_address`
-rather than restated as an address of its own -- `multipath_descriptors`
-and `parse` already answer for what a branch of that descriptor is. The
-same vectors are read the other way too, in
-`test_wallet_policy_reconstructs_bip388s_own_vectors`: `wallet_policy`,
-given the receive and change `Descriptor` `multipath_descriptors` splits
-that same descriptor into, rebuilds the vector's own template and
-key-information vector, byte for byte. Four
-of the Invalid policies section's nine are checked too, in
-`test_bip388_invalid_templates`: the no-path, explicit-path,
-cardinality-above-two and derivation-before-aggregation ones, each a
-property of the template text alone. The other five are not:
-out-of-order and skipped placeholders are a canonicalization
-`wallet_policy_descriptor` does not need to enforce to compute one
-address correctly; repeated keys and non-disjoint multipath steps for the
-same placeholder need the two occurrences compared against each other,
-which nothing here does across an `re.subn` callback; and a non-KP key
-present in a template position is refused anyway, but by `parse`'s own
-"use multipath_descriptors first" -- a coincidence of the raw `<0;1>`
-text reaching it unconsumed, not a check this module makes. That one is
-in the module too, as what it is.
-
-### Not vendored as a file: BIP328's synthetic xpub vectors
-
-```text
-repo    bitcoin/bips
-path    bip-0328.mediawiki
-commit  24e96e870fffaa257b465ce1f0370c14aac588e8  2026-01-12
-pulled  2026-08-06
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, complete: all three aggregate keys, the
-synthetic xpub each becomes and the participant keys each aggregates, in
-`tests/bip32/bip32_test.py`'s `BIP328_VECTORS`. The keys of those vectors
-aggregate **as written**, unsorted, which is what makes them worth holding
-beside BIP390's: sorting before aggregation is BIP390's rule and not
-BIP328's, and a `key_sort` applied here reaches none of the three
-published keys. Matched against the pinned text on 2026-08-06.
-
 ### `tests/ecc/_data/bip445/sign_verify_vectors.json`
 
 The one BIP445 file this package reads: `tests/psbt/frost_test.py` takes
@@ -784,127 +599,6 @@ behind  0 revisions; that commit is the tip of the path
 Verdict: **identical**.
 
 ## bitcoin/bitcoin
-
-### `tests/_data/descriptor_checksums.json`
-
-```text
-repo    bitcoin/bitcoin
-path    doc/descriptors.md
-commit  0f38524c31da4cf69d8e904569fe56292e4325b9  2022-10-30
-ours    1741596f31d557718c571d58070812662744f05e
-pulled  2023-07-12
-```
-
-Verdict: **composed locally**, not vendored. Descriptors appear
-verbatim in the pinned document; none of their checksums does, because
-Core's document does not list them. They were computed with a third
-implementation, `bdk`'s `descriptor::checksum::get_checksum`, as
-`tests/descriptors/descriptors_test.py` records — which is the point of
-the file: the checksums are an independent oracle, so recomputing them
-with btclib would void the test.
-
-Nothing to refresh from upstream. A new descriptor needs a checksum from
-somewhere other than btclib.
-
-Checked again on 2026-07-30, against the current document rather than the
-pin: ours are still all in it, and it still carries no checksum at
-all — not one `descriptor#checksum` pair in the file. It has grown
-concrete descriptors we do not hold (a `tr(musig(...))`, a
-`wsh(sortedmulti(...))` and a `wsh(thresh(...))`, the rest of what it shows
-being syntax templates like `sh(SCRIPT)`), and each would need a checksum
-computed by something that is not btclib. That is a decision to take with
-a tool at hand, not a refresh.
-
-### `tests/_data/miniscript_fixed_tests.json`
-
-```text
-repo    bitcoin/bitcoin
-path    src/test/miniscript_tests.cpp
-commit  e8691056c0140f8fa850fc6837dde915ebeb22cc  2026-08-03
-blob    d593fc3bf813ac27dce422d596ae9bf4b8b9e777
-ours    83f5e24eb6344c973bbe377eae37ff92f34ac430
-pulled  2026-08-25
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, mechanically. One json object per `Test()` call
-of the `fixed_tests` case, with the fields that call passes: the
-miniscript, the script it compiles to under P2WSH and under tapscript, the
-`TESTMODE_*` flags split into booleans, and the ops, stack, witness-size
-and execution-stack numbers where the call gives them. The regex that
-produced it is not committed -- a one-off pass over C++ source is not a
-tool -- and what re-derives the file is reading those calls again.
-
-The pin between here and the commit this file was previously pinned to
-(`128456b62d5e`) touches none of those calls: every changed line is
-`BOOST_CHECK(a && b && c)` split into one `BOOST_REQUIRE`/`BOOST_CHECK` per
-condition, inside the "Misc unit tests" block below `fixed_tests`'s own
-vectors, not inside a `Test(...)` call. The vendored JSON is unchanged.
-
-Not vendored as the file itself because there is no data file upstream:
-the vectors are arguments to a C++ function. The blob above is that source
-file, so the weekly re-check still reports a case added to it.
-
-Four of the calls are not here, being loops rather than literals: the
-`multi_a()` of twenty-one keys, the three `and_b()` chains that pass the
-p2wsh ops, stack and script-size limits, and the two nestings that reach a
-thousand elements on the stack. `tests/descriptors/miniscript_test.py`
-builds those from Core's own key set instead, and asserts the same
-formulas its calls pass -- which is why they are missing here rather than
-untested.
-
-Also not here: `random_tests`, which generates expressions from a seeded
-RNG and checks the satisfier against the script interpreter. Satisfaction
-is not implemented (issue btclib-org/btclib#187), so there is nothing yet
-for those to measure.
-
-### Not vendored as a file: Core's descriptor derivation vectors
-
-```text
-repo    bitcoin/bitcoin
-path    src/test/descriptor_tests.cpp
-commit  51ddab532cb38213e2258c24c492bc8a392ffc90  2026-09-14
-pulled  2026-09-21, rawtr() added 2026-08-06
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, a subset by design.
-`tests/descriptors/descriptors_test.py` holds the `Check(prv, pub, ...)`
-cases of the `descriptor_test` case as `CORE_VECTORS` — the descriptor in
-both spellings and the scriptPubKey each expands to, at every index the
-case lists — plus the public spellings of those Core expands from the
-private form alone, which are `HARDENED_PUBLIC` there, and the `rawtr()`
-cases, which no BIP publishes and only this file has.
-
-Not vendored as a file because there is no file: the values are literals
-in C++ source, so a copy of it would be a copy of a test program. What
-this pin buys instead is the upstream re-check: a case added to that
-function moves the commit, and the weekly run says so.
-
-The subset is deliberate and is what a refresh would revisit: Core's file
-also holds `CheckUnparsable` cases, which this module has as `UNPARSABLE`
-and `CORE_UNPARSABLE` with btclib's own messages, and `musig()` cases.
-Those BIP390 publishes are transcribed from the BIP itself above rather
-than from here; those it does not -- `rawtr(musig(...))` among them -- are
-transcribed from neither. Matched against the file as it stood on
-2026-08-06.
-
-The cases upstream added after that comparison, other than
-bitcoin/bitcoin#35819's below, are not here, and
-[ISS 1334](https://github.com/btclib-org/btclib/issues/1334) is where
-they were weighed: it measured btclib against both defects they cover --
-a `musig()` duplicate-key check that reads distinct participants as the
-same key when neither of them derives, and a key origin prepended once
-per expression rather than once per participant -- and found neither in
-this tree, so none of those cases is owed here.
-
-The revision this refresh crosses is bitcoin/bitcoin#35819, *test: add
-coverage for untested descriptor parse error paths*: new lines, almost
-all new `CheckUnparsable` cases, and one new `Check(...)`-shaped case
-asserting that a taptree of exactly 128 nesting levels parses.
-The `CheckUnparsable` cases are `CORE_UNPARSABLE`, in both spellings, and
-that parse is `test_tr_tree_depth_is_bounded`'s. `CORE_VECTORS` gains
-nothing from it.
 
 ### `tests/psbt/_data/core/recovery_psbts.json`
 
@@ -1667,173 +1361,6 @@ gh api -H 'Accept: application/vnd.github.raw' \
 
 [getaddresses]: https://github.com/bitcoin-s/bitcoin-s/blob/5819f4016eab00e4e5e0d82d8b2b84fb0e92defb/wallet-test/src/test/scala/org/bitcoins/wallet/util/GetAddresses.scala
 
-### Not vendored as a file: bitcoin-s's descriptor cases
-
-```text
-repo    bitcoin-s/bitcoin-s
-path    core-test/src/test/scala/org/bitcoins/core/protocol/script/descriptor
-commit  32eaf31e48b092e29edb29cc882aada7d561f606  2025-03-06
-pulled  2026-10-11
-behind  0 revisions; that commit is the tip of the path
-```
-
-Verdict: **transcribed**, and **composed locally** for what bitcoin-s does
-not state. `tests/descriptors/bitcoin_s_test.py` holds these cases from
-that directory's test files:
-
-- each quoted `name(...)` string, checksum removed, that `git grep -F`
-  finds neither elsewhere in this suite's `tests/` nor in Bitcoin Core's
-  `src/test` at f0de87f040;
-- the key expressions, not the bare key origins, of `KeyExpressionTest.scala`
-  that the same search finds in neither;
-- the bad checksums of `DescriptorChecksumTest.scala`.
-
-Only the cases bitcoin-s runs count: its commented-out ones are left out,
-among them the public-key cases of `KeyExpressionTest.scala` that derive
-hardened steps.
-
-An accepted descriptor's script is bitcoin-s's. Its checksum, and its
-addresses where bitcoin-s gives no script, are what `getdescriptorinfo` and
-`deriveaddresses` answer, run with no chain on mainnet, at the Bitcoin Core
-release `integration-bitcoind.yml` pins. Where bitcoin-s gives a checksum,
-Core's is the same.
-Core's `getdescriptorinfo` refuses every case the test expects refused.
-
-The test's strings are the pinned files' strings. From the repository root,
-the first command fetches the files and prints the test's strings that they
-do not hold. A key expression is looked for without its `pkh()`, and a
-checksum case as its payload and its checksum apart. The scripts of the
-accepted cases, the checksum of the ranged one, and each accepted case that
-the files write with a checksum are looked for too. It prints an empty list.
-
-```shell
-commit=32eaf31e48b092e29edb29cc882aada7d561f606
-dir=core-test/src/test/scala/org/bitcoins/core/protocol/script/descriptor
-scala=$(mktemp -d)
-for f in $(gh api "repos/bitcoin-s/bitcoin-s/contents/${dir}?ref=${commit:?}" \
-        --jq '.[].name'); do
-    gh api -H 'Accept: application/vnd.github.raw' \
-        "repos/bitcoin-s/bitcoin-s/contents/${dir}/${f}?ref=${commit}" \
-        > "$scala/$f"
-done
-uv run python - "$scala" <<'PY'
-import sys
-from pathlib import Path
-
-from tests.descriptors import bitcoin_s_test as t
-
-text = "".join(f.read_text() for f in Path(sys.argv[1]).glob("*.scala"))
-cases = [d for d, *_ in t.ACCEPTED + t.REFUSED] + [t.RANGED]
-cases += [d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED]
-for d, _ in t.CHECKSUM_REFUSED:
-    cases += [d[4 : d.index(")")], d.partition(")")[2].lstrip("#")]
-cases += [s for *_, s in t.ACCEPTED] + [t.RANGED_CHECKSUM]
-cases += [f"{d}#{c}" for d, c, _ in t.ACCEPTED if f"{d}#" in text]
-print([c for c in cases if c and c not in text])
-PY
-```
-
-The second command is the selection, on the same files, in the same
-shell. It applies the rule above to each string of the pinned files and
-prints the selected ones that the test does not hold. It prints an empty
-list. `bitcoin` is a checkout of Bitcoin Core.
-
-```shell
-bitcoin=${bitcoin:-../bitcoin}
-uv run python - "${scala:?}" "$bitcoin" <<'PY'
-import re
-import subprocess
-import sys
-from pathlib import Path
-
-from tests.descriptors import bitcoin_s_test as t
-
-
-def found(*command):
-    return subprocess.run(command, capture_output=True).returncode == 0
-
-
-def selected(s):
-    here = ("git", "grep", "-qF", "--", s, "--", "tests/")
-    core = ("git", "-C", sys.argv[2], "grep", "-qF", "--", s)
-    return not found(*here, ":!tests/descriptors/bitcoin_s_test.py") and not found(
-        *core, "f0de87f040", "--", "src/test"
-    )
-
-
-held = {d for d, *_ in t.ACCEPTED + t.REFUSED} | {t.RANGED}
-held |= {d[4:-1] for d, *_ in t.KEY_ACCEPTED + t.KEY_REFUSED}
-missing = []
-for path in Path(sys.argv[1]).glob("*.scala"):
-    source = re.sub(r"/\*.*?\*/", "", path.read_text(), flags=re.S)
-    source = re.sub(r"(?m)^\s*//.*$", "", source)
-    for s in re.findall(r'"([^"\n]*)"', source):
-        s = re.sub(r"#[a-z0-9]{8}$", "", s)
-        key = path.name == "KeyExpressionTest.scala" and " " not in s
-        key = key and not s.endswith("]")
-        if (key or re.match(r"[a-z]{2,8}\(.*\)", s)) and selected(s):
-            missing += [s] * (s not in held)
-print(missing)
-PY
-rm -r "${scala:?}"
-```
-
-Core, on a node of its own with no chain, wallet or peers. From the
-repository root, the command prints the cases whose checksum or addresses
-differ from the test's, and those expected refused that Core accepts; it
-prints an empty list.
-
-```shell
-datadir=$(mktemp -d)
-bitcoind -datadir="$datadir" -rpcport=18999 -disablewallet -connect=0 \
-    -listen=0 -dnsseed=0 -daemonwait
-uv run python - "$datadir" <<'PY'
-import json
-import subprocess
-import sys
-
-from tests.descriptors import bitcoin_s_test as t
-
-
-def cli(*args):
-    return subprocess.run(
-        ["bitcoin-cli", f"-datadir={sys.argv[1]}", "-rpcport=18999", *args],
-        capture_output=True,
-        text=True,
-    )
-
-
-def info(d):
-    done = cli("getdescriptorinfo", d)
-    return json.loads(done.stdout)["checksum"] if done.returncode == 0 else None
-
-
-def addresses(d, count):
-    args = ["[0,2]"] if count > 1 else []
-    done = cli("deriveaddresses", f"{d}#{info(d)}", *args)
-    return json.loads(done.stdout)
-
-
-wrong = [d for d, checksum, _ in t.ACCEPTED if info(d) != checksum]
-wrong += [d for d, _ in t.REFUSED + t.CHECKSUM_REFUSED + t.KEY_REFUSED if info(d)]
-wrong += [t.RANGED] * (
-    (info(t.RANGED), addresses(t.RANGED, 3)) != (t.RANGED_CHECKSUM, t.RANGED_ADDRESSES)
-)
-wrong += [d for d, a in t.KEY_ACCEPTED if addresses(d, len(a)) != a]
-wrong += [t.TR_PKH_LEAF] * (
-    addresses(t.TR_PKH_LEAF, 1) != [t.TR_PKH_LEAF_ADDRESS]
-)
-print(wrong)
-PY
-bitcoin-cli -datadir="$datadir" -rpcport=18999 stop
-while [ -e "$datadir/bitcoind.pid" ]; do sleep 1; done
-rm -r "${datadir:?}"
-```
-
-Not vendored as a file because the strings are literals in Scala source.
-bitcoin-s is under the MIT licence (its `LICENSE`), the licence of this
-package.
-
 ### `src/btclib_wallet/bolt9.py`
 
 ```text
@@ -1987,7 +1514,7 @@ import re
 import subprocess
 import sys
 
-from btclib_wallet.descriptors import add_checksum
+from bip32_descriptors.descriptors import add_checksum
 from tests import krux_test as t
 
 
@@ -2315,12 +1842,10 @@ Not checked byte for byte against one:
 
 - transcribed, every value matched either in the pinned text or, for a
   source file, by the check the entry itself states:
-  `bip32_test_vectors.json`, `bip32_invalid_keys.json`,
   `bip174_test_vectors.json`, `bip370_test_vectors.json`,
   `bip371_test_vectors.json`, `bip373_test_vectors.json`,
   `bip85_test_vectors.json`, `bip329_test_vectors.jsonl`,
-  `miniscript_fixed_tests.json`, `bolt11_test_vectors.json`, `bolt9.py`,
-  `bitcoin_s_oracle_vectors.json`.
+  `bolt11_test_vectors.json`, `bolt9.py`, `bitcoin_s_oracle_vectors.json`.
 - recorded from btcd's MuSig2 code, pinned to the commit that ran:
   `signed_psbts.json`.
 - recorded from Bitcoin Core's wallet, pinned to the release that ran:
@@ -2330,16 +1855,7 @@ Not checked byte for byte against one:
 - response bodies under `tests/fetch/_data/`, whose envelopes are
   composed from Core's and Esplora's own source and whose payload is
   chain data the entry above already holds.
-- not vendored: `electrum_test_vectors.json`,
-  `descriptor_checksums.json` and `btclib_test_vectors.json` (btclib's
-  own). `descriptor_checksums.json` and `btclib_test_vectors.json` are
-  composed rather than recorded: `descriptor_checksums.json`'s checksums
-  come from a third implementation run over Core's own descriptors, and
-  `btclib_test_vectors.json`'s cases were built here, out of psbts BIP174
-  prints as prose.
-
-### Left for a maintainer to decide
-
-- **Descriptors of Core's `doc/descriptors.md` are not vendored**,
-  and cannot be without a checksum from a third implementation. See that
-  entry.
+- not vendored: `electrum_test_vectors.json` and
+  `btclib_test_vectors.json` (btclib's own). `btclib_test_vectors.json` is
+  composed rather than recorded: its cases were built here, out of psbts
+  BIP174 prints as prose.

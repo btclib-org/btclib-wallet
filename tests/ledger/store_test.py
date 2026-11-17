@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bip32_descriptors.descriptors import parse
 from btclib.alias import Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
@@ -27,7 +28,6 @@ from btclib.tx import Tx, TxOut
 from typing_extensions import override
 
 from btclib_wallet._refusal import _exact, _exact_int, _quoted
-from btclib_wallet.descriptors import parse
 from btclib_wallet.fetch.history import (
     BlockRef,
     HistoryTx,

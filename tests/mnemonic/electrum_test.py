@@ -14,6 +14,8 @@ upstream at all.
 
 import bip39_slip39.electrum
 import pytest
+from bip32_descriptors import descriptors
+from bip32_descriptors.bip32 import bip32
 from bip39_slip39.exceptions import (
     Bip39Slip39TypeError,
     Bip39Slip39ValueError,
@@ -21,8 +23,7 @@ from bip39_slip39.exceptions import (
 from btclib.exceptions import BTClibValueError
 from btclib.network import NETWORKS
 
-from btclib_wallet import descriptors, slip132
-from btclib_wallet.bip32 import bip32
+from btclib_wallet import slip132
 from btclib_wallet.mnemonic import bip39, electrum
 from tests import load, vector_id
 

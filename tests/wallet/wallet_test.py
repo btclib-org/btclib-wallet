@@ -23,11 +23,11 @@ import string
 from collections.abc import Callable
 
 import pytest
+from bip32_descriptors.bip32 import bip32
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.script.script_pub_key import ScriptPubKey
 from typing_extensions import override
 
-from btclib_wallet.bip32 import bip32
 from btclib_wallet.wallet import (
     BIP32KeyWallet,
     DescriptorWallet,

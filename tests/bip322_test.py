@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 from base58_bech32.base58 import b58decode_check, b58encode_check
+from bip32_descriptors.bip32 import rootxprv_from_seed
 from btclib import b58, bms
 from btclib.alias import ScriptList, TaprootScriptTree
 from btclib.b32 import p2tr, p2wpkh, p2wsh
@@ -59,7 +60,6 @@ from ecc.exceptions import EccRuntimeError
 from ecc.hashes import reduce_to_hlen
 
 from btclib_wallet import bip322
-from btclib_wallet.bip32 import rootxprv_from_seed
 from btclib_wallet.exceptions import InconclusiveError
 from btclib_wallet.psbt import Psbt, extract_tx, finalize
 from tests import (

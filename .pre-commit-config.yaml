@@ -170,7 +170,6 @@ repos:
             |\.bestpractices\.json$
             |tests/([^/]+/)?_data/
             (?!btclib_test_vectors\.json
-              |descriptor_checksums\.json
               |electrum_test_vectors\.json))
       - id: check-merge-conflict
       - id: check-vcs-permalinks

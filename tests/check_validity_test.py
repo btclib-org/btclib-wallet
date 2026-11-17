@@ -23,7 +23,7 @@ import pathlib
 
 import pytest
 
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
+from btclib_wallet.bip21 import Bip21
 
 PACKAGE = pathlib.Path(__file__).parent.parent / "src" / "btclib_wallet"
 
@@ -56,8 +56,8 @@ def test_check_validity_is_keyword_only() -> None:
     signatures = _signatures()
 
     # an assertion that the walk found the signatures at all, a broken one
-    # passing vacuously; `BIP32KeyOrigin.__init__` is one of them
-    assert ("btclib_wallet/bip32/key_origin.py", "__init__") in {
+    # passing vacuously; `Bip21.__init__` is one of them
+    assert ("btclib_wallet/bip21.py", "__init__") in {
         (path, name) for path, _, name, _ in signatures
     }
 
@@ -76,6 +76,7 @@ def test_check_validity_positional_is_a_type_error() -> None:
     would silently move it into another slot. As a TypeError it fails at
     the call, rather than wherever the wrong value landed.
     """
+    address = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
     with pytest.raises(TypeError, match="positional argument"):
-        BIP32KeyOrigin("deadbeef", "m/0h", False)  # type: ignore[call-arg]
-    assert BIP32KeyOrigin("deadbeef", "m/0h", check_validity=False).der_path
+        Bip21(address, None, None, None, None, None, False)  # type: ignore[call-arg]
+    assert Bip21(address, check_validity=False).address == address

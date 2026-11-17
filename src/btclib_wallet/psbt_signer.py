@@ -62,15 +62,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from btclib import bms
-from btclib.alias import Octets, String
-from btclib.exceptions import BTClibValueError
-from btclib.key import PrvKeyData
-from btclib.script.taproot import output_prvkey_from_merkle_root
-from btclib.utils import assert_type, bytes_from_octets
-from ecc import dsa, ssa
-
-from btclib_wallet.bip32.bip32 import (
+from bip32_descriptors.bip32.bip32 import (
     BIP32Key,
     BIP32KeyData,
     derive,
@@ -79,17 +71,25 @@ from btclib_wallet.bip32.bip32 import (
     pub_keyinfo_from_xkey,
     xpub_from_xprv,
 )
-from btclib_wallet.bip32.der_path import (
+from bip32_descriptors.bip32.der_path import (
     DerPath,
     indexes_from_der_path,
 )
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
-from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
-from btclib_wallet.descriptors import (
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
+from bip32_descriptors.descriptors import (
     Descriptor,
     KeyExpression,
     wallet_policy_address,
 )
+from btclib import bms
+from btclib.alias import Octets, String
+from btclib.exceptions import BTClibValueError
+from btclib.key import PrvKeyData
+from btclib.script.taproot import output_prvkey_from_merkle_root
+from btclib.utils import assert_type, bytes_from_octets
+from ecc import dsa, ssa
+
+from btclib_wallet.bip44 import BIP44ScriptType, account_descriptors
 from btclib_wallet.exceptions import SignerError
 from btclib_wallet.psbt.psbt import (
     Psbt,
@@ -592,13 +592,11 @@ def display_policy_address(
     `key_info` is a `tuple` and not the `Sequence`
     `descriptors.wallet_policy_address` itself takes: a `list` built by
     some other route needs `tuple(...)` first. That is narrower than the
-    computation asks for, and is not a design choice -- a `Sequence`
-    argument here reads ambiguously in the documentation build, this
-    class being importable both as `btclib_wallet.descriptors.KeyExpression`
-    and as `btclib_wallet.descriptors.key_expression.KeyExpression`, and a bare
-    parameter resolves that where a subscripted one does not. `tuple`
-    sidesteps it and costs nothing for the caller `wallet_policy` itself
-    feeds, which is the ordinary one.
+    computation asks for, and is not a design choice -- with a `Sequence`
+    argument here the documentation build finds no target for
+    `KeyExpression`, which it finds inside a `tuple`. `tuple` sidesteps
+    it and costs nothing for the caller `wallet_policy` itself feeds,
+    which is the ordinary one.
 
     `registration` is not checked here: it is `register_descriptor`'s own
     opaque answer, sent back unexamined the way `HwiSigner

@@ -10,6 +10,7 @@ from io import BytesIO
 from typing import Any, get_args
 
 import pytest
+from bip32_descriptors.bip32 import BIP32KeyOrigin
 from btclib.exceptions import BTClibValueError
 from btclib.script import Witness
 from btclib.script.sig_hash import SIG_HASH_TYPES
@@ -17,7 +18,6 @@ from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc import dsa
 from ecc.curves import sec_point, secp256k1
 
-from btclib_wallet.bip32 import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt, PsbtIn
 from btclib_wallet.psbt.psbt_in import (
     _DROPPED_ONCE_FINALIZED,

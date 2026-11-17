@@ -17,13 +17,13 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 
 import pytest
+from bip32_descriptors.descriptors import parse
 from btclib.alias import Octets
 from btclib.fee import FeeRate
 from btclib.script import ScriptPubKey
 from btclib.script.witness import Witness
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 
-from btclib_wallet.descriptors import parse
 from btclib_wallet.exceptions import FetchError
 from btclib_wallet.fetch.fee_estimator import FeeQuote
 from btclib_wallet.fetch.history import (

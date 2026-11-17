@@ -75,8 +75,9 @@ The address is the first one BIP84 lists for that mnemonic.
 ## What is here
 
 - [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)
-  hierarchical deterministic key chains, and
-  [SLIP132](https://github.com/satoshilabs/slips/blob/master/slip-0132.md)
+  hierarchical deterministic key chains, which are
+  [bip32-descriptors](https://github.com/btclib-org/bip32-descriptors)',
+  and [SLIP132](https://github.com/satoshilabs/slips/blob/master/slip-0132.md)
   key versions with their mapping to address types
 - [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki),
   [Electrum](https://electrum.org/#home) and
@@ -93,7 +94,8 @@ The address is the first one BIP84 lists for that mnemonic.
 - [BIP380](https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki)
   output descriptors and
   [BIP379](https://github.com/bitcoin/bips/blob/master/bip-0379.md)
-  miniscript
+  miniscript, which are
+  [bip32-descriptors](https://github.com/btclib-org/bip32-descriptors)'
 - [BIP174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki)
   and [BIP370](https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki)
   partially signed transactions, with the taproot, MuSig2, FROST and

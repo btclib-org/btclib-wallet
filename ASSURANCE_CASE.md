@@ -12,17 +12,17 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
 ## What is claimed
 
 - **A derivation, a parse, a signature and a broadcast agree with the
-  reference each is defined by.** BIP32, BIP39, SLIP39 and SLIP132
-  against the vectors their own authors publish, an output descriptor
-  and a PSBT against BIP380 and BIP174/BIP370, and, over a real device
-  or a real node, `tests/integration/hwi_device_test.py` against a
-  pinned Trezor emulator and a pinned Ledger under Speculos
+  reference each is defined by.** BIP39, SLIP39 and SLIP132 against the
+  vectors their own authors publish, a PSBT against BIP174/BIP370, and,
+  over a real device or a real node,
+  `tests/integration/hwi_device_test.py` against a pinned Trezor emulator
+  and a pinned Ledger under Speculos
   (`.github/workflows/integration-hwi.yml`) and
   `tests/integration/regtest_test.py` against a disposable regtest
-  `bitcoind` (`.github/workflows/integration-bitcoind.yml`), the
-  Electrum and Esplora fetchers against a live `electrs`, a reorg
-  included (`.github/workflows/integration-electrs.yml`), and the Electrum
-  fetcher against a live `florestad`, TLS included
+  `bitcoind` (`.github/workflows/integration-bitcoind.yml`), the Electrum
+  and Esplora fetchers against a live `electrs`, a reorg included
+  (`.github/workflows/integration-electrs.yml`), and the Electrum fetcher
+  against a live `florestad`, TLS included
   (`.github/workflows/integration-floresta.yml`). The fetcher reaches
   `florestad` only through a transport that adds `"jsonrpc": "2.0"`, which
   Floresta requires and the Electrum spec does not.
@@ -38,20 +38,20 @@ the ones [ARCHITECTURE](./ARCHITECTURE.md) describes.
   requires, or ecc's class of the same kind where the argument
   reaches that package unchecked (`tests/input_validation_test.py`,
   `tests/integer_policy_test.py`).
-- **Parsing octets from outside costs what the protocol allows.** A
-  length or a count read from a descriptor, a PSBT or an extended key is
-  checked against a bound before anything is built from it
-  (`tests/parse_contract_test.py`), and a parser fails the way the
-  library says it fails on anything else, never with a bare `IndexError`
-  or `OverflowError` (`tests/fuzz_test.py`).
+- **Parsing octets from outside costs what the protocol allows.** A length
+  or a count read from a PSBT or a DLC oracle's record is checked against
+  a bound before anything is built from it
+  (`tests/parse_contract_test.py`), and a parser fails the way the library
+  says it fails on anything else, never with a bare `IndexError` or
+  `OverflowError` (`tests/fuzz_test.py`).
 - **Where a secret meets the curve, the protection is the one
   SECURITY.md's *Where constant time ends* states, and no more.** Signing
-  and verification run where ecc runs them; `bip32/bip32.py` and
-  `silent_payments.py` also call the libsecp256k1 bindings directly, as
-  *Where this package reaches past ecc's own dispatch* below says;
-  the sum this package builds for BIP352 and the EC-multiply factor BIP38
-  builds are Python integer arithmetic, variable in time with the
-  operands, whichever install is in use.
+  and verification run where ecc runs them; `silent_payments.py` also
+  calls the libsecp256k1 bindings directly, as *Where this package reaches
+  past ecc's own dispatch* below says; the sum this package builds for
+  BIP352 and the EC-multiply factor BIP38 builds are Python integer
+  arithmetic, variable in time with the operands, whichever install is in
+  use.
 - **A published distribution is what this tree built.** SECURITY.md's
   *Supported versions* states how that is verified.
 
@@ -148,10 +148,10 @@ ledger's keys at rest*:
   Python integer arithmetic this package computes itself for BIP352's
   input-key sum and BIP38's EC-multiply factor
 - memory disclosure: secret material in a Python object is not zeroized,
-  and `bip32._cached_base58_decode` keeps a decoded extended key
-  reachable from its own cache past whatever reference the caller
-  released; an unlocked ledger's master key is in a buffer it zeroes,
-  and copies of what it decrypts are not
+  and bip32-descriptors' `bip32._cached_base58_decode` keeps a decoded
+  extended key reachable from its own cache past whatever reference the
+  caller released; an unlocked ledger's master key is in a buffer it
+  zeroes, and copies of what it decrypts are not
 - a ledger's keys in a backup taken before its encryption, in what the
   file system keeps of blocks SQLite overwrote or freed, and under a
   passphrase short enough to guess against scrypt's cost
@@ -193,20 +193,22 @@ btclib and re-exports none of it, which `tests/all_test.py`'s
 flaw in a primitive is btclib's to fix, and reported through
 [its own security policy](https://github.com/btclib-org/btclib/blob/main/SECURITY.md).
 
-**Descriptors and PSBTs from outside.** `descriptors.parse` and
-`Psbt.parse`/`Psbt.b64decode` are where a stranger's own text or bytes
-cross in — a descriptor pasted, read from a file or returned by
-`listdescriptors`; a psbt from another wallet, a coordinator or a QR
-code. `tests/parse_contract_test.py` holds every `parse` in the package
-to btclib's own contract: a field is as long as its encoding says, a
-complete octet string is one whole object, a caller's stream is the
-caller's. `descriptors.miniscript.parse` and `Psbt.parse` are BIP379's
-and BIP174's own recursive grammars over that input, and
-`fuzz/fuzz_descriptor.py` and `fuzz/fuzz_psbt.py` drive both under
-ClusterFuzzLite (`.github/workflows/fuzz.yml`); `fuzz/fuzz_bip32.py`
-does the same for an extended key's Base58Check and `fuzz/fuzz_bip322.py`
-for a BIP322 signature, and `tests/fuzz_corpus_test.py` checks that every
-seed in their corpora still parses.
+**PSBTs from outside.** `Psbt.parse`/`Psbt.b64decode` are where a
+stranger's own bytes cross in — a psbt from another wallet, a
+coordinator or a QR code. `tests/parse_contract_test.py` holds every
+`parse` in the package to btclib's own contract: a field is as long as
+its encoding says, a complete octet string is one whole object, a
+caller's stream is the caller's. `Psbt.parse` is BIP174's own recursive
+grammar over that input, and `fuzz/fuzz_psbt.py` drives it under
+ClusterFuzzLite (`.github/workflows/fuzz.yml`); `fuzz/fuzz_bip322.py`
+does the same for a BIP322 signature, and `tests/fuzz_corpus_test.py`
+checks that every seed in their corpora still parses.
+
+**Descriptors and extended keys from outside.** A descriptor's text and
+an extended key cross into bip32-descriptors, whose `parse` and
+`BIP32KeyData.b58decode` read them, and whose own
+[assurance case](https://github.com/btclib-org/bip32-descriptors/blob/main/ASSURANCE_CASE.md)
+argues for them.
 
 **An oracle's key.** Whose key an announcement carries is the caller's to
 check, as `dlc.oracle`'s module docstring says;
@@ -285,9 +287,10 @@ describes.
   selected by fingerprint, never by "the first one found"
   (`hwi.py`'s own argument against HWI's `--device-type`).
 - **Complete mediation.** Every public function validates its inputs,
-  and where it defers the work to a private twin, the twin trusts its
-  inputs because its callers checked them — `bip32.derive` and
-  `bip32._derive` is the shape CONTRIBUTING.md names to copy.
+  and where it defers the work to a private twin, the twin trusts what
+  its callers checked — `bip85._entropy_from_der_path` trusts the root
+  key `bip85.entropy_from_der_path` validated and refuses a bad path
+  itself, the shape CONTRIBUTING.md names to copy.
 - **Open design.** The code, the vendored vectors and the corpus under
   `fuzz/` are published, `tests/_data/README.md` says where every
   vendored file came from, and SECURITY.md states what is not defended.
@@ -306,21 +309,19 @@ describes.
   has to fix.
 - **Layering.** btclib does not import this package, and this package
   does not reimplement a primitive btclib already defines
-  (`tests/imports_test.py`). `descriptors/`'s own three modules import
-  only the ones before them; `fetch`'s own codecs sit outside it, in
+  (`tests/imports_test.py`). `psbt/` imports only the units that test's
+  `_ALLOWED_UNITS` names; `fetch`'s own codecs sit outside it, in
   `btclib.p2p` and `btclib_wallet.electrum`, for the reason above.
 
 **Where this package reaches past ecc's own dispatch, it says so.**
-`bip32/bip32.py` and `silent_payments.py` are the two modules calling
-the libsecp256k1 bindings directly rather than through ecc's general
-dispatch. Each call is one fixed operation behind
-`is_libsecp256k1_serving`, not a copy of the dispatch logic:
-`prvkey_tweak_add` and `PubkeyTweakChain` in `bip32.py`;
-`create_outputs`, `prevouts_summary` and `scan_outputs` in
-`silent_payments.py`, where `create_outputs` is switched off while
-`_DELEGATE_OUTPUT_KEYS` is False (issue #591). That keeps the one place
-a caller has to read for "does this call reach the bindings" to
-`ecc.curves.curve._libsecp256k1_serves` plus these two modules.
+`silent_payments.py` is the module calling the libsecp256k1 bindings
+directly rather than through ecc's general dispatch. Each call is one
+fixed operation behind `is_libsecp256k1_serving`, not a copy of the
+dispatch logic: `create_outputs`, `prevouts_summary` and `scan_outputs`,
+where `create_outputs` is switched off while `_DELEGATE_OUTPUT_KEYS` is
+False (issue #591). That keeps the one place a caller has to read for
+"does this call reach the bindings" to
+`ecc.curves.curve._libsecp256k1_serves` plus this module.
 
 ## Common implementation weaknesses
 
@@ -329,7 +330,7 @@ to, and what counters each.
 
 - **Improper input validation (CWE-20).** The trust boundaries above, and
   `tests/integer_policy_test.py`, which refuses a `bool` where an integer
-  field — a derivation index, an account number — is expected.
+  field — a wallet's branch or index, a psbt's version — is expected.
 - **Uncaught exceptions on hostile input (CWE-248, CWE-755).**
   `tests/fuzz_test.py`'s contract — `BTClibValueError`, `BTClibTypeError`
   or `BTClibRuntimeError`, or ecc's class of the same kind, and
@@ -339,8 +340,8 @@ to, and what counters each.
   their corpus still parses.
 - **Uncontrolled resource consumption (CWE-400, CWE-770).**
   `tests/parse_contract_test.py`'s bound, read before anything is built,
-  covers a descriptor, a PSBT map and an extended key the same way
-  btclib's own parsers are covered.
+  covers a PSBT map and a DLC oracle's record the same way btclib's own
+  parsers are covered.
 - **Observable timing (CWE-208).** SECURITY.md's *Where constant time
   ends* states which of this package's own operations run on Python
   integers regardless of which arithmetic btclib itself is using.
@@ -377,8 +378,8 @@ to, and what counters each.
   The refusal tests call the organization's helper in `tests/secret_free/`
   (`git grep -l assert_secret_free -- tests`), which
   `tests/secret_free_test.py` tests.
-- **Deserialization of untrusted data (CWE-502).** `descriptors.parse`
-  and `Psbt.parse`/`Psbt.b64decode` are this package's own parsers, not a
+- **Deserialization of untrusted data (CWE-502).**
+  `Psbt.parse`/`Psbt.b64decode` are this package's own parsers, not a
   generic deserializer; the census under *Threat model* lists neither
   `pickle` nor `marshal` nor `shelve`. `.github/workflows/codeql.yml`
   analyses the code and the workflows.

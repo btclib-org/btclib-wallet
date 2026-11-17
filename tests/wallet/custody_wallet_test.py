@@ -65,13 +65,8 @@ timelocks -- 5184 blocks, 576 blocks -- are the deployed ones.
 """
 
 import pytest
-from btclib.b32 import p2wsh
-from btclib.exceptions import BTClibValueError
-from btclib.script import Command, op_int, script
-from btclib.utils import encode_num
-
-from btclib_wallet.bip32.bip32 import BIP32KeyData, derive_from_account
-from btclib_wallet.descriptors import (
+from bip32_descriptors.bip32.bip32 import BIP32KeyData, derive_from_account
+from bip32_descriptors.descriptors import (
     MiniscriptDescriptor,
     WshDescriptor,
     add_checksum,
@@ -79,6 +74,11 @@ from btclib_wallet.descriptors import (
     parse,
     strip_checksum,
 )
+from btclib.b32 import p2wsh
+from btclib.exceptions import BTClibValueError
+from btclib.script import Command, op_int, script
+from btclib.utils import encode_num
+
 from btclib_wallet.exceptions import NoDescriptorError
 from btclib_wallet.wallet import KeyGroup, ScriptWallet
 
@@ -449,8 +449,12 @@ def test_sorted_multi_is_not_a_fragment() -> None:
     nowhere inside `or_i()` to write one.
     """
     key = f"[00000000/44h/0h/0h]{_PRIMARY[0]}/0/*"
-    with pytest.raises(BTClibValueError, match="unknown miniscript fragment"):
+    # Bitcoin Core's words, and the reason as their cause
+    with pytest.raises(
+        BTClibValueError, match="^A function is needed within P2WSH$"
+    ) as raised:
         parse(add_checksum(f"wsh(or_i(sortedmulti(1,{key}),1))"))
+    assert str(raised.value.__cause__) == "unknown miniscript fragment"
 
     # while the same expression on its own is a descriptor, and a ranged
     # one: what is missing is the combinator around it, not the sort

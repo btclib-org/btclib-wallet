@@ -60,20 +60,11 @@ _OTHER_CONTRACT: dict[str, str] = {
 # has gained a prefix being one this list no longer excuses (issue
 # btclib-org/btclib#814)
 _ITS_STANDARD_SPELLING = (
-    "the name is the standard's: BIP379's malleability analysis says a"
-    " miniscript mixes timelocks and has duplicate keys, and the three"
-    " PSBT_GLOBAL_TX_MODIFIABLE bits are named after the field"
-)
-
-_A_PREDICATE_WITH_A_SUBJECT = (
-    "`reads_back` is the round trip as a question, and the subject is the"
-    " script: `is_read_back` would ask who reads it"
+    "the name is the standard's: the three PSBT_GLOBAL_TX_MODIFIABLE bits"
+    " are named after the field"
 )
 
 _ENGLISH_PREDICATE: dict[str, str] = {
-    "btclib_wallet.descriptors.miniscript.has_duplicate_keys": _ITS_STANDARD_SPELLING,
-    "btclib_wallet.descriptors.miniscript.mixes_timelocks": _ITS_STANDARD_SPELLING,
-    "btclib_wallet.descriptors.miniscript.reads_back": _A_PREDICATE_WITH_A_SUBJECT,
     "btclib_wallet.psbt.psbt.has_sig_hash_single": _ITS_STANDARD_SPELLING,
     "btclib_wallet.psbt.psbt.inputs_modifiable": _ITS_STANDARD_SPELLING,
     "btclib_wallet.psbt.psbt.outputs_modifiable": _ITS_STANDARD_SPELLING,
@@ -95,7 +86,7 @@ def _promised_by(name: str) -> str | None:
 def _named() -> dict[str, str]:
     """Return every public function whose name promises a return type.
 
-    Methods included, a property being one: `BIP32KeyData.is_private`
+    Methods included, a property being one: `DescriptorWallet.is_ranged`
     promises a bool as much as `bip322.verify` does.
 
     The dotted name is the file's path and keeps the `__init__` of a
@@ -280,11 +271,11 @@ def test_the_walk_reaches_what_it_claims() -> None:
     assert _NAMED["btclib_wallet.psbt.musig2.partial_sig_verify"] == "bool"
     assert _NAMED["btclib_wallet.bip322.assert_as_valid"] == "None"
     # a method, and a property among them
-    assert _NAMED["btclib_wallet.bip32.bip32.is_private"] == "bool"
+    assert _NAMED["btclib_wallet.wallet.descriptor_wallet.is_ranged"] == "bool"
 
     # a private name, and a name that promises nothing
     assert "btclib_wallet.psbt.psbt._assert_partial_sigs_verify" not in _NAMED
-    assert "btclib_wallet.bip32.bip32.derive" not in _NAMED
+    assert "btclib_wallet.bip44.address_from_der_path" not in _NAMED
 
 
 def test_check_says_nothing_here() -> None:
@@ -342,7 +333,9 @@ def test_a_bool_about_the_object_is_a_property(dotted: str) -> None:
 
 def test_the_walk_reaches_both_shapes() -> None:
     """One of each shape, so the filter is doing work rather than nothing."""
-    assert _ARGUMENT_LESS_BOOLS["btclib_wallet.bip32.bip32.is_private"] is True
+    assert (
+        _ARGUMENT_LESS_BOOLS["btclib_wallet.wallet.descriptor_wallet.is_ranged"] is True
+    )
     # a bool of an argument is a function of it, and no property can be
     assert "btclib_wallet.psbt.musig2.partial_sig_verify" not in _ARGUMENT_LESS_BOOLS
     assert "btclib_wallet.bip322.verify" not in _ARGUMENT_LESS_BOOLS

@@ -19,11 +19,9 @@ mandates hardened derivation but cannot enforce it, and a child key used
 both as a key and as entropy would otherwise leak the one through the
 other.
 
-The module sits at the top level, beside `bip44` and `slip132`, and for
-the same reason: the applications below need `b58` for a WIF, `b32` for
-a bech32-encoded key and `bip39_slip39.bip39` for a sentence, and
-`bip32/` imports none of them. Nothing in the library imports this
-module.
+The module sits at the top level, beside `bip44` and `slip132`, and
+derives through bip32-descriptors' `bip32`. Nothing in the library
+imports this module.
 
 `entropy_from_der_path` is the derivation itself and answers for any
 path, the applications no function here formats included. Every
@@ -52,6 +50,17 @@ from hashlib import shake_256
 
 import bip39_slip39.bip39
 from base58_bech32.bech32 import BECH32_1_CONST, bech32_encode
+from bip32_descriptors.bip32.bip32 import (
+    BIP32Key,
+    BIP32KeyData,
+    derive_,
+    key_data_from_bip32_key,
+)
+from bip32_descriptors.bip32.der_path import (
+    HARDENED_OFFSET,
+    DerPath,
+    indexes_from_der_path,
+)
 from btclib.alias import Octets
 from btclib.b32 import power_of_2_base_conversion
 from btclib.b58 import wif_from_prv_key
@@ -61,17 +70,6 @@ from btclib.utils import assert_type, bytes_from_octets
 from ecc.curves import scalar_from_prv_key
 
 from btclib_wallet._refusal import _quoted
-from btclib_wallet.bip32.bip32 import (
-    BIP32Key,
-    BIP32KeyData,
-    derive_,
-    key_data_from_bip32_key,
-)
-from btclib_wallet.bip32.der_path import (
-    HARDENED_OFFSET,
-    DerPath,
-    indexes_from_der_path,
-)
 
 __all__ = [
     "BIP85DRNG",

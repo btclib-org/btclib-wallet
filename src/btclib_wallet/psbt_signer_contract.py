@@ -50,6 +50,8 @@ from __future__ import annotations
 from contextlib import suppress
 from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
+from bip32_descriptors.bip32.bip32 import BIP32KeyData
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
 from btclib.script.script_pub_key import ScriptPubKey
@@ -58,8 +60,6 @@ from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 
-from btclib_wallet.bip32.bip32 import BIP32KeyData
-from btclib_wallet.bip32.key_origin import BIP32KeyOrigin
 from btclib_wallet.psbt import Psbt
 from btclib_wallet.psbt_signer import (
     AddressDisplay,
@@ -70,7 +70,7 @@ from btclib_wallet.psbt_signer import (
 )
 
 if TYPE_CHECKING:
-    from btclib_wallet.bip32.der_path import DerPath
+    from bip32_descriptors.bip32.der_path import DerPath
 
 __all__ = [
     "OptionalProtocols",

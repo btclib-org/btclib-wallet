@@ -347,6 +347,21 @@ wheels = [
 ]
 
 [[package]]
+name = "bip32-descriptors"
+version = "2026.11.17"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "base58-bech32" },
+    { name = "btclib" },
+    { name = "ecc" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/36/48/a6c5eb554a790199070c0966394a30c8cd35f0d30a36578a18518958d0d3/bip32_descriptors-2026.11.17.tar.gz", hash = "sha256:8fed5929200b1827d1ba80898d3e8a8751c393c473ca617755f1ae0f5ba49876", size = 1144237, upload-time = "2026-11-17T00:43:16.613Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/32/7f48b49c83f8fbb5d854278a6f026c981af831d6949c2fffce7bb2a55b36/bip32_descriptors-2026.11.17-py3-none-any.whl", hash = "sha256:d144c0755ba0609f6cbe7a0d17ecaa0072631db5b6e3d2c2ba16722e569f7d36", size = 196385, upload-time = "2026-11-17T00:43:14.884Z" },
+]
+
+[[package]]
 name = "bip39-slip39"
 version = "2026.11.2"
 source = { registry = "https://pypi.org/simple" }
@@ -469,6 +484,7 @@ version = "2026.11.16"
 source = { editable = "." }
 dependencies = [
     { name = "base58-bech32" },
+    { name = "bip32-descriptors" },
     { name = "bip39-slip39" },
     { name = "bitcoin-core-rpc" },
     { name = "btclib" },
@@ -566,6 +582,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "base58-bech32", specifier = ">=2026.10.23" },
+    { name = "bip32-descriptors", specifier = ">=2026.11.17" },
     { name = "bip39-slip39", specifier = ">=2026.11.2" },
     { name = "bitcoin-core-rpc", specifier = ">=2026.11.15" },
     { name = "btclib", specifier = ">=2026.11.10" },
