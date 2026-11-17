@@ -1130,10 +1130,15 @@ class Ledger:
         return _next_index(self._handed, source, branch)
 
     def _hand_out(self, position: _Position) -> str:
-        """Record a position as handed out, and return its address."""
+        """Record a position as handed out, and return its address.
+
+        The address is asked first: a script with no address is refused
+        with nothing recorded, so the memory and the file still agree.
+        """
         source, branch, index = position
+        address = self._sources[source].address(branch, index)
         self._handed.add(position)
-        return self._sources[source].address(branch, index)
+        return address
 
     def _windows_for(
         self, handed: set[_Position]

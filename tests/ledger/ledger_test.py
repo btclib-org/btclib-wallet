@@ -185,6 +185,29 @@ def test_a_branch_that_is_not_ranged_has_one_address(
     assert ledger.new_address(source_id) == address
 
 
+def test_a_refused_new_address_hands_out_nothing(
+    ledger: Ledger, chain: FakeChain, path: Path
+) -> None:
+    """A ``pk()`` script has no address, and its position stays free.
+
+    In memory as in the file, which a load reads back (issue #1044).
+    """
+    bare = source("pk({}/1h/{}/*)")
+    source_id = ledger.add_source(bare, lookahead=SMALL_LOOKAHEAD)
+    handed = set(ledger._handed)
+    with pytest.raises(BTClibValueError, match="no address for the script at 0/0"):
+        ledger.new_address(source_id)
+    with pytest.raises(BTClibValueError, match="no address for the script at 1/0"):
+        ledger.new_change_address(source_id)
+    assert ledger._handed == handed
+    assert ledger._next_index(source_id, 0) == ledger._next_index(source_id, 1) == 0
+    ledger.close()
+    with Ledger.load(path, "regtest", chain) as loaded:
+        assert loaded._handed == handed
+        assert loaded._next_index(source_id, 0) == 0
+        assert loaded._next_index(source_id, 1) == 0
+
+
 def test_the_highest_branch_is_the_highest_the_file_holds(
     ledger: Ledger, chain: FakeChain, path: Path
 ) -> None:
