@@ -947,6 +947,33 @@ def test_a_height_an_sqlite_integer_holds_loads(
         assert info.wallet_tx.block.height == height
 
 
+@pytest.mark.parametrize("height", [-1, -(2**63)], ids=["-1", "least"])
+def test_a_source_added_at_a_negative_tip_loads_again(
+    chain: FakeChain, path: Path, height: int
+) -> None:
+    """`add_source` takes a negative tip as a birth of 0 (issue #1050).
+
+    It takes the tip where it is given no birth height. A load reads a
+    negative tip and refuses a negative birth.
+    """
+    with Ledger.create(path, "regtest", chain) as ledger:
+        ledger.add_source(source())
+        ledger.sync()
+    db = sqlite3.connect(path)
+    with db:
+        db.execute("UPDATE meta SET value = ? WHERE key = 'tip_height'", (str(height),))
+    db.close()
+    with Ledger.load(path, "regtest", chain) as ledger:
+        assert ledger.tip is not None
+        assert ledger.tip.height == height
+        ledger.add_source(source("wpkh({}/84h/1h/7h/{}/*)"), None)
+    assert _rows(path, "SELECT birth FROM sources ORDER BY id") == [(0,), (0,)]
+    with Ledger.load(path, "regtest", chain) as again:
+        assert len(again.sources) == 2
+        assert again.tip is not None
+        assert again.tip.height == height
+
+
 class _JumpChain(FakeChain):
     """A chain whose tip is `jump` once `held` holds that block's txs."""
 

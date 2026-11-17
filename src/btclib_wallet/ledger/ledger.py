@@ -1042,6 +1042,9 @@ class Ledger:
         a label on a ranged descriptor
         (src/wallet/rpc/backup.cpp:213-216 at
         bitcoin/bitcoin@f0de87f040, the v32.1 tag).
+
+        `None` takes a negative tip the file holds as 0, the least birth
+        `load` reads back.
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
@@ -1063,7 +1066,7 @@ class Ledger:
         scanned = birth_height is None
         birth = birth_height
         if birth is None:
-            birth = 0 if self._tip is None else self._tip.height
+            birth = 0 if self._tip is None else max(self._tip.height, 0)
         descriptors = {
             branch: str(wallet.descriptor(branch)) for branch in wallet.branches
         }
