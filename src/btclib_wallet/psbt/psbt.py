@@ -2667,6 +2667,17 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
     order. A single-key leaf needs one signature; a BIP379 multi_a needs
     one element per key, nonempty for its quorum and empty otherwise.
 
+    A leaf is refused unless its control block and its record both say
+    BIP342's leaf version, 0xc0. Consensus reads the control block's
+    version, and runs no script of a leaf at another one, so nothing
+    would read its signatures (BIP341). The record's version is the one
+    the tapleaf hash of a signature commits to. Bitcoin Core's
+    ``finalizepsbt`` leaves either case unfinalized: its signer solves no
+    record at another version, and checks the spend it builds with flags
+    that refuse a control block at another version (src/script/sign.cpp:548
+    and 815, src/policy/policy.h:129, at bitcoin/bitcoin@f0de87f040, the
+    v32.1 tag).
+
     Each signature is verified against the hash it says it committed to,
     for the reason the legacy path verifies its own: a Finalizer is the
     last role that can still refuse, and a witness built from a bad
@@ -2703,6 +2714,11 @@ def _finalized_taproot_input(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness]:
 
     leaf_hash = next(iter(leaf_hashes))
     script, control_block = leaf_script(psbt_in, leaf_hash)
+    record_version = psbt_in.taproot_leaf_scripts[control_block][1]
+    if {control_block[0] & 0xFE, record_version} != {_TAPSCRIPT_LEAF_VERSION}:
+        err_msg = f"input {_position(vin_i)}: cannot finalize a taproot script "
+        err_msg += "path whose leaf version is not BIP342's 0xc0"
+        raise BTClibValueError(err_msg)
     multi = _multi_a_leaf(script)
     if multi is None:
         multi = (1, [single_leaf_key(script)])

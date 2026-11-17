@@ -50,6 +50,7 @@ from btclib_wallet.psbt import (
     extract_tx,
     finalize,
     join,
+    miniscript_solver,
     new_signers,
     sign,
     taproot_sig_hash,
@@ -4166,6 +4167,62 @@ def test_sign_appends_the_sig_hash_type_to_a_script_path_signature() -> None:
     assert signature[-1] == sig_hash.ALL
     assert_signatures_only(request, returned)
     verify_transaction(prevouts, extract_tx(finalize(returned), check_validity=False))
+
+
+@pytest.mark.parametrize(
+    "tree_version, record_version",
+    [
+        (0xC2, 0xC2),
+        (0xBE, 0xBE),
+        (0xC2, 0xC0),
+        (0xBE, 0xC0),
+        (0xC0, 0xC2),
+        (0xC0, 0xBE),
+    ],
+)
+def test_finalize_refuses_a_leaf_whose_version_is_not_tapscript(
+    tree_version: int, record_version: int
+) -> None:
+    """Refuse a signed leaf whose control block or record is not at 0xc0.
+
+    Issue #1035. The control block proves the leaf at the tree's version,
+    which is the one consensus reads, and the leaf is signed at the
+    record's version, as a signer reads it. Consensus runs no script of a
+    leaf at a version other than 0xc0, so the script engine takes a
+    witness with no signature at all. Where the record's version differs
+    from the tree's, the signature commits to a hash the leaf does not
+    have. With the solver, a record at 0xc0 beside a control block at
+    another version is refused by the solver's own check. The solver
+    passes over a record at another version, and finalize's check refuses
+    it.
+    """
+    tree: TaprootScriptTree = [(tree_version, [_LEAF_KEY, "OP_CHECKSIG"])]
+    leaf_hash = taproot.leaf_hash(record_version, _LEAF_SCRIPT)
+    prev_out = TxOut(100_000, ScriptPubKey.p2tr(PubKeyData(_TAPROOT_PUB_KEY), tree))
+    tx, _ = _spending_tx(prev_out)
+    control_block = input_script_sig(PubKeyData(_TAPROOT_PUB_KEY), tree, 0)[1]
+
+    psbt = Psbt.from_tx(tx)
+    psbt_in = psbt.inputs[0]
+    psbt_in.witness_utxo = prev_out
+    psbt_in.taproot_leaf_scripts[control_block] = (_LEAF_SCRIPT, record_version)
+    msg_hash = taproot_sig_hash(psbt, 0, leaf_hash=leaf_hash)
+    signature = ssa.sign_(msg_hash, _LEAF_PRV_KEY).serialize()
+    psbt_in.taproot_script_spend_signatures = {_LEAF_KEY + leaf_hash: signature}
+
+    if tree_version != 0xC0:
+        spend = deepcopy(tx)
+        spend.vin[0].script_witness = Witness([b"", _LEAF_SCRIPT, control_block])
+        verify_transaction([prev_out], spend)
+
+    err_msg = (
+        "^input 0: cannot finalize a taproot script path whose leaf "
+        "version is not BIP342's 0xc0$"
+    )
+    with pytest.raises(BTClibValueError, match=err_msg):
+        finalize(psbt)
+    with pytest.raises(BTClibValueError, match="leaf version"):
+        finalize(psbt, solver=miniscript_solver)
 
 
 def test_sign_skips_a_taproot_leaf_with_an_odd_version() -> None:
