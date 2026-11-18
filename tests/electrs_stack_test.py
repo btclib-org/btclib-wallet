@@ -22,6 +22,7 @@ import socket
 import subprocess
 import sys
 import textwrap
+import time
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
@@ -29,8 +30,10 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from bitcoin_core_rpc import BitcoinCoreRpcClient
 
 from btclib_wallet.fetch.transport import TcpLineTransport
+from tests.fetch.bitcoin_core_test import RPC_PASSWORD, RPC_USER
 from tests.integration import compact_filters_test
 from tests.integration import conftest as stack_module
 from tests.integration.conftest import (
@@ -41,6 +44,7 @@ from tests.integration.conftest import (
     _start_node,
     _start_server,
     _stop,
+    _wait_for,
     port_was_taken,
     start_on_free_ports,
 )
@@ -285,7 +289,7 @@ class _ListeningClient:
         self.port = int(url.rsplit(":", 1)[1])
         self.timeout = timeout
 
-    def call(self, method: str) -> None:
+    def call(self, method: str, request_timeout: float) -> None:
         socket.create_connection(("127.0.0.1", self.port), timeout=1).close()
 
 
@@ -390,6 +394,32 @@ def test_a_taken_p2p_port_on_the_last_attempt_is_raised(
         start_on_free_ports(
             lambda: _start_node(node_script, tmp_path, held_port, ()), attempts=1
         )
+
+
+def test_a_probe_that_stalls_fails_the_start_within_its_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A node that takes the probe and never answers is given the start's time.
+
+    The client's own timeout is longer than the start's, so the start ends
+    in time only where each probe is given what is left of the start's.
+    """
+    monkeypatch.setattr(stack_module, "_STARTUP_TIMEOUT", 0.5)
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        with closing(socket.socket()) as silent:
+            silent.bind(("127.0.0.1", 0))
+            silent.listen()
+            url = f"http://127.0.0.1:{silent.getsockname()[1]}"
+            client = BitcoinCoreRpcClient(
+                url, user=RPC_USER, password=RPC_PASSWORD, timeout=10
+            )
+            began = time.monotonic()
+            with pytest.raises(pytest.fail.Exception, match="did not answer"):
+                _wait_for(client, process, tmp_path / "debug.log")
+            assert time.monotonic() - began < 5
+    finally:
+        _stop(process)
 
 
 def test_a_node_that_exits_for_another_reason_fails_the_run(

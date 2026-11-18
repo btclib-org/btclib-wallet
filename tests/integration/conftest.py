@@ -191,9 +191,13 @@ def _wait_for(
     """Poll until the node answers, or fail with what it did instead.
 
     A node that exited because its rpc port is taken raises `PortTaken`.
+
+    Each poll is given what is left of `_STARTUP_TIMEOUT`, in place of
+    the client's `_RPC_TIMEOUT`, so that a node that takes the connection
+    and never answers fails the start within that bound.
     """
     deadline = time.monotonic() + _STARTUP_TIMEOUT
-    while time.monotonic() < deadline:
+    while (left := deadline - time.monotonic()) > 0:
         if process.poll() is not None:
             log = (
                 debug_log.read_text(encoding="utf-8", errors="replace")
@@ -204,9 +208,10 @@ def _wait_for(
                 raise PortTaken(log)
             pytest.fail(f"bitcoind exited with {process.returncode}")
         try:
-            client.call("getblockchaininfo")
+            client.call("getblockchaininfo", request_timeout=left)
         # every failure before the node is up is the same failure: the
-        # cookie file is not written yet, or the socket is not listening
+        # cookie file is not written yet, the socket is not listening, or
+        # the node took the probe and did not answer in time
         except Exception:  # noqa: BLE001
             time.sleep(0.1)
         else:

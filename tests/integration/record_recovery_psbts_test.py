@@ -36,7 +36,12 @@ from bitcoin_core_rpc import BitcoinCoreRpcClient
 from btclib_wallet.bip32.bip32 import derive
 from btclib_wallet.descriptors import add_checksum
 from tests import load
-from tests.integration.conftest import _start_node, _stop, start_on_free_ports
+from tests.integration.conftest import (
+    _RPC_TIMEOUT,
+    _start_node,
+    _stop,
+    start_on_free_ports,
+)
 from tests.psbt import core_recovery_psbts_test as offline
 
 pytestmark = pytest.mark.integration
@@ -85,10 +90,6 @@ _SCRIPT_TYPES = ("p2wsh", "p2tr")
 _BATCH = 100
 _BATCHES = 3
 
-# seconds a call may take: room for a loaded machine, so that only a call
-# that stalls reaches it
-_RPC_TIMEOUT = 180.0
-
 # the calls that mine: the miner's first blocks, then the batches
 _MINING_CALLS = 1 + _BATCHES
 
@@ -111,9 +112,7 @@ def recorder(bitcoind_path: str, tmp_path: Path) -> Iterator[BitcoinCoreRpcClien
         )
     )
     try:
-        yield BitcoinCoreRpcClient(
-            client.url, cookie_path=client.cookie_path, timeout=_RPC_TIMEOUT
-        )
+        yield client
     finally:
         _stop(process)
 
