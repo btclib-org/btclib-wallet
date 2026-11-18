@@ -4185,16 +4185,15 @@ def test_finalize_refuses_a_leaf_whose_version_is_not_tapscript(
 ) -> None:
     """Refuse a signed leaf whose control block or record is not at 0xc0.
 
-    Issue #1035. The control block proves the leaf at the tree's version,
-    which is the one consensus reads, and the leaf is signed at the
-    record's version, as a signer reads it. Consensus runs no script of a
-    leaf at a version other than 0xc0, so the script engine takes a
-    witness with no signature at all. Where the record's version differs
-    from the tree's, the signature commits to a hash the leaf does not
-    have. With the solver, a record at 0xc0 beside a control block at
-    another version is refused by the solver's own check. The solver
-    passes over a record at another version, and finalize's check refuses
-    it.
+    The control block proves the leaf at the tree's version, which is
+    the one consensus reads, and the leaf is signed at the record's
+    version, as a signer reads it. Consensus runs no script of a leaf at
+    a version other than 0xc0, so the script engine takes a witness with
+    no signature at all. Where the record's version differs from the
+    tree's, the signature commits to a hash the leaf does not have. With
+    the solver, a record at 0xc0 beside a control block at another
+    version is refused by the solver's own check. The solver passes over
+    a record at another version, and finalize's check refuses it.
     """
     tree: TaprootScriptTree = [(tree_version, [_LEAF_KEY, "OP_CHECKSIG"])]
     leaf_hash = taproot.leaf_hash(record_version, _LEAF_SCRIPT)
