@@ -1042,6 +1042,9 @@ class Ledger:
         a label on a ranged descriptor
         (src/wallet/rpc/backup.cpp:213-216 at
         bitcoin/bitcoin@f0de87f040, the v32.1 tag).
+
+        `None` takes a negative tip the file holds as 0, the least birth
+        `load` reads back.
         """
         assert_type(wallet, DescriptorWallet, "wallet")
         if birth_height is not None:
@@ -1063,7 +1066,7 @@ class Ledger:
         scanned = birth_height is None
         birth = birth_height
         if birth is None:
-            birth = 0 if self._tip is None else self._tip.height
+            birth = 0 if self._tip is None else max(_exact_int(self._tip.height), 0)
         descriptors = {
             branch: str(wallet.descriptor(branch)) for branch in wallet.branches
         }
@@ -3250,6 +3253,12 @@ def _path_held(path: str | PathLike[str], name: str) -> str:
     A str holding a NUL is refused too, before any file is made: `os`
     refuses one in a path with a `ValueError` of its own, which
     `Path.touch` lets out.
+
+    So is a str holding a surrogate, U+D800 to U+DFFF, on every system:
+    `store` opens the file through a URI built from the str's UTF-8,
+    which cannot encode one. `os.fsdecode` reads a file name that is
+    not UTF-8 as a str holding one, so such a file cannot be a ledger's
+    or a backup.
     """
     held: object = path
     if not issubclass(type(path), str):
@@ -3264,6 +3273,8 @@ def _path_held(path: str | PathLike[str], name: str) -> str:
     text = _exact(cast("str", held))
     if "\0" in text:
         raise BTClibValueError(f"invalid {name}: it holds a NUL character")
+    if any("\ud800" <= char <= "\udfff" for char in text):
+        raise BTClibValueError(f"invalid {name}: it holds a surrogate")
     return text
 
 

@@ -58,3 +58,4 @@ tests/psbt/_data/rust-psbt/bip371.json -text
 tests/psbt/_data/rust-psbt/bip375.json -text
 tests/psbt/_data/rust-psbt/fuzz.json -text
 tests/psbt/_data/btcd/signed_psbts.json -text
+tests/psbt/_data/core/recovery_psbts.json -text
