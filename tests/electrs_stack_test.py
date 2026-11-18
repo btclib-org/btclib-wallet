@@ -13,7 +13,8 @@ exits where it cannot. They run in every ordinary run.
 
 The node's client is checked here too, as `_start_node` and
 `compact_filters_test`'s `_start_peer_node` build it: it waits
-`_RPC_TIMEOUT` for a call, and the conftest says why.
+`_RPC_TIMEOUT` for a call, and the conftest says why, and the start's
+probe is given what is left of the start's bound.
 """
 
 from __future__ import annotations
@@ -401,8 +402,8 @@ def test_a_probe_that_stalls_fails_the_start_within_its_bound(
 ) -> None:
     """A node that takes the probe and never answers is given the start's time.
 
-    The client's own timeout is longer than the start's, so the start ends
-    in time only where each probe is given what is left of the start's.
+    The client's own timeout is longer than the start's, so a probe given
+    the client's timeout would hold the start past its bound.
     """
     monkeypatch.setattr(stack_module, "_STARTUP_TIMEOUT", 0.5)
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
