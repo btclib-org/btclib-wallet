@@ -913,8 +913,8 @@ repo    bitcoin/bitcoin
 path    src/psbt.cpp
 ref     v32.1
 commit  4c9d55a6125ad2c1dd7215e1790ef268f4fe735c  2026-09-09
-ours    18b9cfb17c21cc2f125ed062c41ed4da912e0f6d
-pulled  2026-11-16
+ours    1aed7f11f6ffe6c0ea6d4a0753657bb7ef563716
+pulled  2026-11-18
 behind  0 revisions; that commit is the tip of the path
 ```
 
