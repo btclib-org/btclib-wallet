@@ -4043,7 +4043,10 @@ def miniscript_solver(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:
     allows. A p2wsh witness the engine refuses is refused with the
     engine's refusal. A p2wsh input that carries no utxo is refused before
     the engine runs, since there is no output to run the witness against.
-    Bitcoin Core's ``finalizepsbt`` leaves both unfinalized.
+    Bitcoin Core's ``finalizepsbt`` leaves both unfinalized. It runs its
+    check with its standard script flags, policy among them, where this
+    runs the consensus ones, as it does for a leaf: a p2wsh signature
+    with a high s, which ``finalizepsbt`` leaves unfinalized, is spent.
 
     A taproot input is spent by a script path, and only where it carries
     no key path signature: with one, `finalize` builds the key path, which
