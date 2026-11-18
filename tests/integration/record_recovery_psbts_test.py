@@ -80,13 +80,26 @@ POLICIES: dict[str, Any] = {
 
 _SCRIPT_TYPES = ("p2wsh", "p2tr")
 
-# the blocks mined after the funding: more than any path waits
-_BLOCKS = 300
-# seconds a call may take: mining those blocks in one call outlasts the
-# client's default on a loaded machine. It stays below the suite's
-# `timeout`, which bounds the whole test, so that a call that stalls can
-# fail with the client's error
+# the blocks mined after the funding, `_BATCHES` calls of `_BATCH`: more
+# than any path waits
+_BATCH = 100
+_BATCHES = 3
+
+# seconds a call may take: mining a batch outlasts the client's default
+# on a loaded machine
 _RPC_TIMEOUT = 180.0
+
+# the calls that mine: the miner's first blocks, then the batches
+_MINING_CALLS = 1 + _BATCHES
+
+# the test's bound, in place of the suite's `timeout`, which the mining
+# alone can pass: each mining call may take `_RPC_TIMEOUT`, and the rest
+# of the test, its other calls and its checks, as long as one more. So a
+# call that stalls fails with the client's error first. The bound stays
+# below the regtest job's `timeout-minutes`, which
+# reusable-integration-bitcoind.yml sets, so that pytest-timeout prints
+# the stack before the job is cancelled
+_TEST_TIMEOUT = (_MINING_CALLS + 1) * _RPC_TIMEOUT
 
 
 @pytest.fixture
@@ -210,7 +223,8 @@ def _record(node: BitcoinCoreRpcClient) -> dict[str, Any]:
             miner.call("sendtoaddress", [funded, "2"])
             case["texts"] = texts
             cases.append(case)
-    miner.call("generatetoaddress", [_BLOCKS, address])
+    for _ in range(_BATCHES):
+        miner.call("generatetoaddress", [_BATCH, address])
     for case in cases:
         watcher = node.for_wallet(f"{case['script_type']} {case['policy']}")
         (utxo,) = watcher.call("listunspent")
@@ -232,6 +246,7 @@ def _record(node: BitcoinCoreRpcClient) -> dict[str, Any]:
     return {"bitcoind": version, "mocktime": _MOCKTIME, "cases": cases}
 
 
+@pytest.mark.timeout(_TEST_TIMEOUT)
 def test_core_spends_each_recovery_path(recorder: BitcoinCoreRpcClient) -> None:
     """Record Core's spends, and read them as the recorded file is read.
 
