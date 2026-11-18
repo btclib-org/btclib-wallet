@@ -296,7 +296,7 @@ def test_a_path_holding_a_nul_is_refused_before_any_file_is_made(
     ids=["str", "subclass", "answered"],
 )
 # `os.fsdecode` reads a byte 0x80 that is not UTF-8 as U+DC80. Built by
-# `chr`: ruff reads the three literals as one value, and calls them duplicates
+# `chr`: ruff reads the literals as one value, and calls them duplicates.
 @pytest.mark.parametrize("surrogate", [chr(0xD800), chr(0xDC80), chr(0xDFFF)])
 def test_a_path_holding_a_surrogate_is_refused_before_any_file_is_made(
     held: Ledger,
@@ -326,7 +326,7 @@ def test_the_code_points_beside_the_surrogates_name_a_file(
     U+D7FB is the last code point assigned below the surrogates: APFS
     refuses a name holding one Unicode has not assigned.
     """
-    path = tmp_path / "ퟻ.sqlite"
+    path = tmp_path / "\ud7fb\ue000.sqlite"
     Ledger.create(str(path), "regtest", chain).close()
     Ledger.load(str(path), "regtest", chain).close()
     assert _files(tmp_path) == [path.name]

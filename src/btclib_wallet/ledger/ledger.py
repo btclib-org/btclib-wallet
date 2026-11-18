@@ -3253,7 +3253,7 @@ def _path_held(path: str | PathLike[str], name: str) -> str:
 
     So is a str holding a surrogate, U+D800 to U+DFFF, on every system:
     `store` opens the file through a URI built from the str's UTF-8,
-    which holds no surrogate. `os.fsdecode` reads a file name that is
+    which cannot encode one. `os.fsdecode` reads a file name that is
     not UTF-8 as a str holding one, so such a file cannot be a ledger's
     or a backup.
     """
