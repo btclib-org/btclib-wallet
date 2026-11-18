@@ -85,20 +85,20 @@ _SCRIPT_TYPES = ("p2wsh", "p2tr")
 _BATCH = 100
 _BATCHES = 3
 
-# seconds a call may take: mining a batch outlasts the client's default
-# on a loaded machine
+# seconds a call may take: room for a loaded machine, so that only a call
+# that stalls reaches it
 _RPC_TIMEOUT = 180.0
 
 # the calls that mine: the miner's first blocks, then the batches
 _MINING_CALLS = 1 + _BATCHES
 
 # the test's bound, in place of the suite's `timeout`, which the mining
-# alone can pass: each mining call may take `_RPC_TIMEOUT`, and the rest
-# of the test, its other calls and its checks, as long as one more. So a
-# call that stalls fails with the client's error first. The bound stays
-# below the regtest job's `timeout-minutes`, which
-# reusable-integration-bitcoind.yml sets, so that pytest-timeout prints
-# the stack before the job is cancelled
+# calls' deadlines alone pass: each mining call may take `_RPC_TIMEOUT`,
+# and the rest of the test, its other calls and its checks, as long as
+# one more. So a call that stalls fails with the client's error first.
+# The regtest job's `timeout-minutes`, in btclib-org/.github's
+# `reusable-integration-bitcoind.yml`, must stay above this bound, or the
+# job is cancelled before pytest-timeout prints the stack
 _TEST_TIMEOUT = (_MINING_CALLS + 1) * _RPC_TIMEOUT
 
 
@@ -216,9 +216,9 @@ def _record(node: BitcoinCoreRpcClient) -> dict[str, Any]:
             (funded,) = node.call("deriveaddresses", [texts[0], [_INDEX, _INDEX]])
             assert funded == receive.address(_INDEX)
             # listed before the funding: the watcher learns of the payment
-            # from the node's validation queue, at a time of its own after
-            # sendtoaddress returns, and the payment moves the receive
-            # descriptor's `next` and `range`
+            # from the node's validation queue, at a time of its own, which
+            # can be after sendtoaddress returns, and the payment moves the
+            # receive descriptor's `next` and `range`
             case["listdescriptors"] = watcher.call("listdescriptors")["descriptors"]
             miner.call("sendtoaddress", [funded, "2"])
             case["texts"] = texts

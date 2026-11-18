@@ -1972,10 +1972,10 @@ rm -r "${krux:?}"
 Core's refusals, for this entry and the next: Bitcoin Core refuses each
 of Krux's wrong checksums, naming the one `add_checksum` computes, and
 refuses the joint custody file's descriptor as not sane. The command
-asks a node of its own with no chain, wallet or peers, of the release
-`integration-bitcoind.yml` pins. Core reads a checksum before any key,
-so this mainnet node answers for Krux's testnet descriptors too. From
-this repository's root, it prints an empty list:
+asks a node of its own with no blocks beyond genesis, no wallet and no
+peers, of the release `integration-bitcoind.yml` pins. Core reads a
+checksum before any key, so this mainnet node answers for Krux's testnet
+descriptors too. From this repository's root, it prints an empty list:
 
 ```shell
 datadir=$(mktemp -d)
