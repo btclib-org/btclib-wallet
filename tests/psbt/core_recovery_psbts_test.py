@@ -186,6 +186,7 @@ _POLICIES = (
     "two primaries",
     "decaying twice",
     "equal locks",
+    "three heirs",
 )
 
 

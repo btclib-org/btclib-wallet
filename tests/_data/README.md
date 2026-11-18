@@ -1969,6 +1969,61 @@ PY
 rm -r "${krux:?}"
 ```
 
+Core's refusals, for this entry and the next: Bitcoin Core refuses each
+of Krux's wrong checksums, naming the one `add_checksum` computes, and
+refuses the joint custody file's descriptor as not sane. The command
+asks a node of its own with no chain, wallet or peers, of the release
+`integration-bitcoind.yml` pins. Core reads a checksum before any key,
+so this mainnet node answers for Krux's testnet descriptors too. From
+this repository's root, it prints an empty list:
+
+```shell
+datadir=$(mktemp -d)
+bitcoind -datadir="$datadir" -rpcport=18999 -disablewallet -connect=0 \
+    -listen=0 -dnsseed=0 -daemonwait
+uv run python - "$datadir" <<'PY'
+import json
+import re
+import subprocess
+import sys
+
+from btclib_wallet.descriptors import add_checksum
+from tests import krux_test as t
+
+
+def refusal(d):
+    done = subprocess.run(
+        ["bitcoin-cli", f"-datadir={sys.argv[1]}", "-rpcport=18999"]
+        + ["getdescriptorinfo", d],
+        capture_output=True,
+        text=True,
+    )
+    return done.stderr if done.returncode else ""
+
+
+def specter(name):
+    return json.loads(getattr(t, name))["descriptor"]
+
+
+wrong = []
+for d in [
+    t.WSH_MINISCRIPT,
+    t.TR_MINISCRIPT,
+    t.TR_EXP_MULTI_MINISCRIPT,
+    specter("SPECTER_MINISCRIPT_EXPANDING_MULTISIG_WALLET_DATA"),
+]:
+    text = d.partition("#")[0]
+    computed = re.findall(r"computed checksum '(\w+)'", refusal(d))
+    wrong += [d] * ([f"{text}#{c}" for c in computed] != [add_checksum(text)])
+joint = specter("SPECTER_MINISCRIPT_3_KEY_JOINT_CUSTODY_WALLET_DATA")
+wrong += [joint] * ("not sane" not in refusal(joint))
+print(wrong)
+PY
+bitcoin-cli -datadir="$datadir" -rpcport=18999 stop
+while [ -e "$datadir/bitcoind.pid" ]; do sleep 1; done
+rm -r "${datadir:?}"
+```
+
 License: MIT, as Krux's `LICENSE.md` says of Krux's own code, whose
 notice the module keeps.
 

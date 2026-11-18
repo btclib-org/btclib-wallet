@@ -71,16 +71,22 @@ POLICIES: dict[str, Any] = {
         [(2, [1, 2, 3], 144), (1, [4], 144)],
         [[0], [1, 3], [4]],
     ),
+    "three heirs": (
+        [(2, [0, 1])],
+        [(1, [2], 144), (1, [3], 216), (1, [4], 288)],
+        [[0, 1], [2], [3], [4]],
+    ),
 }
 
 _SCRIPT_TYPES = ("p2wsh", "p2tr")
 
 # the blocks mined after the funding: more than any path waits
 _BLOCKS = 300
-# seconds a call may take: mining those blocks in one call, or importing a
-# tr() descriptor of many leaves, outlasts the client's default on a
-# loaded machine
-_RPC_TIMEOUT = 600.0
+# seconds a call may take: mining those blocks in one call outlasts the
+# client's default on a loaded machine. It stays below the suite's
+# `timeout`, which bounds the whole test, so that a call that stalls can
+# fail with the client's error
+_RPC_TIMEOUT = 180.0
 
 
 @pytest.fixture
@@ -196,8 +202,12 @@ def _record(node: BitcoinCoreRpcClient) -> dict[str, Any]:
             assert all(result["success"] for result in results), results
             (funded,) = node.call("deriveaddresses", [texts[0], [_INDEX, _INDEX]])
             assert funded == receive.address(_INDEX)
-            miner.call("sendtoaddress", [funded, "2"])
+            # listed before the funding: the watcher learns of the payment
+            # from the node's validation queue, at a time of its own after
+            # sendtoaddress returns, and the payment moves the receive
+            # descriptor's `next` and `range`
             case["listdescriptors"] = watcher.call("listdescriptors")["descriptors"]
+            miner.call("sendtoaddress", [funded, "2"])
             case["texts"] = texts
             cases.append(case)
     miner.call("generatetoaddress", [_BLOCKS, address])
