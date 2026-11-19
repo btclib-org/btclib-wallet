@@ -38,8 +38,10 @@ bullet on loading a ledger file.
   ([ISS 634](https://github.com/btclib-org/btclib-wallet/issues/634)).
   `parse`, `bip139.parse` and `core_import` accept `sh(raw())`, `wsh(raw())`,
   `rawleaf()`, `rawnode()` and `rawpkh()`, and a `DescriptorWallet` takes
-  what `parse` returns for each. Such a wallet hands out its one address and
-  refuses a second index. Its updater refuses a `rawpkh()`, which holds no key,
+  what `parse` returns for each. Where the descriptor holds no ranged key, the
+  wallet hands out its one address and refuses a second index. A `tr()` whose
+  internal key is ranged keeps the wallet ranged, whatever `rawleaf()` or
+  `rawnode()` it holds. Its updater refuses a `rawpkh()`, which holds no key,
   and the output of a `rawnode()`, which gives a merkle root and no tree.
   `BIP32KeyOrigin.der_path` is a tuple, where it was a list. Where one key
   expression mixes `h` and `'`, `multipath_descriptors` writes one of the two
