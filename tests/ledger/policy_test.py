@@ -51,6 +51,8 @@ SECRET = KEY.hex()
 SECRETS = [*SPELLINGS, XPRV]
 TEMPLATE = "wpkh({}/84h/1h/0h/{}/*)"
 TR_TEMPLATE = "tr({}/86h/1h/0h/{}/*)"
+# a tree known by its hash alone, which `update_psbt_output` refuses
+RAW_NODE_TEMPLATE = "tr({}/86h/1h/0h/{}/*,rawnode(" + "22" * 32 + "))"
 # one address on each branch, at index 7
 FIXED_TEMPLATE = "wpkh({}/84h/1h/1h/{}/7)"
 HARDENED_TEMPLATE = "wpkh({}/84h/1h/0h/{}/*h)"
@@ -645,6 +647,18 @@ def test_a_multipath_descriptor_restores_as_two_branches(
         assert restored.new_change_address() == restored.sources[0].address(1, 1)
 
 
+def test_an_addr_change_descriptor_restores_and_exports(
+    chain: FakeChain, tmp_path: Path
+) -> None:
+    """An ``addr()`` has no expansion, and is no tree ``add_source`` refuses."""
+    change = add_checksum(f"addr({_foreign()})")
+    text = _policy([{"descriptor": _public(TEMPLATE), "change_descriptor": change}])
+    with _restored(chain, text, tmp_path / "r.sqlite") as restored:
+        assert restored.sources[0].branches == (0, 1)
+        account = bip139.parse(restored.export_policy())["accounts"][0]
+        assert account["change_descriptor"] == change
+
+
 def test_a_restore_reads_each_source_from_its_birth(
     chain: FakeChain, path: Path, tmp_path: Path
 ) -> None:
@@ -791,6 +805,20 @@ _REFUSED: list[tuple[Callable[[], str], str]] = [
             [{"descriptor": _public(TEMPLATE), "change_descriptor": _public(TEMPLATE)}]
         ),
         "^branches 0 and 1 share a script",
+    ),
+    (
+        lambda: _policy(
+            [
+                {
+                    "descriptor": _public(TR_TEMPLATE),
+                    "change_descriptor": _public(RAW_NODE_TEMPLATE, 1),
+                }
+            ]
+        ),
+        (
+            r"^accounts\[0\]: branch 1 gives a taproot merkle root and no script"
+            " tree, which a change output cannot carry$"
+        ),
     ),
     (
         lambda: _policy(

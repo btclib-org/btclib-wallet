@@ -314,8 +314,10 @@ keep, the restore never sees, and the next export does not write.
 
 Of what `bip139.parse` returns, what the ledger cannot hold is refused
 before the file is made, so that a restore holds all of it or nothing: a
-text of another network; an account that no `DescriptorWallet` holds, or
-whose descriptor expands to more than two paths; an index on a branch
+text of another network; an account that no `DescriptorWallet` holds,
+whose descriptor expands to more than two paths, or whose branch 1 is a
+``tr()`` with a merkle root and no script tree, as `add_source` refuses
+it; an index on a branch
 the account does not have, past the one address of a branch that is not
 ranged, or of a million or more, which Core's `importdescriptors`
 refuses; a label record of another type than ``addr``, or with an
@@ -340,7 +342,7 @@ from types import TracebackType
 from typing import Any, Concatenate, ParamSpec, Self, TypeVar, cast
 
 from bip32_descriptors.bip32.bip32 import fingerprint
-from bip32_descriptors.descriptors import normalized, parse
+from bip32_descriptors.descriptors import TrDescriptor, normalized, parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
 from btclib.network import NETWORKS, validated_network_name
@@ -1073,6 +1075,11 @@ class Ledger:
         (src/wallet/rpc/backup.cpp:213-216 at
         bitcoin/bitcoin@f0de87f040, the v32.1 tag).
 
+        A wallet whose branch 1 is a ``tr()`` with a merkle root and no
+        script tree, as one with a ``rawnode()`` in its tree is, is
+        refused: `psbt.update_psbt_output` refuses each change output
+        paid to it.
+
         `None` takes a negative tip the file holds as 0, the least birth
         `load` reads back.
         """
@@ -1089,6 +1096,7 @@ class Ledger:
             err_msg = f"the wallet's network, {_label(wallet.network, NETWORKS)},"
             err_msg += f" is not the ledger's, {_label(self.network, NETWORKS)}"
             raise BTClibValueError(err_msg)
+        _assert_change_tree(wallet, "")
         if label is not None:
             label = _checked_label(label)
             if 0 not in wallet.branches or wallet.descriptor(0).is_ranged:
@@ -3131,6 +3139,27 @@ def _watched(wallet: DescriptorWallet, refusal: str) -> dict[int, str]:
     return {branch: str(descriptor) for branch, descriptor in watched.items()}
 
 
+def _assert_change_tree(wallet: DescriptorWallet, at: str) -> None:
+    """Refuse a branch 1 that gives a taproot merkle root and no script tree.
+
+    A ``tr()`` with a ``rawnode()`` in its tree gives one, and
+    `psbt.update_psbt_output` refuses each change output paid to such a
+    branch. Only a ``tr()`` gives a merkle root, so no other descriptor
+    is expanded: an ``addr()``, for one, refuses an expansion, and is
+    taken. The tree has the same shape at every index, so index 0 tells.
+    `at` opens the refusal.
+    """
+    if 1 not in wallet.branches:
+        return
+    change = wallet.descriptor(1)
+    if not isinstance(change, TrDescriptor):
+        return
+    expansion = change.expansion(0, wallet.prv_keys)
+    if expansion.taproot_merkle_root and not expansion.taproot_tree:
+        err_msg = f"{at}branch 1 gives a taproot merkle root and no script tree,"
+        raise BTClibValueError(f"{err_msg} which a change output cannot carry")
+
+
 @dataclass(frozen=True)
 class _PolicyAccount:
     """A source as `restore_policy` adds it, read from an account.
@@ -3235,6 +3264,7 @@ def _policy_account(
     if len(wallet.branches) > 2:
         err_msg = f"{at}.descriptor: more than two paths, which an export"
         raise BTClibValueError(f"{err_msg} cannot write back")
+    _assert_change_tree(wallet, f"{at}: ")
     indexes = {}
     for branch, field in ((0, "receive_index"), (1, "change_index")):
         if (index := account.get(field)) is None:

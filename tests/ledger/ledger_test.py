@@ -379,6 +379,80 @@ def test_a_lookahead_above_the_limit_is_refused(ledger: Ledger) -> None:
     assert ledger.sources == (*before, single)
 
 
+# a tr() whose tree holds a node known by its hash alone, beside a tr()
+# of the same kind whose tree `update_psbt_output` takes: a ranged one of
+# the key alone, and one address with a pk() leaf
+_RAW_NODE = "rawnode(" + "22" * 32 + ")"
+_PK = f"pk({XPRV}/86h/1h/7h/0/0)"
+_TREES = [
+    pytest.param(
+        "tr({}/86h/1h/0h/{}/*," + _RAW_NODE + ")",
+        "tr({}/86h/1h/0h/{}/*)",
+        id="ranged",
+    ),
+    pytest.param(
+        "tr({}/86h/1h/0h/{}/0,{{" + _PK + "," + _RAW_NODE + "}})",
+        "tr({}/86h/1h/0h/{}/0," + _PK + ")",
+        id="one-address",
+    ),
+]
+
+
+def _tr_source(change: str, receive: str) -> DescriptorWallet:
+    """Return a wallet of `receive` on branch 0 and `change` on branch 1."""
+    prv_keys: dict[str, str] = {}
+    descriptors = [
+        parse(template.format(XPRV, branch), "regtest", prv_keys)
+        for branch, template in enumerate((receive, change))
+    ]
+    return DescriptorWallet(descriptors, prv_keys)
+
+
+@pytest.mark.parametrize("raw, tree", _TREES)
+def test_a_change_branch_with_no_script_tree_is_refused(
+    ledger: Ledger, raw: str, tree: str
+) -> None:
+    """A tree with a ``rawnode()`` is refused on branch 1 and taken on 0.
+
+    Its change output would be refused (issue #1047). Nothing is stored:
+    the same tree on branch 0 takes the id the refused source would have
+    had.
+    """
+    before = ledger.sources
+    err_msg = (
+        "^branch 1 gives a taproot merkle root and no script tree, which a"
+        " change output cannot carry$"
+    )
+    with pytest.raises(BTClibValueError, match=err_msg):
+        ledger.add_source(_tr_source(raw, tree), lookahead=SMALL_LOOKAHEAD)
+    assert ledger.sources == before
+    wallet = _tr_source(tree, raw)
+    assert ledger.add_source(wallet, lookahead=SMALL_LOOKAHEAD) == len(before)
+    assert ledger.sources == (*before, wallet)
+
+
+# two addresses of a chain no other source here watches
+_CHAIN = source("wpkh({}/84h/1h/8h/{}/*)", (0,))
+_ADDRESSES = (_CHAIN.address(0, 0), _CHAIN.address(0, 1))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [f"addr({_ADDRESSES[1]})", "raw(0014" + "11" * 20 + ")"],
+    ids=["addr", "raw"],
+)
+def test_a_change_branch_with_no_expansion_is_taken(
+    ledger: Ledger, change: str
+) -> None:
+    """An ``addr()`` or a ``raw()`` gives no merkle root: no tree is asked."""
+    wallet = DescriptorWallet(
+        [parse(f"addr({_ADDRESSES[0]})", "regtest"), parse(change, "regtest")]
+    )
+    before = ledger.sources
+    assert ledger.add_source(wallet, lookahead=SMALL_LOOKAHEAD) == len(before)
+    assert ledger.sources == (*before, wallet)
+
+
 def test_a_source_and_a_branch_are_the_ints_they_hold(
     chain: FakeChain, path: Path
 ) -> None:
