@@ -664,6 +664,29 @@ def test_an_addr_change_descriptor_restores_and_exports(
         assert account["change_descriptor"] == change
 
 
+def test_a_file_whose_source_0_cannot_take_change_loads_and_does_not_export(
+    chain: FakeChain, path: Path
+) -> None:
+    """A source 0 `add_source` refuses, in a file an older version wrote.
+
+    Written to the file past `add_source`, as before issue #1074: `load`
+    reads it back, and the export, which reads its text as a restore
+    does, refuses it.
+    """
+    descriptors = {0: _public(TEMPLATE), 1: add_checksum(f"addr({_foreign()})")}
+    held = store_module._Source(descriptors, {}, None, LOOKAHEAD, 0, False)
+    with _new(chain, path) as ledger:
+        ledger._store.add_source(0, held)
+    with Ledger.load(path, "regtest", chain) as loaded:
+        assert loaded.sources[0].branches == (0, 1)
+        err_msg = (
+            r"^accounts\[0\]: branch 1 cannot update a psbt, which the change of"
+            " source 0 needs$"
+        )
+        with pytest.raises(BTClibValueError, match=err_msg):
+            loaded.export_policy()
+
+
 def test_a_restore_reads_each_source_from_its_birth(
     chain: FakeChain, path: Path, tmp_path: Path
 ) -> None:
