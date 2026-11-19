@@ -25,6 +25,7 @@ tree in their place.
 
 from __future__ import annotations
 
+import re
 import secrets
 
 import pytest
@@ -41,11 +42,13 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import script
 from btclib.script.script_pub_key import ScriptPubKey
+from btclib.script.taproot import leaf_hash, output_pubkey_from_merkle_root_var
 from btclib.tx.out_point import OutPoint
 from btclib.tx.tx import Tx
 from btclib.tx.tx_in import TxIn
 from btclib.tx.tx_out import TxOut
 from btclib.utils import encode_num
+from ecc.hashes import tagged_hash
 
 from btclib_wallet.psbt.psbt import Psbt
 from btclib_wallet.wallet import BIP32KeyWallet, DescriptorWallet
@@ -456,6 +459,105 @@ def test_the_updaters_take_a_position_where_a_descriptor_takes_an_index() -> Non
     for method in (wallet.update_psbt_input, wallet.update_psbt_output):
         with pytest.raises(BTClibValueError, match="invalid branch: an int of 2 bits"):
             method(psbt, 0, 2, 2)
+
+
+# the raw forms bip32-descriptors reads, and what each pays to, computed
+# here: a tr() of `_PUBKEY` with a rawleaf() of OP_1, and one with a pk()
+# leaf beside a rawnode() known by its hash alone
+_RAW_LEAF = leaf_hash(0xC0, b"\x51")
+_RAW_NODE = b"\x22" * 32
+_PK_LEAF = leaf_hash(0xC0, b"\x20" + PrvKeyData(2).pub.sec[1:] + b"\xac")
+_RAW_BRANCH = tagged_hash(
+    b"TapBranch", min(_PK_LEAF, _RAW_NODE) + max(_PK_LEAF, _RAW_NODE)
+)
+_NO_KEY = "rawpkh() cannot update a psbt: it holds no key"
+
+
+def _p2tr(merkle_root: bytes) -> ScriptPubKey:
+    """Return the p2tr script of `_PUBKEY` tweaked by a merkle root."""
+    internal_key = bytes.fromhex(_PUBKEY)[1:]
+    output_key = output_pubkey_from_merkle_root_var(internal_key, merkle_root)[0]
+    return ScriptPubKey(b"\x51\x20" + output_key)
+
+
+@pytest.mark.parametrize(
+    "expression, script_pub_key, written, output_written",
+    [
+        pytest.param(
+            "sh(raw(51))",
+            ScriptPubKey.p2sh(b"\x51"),
+            ("redeem_script", b"\x51"),
+            ("redeem_script", b"\x51"),
+            id="sh-raw",
+        ),
+        pytest.param(
+            "wsh(raw(51))",
+            ScriptPubKey.p2wsh(b"\x51"),
+            ("witness_script", b"\x51"),
+            ("witness_script", b"\x51"),
+            id="wsh-raw",
+        ),
+        pytest.param(
+            f"tr({_PUBKEY},rawleaf(51,c0))",
+            _p2tr(_RAW_LEAF),
+            ("taproot_merkle_root", _RAW_LEAF),
+            ("taproot_internal_key", bytes.fromhex(_PUBKEY)[1:]),
+            id="rawleaf",
+        ),
+        pytest.param(
+            f"tr({_PUBKEY},{{pk({PrvKeyData(2).pub.sec.hex()}),rawnode({_RAW_NODE.hex()})}})",
+            _p2tr(_RAW_BRANCH),
+            ("taproot_merkle_root", _RAW_BRANCH),
+            "output 0: the descriptor gives a taproot merkle root and no script tree",
+            id="rawnode",
+        ),
+        pytest.param(
+            f"rawpkh({'11' * 20})",
+            ScriptPubKey(b"\x76\xa9\x14" + b"\x11" * 20 + b"\x88\xac"),
+            _NO_KEY,
+            _NO_KEY,
+            id="rawpkh",
+        ),
+    ],
+)
+def test_a_raw_descriptor_is_a_wallet_of_one_address(
+    expression: str,
+    script_pub_key: ScriptPubKey,
+    written: tuple[str, bytes] | str,
+    output_written: tuple[str, bytes] | str,
+) -> None:
+    """Hand out the one script a raw form pays to, and update what it can.
+
+    bip32-descriptors reads ``sh(raw())``, ``wsh(raw())``, ``rawleaf()``,
+    ``rawnode()`` and ``rawpkh()``. Each is one script, so the wallet hands
+    out its address once and refuses a second index. The Updater writes
+    what the descriptor knows, and refuses where it knows too little: a
+    ``rawpkh()`` holds no key, and a ``rawnode()`` gives a merkle root and
+    no tree an output could carry.
+    """
+    wallet = DescriptorWallet.from_descriptor(_descriptor(expression))
+    assert wallet.branches == (0,)
+    assert not wallet.is_ranged
+    assert wallet.is_watch_only
+    assert wallet.next_address(0) == script_pub_key.address
+    assert wallet.addresses == (script_pub_key.address,)
+    with pytest.raises(
+        BTClibValueError,
+        match=r"^not a ranged descriptor: no script at index an int of 1 bits$",
+    ):
+        wallet.next_address(0)
+
+    psbt = _psbt_spending(script_pub_key)
+    for update, fields, expected in (
+        (wallet.update_psbt_input, "inputs", written),
+        (wallet.update_psbt_output, "outputs", output_written),
+    ):
+        if isinstance(expected, str):
+            with pytest.raises(BTClibValueError, match=f"^{re.escape(expected)}$"):
+                update(psbt, 0)
+        else:
+            name, value = expected
+            assert getattr(getattr(update(psbt, 0), fields)[0], name) == value
 
 
 # A taproot wallet of the same seed: an internal key that spends by the key

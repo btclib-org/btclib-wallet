@@ -28,7 +28,7 @@ from bip32_descriptors.descriptors.miniscript import (
     parse,
 )
 from btclib.alias import Octets
-from btclib.exceptions import BTClibValueError
+from btclib.exceptions import BTClibValueError, ScriptError
 from btclib.hashes import hash160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import Witness, sig_hash
@@ -300,6 +300,60 @@ def test_an_uncompressed_key_beside_a_missing_one_is_left_to_finalize() -> None:
     solved = finalize(psbt, solver=miniscript_solver).inputs[0]
     assert solved.final_script_witness == finalize(psbt).inputs[0].final_script_witness
     assert solved.final_script_witness.stack[-1] == script
+
+
+@pytest.mark.parametrize(
+    "shape, refused",
+    [
+        pytest.param("or_d(pkh(U),pk(A))", True, id="or_d-pkh-first"),
+        pytest.param("or_i(pk(A),and_v(v:pkh(U),older(144)))", True, id="or_i"),
+        pytest.param(
+            "or_d(multi(1,A),and_v(v:pkh(U),older(144)))", True, id="or_d-multi"
+        ),
+        pytest.param("or_d(pk(A),and_v(v:pkh(U),older(144)))", False, id="or_d-pk"),
+    ],
+)
+def test_a_named_uncompressed_key_leaves_the_input_to_finalize(
+    shape: str, refused: bool
+) -> None:
+    """Answer None where every key is named and a pkh() one is uncompressed.
+
+    U is the uncompressed key of private key 1, named by its origin, and A
+    the compressed key that signed, on a branch without U. bip32-descriptors
+    refuses an uncompressed key inside P2WSH, so the witness script is no
+    miniscript to the solver or to either sizer. `finalize` then builds
+    what it builds without a solver, A's signature and the script, which
+    the engine refuses for three of these scripts and accepts for the
+    fourth. ISS btclib-org/btclib-wallet#962 is what restores the solver.
+    """
+    uncompressed = PrvKeyData(1, compressed=False).pub.sec
+    text = shape.replace("U", KEYS[0]).replace("A", KEYS[1])
+    script = parse(text).script()
+    script = script.replace(hash160(bytes.fromhex(KEYS[0])), hash160(uncompressed))
+    psbt, _ = signed_psbt(parse(f"pk({KEYS[0]})"), [], 0, 0)
+    psbt_in = psbt.inputs[0]
+    prevout = TxOut(50_000, ScriptPubKey.p2wsh(script))
+    psbt_in.witness_utxo = prevout
+    psbt_in.witness_script = script
+    psbt_in.hd_key_paths = {uncompressed: BIP32KeyOrigin("deadbeef", [0])}
+    msg_hash = sig_hash.segwit_v0(script, psbt.tx, 0, 1, prevout.value)
+    sig = dsa.sign_(msg_hash, SIGNING_KEYS[KEYS[1]]).serialize() + b"\x01"
+    psbt_in.partial_sigs = {bytes.fromhex(KEYS[1]): sig}
+    tx_in = psbt.tx.vin[0]
+    assert miniscript_solver(psbt, 0) is None
+    assert miniscript_sizer(psbt_in, tx_in) is None
+    assert satisfaction_sizer([KEYS[1]])(psbt_in, tx_in) is None
+    final = finalize(psbt, solver=miniscript_solver)
+    witness = final.inputs[0].final_script_witness
+    assert witness == finalize(psbt).inputs[0].final_script_witness
+    assert list(witness.stack) == [sig, script]
+    spending = final.tx
+    spending.vin[0].script_witness = witness
+    if refused:
+        with pytest.raises(ScriptError):
+            verify_transaction([prevout], spending)
+    else:
+        verify_transaction([prevout], spending)
 
 
 def test_a_key_hash_in_a_script_that_is_no_miniscript_is_not_the_refusal() -> None:
