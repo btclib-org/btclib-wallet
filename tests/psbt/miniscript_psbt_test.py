@@ -28,7 +28,7 @@ from bip32_descriptors.descriptors.miniscript import (
     parse,
 )
 from btclib.alias import Octets
-from btclib.exceptions import BTClibValueError, ScriptError
+from btclib.exceptions import BTClibValueError, ScriptError, ScriptErrorCode
 from btclib.hashes import hash160, sha256
 from btclib.key import PrvKeyData, PubKeyData
 from btclib.script import Witness, sig_hash
@@ -387,10 +387,10 @@ def test_a_witness_script_past_the_op_limit_is_refused() -> None:
     node = _older_chain(101)
     assert node.max_ops == 203
     psbt, _ = signed_psbt(node, [KEYS[0]], 0, 1)
-    message = "^more than 201 op codes: 202 "
-    with pytest.raises(BTClibValueError, match=message) as e:
+    with pytest.raises(ScriptError, match="^more than 201 op codes") as e:
         finalize(psbt, solver=miniscript_solver)
     # the engine's own refusal, raised from a fresh run and chained by it
+    assert e.value.code is ScriptErrorCode.OP_COUNT
     assert_secret_free(e.value, [PRV_KEYS[0]])
 
     node = _older_chain(100)
