@@ -650,12 +650,17 @@ def test_a_multipath_descriptor_restores_as_two_branches(
 def test_an_addr_change_descriptor_restores_and_exports(
     chain: FakeChain, tmp_path: Path
 ) -> None:
-    """An ``addr()`` has no expansion, and is no tree ``add_source`` refuses."""
+    """An ``addr()`` after account 0, which takes the change, is watched."""
     change = add_checksum(f"addr({_foreign()})")
-    text = _policy([{"descriptor": _public(TEMPLATE), "change_descriptor": change}])
+    text = _policy(
+        [
+            {"descriptor": _public(TR_TEMPLATE)},
+            {"descriptor": _public(TEMPLATE), "change_descriptor": change},
+        ]
+    )
     with _restored(chain, text, tmp_path / "r.sqlite") as restored:
-        assert restored.sources[0].branches == (0, 1)
-        account = bip139.parse(restored.export_policy())["accounts"][0]
+        assert restored.sources[1].branches == (0, 1)
+        account = bip139.parse(restored.export_policy())["accounts"][1]
         assert account["change_descriptor"] == change
 
 
@@ -818,6 +823,27 @@ _REFUSED: list[tuple[Callable[[], str], str]] = [
         (
             r"^accounts\[0\]: branch 1 gives a taproot merkle root and no script"
             " tree, which a change output cannot carry$"
+        ),
+    ),
+    (
+        lambda: _policy([{"descriptor": _public(RAW_NODE_TEMPLATE)}]),
+        (
+            r"^accounts\[0\]: branch 0 gives a taproot merkle root and no script"
+            " tree, which a change output cannot carry$"
+        ),
+    ),
+    (
+        lambda: _policy(
+            [
+                {
+                    "descriptor": _public(TEMPLATE),
+                    "change_descriptor": add_checksum(f"addr({_foreign()})"),
+                }
+            ]
+        ),
+        (
+            r"^accounts\[0\]: branch 1 cannot update a psbt, which the change of"
+            " source 0 needs$"
         ),
     ),
     (

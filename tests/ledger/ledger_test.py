@@ -412,7 +412,7 @@ def _tr_source(change: str, receive: str) -> DescriptorWallet:
 def test_a_change_branch_with_no_script_tree_is_refused(
     ledger: Ledger, raw: str, tree: str
 ) -> None:
-    """A tree with a ``rawnode()`` is refused on branch 1 and taken on 0.
+    """A ``rawnode()`` tree is refused on branch 1, taken on 0 of source 1.
 
     Its change output would be refused (issue #1047). Nothing is stored:
     the same tree on branch 0 takes the id the refused source would have
@@ -444,13 +444,94 @@ _ADDRESSES = (_CHAIN.address(0, 0), _CHAIN.address(0, 1))
 def test_a_change_branch_with_no_expansion_is_taken(
     ledger: Ledger, change: str
 ) -> None:
-    """An ``addr()`` or a ``raw()`` gives no merkle root: no tree is asked."""
+    """An ``addr()`` or a ``raw()`` is taken as source 1: no tree is asked."""
     wallet = DescriptorWallet(
         [parse(f"addr({_ADDRESSES[0]})", "regtest"), parse(change, "regtest")]
     )
     before = ledger.sources
     assert ledger.add_source(wallet, lookahead=SMALL_LOOKAHEAD) == len(before)
     assert ledger.sources == (*before, wallet)
+
+
+# a change branch that can never carry change, and why: each on branch 0
+# alone, and on branch 1 beside a branch 0 that receives, but for the tree
+# with a ``rawnode()``, which is refused on branch 1 of any source
+_NO_UPDATE = "cannot update a psbt, which the change of source 0 needs"
+_NOT_CARRIED = [
+    (
+        "tr({}/86h/1h/0h/{}/*," + _RAW_NODE + ")",
+        (
+            "gives a taproot merkle root and no script tree, which a change"
+            " output cannot carry"
+        ),
+        "rawnode",
+    ),
+    (f"addr({_ADDRESSES[1]})", _NO_UPDATE, "addr"),
+    ("raw(0014" + "11" * 20 + ")", _NO_UPDATE, "raw"),
+    ("rawpkh(" + "11" * 20 + ")", _NO_UPDATE, "rawpkh"),
+]
+_SOURCE_0 = [
+    pytest.param(template, False, f"branch 0 {why}", id=f"{name}-alone")
+    for template, why, name in _NOT_CARRIED
+] + [
+    pytest.param(template, True, f"branch 1 {why}", id=f"{name}-branch-1")
+    for template, why, name in _NOT_CARRIED
+    if name != "rawnode"
+]
+
+
+@pytest.mark.parametrize("template, receives, refusal", _SOURCE_0)
+def test_a_change_branch_that_can_never_carry_change_is_refused_as_source_0(
+    chain: FakeChain, path: Path, template: str, receives: bool, refusal: str
+) -> None:
+    """Refused where `fund` pays change, and taken after source 0.
+
+    As source 0 every spend paying change would be refused (issue #1074).
+    Nothing is stored: a source 0 that takes change gets id 0, the same
+    wallet is then watched as source 1, and a spend pays its change to
+    source 0.
+    """
+
+    def wallet() -> DescriptorWallet:
+        if receives:
+            return _tr_source(template, "wpkh({}/84h/1h/6h/{}/*)")
+        return source(template, (0,))
+
+    with Ledger.create(path, "regtest", chain, broadcaster=chain) as ledger:
+        with pytest.raises(BTClibValueError, match=f"^{refusal}$"):
+            ledger.add_source(wallet(), lookahead=SMALL_LOOKAHEAD)
+        assert ledger.sources == ()
+        assert ledger.add_source(source(), lookahead=SMALL_LOOKAHEAD) == 0
+        assert ledger.add_source(wallet(), lookahead=SMALL_LOOKAHEAD) == 1
+        _funded(ledger, chain)
+        funded = ledger.fund([_outside()], FeeRate.from_sats_per_vbyte(1))
+        assert funded.change_index is not None
+        change = funded.psbt.tx.vout[funded.change_index].script_pub_key
+        assert ledger.position_of(change) == (0, 1, 0)
+
+
+@pytest.mark.parametrize(
+    "template",
+    ["pk({}/86h/1h/7h/{}/*)", "multi(1,{}/48h/1h/7h/{}/*)"],
+    ids=["pk", "multi"],
+)
+@pytest.mark.parametrize("receives", [False, True], ids=["alone", "branch-1"])
+def test_a_change_branch_with_no_address_is_taken_as_source_0(
+    chain: FakeChain, path: Path, template: str, receives: bool
+) -> None:
+    """A ``pk()`` or a bare ``multi()`` can update a psbt: taken as source 0.
+
+    Its script has no address, which `fund` asks of the change, so it
+    carries change once issue btclib-org/btclib-wallet#1049 lands (issue
+    #1074).
+    """
+    if receives:
+        wallet = _tr_source(template, "wpkh({}/84h/1h/6h/{}/*)")
+    else:
+        wallet = source(template, (0,))
+    with Ledger.create(path, "regtest", chain) as ledger:
+        assert ledger.add_source(wallet, lookahead=SMALL_LOOKAHEAD) == 0
+        assert ledger.sources == (wallet,)
 
 
 def test_a_source_and_a_branch_are_the_ints_they_hold(
