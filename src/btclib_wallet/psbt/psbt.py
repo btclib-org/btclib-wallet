@@ -97,6 +97,7 @@ from btclib_wallet._refusal import _hex_field, _label, _message_text, _position,
 from btclib_wallet.psbt.psbt_in import PsbtIn
 from btclib_wallet.psbt.psbt_out import PsbtOut
 from btclib_wallet.psbt.psbt_size import (
+    _TAPSCRIPT_LEAF_VERSION,
     COMPRESSED_PUB_KEY_SIZE,
     SolutionSizer,
     estimated_input_sizes,
@@ -4196,10 +4197,6 @@ def _spend_context(psbt: Psbt, vin_i: int) -> miniscript.SpendContext:
         sequence=tx.vin[vin_i].sequence,
         version=tx.version,
     )
-
-
-# BIP342's leaf version, the only one whose scripts are tapscripts
-_TAPSCRIPT_LEAF_VERSION = 0xC0
 
 
 def _tapscript_spend(psbt: Psbt, vin_i: int) -> tuple[bytes, Witness] | None:

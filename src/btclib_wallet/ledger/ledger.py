@@ -132,15 +132,18 @@ not ranged. The fee rate is the caller's where given, refused below the
 node's minimum relay rate; else the backend's estimate, else
 `fallback_fee_rate`, raised to the node's mempool minimum. A spend with
 no rate, no estimate and no fallback is refused, as Core's is with
-`-fallbackfee=0`. `spend` funds, signs and records the transaction as
-inactive before it broadcasts it, so one the node refuses stays, and
-counts as `nonmempool`. Its comments are kept with it, as
-`sendtoaddress` keeps `comment` and `comment_to`. Each input signals
-BIP125 replaceability, as Core's wallet does by default
-(`DEFAULT_WALLET_RBF`, src/wallet/wallet.h:132 at
-bitcoin/bitcoin@f0de87f040, the v32.1 tag); `replaceable=False` gives it
-the sequence Core gives an input that does not signal
-(src/wallet/spend.cpp:1303-1311).
+`-fallbackfee=0`. An input spending a taproot output is sized by
+`psbt.satisfaction_sizer` over the keys the ledger's signers sign for,
+and else by `psbt.miniscript_sizer`, as a watch-only source and a locked
+ledger are; their docstrings say what each answers and refuses. `spend`
+funds, signs and records the transaction as inactive before it
+broadcasts it, so one the node refuses stays, and counts as
+`nonmempool`. Its comments are kept with it, as `sendtoaddress` keeps
+`comment` and `comment_to`. Each input signals BIP125 replaceability, as
+Core's wallet does by default (`DEFAULT_WALLET_RBF`,
+src/wallet/wallet.h:132 at bitcoin/bitcoin@f0de87f040, the v32.1 tag);
+`replaceable=False` gives it the sequence Core gives an input that does
+not signal (src/wallet/spend.cpp:1303-1311).
 
 **Confirmed coins first.** `fund` tries its coins in the passes of
 Core's `AutomaticCoinSelection` and keeps the first selection found
@@ -245,10 +248,13 @@ whose keys need the master key to be encrypted. `crypto` says how the
 keys are encrypted and `store` what the file holds.
 
 What a ledger holds of its keys while unlocked is the master key, in a
-buffer zeroed as *The relock* and `change_passphrase` say. An unlock
-and a signature decrypt the keys into a buffer zeroed once they are
-parsed, or at once where the tag fails. Copies remain, as `crypto`
-says.
+buffer zeroed as *The relock* and `change_passphrase` say. An unlock,
+a signature and an `add_source` while unlocked decrypt the keys into a
+buffer zeroed once they are parsed, or at once where the tag fails.
+Copies remain, as `crypto` says. An unlock and an `add_source` also
+record the public side of the keys the ledger signs with, the xpubs
+they derive at the paths the descriptors name, which a fee estimate
+reads, and a lock forgets it.
 
 **The relock.** `lock_keys` and `close` zero the master key at once,
 even under a call running in another thread. The timeout is kept on the
@@ -341,7 +347,8 @@ from os import PathLike, fspath
 from types import TracebackType
 from typing import Any, Concatenate, ParamSpec, Self, TypeVar, cast
 
-from bip32_descriptors.bip32.bip32 import fingerprint
+from bip32_descriptors.bip32.bip32 import fingerprint, pub_keyinfo_from_xkey
+from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
 from bip32_descriptors.descriptors import TrDescriptor, normalized, parse
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate, dust_threshold, fee_from_vsize
@@ -412,7 +419,12 @@ from btclib_wallet.ledger.store import (
 )
 from btclib_wallet.psbt.psbt import Psbt, extract_tx, finalize
 from btclib_wallet.psbt.psbt_in import PsbtIn
-from btclib_wallet.psbt.psbt_size import estimated_input_sizes, miniscript_sizer
+from btclib_wallet.psbt.psbt_size import (
+    SolutionSizer,
+    estimated_input_sizes,
+    miniscript_sizer,
+    satisfaction_sizer,
+)
 from btclib_wallet.psbt_signer import SoftwareSigner
 from btclib_wallet.tx_builder import (
     DEFAULT_MAX_FEE,
@@ -684,6 +696,12 @@ class Ledger:
         self._master_key: _MasterKey | None = None
         self._encrypted: dict[int, bytes] = {}
         self._key: bytearray | None = None
+        # while unlocked, by master fingerprint, the xpub the signer of
+        # `_signers` derives at each path the sources name: public data,
+        # which a fee estimate reads without decrypting; set under
+        # `_key_lock` by `unlock_keys` and `add_source`, and emptied with
+        # the master key
+        self._held_xpubs: dict[bytes, dict[tuple[int, ...], str]] = {}
         # the lock the master key is zeroed, let go of and set under, with
         # the times it locks at, which `_holds` reads, and whether `close`
         # ran, after which no key is set
@@ -1120,6 +1138,7 @@ class Ledger:
         if encrypted is not None:
             self._encrypted[source_id] = encrypted
         self._attach(source_id, wallet, source)
+        self._record_held_xpubs()
         self._extend_windows()
         if label is not None:
             script = wallet.script_pub_key(0, 0).script
@@ -1142,6 +1161,57 @@ class Ledger:
         if not self._holds(key):
             raise BTClibValueError(_LOCKED_DURING)
         return descriptors, encrypted
+
+    def _record_held_xpubs(self) -> None:
+        """Build `_held_xpubs` again from the sources held now, if unlocked.
+
+        A source's keys can change which account signs a path, and its
+        descriptors name paths of their own. The sources are decrypted
+        outside `_key_lock`, so a `lock_keys` or a `close` meanwhile does
+        not wait; the record is set under it where the master key held is
+        still the one it was built under, and built again under the one
+        held where it is not. No source is attached meanwhile: only
+        `add_source` attaches one, in the thread the ledger's file is
+        bound to. The key is first read under `_key_lock` too, so an
+        `unlock_keys` in another thread either sets its key and record
+        before that read, and the record is built again under its key,
+        or finds the source attached when it checks the sources, and
+        decrypts them again. A ledger with no master key held records
+        nothing, whether it is not encrypted or another thread locked it
+        meanwhile: its next unlock records them. A record that cannot be
+        built is an empty one, which sizes every taproot input at its
+        largest.
+        """
+        with self._key_lock:
+            key = self._key
+        while key is not None:
+            try:
+                held_xpubs = self._decrypted_xpubs(key, dict(self._sources))
+            # the key was zeroed while the sources decrypted
+            except BTClibValueError:
+                held_xpubs = {}
+            with self._key_lock:
+                if self._key is key:
+                    self._held_xpubs = held_xpubs
+                    return
+                key = self._key
+
+    def _decrypted_xpubs(
+        self, key: bytearray, sources: Mapping[int, DescriptorWallet]
+    ) -> dict[bytes, dict[tuple[int, ...], str]]:
+        """Return the `_held_xpubs` of `sources`, decrypted under `key`.
+
+        A ciphertext `key` does not decrypt is refused as a damaged file:
+        `unlock_keys` holds a key no other thread zeroes, and
+        `_record_held_xpubs` reads any refusal as no record.
+        """
+        wallets = [
+            self._decrypted(key, source_id, was_held=False)
+            if source_id in self._encrypted
+            else wallet
+            for source_id, wallet in sources.items()
+        ]
+        return _signed_xpubs(_signing_accounts(wallets), sources.values())
 
     def _attach(
         self, source_id: int, wallet: DescriptorWallet, source: _Source
@@ -2101,13 +2171,56 @@ class Ledger:
                 linked[parent].add(txid)
         return parents, linked
 
+    def _sizer(self) -> SolutionSizer:
+        """Return the sizer a spend of the ledger's coins is estimated with.
+
+        A taproot input is sized as `satisfaction_sizer` answers for the
+        keys the ledger holds of it. Any other input, and a taproot one
+        those keys spend by no path, is sized as `miniscript_sizer`
+        answers: at its largest spend, which a signer outside the ledger
+        may take. A locked ledger holds no key, so it sizes every input
+        that way. A key is held where a signer of `_signers` signs for it,
+        as `_signs` says. An encrypted ledger reads its signers' public
+        side, `_held_xpubs`, and decrypts nothing here: a ledger locked
+        while the sizer runs sizes for the keys it held when the sizer
+        was built.
+        """
+        accounts = (
+            self._held_xpubs
+            if self._master_key is not None
+            else _signing_accounts(list(self._sources.values()))
+        )
+        signers = {
+            master: SoftwareSigner.from_accounts(master, dict(held.items()))
+            for master, held in accounts.items()
+        }
+
+        def sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
+            if psbt_in.taproot_internal_key:
+                keys = self._held_keys(signers, psbt_in)
+                sizes = satisfaction_sizer(keys)(psbt_in, tx_in) if keys else None
+                if sizes is not None:
+                    return sizes
+            return miniscript_sizer(psbt_in, tx_in)
+
+        return sizer
+
     @staticmethod
-    def _weight(psbt_in: PsbtIn) -> int:
+    def _held_keys(
+        signers: Mapping[bytes, SoftwareSigner], psbt_in: PsbtIn
+    ) -> list[bytes]:
+        """Return the input's x-only keys one of `signers` signs for."""
+        return [
+            bytes(x_only)
+            for x_only, (_, origin) in psbt_in.taproot_hd_key_paths.items()
+            if _signs(signers.get(origin.master_fingerprint), x_only, origin)
+        ]
+
+    @staticmethod
+    def _weight(psbt_in: PsbtIn, sizer: SolutionSizer) -> int:
         """Return the weight the input will add once signed."""
         tx_in = TxIn(OutPoint(psbt_in.previous_tx_id, psbt_in.output_index or 0))
-        script_sig_size, stack = estimated_input_sizes(
-            psbt_in, tx_in, sizer=miniscript_sizer
-        )
+        script_sig_size, stack = estimated_input_sizes(psbt_in, tx_in, sizer=sizer)
         witness = Witness([b"\x00" * size for size in stack]) if stack else None
         return input_weight(b"\x00" * script_sig_size, witness)
 
@@ -2132,13 +2245,15 @@ class Ledger:
         assert_type(replaceable, bool, "replaceable")
         rate = self._fee_rate(fee_rate)
         sequence = _RBF_SEQUENCE if replaceable else _NON_RBF_SEQUENCE
+        sizer = self._sizer()
         candidates: dict[OutPoint, tuple[Candidate, PsbtIn]] = {}
         standings: list[tuple[Candidate, _Standing]] = []
         parents, linked = self._mempool_links()
         for utxo in self.utxos(0, include_unsafe=False):
             tx = self._txs[utxo.outpoint.tx_id].tx
             psbt_in = self._psbt_in(tx, utxo.outpoint.vout, sequence)
-            candidate = Candidate(utxo.outpoint, utxo.tx_out, self._weight(psbt_in))
+            weight = self._weight(psbt_in, sizer)
+            candidate = Candidate(utxo.outpoint, utxo.tx_out, weight)
             candidates[utxo.outpoint] = (candidate, psbt_in)
             unconfirmed = tx.id in parents
             standing = _Standing(
@@ -2149,7 +2264,7 @@ class Ledger:
             )
             standings.append((candidate, standing))
         change_position, change_script = self._new_change()
-        change_weight = self._change_spend_weight(change_position, change_script)
+        change_weight = self._change_spend_weight(change_position, change_script, sizer)
 
         def select(pool: list[Candidate]) -> tuple[Candidate, ...]:
             return select_coins(
@@ -2166,7 +2281,7 @@ class Ledger:
             list(outputs),
             rate,
             change_script.script,
-            sizer=miniscript_sizer,
+            sizer=sizer,
         )
         if funded.change_index is not None:
             psbt = self._paid_new_change(
@@ -2186,7 +2301,9 @@ class Ledger:
         _, branch, index = position
         return position, self._sources[0].script_pub_key(branch, index)
 
-    def _change_spend_weight(self, position: _Position, script: ScriptPubKey) -> int:
+    def _change_spend_weight(
+        self, position: _Position, script: ScriptPubKey, sizer: SolutionSizer
+    ) -> int:
         """Return what an input spending the change will weigh.
 
         An input spending an output of a stand-in parent, the change being
@@ -2196,7 +2313,8 @@ class Ledger:
         psbt = Psbt.from_tx(
             Tx(vin=[TxIn(OutPoint(stand_in.id, 0))], vout=[stand_in.vout[0]])
         )
-        return self._weight(self._updated(psbt, 0, position, stand_in).inputs[0])
+        psbt_in = self._updated(psbt, 0, position, stand_in).inputs[0]
+        return self._weight(psbt_in, sizer)
 
     def _paid_new_change(self, psbt: Psbt, i: int, position: _Position) -> Psbt:
         """Hand out the position output `i` pays, and update the output."""
@@ -2230,23 +2348,9 @@ class Ledger:
 
     def _signers(self) -> list[SoftwareSigner]:
         """Return a signer per master fingerprint the sources hold keys of."""
-        accounts: dict[bytes, dict[tuple[int, ...], str]] = {}
-        for wallet in self._signing_wallets():
-            prv_keys = wallet.prv_keys or {}
-            for branch in wallet.branches:
-                for key in wallet.descriptor(branch).key_expressions:
-                    if key.xkey not in prv_keys:
-                        continue
-                    path: tuple[int, ...] = ()
-                    if key.origin is None:
-                        master = fingerprint(key.xkey)
-                    else:
-                        master = key.origin.master_fingerprint
-                        path = tuple(key.origin.der_path)
-                    accounts.setdefault(master, {})[path] = prv_keys[key.xkey]
         return [
             SoftwareSigner.from_accounts(master, dict(held.items()))
-            for master, held in accounts.items()
+            for master, held in _signing_accounts(self._signing_wallets()).items()
         ]
 
     def _signing_wallets(self) -> list[DescriptorWallet]:
@@ -2436,10 +2540,11 @@ class Ledger:
         relay = self._relay_fees()
         rate = self._bump_rate(fee_rate, conf_target, wtx, old_fee, relay)
         txouts = list(tx.vout) if outputs is None else list(outputs)
+        sizer = self._sizer()
         funded, updates = self._replacement(
-            tx, inputs, txouts, original_change_index, rate, sequence
+            tx, inputs, txouts, original_change_index, rate, sequence, sizer
         )
-        vsize = funded.psbt.vsize_estimate(miniscript_sizer)
+        vsize = funded.psbt.vsize_estimate(sizer)
         incremental = (
             _INCREMENTAL_RELAY_FEE_RATE if relay is None else relay.incremental
         )
@@ -2461,6 +2566,7 @@ class Ledger:
         original_change_index: int | None,
         rate: FeeRate,
         sequence: int,
+        sizer: SolutionSizer,
     ) -> tuple[FundedPsbt, list[tuple[int, _Position, bool]]]:
         """Return the replacement of `tx` paying `txouts`, and what to update.
 
@@ -2481,16 +2587,7 @@ class Ledger:
             else:
                 recipients.append(tx_out)
         new_position, new_script = self._new_change()
-        spent = {tx_in.prev_out for tx_in in tx.vin}
-        # BIP125's rule 2: no unconfirmed input is added
-        coins = [
-            u for u in self.utxos(1, include_unsafe=False) if u.outpoint not in spent
-        ]
-        coins.sort(key=lambda u: u.tx_out.value, reverse=True)
-        added = [
-            self._psbt_in(self._txs[u.outpoint.tx_id].tx, u.outpoint.vout, sequence)
-            for u in coins
-        ]
+        added = self._added_inputs(tx, sequence)
         updates: list[tuple[int, _Position, bool]] = []
         if recipients or change is None:
             script = new_script if change is None else change.script_pub_key
@@ -2498,7 +2595,7 @@ class Ledger:
                 inputs,
                 added,
                 lambda ins: build_psbt(
-                    ins, recipients, rate, script.script, sizer=miniscript_sizer
+                    ins, recipients, rate, script.script, sizer=sizer
                 ),
             )
             position = self._scripts.get(script.script)
@@ -2509,13 +2606,13 @@ class Ledger:
             return funded, updates
         # every output is change: one output, the fee taken from it
         value = sum(tx_out.value for tx_out in txouts)
-        weight = self._change_spend_weight(new_position, new_script)
+        weight = self._change_spend_weight(new_position, new_script, sizer)
         least_change = _least_change(new_script, weight)
         funded = _with_inputs_added(
             inputs,
             added,
             lambda ins: _fee_from_change(
-                ins, change, value, rate, new_script, least_change
+                ins, change, value, rate, new_script, least_change, sizer
             ),
         )
         position = self._scripts.get(_script(change))
@@ -2524,6 +2621,22 @@ class Ledger:
         if funded.change_index is not None:
             updates.append((funded.change_index, new_position, True))
         return funded, updates
+
+    def _added_inputs(self, tx: Tx, sequence: int) -> list[PsbtIn]:
+        """Return the inputs a replacement of `tx` may add, largest first.
+
+        The coins `tx` does not spend, confirmed: BIP125's rule 2 adds no
+        unconfirmed input.
+        """
+        spent = {tx_in.prev_out for tx_in in tx.vin}
+        coins = [
+            u for u in self.utxos(1, include_unsafe=False) if u.outpoint not in spent
+        ]
+        coins.sort(key=lambda u: u.tx_out.value, reverse=True)
+        return [
+            self._psbt_in(self._txs[u.outpoint.tx_id].tx, u.outpoint.vout, sequence)
+            for u in coins
+        ]
 
     def _original_inputs(self, tx: Tx, sequence: int) -> list[PsbtIn]:
         """Return the input maps of what `tx` spends, refusing a spent coin.
@@ -2803,26 +2916,36 @@ class Ledger:
         key = _unlocked(passphrase, master_key)
         if key is None:
             raise BTClibValueError("the passphrase is wrong")
-        try:
-            # every source is decrypted once, as Core's `Unlock` checks
-            # its keys: a damaged ciphertext is refused here, not at a sign
-            for source_id in self._encrypted:
-                self._decrypted(key, source_id, was_held=False)
-        except BaseException:
-            _wipe(key)
-            raise
-        # the key and the times it locks at are set as one, so that a
-        # `lock_keys` in another thread finds both or neither; a `close`
-        # that ran meanwhile leaves the key zeroed and unset
-        with self._key_lock:
-            if self._closed:
+        while True:
+            sources = dict(self._sources)
+            try:
+                # every source is decrypted, as Core's `Unlock` checks its
+                # keys: a damaged ciphertext is refused here, not at a sign;
+                # outside `_key_lock`, the key being no other thread's yet
+                held_xpubs = self._decrypted_xpubs(key, sources)
+            except BaseException:
                 _wipe(key)
-                raise BTClibValueError(_CLOSED)
-            if self._key is not None:
-                _wipe(self._key)
-            self._key = key
-            self._unlocked_until = _now() + timeout
-            self._relock_at = _monotonic() + timeout
+                raise
+            # the key, `_held_xpubs` and the times it locks at are set as
+            # one, so that a `lock_keys` in another thread finds all or
+            # none; a `close` that ran meanwhile leaves the key zeroed and
+            # unset
+            with self._key_lock:
+                if self._closed:
+                    _wipe(key)
+                    raise BTClibValueError(_CLOSED)
+                # a source `add_source` attached meanwhile, in the
+                # ledger's own thread, under no key or the one this
+                # replaces: decrypted again
+                if self._sources.keys() != sources.keys():
+                    continue
+                if self._key is not None:
+                    _wipe(self._key)
+                self._key = key
+                self._held_xpubs = held_xpubs
+                self._unlocked_until = _now() + timeout
+                self._relock_at = _monotonic() + timeout
+                return
 
     @_relocking
     def lock_keys(self) -> None:
@@ -2935,6 +3058,7 @@ class Ledger:
             if self._key is not None:
                 _wipe(self._key)
             self._key = None
+            self._held_xpubs = {}
             self._unlocked_until = 0
             self._relock_at = 0.0
 
@@ -3014,6 +3138,7 @@ def _fee_from_change(
     rate: FeeRate,
     new_script: ScriptPubKey,
     least_change: int,
+    sizer: SolutionSizer,
 ) -> FundedPsbt:
     """Return the psbt paying `value` to `change`'s script, less the fee.
 
@@ -3034,12 +3159,12 @@ def _fee_from_change(
     # this returns is checked against the ceilings below
     no_rate = FeeRate(sats_per_kvbyte=0)
     outputs = [TxOut(value, change.script_pub_key)]
-    probe = _probe(inputs, outputs, no_rate)
+    probe = _probe(inputs, outputs, no_rate, sizer)
     if probe.fee >= least_change:
         outputs.append(TxOut(probe.fee, new_script))
-        probe = _probe(inputs, outputs, no_rate)
+        probe = _probe(inputs, outputs, no_rate, sizer)
     psbt = probe.psbt
-    vsize = psbt.vsize_estimate(miniscript_sizer)
+    vsize = psbt.vsize_estimate(sizer)
     fee = fee_from_vsize(vsize, rate)
     amount = value - (fee - probe.fee)
     if amount < dust_threshold(_script(change)):
@@ -3054,7 +3179,10 @@ def _fee_from_change(
 
 
 def _probe(
-    inputs: Sequence[PsbtIn], outputs: list[TxOut], no_rate: FeeRate
+    inputs: Sequence[PsbtIn],
+    outputs: list[TxOut],
+    no_rate: FeeRate,
+    sizer: SolutionSizer,
 ) -> FundedPsbt:
     """Return `build_psbt`'s psbt at `no_rate`, with no change and no ceiling.
 
@@ -3067,7 +3195,7 @@ def _probe(
         outputs,
         no_rate,
         None,
-        sizer=miniscript_sizer,
+        sizer=sizer,
         max_fee=_MAX_MONEY,
         max_fee_rate=FeeRate(sats_per_kvbyte=_MAX_MONEY * 1000),
     )
@@ -3113,6 +3241,93 @@ def _wallet(
         {branch: parse(text, network, keys) for branch, text in descriptors.items()},
         keys or None,
     )
+
+
+def _signing_accounts(
+    wallets: Iterable[DescriptorWallet],
+) -> dict[bytes, dict[tuple[int, ...], str]]:
+    """Return by master fingerprint the accounts `Ledger._signers` signs with.
+
+    The private key of each extended key a wallet holds it of, at the
+    path of its origin, or at the master of its own fingerprint where it
+    has none. Where two keys claim one path the later one is kept.
+    """
+    accounts: dict[bytes, dict[tuple[int, ...], str]] = {}
+    for wallet in wallets:
+        prv_keys = wallet.prv_keys or {}
+        for branch in wallet.branches:
+            for key in wallet.descriptor(branch).key_expressions:
+                if key.xkey not in prv_keys:
+                    continue
+                path: tuple[int, ...] = ()
+                if key.origin is None:
+                    master = fingerprint(key.xkey)
+                else:
+                    master = key.origin.master_fingerprint
+                    path = tuple(key.origin.der_path)
+                accounts.setdefault(master, {})[path] = prv_keys[key.xkey]
+    return accounts
+
+
+def _named_paths(wallets: Iterable[DescriptorWallet]) -> set[tuple[int, ...]]:
+    """Return the path from its master of each key the wallets name.
+
+    The path up to the key's wildcard, which a psbt input of the wallet
+    names its key at, the index of the wildcard after it.
+    """
+    return {
+        (*(key.origin.der_path if key.origin else ()), *key.der_path)
+        for wallet in wallets
+        for branch in wallet.branches
+        for key in wallet.descriptor(branch).key_expressions
+    }
+
+
+def _signed_xpubs(
+    accounts: Mapping[bytes, Mapping[tuple[int, ...], str]],
+    wallets: Iterable[DescriptorWallet],
+) -> dict[bytes, dict[tuple[int, ...], str]]:
+    """Return the xpub the signer of each of `accounts` derives at each path.
+
+    The paths are its accounts' own, and those `wallets` name, under
+    any master: each xpub is the signer's own derivation, so a path of
+    another master's key is one more it answers rightly. A signer built
+    on what this returns derives, with no private key, the key the
+    signer of `accounts` derives at any path a psbt input of `wallets`
+    names: the longest of these paths a path starts with is derived from
+    the account the signer reads it from, and what is left is the
+    wildcard's unhardened index, which an encrypted ledger's descriptors
+    give.
+    """
+    named = _named_paths(wallets)
+    signed: dict[bytes, dict[tuple[int, ...], str]] = {}
+    for master, held in accounts.items():
+        signer = SoftwareSigner.from_accounts(master, dict(held.items()))
+        signed[master] = {}
+        for path in {*held, *named}:
+            # a path no account of the signer starts
+            with suppress(BTClibValueError):
+                signed[master][path] = signer.xpub(path)
+    return signed
+
+
+def _signs(
+    signer: SoftwareSigner | None, x_only: bytes, origin: BIP32KeyOrigin
+) -> bool:
+    """Whether `signer` signs for the key at `origin`, as `SoftwareSigner` does.
+
+    Its path derives to the very key the psbt names: a key whose path
+    reaches another account's key, claiming the same origin, is not held.
+    """
+    if signer is None:
+        return False
+    try:
+        xpub = signer.xpub(origin.der_path)
+    # a path the signer cannot walk: no account of it starts the path,
+    # or a hardened step is left under an xpub
+    except BTClibValueError:
+        return False
+    return pub_keyinfo_from_xkey(xpub)[0][1:] == bytes(x_only)
 
 
 def _watched(wallet: DescriptorWallet, refusal: str) -> dict[int, str]:

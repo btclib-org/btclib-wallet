@@ -30,17 +30,17 @@ guessing costs bytes in one direction only, and a fee computed from a
 guess is a transaction that does not relay.
 
 A caller who does not have to guess says so, with a `SolutionSizer`.
-`miniscript_sizer` is one for every input whose witness script is a
-BIP379 miniscript, and `satisfaction_sizer` one for an input whose
-signers are known. Two inputs are refused above not for want of data but
-for want of knowledge nobody but the caller has -- a script of no
-standard type, and a taproot script path, where which leaf will be spent
-is not in the psbt -- and a sizer is asked exactly there, never in place
-of an answer this file can work out. What it returns is the whole of
-what the input will push, the witness script of a p2wsh and the control
-block of a taproot leaf included: a caller who knows the solution holds
-those too, and one rule with no exceptions is what keeps the two sides
-from each appending the other's element.
+`miniscript_sizer` is one for an input whose witness script is a BIP379
+miniscript, or whose taproot leaves all are, and `satisfaction_sizer`
+one for an input whose signers are known. Two inputs are refused above
+not for want of data but for want of knowledge nobody but the caller has
+-- a script of no standard type, and a taproot script path, where which
+leaf will be spent is not in the psbt -- and a sizer is asked exactly
+there, never in place of an answer this file can work out. What it
+returns is the whole of what the input will push, the witness script of
+a p2wsh and the control block of a taproot leaf included: a caller who
+knows the solution holds those too, and one rule with no exceptions is
+what keeps the two sides from each appending the other's element.
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ from btclib.alias import Command, Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
 from btclib.script import serialize, type_and_payload
+from btclib.script.witness import Witness
 from btclib.tx import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_octets
 
@@ -86,9 +87,15 @@ SCHNORR_SIG_SIZE = 64
 # a SEC compressed point
 COMPRESSED_PUB_KEY_SIZE = 33
 
+# a BIP340 public key, the x coordinate alone
+_X_ONLY_SIZE = 32
+
 # OP_1 is 0x51 and OP_16 is 0x60, so the m and the n of an m-of-n
 # multisig script are each written as its value plus this
 _OP_INT_OFFSET = 0x50
+
+# BIP342's leaf version, the only one whose scripts are tapscripts
+_TAPSCRIPT_LEAF_VERSION = 0xC0
 
 
 def _script_pub_key(psbt_in: PsbtIn, tx_in: TxIn) -> bytes:
@@ -357,8 +364,115 @@ def estimated_input_sizes(
     return len(serialize(commands + wrapper)), []
 
 
+def _spends_taproot(psbt_in: PsbtIn, tx_in: TxIn) -> bool:
+    """Whether the input spends a taproot output, as its utxo says.
+
+    False for an input with no utxo, or a utxo the outpoint refuses:
+    `estimated_input_sizes` refuses either before it asks a sizer. A
+    p2sh-wrapped version 1 program is no taproot output (BIP341).
+    """
+    try:
+        script = _script_pub_key(psbt_in, tx_in)
+    except BTClibValueError:
+        return False
+    return type_and_payload(script)[0] == "p2tr"
+
+
+def _witness_size(sizes: list[int]) -> int:
+    """Return the bytes a witness stack of elements of these sizes takes."""
+    return len(Witness([bytes(size) for size in sizes]).serialize())
+
+
+def _tapscript_leaves(
+    psbt_in: PsbtIn, keys: Iterable[bytes]
+) -> list[tuple[bytes, bytes, miniscript.Miniscript]] | None:
+    """Return each leaf's script, control block and miniscript, or None.
+
+    None where any leaf is not a tapscript miniscript: a leaf at a leaf
+    version other than BIP342's, or a script no miniscript reads. A
+    ``pk_h()`` is read with the keys of `taproot_hd_key_paths` and `keys`,
+    all x-only.
+    """
+    known = (*psbt_in.taproot_hd_key_paths, *keys)
+    key_hashes: dict[Octets, Octets] = {hash160(key): key for key in known}
+    leaves = []
+    for control_block, (script, version) in psbt_in.taproot_leaf_scripts.items():
+        if version != _TAPSCRIPT_LEAF_VERSION:
+            return None
+        try:
+            node = miniscript.from_script(script, miniscript.TAPSCRIPT, key_hashes)
+        # not a miniscript: a leaf this file cannot size
+        except BTClibValueError:
+            return None
+        leaves.append((script, control_block, node))
+    return leaves
+
+
+def _largest_taproot_spend(psbt_in: PsbtIn) -> list[int] | None:
+    """Return `miniscript_sizer`'s answer for a taproot input."""
+    leaves = _tapscript_leaves(psbt_in, ())
+    if leaves is None:
+        return None
+    spends = [[_taproot_sig_size(psbt_in)]]
+    for script, control_block, node in leaves:
+        stack = node.max_witness_stack
+        if stack is None:
+            return None
+        spends.append([*stack, len(script), len(control_block)])
+    return max(spends, key=_witness_size)
+
+
+def _spend_context(psbt_in: PsbtIn, tx_in: TxIn) -> miniscript.SpendContext:
+    """Return what a satisfaction reads beside its signatures.
+
+    The input's preimages, and the sequence of the input being sized:
+    `satisfaction_sizer`'s docstring says why no lock time.
+    """
+    return miniscript.SpendContext(
+        sha256_preimages=psbt_in.sha256_preimages,
+        hash256_preimages=psbt_in.hash256_preimages,
+        ripemd160_preimages=psbt_in.ripemd160_preimages,
+        hash160_preimages=psbt_in.hash160_preimages,
+        sequence=tx_in.sequence,
+    )
+
+
+def _satisfied_taproot_spend(
+    psbt_in: PsbtIn, tx_in: TxIn, keys: tuple[bytes, ...]
+) -> list[int] | None:
+    """Return `satisfaction_sizer`'s answer for a taproot input."""
+    # a key in SEC bytes, compressed or not, or x-only, the bytes a
+    # tapscript holds
+    x_only = {
+        key if len(key) == _X_ONLY_SIZE else key[1 : 1 + _X_ONLY_SIZE] for key in keys
+    }
+    sig_size = _taproot_sig_size(psbt_in)
+    if psbt_in.taproot_internal_key in x_only:
+        return [sig_size]
+    leaves = _tapscript_leaves(psbt_in, x_only)
+    if leaves is None:
+        return None
+    signatures = dict.fromkeys(x_only, bytes(sig_size))
+    spend = _spend_context(psbt_in, tx_in)
+    spends = []
+    for script, control_block, node in leaves:
+        try:
+            stack = node.satisfy(cast("Mapping[Octets, Octets]", signatures), spend)
+        # these keys satisfy no branch of this leaf, or a malleable one only
+        except BTClibValueError:
+            continue
+        sizes = [*(len(item) for item in stack), len(script), len(control_block)]
+        spends.append((sizes, node.is_within_resource_limits))
+    if not spends:
+        return None
+    sizes, within_limits = min(spends, key=lambda spend: _witness_size(spend[0]))
+    if within_limits:
+        return sizes
+    return max((sizes for sizes, _ in spends), key=_witness_size)
+
+
 def miniscript_sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
-    """Size the spend of a psbt input whose witness script is a miniscript.
+    """Size the spend of a psbt input whose script is a miniscript.
 
     A `SolutionSizer`, which is what `estimated_input_sizes` takes for the
     inputs whose spend it cannot read. A caller passes it::
@@ -373,15 +487,21 @@ def miniscript_sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
     being made before either exists -- the size of a signature is the
     context's, and BIP379 fixes a preimage at 32 bytes.
 
-    None where the input is not this sizer's business: no witness script,
-    one that is no miniscript, or one no witness can satisfy at all. The
-    caller then answers as it did before, which for the last of those is a
-    refusal: a script nobody can spend has no spend to estimate.
+    A taproot input is sized as the largest of its spends: the key path,
+    and each leaf of `taproot_leaf_scripts` read as a tapscript miniscript,
+    its `max_witness_stack`, its script and its control block. Which path
+    a spend takes is the signer's to choose, so the largest is the one a
+    fee cannot fall short of.
+
+    None where the input is not this sizer's business: no taproot output
+    and no witness script, a script or a leaf that is no miniscript, or a
+    script or a leaf no witness can satisfy. The caller then answers as it
+    did before: a refusal, for a taproot input even where another of its
+    paths spends it.
     """
-    # `tx_in` is unread here and checked anyway: the pair is what a
-    # `SolutionSizer` declares, so the guarantee is the signature's rather
-    # than this body's, and the sizer beside this one does read it
     _assert_input_types(psbt_in, tx_in)
+    if _spends_taproot(psbt_in, tx_in):
+        return _largest_taproot_spend(psbt_in)
     if not psbt_in.witness_script:
         return None
     known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths)
@@ -428,10 +548,22 @@ def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
     -- it is answered as unmet, and a script whose only open branch needs
     one refuses rather than guesses.
 
-    None for that refusal and the two `miniscript_sizer` already answers
-    with it: no witness script, or one that is no miniscript. A caller
-    then falls back exactly as it would for any other sizer answering
-    "not mine".
+    A taproot input is spent by its key path where the internal key is one
+    of `keys`, since `finalize` prefers the key path, and otherwise by the
+    smallest witness of the leaves `keys` satisfy, each read as a
+    tapscript miniscript: the satisfaction, the script and the control
+    block. Where that leaf is past its resource limits, the script engine
+    may refuse it, so the largest leaf they satisfy is answered instead.
+    A key is given in SEC bytes, compressed or not, or x-only, and a
+    signature is the 64 bytes BIP340 gives it, and the sig_hash byte
+    where the input asks for a type other than the default one.
+
+    None for that refusal and the ones `miniscript_sizer` already answers
+    with: no taproot output and no witness script, or a witness script
+    that is no miniscript. For a taproot input whose internal key is not
+    one of `keys`, None too where a leaf is no miniscript, or where `keys`
+    satisfy no leaf. A caller then falls back exactly as it would for any
+    other sizer answering "not mine".
     """
     # an Octets is itself iterable, so `Iterable[Octets]` accepts one as
     # far as the annotation goes: one key handed where the list was meant
@@ -444,6 +576,8 @@ def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
 
     def sizer(psbt_in: PsbtIn, tx_in: TxIn) -> list[int] | None:
         _assert_input_types(psbt_in, tx_in)
+        if _spends_taproot(psbt_in, tx_in):
+            return _satisfied_taproot_spend(psbt_in, tx_in, signer_keys)
         if not psbt_in.witness_script:
             return None
         known = (*psbt_in.partial_sigs, *psbt_in.hd_key_paths, *signer_keys)
@@ -457,13 +591,7 @@ def satisfaction_sizer(keys: Iterable[Octets]) -> SolutionSizer:
         except BTClibValueError:
             return None
         signatures = dict.fromkeys(signer_keys, bytes(SIG_SIZE))
-        spend = miniscript.SpendContext(
-            sha256_preimages=psbt_in.sha256_preimages,
-            hash256_preimages=psbt_in.hash256_preimages,
-            ripemd160_preimages=psbt_in.ripemd160_preimages,
-            hash160_preimages=psbt_in.hash160_preimages,
-            sequence=tx_in.sequence,
-        )
+        spend = _spend_context(psbt_in, tx_in)
         try:
             stack = node.satisfy(cast("Mapping[Octets, Octets]", signatures), spend)
         # these keys build no satisfaction, or only a malleable one

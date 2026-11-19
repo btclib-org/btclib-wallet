@@ -7,13 +7,15 @@
 `miniscript_solver`, which `finalize` takes for a witness script or a
 taproot leaf script that is a miniscript, `miniscript_sizer` and
 `satisfaction_sizer`, which `estimated_input_sizes` takes for a witness
-script that is one, and the Updater over a miniscript descriptor.
+script that is one or a taproot input whose leaves are, and the Updater
+over a miniscript descriptor.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from copy import deepcopy
 
 import pytest
 from bip32_descriptors.bip32.key_origin import BIP32KeyOrigin
@@ -770,7 +772,14 @@ def test_the_sizer_answers_for_what_is_its_business_and_no_more() -> None:
     """Return None where the input is not a miniscript, as the solver does."""
     node = parse(f"and_v(v:pk({KEY}),older(36))")
     psbt_in, tx_in = psbt_input(node)
-    assert miniscript_sizer(psbt_in, tx_in) is not None
+    native = miniscript_sizer(psbt_in, tx_in)
+    assert native is not None
+    # wrapped in p2sh, the witness is the same, whatever the outer type
+    redeem_script = ScriptPubKey.p2wsh(node.script()).script
+    wrapped = deepcopy(psbt_in)
+    wrapped.witness_utxo = TxOut(50_000, ScriptPubKey.p2sh(redeem_script))
+    wrapped.redeem_script = redeem_script
+    assert miniscript_sizer(wrapped, tx_in) == native
     psbt_in.witness_script = b""
     assert miniscript_sizer(psbt_in, tx_in) is None
     psbt_in.witness_script = serialize(["OP_DROP", "OP_1"])
@@ -1430,6 +1439,45 @@ def test_a_leaf_past_the_stack_limit_is_passed_over() -> None:
     assert len(passed_over.serialize()) < len(Witness(list(stack)).serialize())
 
 
+def test_a_smaller_leaf_within_its_limits_is_sized_beside_one_past_them() -> None:
+    """Size the smaller leaf where it is within its limits, as it is spent.
+
+    The other leaf, two 1-of-500 quorums, is past its limits and satisfied
+    too: it is not what the solver spends, nor what is paid for.
+    """
+    small = parse(f"pk({_x_only(1)})", TAPSCRIPT)
+    past = parse(_two_quorums(500, 500), TAPSCRIPT)
+    assert small.is_within_resource_limits
+    assert not past.is_within_resource_limits
+    psbt, prevout = _hand_tr([small.script(), past.script()])
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    sized = satisfaction_sizer([_x_only(1), _x_only(501)])(psbt_in, tx_in)
+    _sign_with(psbt, small.script(), [1])
+    _sign_with(psbt, past.script(), [1, 501])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert stack[-2] == small.script()
+    assert sized == _sizes(stack)
+
+
+def test_a_leaf_past_its_limits_is_sized_at_the_largest_satisfied() -> None:
+    """Size the leaf the solver spends, not the smaller one it passes over.
+
+    `satisfaction_sizer` cannot run the script engine without the
+    signatures, so where a satisfied leaf is past its resource limits it
+    answers the largest satisfied leaf, which is the one spent here.
+    """
+    past = parse(_two_quorums(500, 500), TAPSCRIPT)
+    guarded = parse(f"or_d(pk({_x_only(1201)}),{_two_quorums(600, 600)})", TAPSCRIPT)
+    psbt, prevout = _hand_tr([past.script(), guarded.script()])
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    keys = [_x_only(1), _x_only(501), _x_only(1201)]
+    sized = satisfaction_sizer(keys)(psbt_in, tx_in)
+    _sign_with(psbt, past.script(), [1, 501])
+    _sign_with(psbt, guarded.script(), [1201])
+    stack = spent(finalize(psbt, solver=miniscript_solver), prevout)
+    assert sized == _sizes(stack)
+
+
 def test_the_engine_runs_the_input_being_finalized() -> None:
     """Spend a leaf on each of two inputs, the engine running each one.
 
@@ -1461,3 +1509,159 @@ def test_the_engine_runs_the_input_being_finalized() -> None:
     for tx_in, psbt_in in zip(spending.vin, final.inputs, strict=True):
         tx_in.script_witness = psbt_in.final_script_witness
     verify_transaction(prevouts, spending)
+
+
+# -- the sizers over a taproot input ---------------------------------------
+
+
+def _sizes(stack: tuple[bytes, ...]) -> list[int]:
+    """Return the size of each element of a witness."""
+    return [len(item) for item in stack]
+
+
+def _witness_bytes(sizes: list[int]) -> int:
+    """Return the bytes a witness of elements of these sizes takes."""
+    return len(Witness([bytes(size) for size in sizes]).serialize())
+
+
+def test_the_sizer_answers_the_largest_taproot_spend() -> None:
+    """Size a tr() input at its largest path, never below the one spent.
+
+    The key path is one signature; the leaf is a signature, its script and
+    its control block. A signer may take either, so the leaf, the larger,
+    is the answer, at 65 bytes a signature, which a non-default sig_hash
+    type costs. Each witness `finalize` builds is no larger.
+    """
+    text = SIMPLE_INHERITANCE
+    psbt, prevout, descriptor = tr_psbt(text, 52560, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    script = descriptor.taproot_tree(0)[0][2]
+    ((control_block, _),) = psbt_in.taproot_leaf_scripts.items()
+    largest = [65, len(script), len(control_block)]
+    assert miniscript_sizer(psbt_in, tx_in) == largest
+    assert estimated_input_sizes(psbt_in, tx_in, sizer=miniscript_sizer) == (
+        0,
+        largest,
+    )
+    for leaf in (None, 0):
+        signed, _, _ = tr_signed(text, leaf, [0] if leaf is None else [1], 52560)
+        built = _sizes(spent(finalize(signed, solver=miniscript_solver), prevout))
+        assert _witness_bytes(built) <= _witness_bytes(largest)
+
+
+def test_the_sizer_answers_the_largest_of_two_leaves() -> None:
+    """The quorum leaf is larger than the single key one, whichever order."""
+    text = f"tr({NUMS},{{pk({X[0]}),multi_a(2,{X[1]},{X[2]},{X[3]})}})"
+    psbt, _, descriptor = tr_psbt(text, NO_LOCK, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    quorum = descriptor.taproot_tree(0)[1][2]
+    (control_block,) = (
+        cb for cb, (s, _) in psbt_in.taproot_leaf_scripts.items() if s == quorum
+    )
+    # two signatures and the empty push of the third key, in witness order
+    stack = from_script(quorum, TAPSCRIPT).max_witness_stack or ()
+    assert sorted(stack) == [0, 65, 65]
+    expected = [*stack, len(quorum), len(control_block)]
+    assert miniscript_sizer(psbt_in, tx_in) == expected
+
+
+def test_a_taproot_leaf_the_sizer_cannot_read_has_no_estimate() -> None:
+    """A leaf that is no miniscript, or no tapscript, or nothing satisfies.
+
+    `miniscript_sizer` answers None for each, so `estimated_input_sizes`
+    refuses the input as it does with no sizer; `satisfaction_sizer`
+    answers None too, the internal key aside.
+    """
+    psbt, _, _ = tr_psbt(f"tr({NUMS},pk({X[0]}))", NO_LOCK, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    ((control_block, (script, version)),) = psbt_in.taproot_leaf_scripts.items()
+    unspendable = parse("or_b(0,a:0)").script()
+    for record in (
+        (serialize(["OP_DROP", "OP_1"]), version),
+        (script, 0xC2),
+        (script, 0xBE),
+        (unspendable, version),
+    ):
+        psbt_in.taproot_leaf_scripts = {control_block: record}
+        assert miniscript_sizer(psbt_in, tx_in) is None
+        with pytest.raises(BTClibValueError, match="no estimate for a taproot"):
+            estimated_input_sizes(psbt_in, tx_in, sizer=miniscript_sizer)
+    psbt_in.taproot_leaf_scripts = {control_block: (serialize(["OP_DROP"]), version)}
+    assert satisfaction_sizer([X[0]])(psbt_in, tx_in) is None
+
+
+def test_the_sizers_read_no_taproot_spend_of_an_input_with_no_utxo() -> None:
+    """With no utxo the input spends nothing they can see, so no witness."""
+    psbt, _, _ = tr_psbt(SIMPLE_INHERITANCE, 52560, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    psbt_in.witness_utxo = None
+    assert miniscript_sizer(psbt_in, tx_in) is None
+    assert satisfaction_sizer([X[0]])(psbt_in, tx_in) is None
+
+
+@pytest.mark.parametrize("spelling", ["x-only", "SEC", "uncompressed SEC"])
+def test_the_satisfaction_sizer_answers_the_path_these_keys_spend(
+    spelling: str,
+) -> None:
+    """The key path where they hold the internal key, else their leaf.
+
+    Each answer is the witness `finalize` builds from the signatures of
+    those keys, element by element. A key is read x-only, or in SEC bytes
+    compressed or not.
+    """
+    keys = {
+        "x-only": X,
+        "SEC": KEYS,
+        "uncompressed SEC": [
+            PrvKeyData(i, "mainnet", False).pub.sec.hex() for i in range(1, 7)
+        ],
+    }[spelling]
+    text = SIMPLE_INHERITANCE
+    psbt, prevout, _ = tr_psbt(text, 52560, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    for leaf, signer in ((None, 0), (0, 1)):
+        signed, _, _ = tr_signed(text, leaf, [signer], 52560)
+        built = _sizes(spent(finalize(signed, solver=miniscript_solver), prevout))
+        assert satisfaction_sizer([keys[signer]])(psbt_in, tx_in) == built
+    # a key of neither path spends nothing
+    assert satisfaction_sizer([keys[5]])(psbt_in, tx_in) is None
+    # nor does the leaf's key while its timelock is shut
+    tx_in.sequence = NO_LOCK
+    assert satisfaction_sizer([keys[1]])(psbt_in, tx_in) is None
+
+
+def test_the_satisfaction_sizer_answers_the_smaller_leaf_it_satisfies() -> None:
+    """Two leaves a key satisfies: the one with the smaller witness.
+
+    A key path signature carries the sig_hash byte where the input asks
+    for a type other than the default one.
+    """
+    text = f"tr({NUMS},{{multi_a(1,{X[0]},{X[1]},{X[2]}),pk({X[0]})}})"
+    psbt, _, descriptor = tr_psbt(text, NO_LOCK, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    single = descriptor.taproot_tree(0)[1][2]
+    (control_block,) = (
+        cb for cb, (s, _) in psbt_in.taproot_leaf_scripts.items() if s == single
+    )
+    expected = [64, len(single), len(control_block)]
+    assert satisfaction_sizer([X[0]])(psbt_in, tx_in) == expected
+    psbt_in.sig_hash_type = 1
+    assert satisfaction_sizer([X[0]])(psbt_in, tx_in) == [65, *expected[1:]]
+    internal = bytes.fromhex(X[4])
+    psbt_in.taproot_internal_key = internal
+    assert satisfaction_sizer([internal])(psbt_in, tx_in) == [65]
+
+
+def test_a_leaf_the_keys_do_not_satisfy_leaves_the_others_to_size() -> None:
+    """X[1] satisfies the quorum leaf alone, whichever leaf is read first."""
+    text = f"tr({NUMS},{{pk({X[0]}),multi_a(1,{X[0]},{X[1]},{X[2]})}})"
+    psbt, _, descriptor = tr_psbt(text, NO_LOCK, 0)
+    psbt_in, tx_in = psbt.inputs[0], psbt.tx.vin[0]
+    quorum = descriptor.taproot_tree(0)[1][2]
+    records = psbt_in.taproot_leaf_scripts
+    (control_block,) = (cb for cb, (s, _) in records.items() if s == quorum)
+    for order in (records, dict(reversed(records.items()))):
+        psbt_in.taproot_leaf_scripts = order
+        sizes = satisfaction_sizer([X[1]])(psbt_in, tx_in)
+        assert sizes is not None
+        assert sizes[-2:] == [len(quorum), len(control_block)]
