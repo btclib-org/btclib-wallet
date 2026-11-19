@@ -24,6 +24,89 @@ them.
 Neither file states how many entries it holds: a stated number is one
 more line to edit at every release.
 
+## v2026.11.19
+
+### `bip32` and `descriptors` come from bip32-descriptors
+
+`btclib_wallet.bip32` and `btclib_wallet.descriptors` are removed, and the
+package depends on bip32-descriptors, re-exporting none of its names
+(issue #634).
+
+### A tapscript `pk_h()` key that is not 32 bytes long is refused
+
+As bip32-descriptors refuses it (issue #962).
+
+### `miniscript_solver` spends a taproot miniscript leaf
+
+(closes #1009).
+
+### `miniscript_solver` runs a P2WSH witness through the script engine
+
+(closes #1042).
+
+### `finalize` refuses a taproot leaf not at version 0xc0
+
+(closes #1035).
+
+### `finalize` spends a pay-to-anchor input with an empty spend
+
+(closes #942).
+
+### A ledger reads and marks a script on every source that watches it
+
+(closes #1039) (closes #1055) (closes #1061).
+
+### `Ledger.export_policy` and `restore_policy` write and read BIP139 text
+
+(closes #927).
+
+### `Ledger.load` refuses a source's damaged lookahead, birth and scanned
+
+`btclib_wallet.ledger.ledger` no longer publishes `MAX_LOOKAHEAD`, and
+`btclib_wallet.ledger` still does (closes #1021) (closes #1025).
+
+### `Ledger.add_source` bounds `birth_height` and takes a negative tip as 0
+
+(issue #922) (closes #1050).
+
+### A refused `new_address` hands out nothing
+
+(closes #1044).
+
+### A ledger reads each path once, as the str it holds
+
+A NUL or a surrogate is refused (closes #1020) (closes #1028) (closes #1048).
+
+### A wallet position's index is read as the exact int it holds
+
+(closes #1011).
+
+### The HWI executable is read as the exact str it holds
+
+(closes #1029).
+
+### `recovery_descriptors` builds `tr()` descriptors
+
+(closes #928).
+
+### `descriptors_from_mnemonic` answers an Electrum seed's descriptors
+
+(closes #849).
+
+### The tests read Core's and Krux's miniscript psbts and Specter's files
+
+(closes #929).
+
+### The tests wait within their bounds
+
+The node client's timeout is sized for mining (closes #1045); one loop reads
+each test server's lines (closes #1032).
+
+### The dev tooling moves to newer releases
+
+nodeenv is relocked (issue btclib-org/.github#2355), and the pinned
+pre-commit hooks move up (#1038).
+
 ## v2026.11.16
 
 ### `bip139` and `bip329` read and write a wallet's policy backup and labels

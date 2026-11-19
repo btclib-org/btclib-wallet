@@ -9,6 +9,184 @@ number says when a release was cut, and promises nothing about
 compatibility, so a breaking change is announced in this file — read it
 before upgrading, rather than a digit.
 
+## v2026.11.19
+
+`btclib_wallet.bip32` and `btclib_wallet.descriptors` are removed: an install
+needs bip32-descriptors 2026.11.17 or later, and a caller imports both from
+`bip32_descriptors`. A ledger exports and restores its policy as BIP139 text,
+`recovery_descriptors` builds `tr()` descriptors, `miniscript_solver` spends
+a taproot leaf, and a tapscript `pk_h()` whose key is not 32 bytes long is
+refused, a security fix. Several calls refuse what they accepted, and the text
+of many refusals changes: a caller that relies on one of the answers below, or
+matches the text of a refusal, breaks. Against v2026.11.16, griffe reports the
+removal of `btclib_wallet.bip32` and `btclib_wallet.descriptors`, in the first
+bullet, and `api_gaps.py` reports nothing. Neither reports that
+`btclib_wallet.ledger.ledger` no longer publishes `MAX_LOOKAHEAD`, in the
+bullet on loading a ledger file.
+
+- **`btclib_wallet.bip32` and `btclib_wallet.descriptors` are removed: import
+  them from `bip32_descriptors`**
+  ([ISS 634](https://github.com/btclib-org/btclib-wallet/issues/634)). The
+  package depends on bip32-descriptors 2026.11.17 or later and re-exports none
+  of its names. Each public name of a removed module is in the module of the
+  same path under `bip32_descriptors`, but one: `bip32.crack_prv_key_var` is
+  `bip32_descriptors.bip32.crack_prv_key`, with the same parameters. Act on
+  it: import from `bip32_descriptors.bip32` and
+  `bip32_descriptors.descriptors`.
+- **bip32-descriptors reads descriptors the removed copy refused, and writes
+  some differently**
+  ([ISS 634](https://github.com/btclib-org/btclib-wallet/issues/634)).
+  `parse`, `bip139.parse` and `core_import` accept `sh(raw())`, `wsh(raw())`,
+  `rawleaf()`, `rawnode()` and `rawpkh()`, and a `DescriptorWallet` takes
+  what `parse` returns for each. Such a wallet hands out its one address and
+  refuses a second index. Its updater refuses a `rawpkh()`, which holds no key,
+  and the output of a `rawnode()`, which gives a merkle root and no tree.
+  `BIP32KeyOrigin.der_path` is a tuple, where it was a list. Where one key
+  expression mixes `h` and `'`, `multipath_descriptors` writes one of the two
+  throughout that key, its origin included, and the checksum changes with the
+  text. Act on it if you compare `der_path` with a list, or store the text
+  `multipath_descriptors` writes.
+- **A descriptor's refusal reads as bip32-descriptors writes it**
+  ([ISS 634](https://github.com/btclib-org/btclib-wallet/issues/634)). An
+  unknown function reads `'foo(...)' is not a valid descriptor function`,
+  where it read `unknown descriptor function`. A key's refusal starts with its
+  position, as `key 0:`, and `invalid public key length` no longer prints a
+  number. An unbalanced `tr()` tree more than 128 braces deep reads
+  `tr() supports at most 128 nesting levels`, where it read
+  `unbalanced braces`. Inside `wsh()` and
+  `sh()`, an unknown function and a bare key, among others, read Bitcoin
+  Core's `A function is needed within P2WSH` or `A function is needed within
+  P2SH`, with the reason chained as the cause, and `recovery_descriptors`
+  passes that refusal on. A miniscript outside `wsh()` and `tr()` reads
+  `Miniscript expressions can only be used in wsh or tr.`, and a `raw()` of no
+  hex `Raw script is not hex`. A BIP139 text keeps its refusals word for word.
+  Act on it if you match the text of a refusal.
+- **A tapscript `pk_h()` whose key is not 32 bytes long is refused when a
+  script is read**
+  ([ISS 962](https://github.com/btclib-org/btclib-wallet/issues/962)). This
+  is a security fix. Every release up to v2026.11.16 read such a leaf, in
+  `descriptors.miniscript.from_script`, as a `pkh()` of that key, and BIP342
+  lets any signature satisfy a key that is neither empty nor 32 bytes long.
+  bip32-descriptors' `from_script` refuses it, as
+  `not a tapscript public key: 33 bytes`. Act on it: read again, with
+  bip32-descriptors, any tapscript leaf a release up to v2026.11.16 read.
+- **For a P2WSH input whose witness script holds a `pkh()` of an
+  uncompressed key, `miniscript_solver`, `miniscript_sizer` and
+  `satisfaction_sizer` answer None**
+  ([ISS 634](https://github.com/btclib-org/btclib-wallet/issues/634)), since
+  bip32-descriptors refuses an uncompressed key inside P2WSH, as BIP379 does.
+  `finalize(psbt, solver=miniscript_solver)` then builds the witness it builds
+  without a solver, the signatures and the script, and raises nothing, though
+  the script engine can refuse that witness.
+  [ISS 962](https://github.com/btclib-org/btclib-wallet/issues/962) tracks
+  restoring the solver. Act on it: run the script engine on such a spend
+  before you broadcast it.
+- **`miniscript_solver` spends a taproot script path**
+  ([ISS 1009](https://github.com/btclib-org/btclib-wallet/issues/1009)). For
+  a taproot input with no key path signature, it reads each signed leaf at
+  BIP342's leaf version as a miniscript, runs each witness it can build
+  through the script engine, and spends the smallest one the engine accepts,
+  in the order of Bitcoin Core's `SignTaproot`. Under
+  `finalize(psbt, solver=miniscript_solver)`, a signed miniscript leaf is
+  spent where it was refused, and signatures under two `pk()` leaves are spent
+  by the cheaper one where they were refused. An input whose internal key and
+  control blocks do not prove its leaves against the output it spends is
+  refused, whichever leaf is signed.
+- **`miniscript_solver` runs a P2WSH witness through the script engine**
+  ([ISS 1042](https://github.com/btclib-org/btclib-wallet/issues/1042)), and
+  the redeem script of a wrapped one, under consensus rules. Under
+  `finalize(psbt, solver=miniscript_solver)`, a P2WSH miniscript input is
+  refused where it was finalized: where the engine refuses its witness, where
+  its witness script is not the one its utxo commits to, and where it carries
+  no utxo. One whose signature does not verify, or is of another sighash type
+  than the input asks for, is refused for that signature. Called directly,
+  `miniscript_solver(psbt, vin_i)` refuses such a signature too, where the
+  signatures satisfy the script and it returned a witness.
+- **`finalize` refuses a taproot leaf at a version other than 0xc0**
+  ([ISS 1035](https://github.com/btclib-org/btclib-wallet/issues/1035)), in
+  its control block or in its record, with `miniscript_solver` or without,
+  where it built the spend. Bitcoin Core's `finalizepsbt` leaves such an input
+  unfinalized.
+- **`finalize` gives an input spending a bare pay-to-anchor output an empty
+  spend**
+  ([ISS 942](https://github.com/btclib-org/btclib-wallet/issues/942)), where
+  it refused it with `missing signatures`.
+- **A ledger reads and marks a script on every source that watches it**
+  ([ISS 1039](https://github.com/btclib-org/btclib-wallet/issues/1039),
+  [ISS 1055](https://github.com/btclib-org/btclib-wallet/issues/1055),
+  [ISS 1061](https://github.com/btclib-org/btclib-wallet/issues/1061)), where
+  it read it as the first source's only. A payment to a script two sources
+  derive marks it handed out on each, so neither hands its address out again,
+  and `label_of` answers for each. A source added with an earlier birth than
+  another that derives the same scripts reads them from its own birth. A
+  script a source watches on a branch other than 0, paid by a transaction that
+  spends the ledger's coins, stays change and gets no label from another
+  source's branch 0, as in Bitcoin Core. So an explicit payment from the
+  ledger to such an address reads as change, and a fee bump folds it into the
+  change. Act on it if you pay, from a ledger, one of its own addresses that
+  `new_address` never handed out.
+- **`Ledger.export_policy` writes a ledger's policy as BIP139 text, and
+  `Ledger.restore_policy` makes a new ledger from such text**
+  ([ISS 927](https://github.com/btclib-org/btclib-wallet/issues/927)). The
+  export writes no private key. The restore reads no backend: the next sync
+  reads each source from its birth height. It refuses a text that keeps a
+  label on another account than the one the export writes it on, and one with
+  a label record of another type than `addr` or with an `origin`.
+- **`Ledger.load` refuses a source's lookahead, birth or scanned that a
+  ledger does not write**
+  ([ISS 1021](https://github.com/btclib-org/btclib-wallet/issues/1021),
+  [ISS 1025](https://github.com/btclib-org/btclib-wallet/issues/1025)), with
+  `BTClibValueError` naming the file as no ledger file: a lookahead unless an
+  int from 0 to `MAX_LOOKAHEAD`, a birth unless a non-negative int, and
+  scanned unless 0 or 1. A file holding a lookahead above `MAX_LOOKAHEAD`,
+  which v2026.11.16 loads, or a negative birth no longer loads.
+  `btclib_wallet.ledger.ledger` no longer publishes `MAX_LOOKAHEAD`. Act on
+  it: import `MAX_LOOKAHEAD` from `btclib_wallet.ledger`.
+- **`Ledger.add_source` refuses a `birth_height` of `2**63` or more, with
+  `BTClibValueError`**
+  ([ISS 922](https://github.com/btclib-org/btclib-wallet/issues/922)), where
+  the store let out `OverflowError`. Without a `birth_height`, it takes a
+  negative stored tip as a birth of 0, so the file it writes loads again
+  ([ISS 1050](https://github.com/btclib-org/btclib-wallet/issues/1050)). A
+  refused `new_address` hands out nothing
+  ([ISS 1044](https://github.com/btclib-org/btclib-wallet/issues/1044)).
+- **A ledger reads each path once, as the str it holds**
+  ([ISS 1020](https://github.com/btclib-org/btclib-wallet/issues/1020),
+  [ISS 1028](https://github.com/btclib-org/btclib-wallet/issues/1028),
+  [ISS 1048](https://github.com/btclib-org/btclib-wallet/issues/1048)):
+  `create`, `load`, `restore`, `restore_policy` and `backup` read a str as
+  the exact str it holds, and any other value through `os.fspath` once. A path
+  holding a NUL or a surrogate is refused with `BTClibValueError` before any
+  file is made. A `PathLike` whose `__fspath__` answers no str is refused with
+  `BTClibTypeError` naming its type, where Python's `TypeError` came out. A
+  refused type is quoted: a bytes path reads `invalid path type: 'bytes'`,
+  where it read `invalid path type: bytes`. On POSIX a `PureWindowsPath`
+  names the file `os.fspath` gives. Act on it if you match the text of a
+  refusal.
+- **A wallet position's index is read as the exact int it holds**
+  ([ISS 1011](https://github.com/btclib-org/btclib-wallet/issues/1011)), in
+  each public method of `DescriptorWallet`, `BIP32KeyWallet` and
+  `ScriptWallet` that takes one. An index whose type is no int, or is bool, is
+  refused with `BTClibTypeError`, as `invalid index type: float`, before the
+  descriptor reads it.
+- **The HWI executable is read as the exact str it holds**
+  ([ISS 1029](https://github.com/btclib-org/btclib-wallet/issues/1029)).
+  `hwi.is_available`, `enumerate_devices` and `HwiSigner` refuse, with
+  `BTClibTypeError`, an executable that is neither a str nor a sequence, and
+  an argv item that is no str. Act on it: pass an argv as a list, and a
+  `pathlib.Path` in it as `str(path)`.
+- **`recovery_descriptors` builds the `tr()` descriptors of the same policy
+  under `script_type="p2tr"`**
+  ([ISS 928](https://github.com/btclib-org/btclib-wallet/issues/928)),
+  keyword-only beside the default `"p2wsh"`. A primary path of one key is the
+  internal key. Any other primary path is a leaf, and the internal key is then
+  an xpub of BIP341's NUMS point, so whoever holds the descriptor can check
+  that the key path is unspendable.
+- **`mnemonic.electrum.descriptors_from_mnemonic` returns the receive and
+  change descriptors of an Electrum `standard` or `segwit` seed**
+  ([ISS 849](https://github.com/btclib-org/btclib-wallet/issues/849)), and
+  refuses the other versions.
+
 ## v2026.11.16
 
 `bip139`, `bip329` and `recovery_paths` are new, and an install needs
