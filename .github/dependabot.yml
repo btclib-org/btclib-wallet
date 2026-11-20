@@ -5,8 +5,11 @@
 # block of .pre-commit-config.yaml, already rewrites rev: for every repo:
 # but local and meta, so a second bot on the same pin would only compete
 # with it. A hook whose repo: is local is one autoupdate does not reach:
-# typos moves by a hand edit of its additional_dependencies, and pyroma by
-# the uv ecosystem below, uv.lock being where its version is pinned.
+# typos moves by a hand edit of its additional_dependencies, the link
+# hooks' markdown-it-py with the ports of the organization's standard,
+# whose section 4 pins it at the version of the standard's test group,
+# and pyroma by the uv ecosystem below, uv.lock being where its version
+# is pinned.
 #
 # every pull request dependabot opens here runs the merge gate as far as
 # the `if:` of its jobs admits it, so each ecosystem groups its updates

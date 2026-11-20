@@ -161,8 +161,8 @@ what it intends to do, and what it deliberately does not, is its
 - Source: <https://github.com/btclib-org/btclib-wallet>
 - Releases: <https://github.com/btclib-org/btclib-wallet/releases>
 - [CHANGELOG.md](https://github.com/btclib-org/btclib-wallet/blob/main/CHANGELOG.md),
-  and [RELEASE_NOTES.md](https://github.com/btclib-org/btclib-wallet/blob/main/RELEASE_NOTES.md)
-  for what a release asks a user to act on
+  and [RELEASE_NOTES.md](https://github.com/btclib-org/btclib-wallet/blob/main/RELEASE_NOTES.md),
+  which hold the same section for each release
 
 ## Status
 

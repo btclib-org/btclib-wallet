@@ -10,14 +10,13 @@
   }
 -->
 
-A release's own pull request writes the release's section, from the squash
-subjects since the previous tag, and no other pull request adds an entry
-(sections 9 and 12 of [the organization's standard][std]). An entry is for
-anything a reader would notice, and is narrower than "every change": a
-comment reworded inside a workflow changes nothing a reader of this
-repository meets. [RELEASE_NOTES.md](./RELEASE_NOTES.md) has the release
-notes, which say what a user has to act on; this file is the record behind
-them.
+A release's own pull request assembles the release's section from the entries
+under `changelog/next/`, which each pull request that changes what a user gets
+adds as a file of its own, and writes that same section here and in
+[RELEASE_NOTES.md](./RELEASE_NOTES.md), whose section the GitHub release shows
+(sections 9 and 12 of [the organization's standard][std]). Sections released
+before that were written for each file apart: there RELEASE_NOTES.md says what
+a user has to act on, and this file what changed.
 
 [std]: https://github.com/btclib-org/.github
 
