@@ -11,8 +11,8 @@ exactly that backend again -- Core's `-rest` interface carries no fee
 estimation at all, `estimatesmartfee` being RPC only. A `Protocol` lets
 `BitcoinCoreFetcher`, `ElectrumFetcher` and `EsploraFetcher` satisfy
 `FeeEstimator` structurally, with nothing to say about
-`BitcoinCoreRestFetcher` at all -- the same reasoning `broadcaster.py`'s
-docstring gives for that class, one capability over.
+`BitcoinCoreRestFetcher` at all -- the same reasoning
+`broadcaster.py`'s docstring gives for that class, one capability over.
 
 Not `runtime_checkable`, for the reason `Broadcaster` is not: the
 contract below is not what `isinstance(x, FeeEstimator)` would verify.
@@ -45,7 +45,7 @@ from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.fee import FeeRate
 from btclib.utils import is_integer
 
-from btclib_wallet._refusal import _message_text
+from btclib_wallet._refusal import _exact_int, _message_text
 
 __all__ = ["FeeEstimator", "FeeQuote", "valid_confirmation_target"]
 
@@ -67,19 +67,21 @@ class FeeQuote:
 def valid_confirmation_target(target: int) -> int:
     """Return `target`, refusing what no backend answers a fee for.
 
-    Checked once, ahead of the request, the way `fetcher.block_header_height`
-    checks a height before the first request that needs one: a target
-    that is not a positive int is refused here rather than left to
-    surface as whichever error the backend happens to answer for it.
+    Checked once, ahead of the request, the way
+    `fetcher.block_header_height` checks a height before the first request
+    that needs one: a target that is not a positive int is refused here
+    rather than left to surface as whichever error the backend happens
+    to answer for it.
     """
     if not is_integer(target):
         err_msg = f"invalid confirmation target type: {type(target).__name__}"
         raise BTClibTypeError(err_msg)
-    if target < 1:
+    exact_target = _exact_int(target)
+    if exact_target < 1:
         raise BTClibValueError(
-            f"invalid confirmation target: {_message_text(target)} < 1"
+            f"invalid confirmation target: {_message_text(exact_target)} < 1"
         )
-    return target
+    return exact_target
 
 
 class FeeEstimator(Protocol):
