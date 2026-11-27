@@ -273,4 +273,4 @@ holds every parser named here to one contract: it fails the way the
 library says it fails, whatever it is handed, never with a bare
 `IndexError` or `OverflowError` a caller's `except BTClibValueError`
 does not catch. The harnesses under `fuzz/` drive the PSBT and BIP322
-parsers beyond that.
+parsers and the Electrum response decoders beyond that.

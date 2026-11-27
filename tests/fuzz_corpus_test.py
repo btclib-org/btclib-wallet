@@ -12,21 +12,27 @@ and runs its pure target on every seed of its corpus without starting the
 fuzz engine: the checks a target makes after the read run in the suite
 too.
 
-`ENTRY_POINTS`, a module-level tuple of `"module:Qual.name"` string
-literals, is what each harness names. `test_entry_points_are_declared`
+`ENTRY_POINTS`, a module-level tuple of `"module:Qual.name"` strings,
+is what each harness names. Where an entry point takes more than the
+input, `ENTRY_POINTS` is a dict from that string to the tuple of what
+follows the input in the call, and a name in it stands for the
+module-level literal assigned to it above. `test_entry_points_are_declared`
 below finds it with `ast.literal_eval`; `test_entry_points_match_the_calls`
-cross-checks it against the `.parse`/`.b64decode`/`.b58decode` calls
-`fuzz_target`'s own body makes, walked with `ast` rather than matched
-with a regex -- a character class for the callee would still have to
-answer which import a bare name resolves to.
+cross-checks it, arguments included, against the `.parse`, `.b64decode`,
+`.b58decode` and `.*_response` calls `fuzz_target`'s own body makes,
+walked with `ast` rather than matched with a regex -- a character class
+for the callee would still have to answer which import a bare name
+resolves to.
 
 `test_every_seed_is_accepted` and `test_accepted_seed_round_trips` are
 the corpus half: every seed is tried against every one of its harness's
-declared entry points, and passes if at least one accepts it without
-raising `BTClibException`. Where the accepting object serializes --
-`.serialize()`, or `.b64encode()` behind a `.b64decode()` entry point --
-the reserialization has to reproduce the seed's own bytes; where it does
-not, the seed is accepted parse-only here.
+declared entry points, with the arguments it declares, and passes if at
+least one accepts it without raising `BTClibException`. Where the
+accepting object serializes -- `.serialize()`, or `.b64encode()` behind
+a `.b64decode()` entry point -- the reserialization has to reproduce the
+seed's own bytes; where it does not, the seed is accepted parse-only
+here. An Electrum answer is JSON, and what its decoder returns
+serializes nothing, so that seed is accepted parse-only.
 
 The `test_psbt_mutator_*` tests run the psbt harness's `custom_mutator`
 and its helpers, `_mutate` standing in for `atheris.Mutate`.
@@ -44,6 +50,8 @@ from __future__ import annotations
 
 import ast
 import base64
+import contextlib
+import copy
 import importlib
 import importlib.util
 import json
@@ -56,6 +64,7 @@ from unittest.mock import Mock
 
 import pytest
 from btclib.exceptions import BTClibException, BTClibValueError
+from typing_extensions import override
 
 from btclib_wallet.bip322 import Sig
 from btclib_wallet.psbt.psbt import PSBT_MAGIC_BYTES, Psbt
@@ -76,19 +85,48 @@ def _parse_module(source: str, filename: str) -> ast.Module:
     return ast.parse(source, filename=filename)
 
 
-def _entry_points(tree: ast.Module) -> tuple[str, ...] | None:
-    """Return the module-level ENTRY_POINTS tuple of strings, or None."""
+class _Inline(ast.NodeTransformer):
+    """Replace each name by the value `values` gives it."""
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        self.values = values
+
+    @override
+    def visit_Name(self, node: ast.Name) -> ast.Constant:
+        if node.id not in self.values:
+            raise ValueError(node.id)
+        return ast.Constant(self.values[node.id])
+
+
+def _literal(node: ast.expr, values: dict[str, Any]) -> Any:
+    """Return the literal `node` is, a name standing for its value."""
+    return ast.literal_eval(_Inline(values).visit(copy.deepcopy(node)))
+
+
+def _literals(tree: ast.Module) -> dict[str, Any]:
+    """Return each module-level `NAME = <literal>` of `tree`, in order."""
+    values: dict[str, Any] = {}
     for node in tree.body:
         if (
             isinstance(node, ast.Assign)
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == "ENTRY_POINTS"
         ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, tuple) and all(isinstance(v, str) for v in value)
-            return value
-    return None
+            with contextlib.suppress(ValueError):
+                values[node.targets[0].id] = _literal(node.value, values)
+    return values
+
+
+def _entry_points(tree: ast.Module) -> dict[str, tuple[Any, ...]] | None:
+    """Return ENTRY_POINTS as a dict from entry point to arguments, or None."""
+    value = _literals(tree).get("ENTRY_POINTS")
+    if value is None:
+        return None
+    if isinstance(value, tuple):
+        value = dict.fromkeys(value, ())
+    assert isinstance(value, dict)
+    assert all(isinstance(k, str) and isinstance(v, tuple) for k, v in value.items())
+    return value
 
 
 def _fuzz_target(tree: ast.Module) -> ast.FunctionDef | None:
@@ -117,11 +155,11 @@ def _canonical_spec(module: str, remote: str, attr: str) -> str:
     """Return "module:Qual.name", telling a submodule bind from a class one.
 
     `from btclib_wallet.bip322 import Sig; Sig.b64decode(...)` binds a
-    class, where `b64decode` is a method on it; a binding this corpus has
-    none of today, `from X import Y; Y.parse(...)`, would bind a
-    submodule instead, `parse` then being that module's own function.
-    Trying the submodule import is what tells the two apart, both being
-    an ordinary `from X import Y` to the AST alone.
+    class, where `b64decode` is a method on it; `from btclib_wallet import
+    electrum; electrum.block_header_response(...)` binds a submodule,
+    where the callee is that module's own function. Trying the submodule
+    import is what tells the two apart, both being an ordinary
+    `from X import Y` to the AST alone.
     """
     try:
         importlib.import_module(f"{module}.{remote}")
@@ -131,26 +169,41 @@ def _canonical_spec(module: str, remote: str, attr: str) -> str:
 
 
 def _called_specs(
-    func: ast.FunctionDef, bindings: dict[str, tuple[str, str]]
-) -> set[str]:
-    """Every .parse/.b64decode/.b58decode call `func`'s body makes."""
-    specs: set[str] = set()
+    func: ast.FunctionDef,
+    bindings: dict[str, tuple[str, str]],
+    values: dict[str, Any],
+) -> dict[str, list[tuple[Any, ...]]]:
+    """Every .parse, .b64decode, .b58decode and .*_response call `func` makes.
+
+    Each spec maps to what its calls pass after the input, one tuple per
+    call, a name read as the value `values` gives it.
+    """
+    specs: dict[str, list[tuple[Any, ...]]] = {}
     for node in ast.walk(func):
         if not isinstance(node, ast.Call):
             continue
         callee = node.func
         if not isinstance(callee, ast.Attribute):
             continue
-        if callee.attr not in ("parse", "b64decode", "b58decode"):
+        if callee.attr not in (
+            "parse",
+            "b64decode",
+            "b58decode",
+        ) and not callee.attr.endswith("_response"):
             continue
         if not isinstance(callee.value, ast.Name):
             continue
+        if node.keywords:
+            msg = f"{ast.unparse(node)} passes a keyword, which ENTRY_POINTS cannot say"
+            raise AssertionError(msg)
         name = callee.value.id
         if name not in bindings:
             msg = f"{name!r} is called with .{callee.attr} and imported nowhere"
             raise AssertionError(msg)
+        arguments = tuple(_literal(arg, values) for arg in node.args[1:])
         module, remote = bindings[name]
-        specs.add(_canonical_spec(module, remote, callee.attr))
+        spec = _canonical_spec(module, remote, callee.attr)
+        specs.setdefault(spec, []).append(arguments)
     return specs
 
 
@@ -184,11 +237,13 @@ def _seed_paths(name: str) -> tuple[Path, ...]:
     return tuple(sorted((_CORPUS / name).glob("*.bin")))
 
 
-def _accept(spec: str, data: bytes) -> tuple[bool, bool | None]:
+def _accept(
+    spec: str, arguments: tuple[Any, ...], data: bytes
+) -> tuple[bool, bool | None]:
     """Try `spec` against `data`; return (accepted, round_trip)."""
     entry_point = _resolve(spec)
     try:
-        obj = entry_point(data)
+        obj = entry_point(data, *arguments)
     except BTClibException:
         return False, None
     return True, _round_trip(spec, obj, data)
@@ -254,11 +309,16 @@ def test_entry_points_match_the_calls(path: Path) -> None:
     func = _fuzz_target(tree)
     assert func is not None, f"{path.name} defines no module-level fuzz_target"
     bindings = _import_bindings(tree)
-    called = _called_specs(func, bindings)
-    assert called == set(declared), (
+    called = _called_specs(func, bindings, _literals(tree))
+    assert set(called) == set(declared), (
         f"{path.name}'s ENTRY_POINTS {sorted(declared)} does not match what"
         f" fuzz_target calls: {sorted(called)}"
     )
+    for spec, arguments in declared.items():
+        assert all(called_with == arguments for called_with in called[spec]), (
+            f"{path.name} calls {spec} with {called[spec]} after the input,"
+            f" and its ENTRY_POINTS says {arguments}"
+        )
 
 
 @pytest.mark.parametrize("path", _HARNESSES, ids=lambda p: p.stem)
@@ -288,7 +348,7 @@ def test_every_seed_is_accepted(harness: str, seed: Path) -> None:
     declared = _entry_points(tree)
     assert declared
     data = seed.read_bytes()
-    accepted = [spec for spec in declared if _accept(spec, data)[0]]
+    accepted = [spec for spec, args in declared.items() if _accept(spec, args, data)[0]]
     assert accepted, f"{seed} is refused by every declared entry point: {declared}"
 
 
@@ -305,8 +365,8 @@ def test_accepted_seed_round_trips(harness: str, seed: Path) -> None:
     data = seed.read_bytes()
     mismatches = [
         spec
-        for spec in declared
-        for accepted, round_trip in (_accept(spec, data),)
+        for spec, args in declared.items()
+        for accepted, round_trip in (_accept(spec, args, data),)
         if accepted and round_trip is False
     ]
     assert not mismatches, f"{seed} does not round-trip under: {mismatches}"
@@ -589,7 +649,7 @@ def test_psbt_vectors_are_seeds(psbt: bytes) -> None:
     assert psbt in {seed.read_bytes() for seed in _seed_paths("fuzz_psbt")}
 
 
-# ---- unit tests of the pure ast helpers, for the branches no harness trips
+# ---- unit tests of the pure ast helpers, on synthetic sources
 
 
 def _module(source: str) -> ast.Module:
@@ -618,7 +678,7 @@ def test_called_specs_rejects_an_unbound_callee() -> None:
     func = _fuzz_target(_module(source))
     assert func is not None
     with pytest.raises(AssertionError, match="imported nowhere"):
-        _called_specs(func, {})
+        _called_specs(func, {}, {})
 
 
 def test_called_specs_ignores_a_bare_name_call() -> None:
@@ -631,7 +691,7 @@ def test_called_specs_ignores_a_bare_name_call() -> None:
     source = "def fuzz_target(data):\n    parse(data)\n"
     func = _fuzz_target(_module(source))
     assert func is not None
-    assert _called_specs(func, {}) == set()
+    assert _called_specs(func, {}, {}) == {}
 
 
 def test_called_specs_ignores_a_two_level_attribute() -> None:
@@ -644,7 +704,7 @@ def test_called_specs_ignores_a_two_level_attribute() -> None:
     source = "def fuzz_target(data):\n    foo.bar.parse(data)\n"
     func = _fuzz_target(_module(source))
     assert func is not None
-    assert _called_specs(func, {}) == set()
+    assert _called_specs(func, {}, {}) == {}
 
 
 def test_round_trip_is_unchecked_when_b64decode_has_no_b64encode() -> None:
@@ -660,7 +720,8 @@ def test_round_trip_is_unchecked_when_b64decode_has_no_b64encode() -> None:
 def test_round_trip_is_unchecked_when_parse_has_no_serialize() -> None:
     """A parse entry point whose object cannot serialize is parse-only.
 
-    Psbt and Sig both serialize, so no seed exercises this either.
+    The `fuzz_electrum` seeds take this path; a bare object holds it
+    with no harness.
     """
     assert _round_trip("btclib_wallet.bip322:Sig.parse", object(), b"") is None
 
@@ -668,7 +729,8 @@ def test_round_trip_is_unchecked_when_parse_has_no_serialize() -> None:
 def test_a_bound_submodule_is_told_from_a_bound_class() -> None:
     """`from X import Y` binds a submodule or a class, as an import tells.
 
-    No harness binds a submodule today, so the two are measured here.
+    `fuzz_electrum` binds a submodule and `fuzz_psbt` a class; the two
+    are measured here apart from either harness.
     """
     assert (
         _canonical_spec("btclib_wallet", "psbt", "parse") == "btclib_wallet.psbt:parse"
@@ -676,3 +738,36 @@ def test_a_bound_submodule_is_told_from_a_bound_class() -> None:
     assert _canonical_spec("btclib_wallet.psbt", "Psbt", "parse") == (
         "btclib_wallet.psbt:Psbt.parse"
     )
+
+
+def test_entry_points_with_arguments() -> None:
+    """A dict declares arguments, a name read as the literal assigned to it."""
+    source = 'N = 1\nENTRY_POINTS = {"m:f": (N, 2), "m:g": ()}\n'
+    assert _entry_points(_module(source)) == {"m:f": (1, 2), "m:g": ()}
+    assert _entry_points(_module('ENTRY_POINTS = ("m:f",)\n')) == {"m:f": ()}
+
+
+def test_literals_skips_what_is_not_a_literal() -> None:
+    """A call, or a name assigned nowhere above, is no literal."""
+    source = "a = f()\nb = a\nc = (1,)\nd = c\n"
+    assert _literals(_module(source)) == {"c": (1,), "d": (1,)}
+
+
+def test_called_specs_reads_the_arguments_after_the_input() -> None:
+    """Each call's arguments are read, a name through `values`."""
+    source = "def fuzz_target(data):\n    m.f_response(data, N, 2)\n"
+    func = _fuzz_target(_module(source))
+    assert func is not None
+    bindings = {"m": ("btclib_wallet", "electrum")}
+    assert _called_specs(func, bindings, {"N": 1}) == {
+        "btclib_wallet.electrum:f_response": [(1, 2)]
+    }
+
+
+def test_called_specs_rejects_a_keyword_argument() -> None:
+    """A keyword ENTRY_POINTS cannot declare is a loud failure."""
+    source = "def fuzz_target(data):\n    m.f_response(data, count=2)\n"
+    func = _fuzz_target(_module(source))
+    assert func is not None
+    with pytest.raises(AssertionError, match="passes a keyword"):
+        _called_specs(func, {"m": ("btclib_wallet", "electrum")}, {})

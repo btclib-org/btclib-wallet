@@ -1,0 +1,35 @@
+# The Electrum codec, mutated. A reply comes off the socket
+# `fetch.transport` opens, and `electrum.py` decides whether it answers
+# the request it is matched to and what it says. A hostile server chooses
+# every byte, and 100% statement coverage says only that each refusal ran
+# once, not that a wrong prefix, size or id is refused (issue
+# btclib-org/btclib#2443). `fetch.toml` mutates the fetcher above it, and
+# its `tests/fetch` holds none of the codec's own tests.
+
+[cosmic-ray]
+module-path = "src/btclib_wallet/electrum.py"
+
+# the codec's own tests, and `tests/refused_value_test.py`, which refuses
+# a method the protocol does not name: `--cov=btclib_wallet.electrum`
+# over this command leaves no line to the rest of the suite. -n0 and
+# -p no:randomly for the reasons btclib's parsers.toml gives
+test-command = """python -m pytest -x -q -n0 -p no:randomly \
+  tests/electrum_test.py tests/electrum_balance_test.py \
+  tests/electrum_history_test.py tests/refused_value_test.py"""
+
+timeout = 300
+
+excluded-modules = []
+
+# The `BitOr` exclusion wallet.toml explains and btclib's parsers.toml
+# argues. Measured rather than assumed:
+#
+#   grep -n ' | ' src/btclib_wallet/electrum.py
+#
+# Every hit is an annotation, and `from __future__ import annotations`
+# defers each, which is the class fetch.toml documents.
+[cosmic-ray.filters.operators-filter]
+exclude-operators = ["core/ReplaceBinaryOperator_BitOr_.*"]
+
+[cosmic-ray.distributor]
+name = "local"

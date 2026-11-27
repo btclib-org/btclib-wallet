@@ -4,15 +4,17 @@ name: fuzz
 # ClusterFuzzLite over this tree's own parsers of octets and text nobody
 # signed first: `Psbt.parse` and `Psbt.b64decode`
 # (fuzz/fuzz_psbt.py, and through them PsbtIn, PsbtOut and the map and
-# Taproot-tree readers of psbt_utils.py); and `bip322.Sig.b64decode`
+# Taproot-tree readers of psbt_utils.py); `bip322.Sig.b64decode`
 # (fuzz/fuzz_bip322.py, and through it Witness.parse, Tx.parse and this
-# tree's own Psbt.parse). psbt and bip322 are what btclib-org/btclib#2129
-# moved out of btclib and into this tree; btclib's own fuzz/fuzz_psbt.py
-# and fuzz/fuzz_bip322.py, and their corpora, are what
-# btclib-org/btclib's own PR 2245 removes in step. The descriptor and
-# BIP32 targets are btclib-org/bip32-descriptors', with the code they
-# fuzz. Section 10 of the organization's standard is where `fuzz` is
-# named as a sentinel every tree parsing a stranger's own bytes owes.
+# tree's own Psbt.parse); and the `*_response` decoders of `electrum.py`
+# (fuzz/fuzz_electrum.py), which read what an Electrum server answers.
+# psbt and bip322 are what btclib-org/btclib#2129 moved out of btclib
+# and into this tree; btclib's own fuzz/fuzz_psbt.py and
+# fuzz/fuzz_bip322.py, and their corpora, are what btclib-org/btclib's
+# own PR 2245 removes in step. The descriptor and BIP32 targets are
+# btclib-org/bip32-descriptors', with the code they fuzz. Section 10 of
+# the organization's standard is where `fuzz` is named as a sentinel
+# every tree parsing a stranger's own bytes owes.
 # Every `fuzz/fuzz_*.py` is a target this workflow builds and runs, and
 # `.clusterfuzzlite/` is ClusterFuzzLite's own configuration for
 # building them -- `project.yaml`, `Dockerfile` and `build.sh`, read by
