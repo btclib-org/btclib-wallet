@@ -46,6 +46,7 @@ from btclib_wallet.psbt.psbt_utils import (
     SP_DLEQ_PROOF_SIZE,
     SP_ECDH_SHARE_SIZE,
     _assert_valid_bip32_derivation,
+    _assert_valid_taproot_merkle_root,
     assert_not_a_v2_field,
     assert_valid_leaf_scripts,
     assert_valid_musig2_participant_pub_keys,
@@ -203,6 +204,14 @@ def _deserialize_witness_utxo(k: bytes, v: bytes, type_: str) -> TxOut:
     # deserialize_bytes is the key-length check: the key of a field that
     # occurs at most once per input is its type byte and nothing else
     return TxOut.parse(deserialize_bytes(k, v, type_))
+
+
+def _deserialize_taproot_merkle_root(k: bytes, v: bytes, type_: str) -> bytes:
+    """Return a present BIP371 merkle root after checking its length."""
+    merkle_root = deserialize_bytes(k, v, type_)
+    if len(merkle_root) != 32:
+        raise BTClibValueError("invalid taproot merkle root length")
+    return merkle_root
 
 
 def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
@@ -526,7 +535,7 @@ _WHOLE_VALUE_FIELDS: dict[bytes, tuple[str, str, _Deserializer]] = {
     PSBT_IN_TAP_MERKLE_ROOT: (
         "taproot_merkle_root",
         "taproot merkle root",
-        deserialize_bytes,
+        _deserialize_taproot_merkle_root,
     ),
     PSBT_IN_PREVIOUS_TXID: (
         "previous_tx_id",
@@ -779,6 +788,7 @@ class PsbtIn:
         _assert_valid_hash256_preimages(self.hash256_preimages)
 
         assert_valid_taproot_internal_key(self.taproot_internal_key)
+        _assert_valid_taproot_merkle_root(self.taproot_merkle_root)
         assert_valid_taproot_signatures(
             [self.taproot_key_spend_signature],
             "taproot key path signature",
