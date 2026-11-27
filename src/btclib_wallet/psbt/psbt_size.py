@@ -52,7 +52,7 @@ from bip32_descriptors.descriptors import miniscript
 from btclib.alias import Command, Octets
 from btclib.exceptions import BTClibTypeError, BTClibValueError
 from btclib.hashes import hash160
-from btclib.script import serialize, type_and_payload
+from btclib.script import p2ms_m_and_keys_var, serialize, type_and_payload
 from btclib.script.witness import Witness
 from btclib.tx import TxIn
 from btclib.utils import assert_type, bytes_from_octets, is_octets
@@ -89,10 +89,6 @@ COMPRESSED_PUB_KEY_SIZE = 33
 
 # a BIP340 public key, the x coordinate alone
 _X_ONLY_SIZE = 32
-
-# OP_1 is 0x51 and OP_16 is 0x60, so the m and the n of an m-of-n
-# multisig script are each written as its value plus this
-_OP_INT_OFFSET = 0x50
 
 # BIP342's leaf version, the only one whose scripts are tapscripts
 _TAPSCRIPT_LEAF_VERSION = 0xC0
@@ -184,11 +180,13 @@ def _solution_sizes(
         return [SIG_SIZE, COMPRESSED_PUB_KEY_SIZE]
 
     if script_type == "p2ms":
-        # type_and_payload has vetted the shape -- 0 < m <= n < 17 -- so
-        # the first byte is OP_m and the arithmetic below cannot be wrong.
+        # type_and_payload vetted the shape with this same parse, so it
+        # cannot raise. It reads a threshold written as OP_1..OP_16 or as
+        # a one-byte push from 17 up. The payload lacks the final
+        # OP_CHECKMULTISIG (0xae), which the parse wants back.
         # The leading zero-size element is the one CHECKMULTISIG pops and
         # does not use (BIP147)
-        m = payload[0] - _OP_INT_OFFSET
+        m, _ = p2ms_m_and_keys_var(payload + b"\xae")
         return [0, *[SIG_SIZE] * m]
 
     return None

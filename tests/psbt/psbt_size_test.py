@@ -29,7 +29,8 @@ from bip32_descriptors.bip32 import BIP32KeyOrigin
 from btclib.block import Block
 from btclib.exceptions import BTClibValueError
 from btclib.key import PubKeyData
-from btclib.script import ScriptPubKey, Witness, is_p2ms_var, parse, serialize
+from btclib.script import ScriptPubKey, Witness, is_p2ms_var, parse, push_int, serialize
+from btclib.script.limits import MAX_PUBKEYS_PER_MULTISIG, MAX_SCRIPT_ELEMENT_SIZE
 from btclib.tx import OutPoint, Tx, TxIn, TxOut
 from ecc import dsa
 from ecc.curves import mult
@@ -526,6 +527,51 @@ def test_a_bare_multisig_is_solved_where_it_is_found() -> None:
     bare, _ = estimated_input_sizes(psbt.inputs[0], psbt.tx.vin[0])
     # the same signatures, without the push of the redeem script
     assert wrapped - bare == len(serialize([redeem_script]))
+
+
+@pytest.mark.parametrize(
+    "m",
+    [16, 17, MAX_PUBKEYS_PER_MULTISIG],
+    ids=lambda m: f"{m}-of-{MAX_PUBKEYS_PER_MULTISIG}",
+)
+@pytest.mark.parametrize("carrier", ["p2wsh", "p2sh-p2wsh", "bare"])
+def test_a_multisig_threshold_above_16_is_counted(m: int, carrier: str) -> None:
+    """A threshold above 16 is a push, and gets its m signatures all the same.
+
+    OP_1..OP_16 spell a threshold up to 16, and a larger one is the
+    one-byte push of the number. Whatever carries the script, the input
+    pushes the dummy CHECKMULTISIG pops, m signatures, and the witness
+    script where there is one. There is no legacy p2sh case: the
+    smallest script whose threshold is a push is too large for a redeem
+    script, as the test asserts.
+    """
+    keys = [bytes_from_point(mult(i)) for i in range(1, MAX_PUBKEYS_PER_MULTISIG + 1)]
+    smallest = serialize([push_int(17), *keys[:17], push_int(17), "OP_CHECKMULTISIG"])
+    assert len(smallest) > MAX_SCRIPT_ELEMENT_SIZE
+
+    script = serialize([push_int(m), *keys, push_int(len(keys)), "OP_CHECKMULTISIG"])
+    # the shape the case is named for: a push where m is above 16
+    assert (script[0] == 0x01) == (m > 16)
+    tx_in = TxIn(OutPoint(b"\x01" * 32, 0))
+
+    expected: tuple[int, list[int]]
+    if carrier == "bare":
+        psbt_in = PsbtIn(witness_utxo=TxOut(1000, script))
+        # OP_0 for the dummy, and a one-byte length before each signature
+        expected = (1 + m * (1 + SIG_SIZE), [])
+    else:
+        program = ScriptPubKey.p2wsh(script).script
+        wrapped = carrier == "p2sh-p2wsh"
+        script_pub_key = ScriptPubKey.p2sh(program).script if wrapped else program
+        psbt_in = PsbtIn(
+            witness_utxo=TxOut(1000, script_pub_key),
+            redeem_script=program if wrapped else b"",
+            witness_script=script,
+        )
+        script_sig = serialize([program]) if wrapped else b""
+        expected = (len(script_sig), [0, *[SIG_SIZE] * m, len(script)])
+
+    assert estimated_input_sizes(psbt_in, tx_in) == expected
 
 
 @pytest.mark.parametrize(
