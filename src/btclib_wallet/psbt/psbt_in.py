@@ -55,7 +55,7 @@ from btclib_wallet.psbt.psbt_utils import (
     assert_valid_sp_scan_key_map,
     assert_valid_taproot_bip32_derivation,
     assert_valid_taproot_internal_key,
-    assert_valid_taproot_merkle_root,
+    _assert_valid_taproot_merkle_root,
     assert_valid_taproot_script_keys,
     assert_valid_taproot_signatures,
     assert_valid_unknown,
@@ -780,7 +780,7 @@ class PsbtIn:
         _assert_valid_hash256_preimages(self.hash256_preimages)
 
         assert_valid_taproot_internal_key(self.taproot_internal_key)
-        assert_valid_taproot_merkle_root(self.taproot_merkle_root)
+        _assert_valid_taproot_merkle_root(self.taproot_merkle_root)
         assert_valid_taproot_signatures(
             [self.taproot_key_spend_signature],
             "taproot key path signature",

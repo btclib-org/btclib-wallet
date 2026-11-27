@@ -906,7 +906,7 @@ def assert_valid_taproot_internal_key(key: bytes) -> None:
         raise BTClibValueError("invalid taproot internal key length")
 
 
-def assert_valid_taproot_merkle_root(merkle_root: bytes) -> None:
+def _assert_valid_taproot_merkle_root(merkle_root: bytes) -> None:
     """Fails when a present taproot merkle root has not the correct length."""
     if merkle_root and len(merkle_root) != 32:
         raise BTClibValueError("invalid taproot merkle root length")

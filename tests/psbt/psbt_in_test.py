@@ -120,6 +120,12 @@ def test_taproot_merkle_root_must_be_32_bytes(length: int) -> None:
         PsbtIn(taproot_merkle_root=b"\x01" * length)
 
 
+def test_taproot_merkle_root_accepts_32_bytes() -> None:
+    """A 32-byte taproot merkle root is valid (BIP371)."""
+    root = b"\x01" * 32
+    assert PsbtIn(taproot_merkle_root=root).taproot_merkle_root == root
+
+
 def test_taproot_merkle_root_may_be_absent() -> None:
     """An absent taproot merkle root remains valid."""
     assert PsbtIn(taproot_merkle_root=b"").taproot_merkle_root == b""
