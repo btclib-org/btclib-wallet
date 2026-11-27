@@ -714,6 +714,28 @@ def test_a_refused_broadcast_stays_as_nonmempool(
     assert _state(ledger, refused.wallet_tx.tx) is TxState.MEMPOOL
 
 
+def test_a_spend_to_a_pk_change_branch_is_handed_out_and_loaded(
+    chain: FakeChain, path: Path
+) -> None:
+    """A change script with no address is handed out, in memory and on disk."""
+    wallet = source("pk({}/1h/{}/*)")
+    with Ledger.create(path, "regtest", chain, broadcaster=chain) as ledger:
+        ledger.add_source(wallet, lookahead=SMALL_LOOKAHEAD)
+        funding = chain.pay([TxOut(100_000, wallet.script_pub_key(0, 0))])
+        chain.mine([funding])
+        ledger.sync()
+        spent = ledger.spend([_outside()], FeeRate.from_sats_per_vbyte(1))
+        change = wallet.script_pub_key(1, 0)
+        assert any(output.script_pub_key == change for output in spent.vout)
+        assert ledger.position_of(change) == (0, 1, 0)
+        assert (0, 1, 0) in ledger._handed
+        assert ledger._next_index(0, 1) == 1
+
+    with Ledger.load(path, "regtest", chain) as loaded:
+        assert (0, 1, 0) in loaded._handed
+        assert loaded._next_index(0, 1) == 1
+
+
 def test_a_spend_pays_change_that_is_trusted(ledger: Ledger, chain: FakeChain) -> None:
     """Change from a trusted parent is trusted, in the mempool already."""
     _funded(ledger, chain)

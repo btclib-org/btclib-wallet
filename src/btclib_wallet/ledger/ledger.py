@@ -1249,16 +1249,9 @@ class Ledger:
         """Return the index after the highest handed out on a branch."""
         return _next_index(self._handed, source, branch)
 
-    def _hand_out(self, position: _Position) -> str:
-        """Record a position as handed out, and return its address.
-
-        The address is asked first: a script with no address is refused
-        with nothing recorded, so the memory and the file still agree.
-        """
-        source, branch, index = position
-        address = self._sources[source].address(branch, index)
+    def _hand_out(self, position: _Position) -> None:
+        """Record a position as handed out."""
         self._handed.add(position)
-        return address
 
     def _windows_for(
         self, handed: set[_Position]
@@ -1332,8 +1325,10 @@ class Ledger:
         if label is not None:
             label = _checked_label(label)
         position = self._new_position(source, branch)
-        source, branch, _ = position
-        address = self._hand_out(position)
+        source, branch, index = position
+        # Ask first: a script with no address must leave the position free.
+        address = self._sources[source].address(branch, index)
+        self._hand_out(position)
         self._store.add_handed_out([position])
         self._extend_windows()
         receiving = branch == 0 and self._sources[source].descriptor(0).is_ranged
