@@ -17,7 +17,7 @@
 # builds with no diff here. Re-read the digest before bumping it rather
 # than trusting the tag: the `Docker-Content-Digest` response header on
 # `gcr.io/v2/oss-fuzz-base/base-builder-python/manifests/latest`.
-FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:21f6fab17ace4dc76e1c56de91ee95d3d03da021df94b41056ba036f6c6f55e9
+FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:6ccbb6b02fcbb8e07d15680e933a6d835cdb579636032cec7d256d0f25d483e4
 
 COPY . $SRC/btclib-wallet
 WORKDIR $SRC/btclib-wallet
