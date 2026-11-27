@@ -63,7 +63,9 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from btclib.block.block_header import BlockHeader
 from btclib.exceptions import BTClibException, BTClibValueError
+from btclib.tx import Tx
 from typing_extensions import override
 
 from btclib_wallet.bip322 import Sig
@@ -432,6 +434,32 @@ def test_bip322_harness_reads_an_unprefixed_simple_signature(
     assert unprefixed != smp
     assert Sig.b64decode(unprefixed).b64encode() == smp
     bip322_harness.fuzz_target(unprefixed.encode())
+
+
+def test_electrum_history_seed_is_written_from_the_seeds_beside_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The history seed is the corpus's transaction, at its proven height.
+
+    Each seed is decoded as `fuzz/fuzz_electrum.py` decodes it, with its
+    `REQUEST_ID`.
+    """
+    harness = _load_harness("fuzz_electrum", monkeypatch)
+    electrum, request_id = harness.electrum, harness.REQUEST_ID
+    seeds = {seed.stem: seed.read_bytes() for seed in _seed_paths("fuzz_electrum")}
+    (item,) = electrum.scripthash_get_history_response(
+        seeds["scripthash_get_history"], request_id
+    )
+    raw_tx = electrum.transaction_get_response(seeds["transaction_get"], request_id)
+    assert item.tx_id == Tx.parse(raw_tx).id.hex()
+    assert item.height == 170
+    proof = electrum.transaction_get_merkle_response(
+        seeds["transaction_get_merkle"], request_id
+    )
+    header = electrum.block_header_response(seeds["block_header"], request_id)
+    electrum.assert_merkle_proof(item.tx_id, proof, BlockHeader.parse(header))
+    tip = electrum.headers_subscribe_response(seeds["headers_subscribe"], request_id)
+    assert (tip.height, tip.header) == (item.height, header)
 
 
 _PSBT_SEEDS = _seed_paths("fuzz_psbt")

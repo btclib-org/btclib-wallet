@@ -31,7 +31,9 @@ the ids a balance batch asked for.
 `assert_merkle_proof` proves that id, with the branch
 `transaction_get_merkle.bin` answers, against the header
 `block_header.bin` answers, and `headers_subscribe.bin` answers that
-header at height 170.
+header at height 170. `tests/fuzz_corpus_test.py`'s
+`test_electrum_history_seed_is_written_from_the_seeds_beside_it` checks
+all of it.
 
 `BTClibException` is the decoders' own refusal of a line that is no
 valid answer, and `RpcError` is a server's own error object, which is
