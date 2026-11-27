@@ -206,6 +206,14 @@ def _deserialize_witness_utxo(k: bytes, v: bytes, type_: str) -> TxOut:
     return TxOut.parse(deserialize_bytes(k, v, type_))
 
 
+def _deserialize_taproot_merkle_root(k: bytes, v: bytes, type_: str) -> bytes:
+    """Return a present BIP371 merkle root after checking its length."""
+    merkle_root = deserialize_bytes(k, v, type_)
+    if len(merkle_root) != 32:
+        raise BTClibValueError("invalid taproot merkle root length")
+    return merkle_root
+
+
 def _assert_valid_partial_sigs(partial_sigs: Mapping[bytes, bytes]) -> None:
     """Raise an exception if the dataclass element is not valid.
 
@@ -527,7 +535,7 @@ _WHOLE_VALUE_FIELDS: dict[bytes, tuple[str, str, _Deserializer]] = {
     PSBT_IN_TAP_MERKLE_ROOT: (
         "taproot_merkle_root",
         "taproot merkle root",
-        deserialize_bytes,
+        _deserialize_taproot_merkle_root,
     ),
     PSBT_IN_PREVIOUS_TXID: (
         "previous_tx_id",

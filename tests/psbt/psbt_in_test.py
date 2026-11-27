@@ -131,6 +131,13 @@ def test_taproot_merkle_root_may_be_absent() -> None:
     assert PsbtIn(taproot_merkle_root=b"").taproot_merkle_root == b""
 
 
+def test_parse_rejects_empty_taproot_merkle_root() -> None:
+    """A present taproot merkle root cannot be empty (BIP371)."""
+    # Key length 1, key type PSBT_IN_TAP_MERKLE_ROOT, empty value, separator.
+    with pytest.raises(BTClibValueError, match=r"^invalid taproot merkle root length$"):
+        PsbtIn.parse(b"\x01\x18\x00\x00")
+
+
 def test_key_type_tables_name_every_field() -> None:
     """Check the key-type tables and the dataclass name the same fields."""
     # serialize and parse reach a field by the name a table holds, and the
