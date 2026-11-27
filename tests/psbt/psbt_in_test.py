@@ -113,6 +113,20 @@ def test_default_arguments_are_not_shared() -> None:
     assert not PsbtIn().final_script_witness.stack
 
 
+@pytest.mark.parametrize("length", [31, 33])
+def test_taproot_merkle_root_must_be_32_bytes(length: int) -> None:
+    """A present taproot merkle root is exactly 32 bytes (BIP371)."""
+    with pytest.raises(
+        BTClibValueError, match="^invalid taproot merkle root length$"
+    ):
+        PsbtIn(taproot_merkle_root=b"\x01" * length)
+
+
+def test_taproot_merkle_root_may_be_absent() -> None:
+    """An absent taproot merkle root remains valid."""
+    assert PsbtIn(taproot_merkle_root=b"").taproot_merkle_root == b""
+
+
 def test_key_type_tables_name_every_field() -> None:
     """Check the key-type tables and the dataclass name the same fields."""
     # serialize and parse reach a field by the name a table holds, and the
