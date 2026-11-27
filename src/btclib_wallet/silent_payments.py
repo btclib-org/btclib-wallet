@@ -771,15 +771,19 @@ def output_keys(
     the difference of the two published addresses, which is the recipient
     named in public.
 
-    **In one transaction, addresses that share a scan key must belong to
-    one recipient**, whether the other address is a fake or another
-    owner's. An address that reuses a recipient's scan key falls in that
-    recipient's group. Given before the recipient's own address, it takes
-    the lower k, and the recipient's output gets a k that its scan never
-    reaches: the output stays spendable, but the recipient does not find
-    it. A recipient's own labelled addresses are harmless where its scan
-    holds those labels. Otherwise pay the addresses in separate
-    transactions.
+    **In one transaction, pay addresses that share a scan key only when
+    all came from one party, or when the scan key is your own and every
+    spend key sharing it is one of yours, labelled or not.** Whether two
+    addresses belong to one recipient is not something a sender can
+    check; where they came from, and which keys are its own, it can. An
+    address that reuses a recipient's scan key falls in that recipient's
+    group. Given before the recipient's own address, it takes the lower
+    k, and the recipient's output gets a k that its scan never reaches:
+    the output stays spendable, but the recipient does not find it. The
+    recipient can be the sender: an address reusing the sender's own
+    scan key hides the sender's change from the sender's scan. Otherwise
+    pay the addresses in separate transactions, which costs the privacy
+    of one payment split over several.
 
     Where `_DELEGATE_OUTPUT_KEYS` is True and the bindings serve
     secp256k1 -- BIP352 has no other curve to ask them for -- this is
