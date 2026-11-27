@@ -116,9 +116,7 @@ def test_default_arguments_are_not_shared() -> None:
 @pytest.mark.parametrize("length", [31, 33])
 def test_taproot_merkle_root_must_be_32_bytes(length: int) -> None:
     """A present taproot merkle root is exactly 32 bytes (BIP371)."""
-    with pytest.raises(
-        BTClibValueError, match="^invalid taproot merkle root length$"
-    ):
+    with pytest.raises(BTClibValueError, match="^invalid taproot merkle root length$"):
         PsbtIn(taproot_merkle_root=b"\x01" * length)
 
 
